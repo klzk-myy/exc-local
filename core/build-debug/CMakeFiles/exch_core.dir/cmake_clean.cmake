@@ -1,0 +1,41 @@
+file(REMOVE_RECURSE
+  "CMakeFiles/exch_core.dir/src/book/Order.cpp.o"
+  "CMakeFiles/exch_core.dir/src/book/Order.cpp.o.d"
+  "CMakeFiles/exch_core.dir/src/book/OrderBook.cpp.o"
+  "CMakeFiles/exch_core.dir/src/book/OrderBook.cpp.o.d"
+  "CMakeFiles/exch_core.dir/src/book/PriceLevel.cpp.o"
+  "CMakeFiles/exch_core.dir/src/book/PriceLevel.cpp.o.d"
+  "CMakeFiles/exch_core.dir/src/degradation/ModeManager.cpp.o"
+  "CMakeFiles/exch_core.dir/src/degradation/ModeManager.cpp.o.d"
+  "CMakeFiles/exch_core.dir/src/election/LeaderElection.cpp.o"
+  "CMakeFiles/exch_core.dir/src/election/LeaderElection.cpp.o.d"
+  "CMakeFiles/exch_core.dir/src/health/HealthChecker.cpp.o"
+  "CMakeFiles/exch_core.dir/src/health/HealthChecker.cpp.o.d"
+  "CMakeFiles/exch_core.dir/src/ipc/AeronChannel.cpp.o"
+  "CMakeFiles/exch_core.dir/src/ipc/AeronChannel.cpp.o.d"
+  "CMakeFiles/exch_core.dir/src/ipc/IpcChannel.cpp.o"
+  "CMakeFiles/exch_core.dir/src/ipc/IpcChannel.cpp.o.d"
+  "CMakeFiles/exch_core.dir/src/matching/MatchingEngine.cpp.o"
+  "CMakeFiles/exch_core.dir/src/matching/MatchingEngine.cpp.o.d"
+  "CMakeFiles/exch_core.dir/src/recovery/RecoveryManager.cpp.o"
+  "CMakeFiles/exch_core.dir/src/recovery/RecoveryManager.cpp.o.d"
+  "CMakeFiles/exch_core.dir/src/risk/PreTradeChecker.cpp.o"
+  "CMakeFiles/exch_core.dir/src/risk/PreTradeChecker.cpp.o.d"
+  "CMakeFiles/exch_core.dir/src/utils/Decimal.cpp.o"
+  "CMakeFiles/exch_core.dir/src/utils/Decimal.cpp.o.d"
+  "CMakeFiles/exch_core.dir/src/utils/MemoryPool.cpp.o"
+  "CMakeFiles/exch_core.dir/src/utils/MemoryPool.cpp.o.d"
+  "CMakeFiles/exch_core.dir/src/utils/TimeUtils.cpp.o"
+  "CMakeFiles/exch_core.dir/src/utils/TimeUtils.cpp.o.d"
+  "CMakeFiles/exch_core.dir/src/wal/Wal.cpp.o"
+  "CMakeFiles/exch_core.dir/src/wal/Wal.cpp.o.d"
+  "CMakeFiles/exch_core.dir/src/wal/WalEntry.cpp.o"
+  "CMakeFiles/exch_core.dir/src/wal/WalEntry.cpp.o.d"
+  "libexch_core.a"
+  "libexch_core.pdb"
+)
+
+# Per-language clean rules from dependency scanning.
+foreach(lang CXX)
+  include(CMakeFiles/exch_core.dir/cmake_clean_${lang}.cmake OPTIONAL)
+endforeach()

@@ -270,17 +270,17 @@ Remediation #37 continues the append-only migration index: 103 `orders_discretio
 4. **Health check:** `redis-cli ping` in Go service readiness probe.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Redis 7 starts with AOF and maxmemory configured
-* [ ] Go client connects, sets/gets a test key, disconnects cleanly
-* [ ] Session key with TTL expires correctly
-* [ ] Rate limit INCR + EXPIRE works atomically
-* [ ] SETNX on `engine:leader:0` returns true for first caller, false for second
+* [x] Redis 7 starts with AOF and maxmemory configured
+* [x] Go client connects, sets/gets a test key, disconnects cleanly
+* [x] Session key with TTL expires correctly
+* [x] Rate limit INCR + EXPIRE works atomically
+* [x] SETNX on `engine:leader:0` returns true for first caller, false for second
 
 **SDD Checklist (MANDATORY):**
-- [ ] Spec checkpoint: Redis 7 with AOF persistence — defined first, validated against spec
-- [ ] Spec checkpoint: key schema matches spec §4 — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: Redis down (fail-closed), key expiry race, SETNX contention
+- [x] Spec checkpoint: Redis 7 with AOF persistence — defined first, validated against spec
+- [x] Spec checkpoint: key schema matches spec §4 — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [x] Edge cases: Redis down (fail-closed), key expiry race, SETNX contention
 
 ---
 

@@ -1,0 +1,8 @@
+test_decimal 1 0.00925907
+test_memory_pool 0 0
+test_time_utils 1 0.0826301
+test_order_book 1 0.041706
+test_matching 1 0.00745304
+test_wal 1 0.00703034
+---
+test_memory_pool

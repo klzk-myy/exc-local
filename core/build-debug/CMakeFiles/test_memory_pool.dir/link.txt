@@ -1,0 +1,1 @@
+/usr/bin/c++ -g -fsanitize=address CMakeFiles/test_memory_pool.dir/tests/test_memory_pool.cpp.o -o test_memory_pool  libexch_core.a lib/libgtest_main.a -lrt /www/wwwroot/exc.local/core/third_party/aeron/lib/libaeron_client.a lib/libgtest.a

@@ -1,0 +1,1 @@
+/usr/bin/c++ -g -fsanitize=address CMakeFiles/matching_engine.dir/src/main.cpp.o -o matching_engine  libexch_core.a -lrt /www/wwwroot/exc.local/core/third_party/aeron/lib/libaeron_client.a

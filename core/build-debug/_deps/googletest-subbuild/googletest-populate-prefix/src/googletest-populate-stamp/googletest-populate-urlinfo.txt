@@ -1,0 +1,12 @@
+# This is a generated file and its contents are an internal implementation detail.
+# The download step will be re-executed if anything in this file changes.
+# No other meaning or use of this file is supported.
+
+method=url
+command=/opt/cmake-3.31.8-linux-x86_64/bin/cmake;-DCMAKE_MESSAGE_LOG_LEVEL=VERBOSE;-P;/www/wwwroot/exc.local/core/build-debug/_deps/googletest-subbuild/googletest-populate-prefix/src/googletest-populate-stamp/download-googletest-populate.cmake;COMMAND;/opt/cmake-3.31.8-linux-x86_64/bin/cmake;-DCMAKE_MESSAGE_LOG_LEVEL=VERBOSE;-P;/www/wwwroot/exc.local/core/build-debug/_deps/googletest-subbuild/googletest-populate-prefix/src/googletest-populate-stamp/verify-googletest-populate.cmake;COMMAND;/opt/cmake-3.31.8-linux-x86_64/bin/cmake;-DCMAKE_MESSAGE_LOG_LEVEL=VERBOSE;-P;/www/wwwroot/exc.local/core/build-debug/_deps/googletest-subbuild/googletest-populate-prefix/src/googletest-populate-stamp/extract-googletest-populate.cmake
+source_dir=/www/wwwroot/exc.local/core/build-debug/_deps/googletest-src
+work_dir=/www/wwwroot/exc.local/core/build-debug/_deps
+url(s)=https://github.com/google/googletest/archive/refs/tags/v1.14.0.tar.gz
+hash=SHA256=8ad598c73ad796e0d8280b082cebd82a630d73e73cd3c70057938a6501bba5d7
+      no_extract=
+

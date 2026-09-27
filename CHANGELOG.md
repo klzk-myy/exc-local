@@ -73,3 +73,10 @@ foundations (1.3.1 C++ scaffold / 1.3.2 Go scaffold / 1.3.3 PG migrations) → d
   - Invalid env value → fail-closed exit 1 (spec §2.7 pessimism); missing config file → defaults.
   - `EXC_CONFIG` env for explicit config path; `tools/tools.go` keeps gorilla/websocket+quickfix+cobra pinned until Phase-05/06/18 consumers land.
 - **Deviation:** none.
+
+### [2026-09-27 17:45 UTC] — Task 1.3.4 Redis 7 Configuration — DONE
+- **Files:** `services/internal/redis/client.go` (full coordination client: sessions, rate limits, leader epoch-lease, account locks, degradation mode, circuit breakers, halt flag; PoolSize 20 + ctx timeouts), `client_test.go` (8 integration tests, `EXC_REDIS_TEST` gate), `deploy/redis/redis.conf` (+`repl-backlog-size 512mb` per §4.5, applied live via CONFIG SET).
+- **Verification (re-run):** `EXC_REDIS_TEST=1 go test ./internal/redis/` 8/8 PASS; live `CONFIG GET` confirms appendonly=yes, maxmemory-policy=noeviction (4GB); SETNX leader contention verified (first wins, second fails); DBSIZE=0 after tests (no leaked keys).
+- **Checklist:** DoD 5/5, SDD 4/4 marked.
+- **Decisions:** lease value `{token}:{epoch}` format + `epoch` param on TryAcquireLeader (spec §18.6.2 epoch model canonical — 2000ms TTL, Lua token-checked release/refresh); `HaltGlobal` stores reason; `GetDegradationMode` returns full DegradationState (mode+entered_at+reason).
+- **Deviation:** none.
