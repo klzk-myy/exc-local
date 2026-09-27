@@ -6,7 +6,9 @@ useDefault = true
 # Verified false positives. Keep entries exact-token-scoped (regexTarget =
 # "secret" + anchored regex): a broad path allowlist would mask a real
 # credential pasted into the same file later.
-[[allowlists]]
+# NOTE: gitleaks 8.x reads the SINGULAR [allowlist] table — the
+# [[allowlists]] array form is silently ignored (verified on 8.24.3).
+[allowlist]
 description = "Spec prose: the auth-algorithm list 'JWT/HMAC/Ed25519' in the deployment component table (Specification §19, ~line 3005) trips generic-api-key. Not a credential — suppresses only this literal token."
 regexTarget = "secret"
 regexes = ['''^JWT/HMAC/Ed25519$''']

@@ -9,9 +9,12 @@
 #   osv_name        — package name to query in the OSV feed ('-' to skip the
 #                     feed check, e.g. for private forks — justify inline)
 #   source          — upstream URL we vendored/fetched from
+#   git_commit      — full SHA of the release tag/commit we pinned; used for
+#                     OSV GIT-ecosystem queries (name queries need an OSV
+#                     ecosystem that arbitrary C++ repos don't have)
 #
-# After bumping any vendored dep, update its version here in the same commit —
-# cpp_dep_audit.sh fails if a vendored directory or FetchContent_Declare block
-# has no manifest entry.
-aeron	1.48.6	aeron	https://github.com/aeron-io/aeron
-googletest	1.14.0	googletest	https://github.com/google/googletest
+# After bumping any vendored dep, update its version AND commit here in the
+# same commit — cpp_dep_audit.sh fails if a vendored directory or
+# FetchContent_Declare block has no manifest entry.
+aeron	1.48.6	-	https://github.com/aeron-io/aeron	b6bb4a0f46afa8aeec06590481f6e3418db32e3e
+googletest	1.14.0	-	https://github.com/google/googletest	f8d7d77c06936315286eb55f8de22cd23c188571
