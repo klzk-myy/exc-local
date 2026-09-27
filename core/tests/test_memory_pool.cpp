@@ -19,32 +19,74 @@ namespace {
 std::atomic<uint64_t> g_heap_calls{0};
 std::atomic<bool> g_armed{false};
 
-void* counted_malloc(std::size_t n) {
+void count() {
     if (g_armed.load(std::memory_order_relaxed))
         g_heap_calls.fetch_add(1, std::memory_order_relaxed);
-    void* p = std::malloc(n == 0 ? 1 : n);
-    if (p == nullptr) throw std::bad_alloc();
-    return p;
 }
-}  // namespace
 
-void* operator new(std::size_t n) { return counted_malloc(n); }
-void* operator new[](std::size_t n) { return counted_malloc(n); }
-void* operator new(std::size_t n, std::align_val_t a) {
-    if (g_armed.load(std::memory_order_relaxed))
-        g_heap_calls.fetch_add(1, std::memory_order_relaxed);
+void* counted_malloc(std::size_t n) {
+    count();
+    if (void* p = std::malloc(n == 0 ? 1 : n)) return p;
+    throw std::bad_alloc();
+}
+
+void* counted_malloc_nothrow(std::size_t n) noexcept {
+    count();
+    return std::malloc(n == 0 ? 1 : n);
+}
+
+void* counted_aligned(std::size_t n, std::align_val_t a) {
+    count();
     void* p = nullptr;
     if (::posix_memalign(&p, static_cast<std::size_t>(a), n) != 0 || p == nullptr)
         throw std::bad_alloc();
     return p;
 }
 
+void* counted_aligned_nothrow(std::size_t n, std::align_val_t a) noexcept {
+    count();
+    void* p = nullptr;
+    return ::posix_memalign(&p, static_cast<std::size_t>(a), n) == 0 ? p : nullptr;
+}
+}  // namespace
+
+// Every replaceable allocation form is overridden so the whole binary —
+// including allocations made inside gtest — routes through the same
+// malloc/posix_memalign + free family (keeps the ASAN alloc/dealloc tracking
+// consistent and the armed-window count honest).
+void* operator new(std::size_t n) { return counted_malloc(n); }
+void* operator new[](std::size_t n) { return counted_malloc(n); }
+void* operator new(std::size_t n, const std::nothrow_t&) noexcept {
+    return counted_malloc_nothrow(n);
+}
+void* operator new[](std::size_t n, const std::nothrow_t&) noexcept {
+    return counted_malloc_nothrow(n);
+}
+void* operator new(std::size_t n, std::align_val_t a) { return counted_aligned(n, a); }
+void* operator new[](std::size_t n, std::align_val_t a) { return counted_aligned(n, a); }
+void* operator new(std::size_t n, std::align_val_t a, const std::nothrow_t&) noexcept {
+    return counted_aligned_nothrow(n, a);
+}
+void* operator new[](std::size_t n, std::align_val_t a, const std::nothrow_t&) noexcept {
+    return counted_aligned_nothrow(n, a);
+}
+
 void operator delete(void* p) noexcept { std::free(p); }
 void operator delete[](void* p) noexcept { std::free(p); }
 void operator delete(void* p, std::size_t) noexcept { std::free(p); }
 void operator delete[](void* p, std::size_t) noexcept { std::free(p); }
+void operator delete(void* p, const std::nothrow_t&) noexcept { std::free(p); }
+void operator delete[](void* p, const std::nothrow_t&) noexcept { std::free(p); }
 void operator delete(void* p, std::align_val_t) noexcept { std::free(p); }
 void operator delete[](void* p, std::align_val_t) noexcept { std::free(p); }
+void operator delete(void* p, std::size_t, std::align_val_t) noexcept { std::free(p); }
+void operator delete[](void* p, std::size_t, std::align_val_t) noexcept { std::free(p); }
+void operator delete(void* p, std::align_val_t, const std::nothrow_t&) noexcept {
+    std::free(p);
+}
+void operator delete[](void* p, std::align_val_t, const std::nothrow_t&) noexcept {
+    std::free(p);
+}
 
 // posix_memalign/free is a legal pair; GCC's alloc/dealloc pairing heuristic
 // can't see through the out-param and flags the inlined deallocations below.

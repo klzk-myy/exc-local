@@ -113,18 +113,18 @@ Establish the foundational infrastructure for the FOREX exchange: C++ project sc
 
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] CMake build succeeds with both debug and release configs
-* [ ] `core/build/matching_engine` binary starts and logs "shard {N} initialized"
-* [ ] Decimal class passes unit tests (add, sub, mul, div, compare with no floating-point)
-* [ ] MemoryPool allocates 1M Order structs without heap allocation
-* [ ] TimeUtils produces monotonic nanosecond timestamps
+* [x] CMake build succeeds with both debug and release configs
+* [x] `core/build/matching_engine` binary starts and logs "shard {N} initialized"
+* [x] Decimal class passes unit tests (add, sub, mul, div, compare with no floating-point)
+* [x] MemoryPool allocates 1M Order structs without heap allocation
+* [x] TimeUtils produces monotonic nanosecond timestamps
 
 **SDD Checklist (MANDATORY):**
-- [ ] Spec checkpoint: C++20 compiler with -O3 release build — defined first, validated against spec
-- [ ] Spec checkpoint: Decimal fixed-point (no floating-point in financial math) — defined first, validated against spec
-- [ ] Spec checkpoint: MemoryPool zero-allocation in hot path — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: pool exhaustion, decimal overflow, timestamp wraparound
+- [x] Spec checkpoint: C++20 compiler with -O3 release build — defined first, validated against spec
+- [x] Spec checkpoint: Decimal fixed-point (no floating-point in financial math) — defined first, validated against spec
+- [x] Spec checkpoint: MemoryPool zero-allocation in hot path — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [x] Edge cases: pool exhaustion, decimal overflow, timestamp wraparound
 
 ---
 

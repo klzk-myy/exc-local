@@ -80,3 +80,20 @@ foundations (1.3.1 C++ scaffold / 1.3.2 Go scaffold / 1.3.3 PG migrations) → d
 - **Checklist:** DoD 5/5, SDD 4/4 marked.
 - **Decisions:** lease value `{token}:{epoch}` format + `epoch` param on TryAcquireLeader (spec §18.6.2 epoch model canonical — 2000ms TTL, Lua token-checked release/refresh); `HaltGlobal` stores reason; `GetDegradationMode` returns full DegradationState (mode+entered_at+reason).
 - **Deviation:** none.
+
+### [2026-09-27 18:05 UTC] — Task 1.3.1 C++ Project Scaffold — DONE
+- **Files:** `core/CMakeLists.txt` (C++20, exch_core lib + matching_engine, `EXCH_WITH_AERON` option auto-detects vendored SDK), `src/main.cpp` (`-shard` arg, logs `shard {N} initialized`), real `utils/{Decimal,MemoryPool,TimeUtils,CheckedMath}` + spec §3.1 `book/{Order,PriceLevel,OrderBook}` POD/layout + phase-tagged stubs for matching/risk/wal/ipc/recovery/degradation/health/election, 6 gtest suites (FetchContent googletest 1.14.0 SHA-pinned), vendored Aeron 1.48.6 SDK at `core/third_party/aeron/` (aeronmd + libaeron_static/libaeron_client/libaeron_driver_static + C/C++ headers — built from source, 139/139 upstream tests pass).
+- **Verification (re-run):** Release (`-O3 -march=native -DNDEBUG`) + Debug (`-O0 -g -fsanitize=address`) both clean, 0 warnings; ctest 6/6 both configs; `matching_engine` logs `shard 0 initialized`; Decimal 11 cases incl. `0.1+0.2==0.3` exact (zero float/double in core per grep); MemoryPool 1M allocs with **0 heap ops** under armed replaceable-new hook; TimeUtils monotonic over 1e6 calls.
+- **Checklist:** DoD 5/5, SDD 5/5 marked.
+- **Decisions:** Decimal = int64 mantissa ×1e8 (pipette), `__int128` intermediates + `__builtin_*_overflow` → `std::overflow_error`; pool exhaustion → nullptr (maps to `ORDER_BOOK_CAPACITY_EXCEEDED` per §3.6); namespace `exch`; g++ 11.4 vs spec's GCC 13+ — IMPLEMENTATION_PROMPT permits ≥11 (no `<format>` usage).
+- **Deviation:** g++ 11.4 (spec §1.2 says GCC 13+/Clang 17+; orchestrator prompt allows ≥11 — recorded).
+
+### [2026-09-27 18:05 UTC] — Task 1.3.11 NATS JetStream Cluster — DONE
+- **Files:** `services/internal/nats/{client,streams,publish,consumer,health}.go` + unit + `EXC_NATS_TEST`-gated integration tests; `services/cmd/natsctl` (init/health/smoke); `deploy/nats/provision.sh`; `nats.go v1.45.0` pinned (newest compatible with go1.23 toolchain).
+- **Verification (re-run):** `/jsz` → meta cluster `exc-jetstream` size 3, leader nats-2; all 7 streams (`trades,settlements,compliance,analytics,funding,margin-events,surveillance`) confirmed R3 (leader+2 replicas), WorkQueue retention, MaxAge 168h, FileStorage, subject `{name}.>`; integration tests 5/5 (EnsureStreams idempotent, publish→durable fetch→ack→no redelivery, AckWait redelivery, mid-session node restart reconnect, health report); `natsctl smoke` green.
+- **Checklist:** no checkbox block in plan (remediation task) — AC row 21 satisfied by this evidence.
+- **Decisions:** `DiscardOld`+2min `Duplicates` window on streams (safe publisher-retry dedup beyond task text); `nats` CLI absent in alpine image → `/jsz` used for verification.
+- **Deviation:** none.
+
+### [2026-09-27 18:05 UTC] — Repo hygiene
+- Removed 476 committed `core/build-debug/` artifacts from index; `.gitignore` now covers `core/build*/` and `**/build/`.
