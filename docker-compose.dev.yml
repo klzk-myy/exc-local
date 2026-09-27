@@ -1,0 +1,163 @@
+# Local development infrastructure — single-host, port-separated cluster topology.
+# Same topology/config shapes as production per AGENTS.md: PG16, Redis 7 (1 primary +
+# 2 replicas + 3 sentinels), ClickHouse, NATS JetStream 3-node. C++ core is NOT here —
+# it builds and runs bare-metal.
+name: exc-dev
+
+x-redis-common: &redis-common
+  image: redis:7.2-alpine
+  command: ["redis-server", "/etc/redis/redis.conf"]
+  volumes:
+    - ./deploy/redis/redis.conf:/etc/redis/redis.conf:ro
+  sysctls:
+    net.core.somaxconn: 1024
+
+x-nats-common: &nats-common
+  image: nats:2.11-alpine
+  command: ["-c", "/etc/nats/nats.conf"]
+
+services:
+  postgres:
+    build:
+      context: ./deploy/postgres
+    image: exc-postgres:16-partman
+    environment:
+      POSTGRES_USER: exchange
+      POSTGRES_PASSWORD: exchange_dev
+      POSTGRES_DB: exchange
+    ports:
+      - "5433:5432"   # host 5432 is taken by a host-local postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U exchange -d exchange"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis-primary:
+    <<: *redis-common
+    ports: ["16379:6379"]   # host 6379 taken by host-local redis
+    volumes:
+      - ./deploy/redis/redis.conf:/etc/redis/redis.conf:ro
+      - redis-primary-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis-replica-1:
+    <<: *redis-common
+    command: ["redis-server", "/etc/redis/redis.conf", "--replicaof", "redis-primary", "6379"]
+    ports: ["16380:6379"]
+    volumes:
+      - ./deploy/redis/redis.conf:/etc/redis/redis.conf:ro
+      - redis-replica1-data:/data
+    depends_on: [redis-primary]
+
+  redis-replica-2:
+    <<: *redis-common
+    command: ["redis-server", "/etc/redis/redis.conf", "--replicaof", "redis-primary", "6379"]
+    ports: ["16381:6379"]
+    volumes:
+      - ./deploy/redis/redis.conf:/etc/redis/redis.conf:ro
+      - redis-replica2-data:/data
+    depends_on: [redis-primary]
+
+  redis-sentinel-1:
+    image: redis:7.2-alpine
+    command: ["sh", "-c", "cp /etc/redis/sentinel-base.conf /tmp/sentinel.conf && redis-sentinel /tmp/sentinel.conf"]
+    ports: ["36379:26379"]
+    volumes:
+      - ./deploy/redis/sentinel.conf:/etc/redis/sentinel-base.conf:ro
+    depends_on: [redis-primary, redis-replica-1, redis-replica-2]
+
+  redis-sentinel-2:
+    image: redis:7.2-alpine
+    command: ["sh", "-c", "cp /etc/redis/sentinel-base.conf /tmp/sentinel.conf && redis-sentinel /tmp/sentinel.conf"]
+    ports: ["36380:26379"]
+    volumes:
+      - ./deploy/redis/sentinel.conf:/etc/redis/sentinel-base.conf:ro
+    depends_on: [redis-primary, redis-replica-1, redis-replica-2]
+
+  redis-sentinel-3:
+    image: redis:7.2-alpine
+    command: ["sh", "-c", "cp /etc/redis/sentinel-base.conf /tmp/sentinel.conf && redis-sentinel /tmp/sentinel.conf"]
+    ports: ["36381:26379"]
+    volumes:
+      - ./deploy/redis/sentinel.conf:/etc/redis/sentinel-base.conf:ro
+    depends_on: [redis-primary, redis-replica-1, redis-replica-2]
+
+  # Second Redis instance for cache keys that need eviction (volatile-lru).
+  # Coordination keys live on the noeviction primary topology only (remediation #35).
+  redis-cache:
+    image: redis:7.2-alpine
+    command: ["redis-server", "/etc/redis/redis-cache.conf"]
+    ports: ["6382:6379"]
+    volumes:
+      - ./deploy/redis/redis-cache.conf:/etc/redis/redis-cache.conf:ro
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.8-alpine
+    environment:
+      CLICKHOUSE_USER: exchange
+      CLICKHOUSE_PASSWORD: exchange_dev
+      CLICKHOUSE_DB: exchange_analytics
+    ports:
+      - "8123:8123"   # HTTP
+      - "9000:9000"   # native
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8123/ping || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    ulimits:
+      nofile: 262144
+
+  nats-1:
+    <<: *nats-common
+    hostname: nats-1
+    ports:
+      - "4222:4222"   # client
+      - "8222:8222"   # monitoring
+    volumes:
+      - ./deploy/nats/nats-1.conf:/etc/nats/nats.conf:ro
+      - nats1-data:/data
+
+  nats-2:
+    <<: *nats-common
+    hostname: nats-2
+    ports:
+      - "4223:4222"
+      - "8223:8222"
+    volumes:
+      - ./deploy/nats/nats-2.conf:/etc/nats/nats.conf:ro
+      - nats2-data:/data
+
+  nats-3:
+    <<: *nats-common
+    hostname: nats-3
+    ports:
+      - "4224:4222"
+      - "8224:8222"
+    volumes:
+      - ./deploy/nats/nats-3.conf:/etc/nats/nats.conf:ro
+      - nats3-data:/data
+
+volumes:
+  pgdata:
+  redis-primary-data:
+  redis-replica1-data:
+  redis-replica2-data:
+  clickhouse-data:
+  nats1-data:
+  nats2-data:
+  nats3-data:
