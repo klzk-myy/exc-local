@@ -197,13 +197,19 @@ jobs:
         with:
           fetch-depth: 0 # scan the full commit range of the PR/push
 
-      - uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Repo-root .gitleaks.toml extends defaults + allowlists the one
-          # verified spec-prose false positive (JWT/HMAC/Ed25519 token).
-          # NOTE: organization-owned repos additionally need a
-          # GITLEAKS_LICENSE secret; if this job errors with a license
-          # message, either add the license or swap this step for a pinned
-          # gitleaks binary run (`gitleaks git . --redact`), which needs no
-          # license.
+      # Pinned binary run (not gitleaks-action) — the action calls the GitHub
+      # API (PR scan upload / license check) and fails "Resource not accessible
+      # by integration" under default contents:read permissions on this repo.
+      # Binary mode has zero API dependency; .gitleaks.toml extends defaults +
+      # allowlists the verified spec-prose false positive.
+      - name: Install gitleaks (pinned 8.24.3, checksum-verified)
+        run: |
+          set -euo pipefail
+          curl -sSfL -o /tmp/gitleaks.tar.gz \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.24.3/gitleaks_8.24.3_linux_x64.tar.gz
+          echo "9991e0b2903da4c8f6122b5c3186448b927a5da4deef1fe45271c3793f4ee29c  /tmp/gitleaks.tar.gz" | sha256sum -c -
+          sudo tar -xzf /tmp/gitleaks.tar.gz -C /usr/local/bin gitleaks
+          gitleaks version
+
+      - name: gitleaks scan (full history)
+        run: gitleaks git . --redact --verbose
