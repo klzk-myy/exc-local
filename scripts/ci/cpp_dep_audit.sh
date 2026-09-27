@@ -13,17 +13,19 @@
 #    `find_package`/system deps are out of scope (they carry no fetch inputs).
 #
 # 2. CVE feed check — every entry in core/third_party/vendored-deps.txt is
-#    queried against OSV (https://api.osv.org/v1/querybatch). Any reported
-#    vulnerability fails the audit; per-dep overrides go in the manifest's
-#    `ignore` column... there is none — known-acceptable advisories are
-#    suppressed in this script's SUPPRESS_IDS list with a justification
-#    comment (keep empty; presence requires a SECURITY.md-quality reason).
+#    queried against OSV (https://api.osv.org/v1/querybatch) by release-tag
+#    commit SHA (GIT-ecosystem advisories — the OSV coverage that actually
+#    applies to arbitrary C++ GitHub deps), plus name+version for deps that
+#    set an osv_name in an OSV ecosystem. Any reported vulnerability fails
+#    the audit. Known-acceptable advisories are suppressed in this script's
+#    SUPPRESS_IDS list with a justification comment (keep empty; presence
+#    requires a SECURITY.md-quality reason).
 #
 # Env:
 #   MANIFEST         default core/third_party/vendored-deps.txt
 #   CMAKE_FILES      space-separated CMake files to scan (default: core/CMakeLists.txt
 #                    plus any core/**/*.cmake)
-#   OSV_BATCH        default https://api.osv.org/v1/querybatch
+#   OSV_BATCH        default https://api.osv.dev/v1/querybatch
 #   ALLOW_FEED_UNAVAILABLE=1  downgrade OSV-unreachable to a warning.
 #                      Default strict: a dep whose CVE status cannot be checked
 #                      is treated as unverified → fail (spec §2.7 fail-closed).
@@ -31,7 +33,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 MANIFEST="${MANIFEST:-$REPO_ROOT/core/third_party/vendored-deps.txt}"
-OSV_BATCH="${OSV_BATCH:-https://api.osv.org/v1/querybatch}"
+OSV_BATCH="${OSV_BATCH:-https://api.osv.dev/v1/querybatch}"
 ALLOW_FEED_UNAVAILABLE="${ALLOW_FEED_UNAVAILABLE:-0}"
 FAILURES=0
 
@@ -118,32 +120,43 @@ done
 
 # --- 3. OSV CVE feed check ----------------------------------------------------
 log "== OSV vulnerability feed check =="
-queries="$(while IFS=$'\t' read -r name version osv_name source _rest; do
+# Emit one OSV querybatch element per manifest row that requests one:
+#   git_commit set -> {"commit": sha} — GIT-ecosystem advisories, the only OSV
+#                     coverage that applies to arbitrary C++ GitHub deps
+#                     (name+version queries require an OSV package ecosystem;
+#                     aeron/googletest have none and the API rejects them).
+#   osv_name set   -> {"version", package:{name}} — for deps that DO live in an
+#                     OSV ecosystem (e.g. a vendored crate/npm package).
+queries="$(while IFS=$'\t' read -r name version osv_name source git_commit _rest; do
     case "$name" in ''|\#*) continue ;; esac
-    [ "$osv_name" = "-" ] && continue
-    jq -cn --arg n "$osv_name" --arg v "$version" \
-        '{version:$v, package:{name:$n}}'
+    if [ -n "${git_commit:-}" ] && [ "$git_commit" != "-" ]; then
+        jq -cn --arg c "$git_commit" '{commit:$c}'
+    fi
+    if [ "$osv_name" != "-" ]; then
+        jq -cn --arg n "$osv_name" --arg v "$version" \
+            '{version:$v, package:{name:$n}}'
+    fi
 done < "$MANIFEST")"
 
 if [ -z "$queries" ]; then
     log "  no manifest entries to query"
 else
     payload="$(printf '%s\n' "$queries" | jq -cs '{queries: .}')"
-    resp="$(curl -fsSL --retry 2 --max-time 30 \
-            -H 'Content-Type: application/json' \
-            -d "$payload" "$OSV_BATCH" 2>/dev/null)" || resp=""
-    if [ -z "$resp" ]; then
-        if [ "$ALLOW_FEED_UNAVAILABLE" = "1" ]; then
-            log "  warn OSV unreachable — ALLOW_FEED_UNAVAILABLE=1, skipping"
-        else
-            fail "OSV query failed ($OSV_BATCH unreachable) — feed check is fail-closed; set ALLOW_FEED_UNAVAILABLE=1 to override"
-        fi
-    else
+    body="/tmp/osv_body.$$.json"
+    # Never use curl -f here: a 4xx means OUR query is malformed (a script/manifest
+    # bug to fix loudly), while only a transport failure or 5xx is a genuinely
+    # unavailable feed. `-f` conflates the two and misreports 4xx as "unreachable".
+    http_code="$(curl -sSL --retry 3 --retry-all-errors --max-time 30 \
+            -o "$body" -w '%{http_code}' -H 'Content-Type: application/json' \
+            -d "$payload" "$OSV_BATCH")" || http_code="000"
+    if [ "$http_code" = "200" ]; then
+        resp="$(cat "$body")"
         # Dep names in query order (OSV returns one result element per query).
-        mapfile -t dep_names < <(while IFS=$'\t' read -r name version osv_name source _rest; do
+        mapfile -t dep_names < <(while IFS=$'\t' read -r name version osv_name source git_commit _rest; do
             case "$name" in ''|\#*) continue ;; esac
-            [ "$osv_name" = "-" ] && continue
-            printf '%s\n' "$name"
+            [ -n "${git_commit:-}" ] && [ "$git_commit" != "-" ] && \
+                printf '%s\n' "$name@${git_commit:0:12}"
+            [ "$osv_name" != "-" ] && printf '%s\n' "$name ($osv_name $version)"
         done < "$MANIFEST")
         printf '%s\n' "$resp" | jq -r '
             .results // [] | to_entries[] | .key as $i |
@@ -155,10 +168,19 @@ else
             done < /tmp/osv_hits.$$.txt
         else
             count="$(printf '%s\n' "$queries" | wc -l)"
-            log "  ok   $count vendored dep(s), 0 advisories"
+            log "  ok   $count vendored dep quer(ies), 0 advisories"
         fi
         rm -f /tmp/osv_hits.$$.txt
+    elif [ "$http_code" = "000" ] || [ "${http_code:0:1}" = "5" ]; then
+        if [ "$ALLOW_FEED_UNAVAILABLE" = "1" ]; then
+            log "  warn OSV unreachable (HTTP $http_code) — ALLOW_FEED_UNAVAILABLE=1, skipping"
+        else
+            fail "OSV query failed ($OSV_BATCH unreachable, HTTP $http_code) — feed check is fail-closed; set ALLOW_FEED_UNAVAILABLE=1 to override"
+        fi
+    else
+        fail "OSV rejected the querybatch request (HTTP $http_code) — manifest/script bug, not a feed outage; body: $(head -c 300 "$body" | tr '\n' ' ')"
     fi
+    rm -f "$body"
 fi
 
 log "cpp-dep-audit: failures=$FAILURES"
