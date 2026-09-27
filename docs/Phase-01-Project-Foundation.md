@@ -235,19 +235,19 @@ Remediation #37 continues the append-only migration index: 103 `orders_discretio
 4. **Seed data:** Insert initial instruments (EUR/USD, GBP/USD, USD/JPY, AUD/USD, USD/CAD, USD/CHF, NZD/USD, USD/MXN) with correct settlement cycles and leverage.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] All 21 migrations apply cleanly on fresh PostgreSQL 16
-* [ ] `trades` table has daily partition for today
-* [ ] Seed data: 8 currency pairs inserted with correct settlement_cycle and max_leverage
-* [ ] Indexes on: orders(account_id, status), trades(instrument_id, created_at), funding_transactions(account_id, status)
-* [ ] `SERIALIZABLE` isolation tested: concurrent balance mutations produce correct results
+* [x] All 21 migrations apply cleanly on fresh PostgreSQL 16
+* [x] `trades` table has daily partition for today
+* [x] Seed data: 8 currency pairs inserted with correct settlement_cycle and max_leverage
+* [x] Indexes on: orders(account_id, status), trades(instrument_id, created_at), funding_transactions(account_id, status)
+* [x] `SERIALIZABLE` isolation tested: concurrent balance mutations produce correct results
 
 **SDD Checklist (MANDATORY):**
-- [ ] Spec checkpoint: PostgreSQL 16 with MVCC — defined first, validated against spec
-- [ ] Spec checkpoint: SERIALIZABLE for balance mutations — defined first, validated against spec
-- [ ] Spec checkpoint: pg_partman daily partitions on trades — defined first, validated against spec
-- [ ] Spec checkpoint: 8 seed currency pairs with correct settlement/leverage — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: concurrent migration, partial migration rollback, partition creation failure
+- [x] Spec checkpoint: PostgreSQL 16 with MVCC — defined first, validated against spec
+- [x] Spec checkpoint: SERIALIZABLE for balance mutations — defined first, validated against spec
+- [x] Spec checkpoint: pg_partman daily partitions on trades — defined first, validated against spec
+- [x] Spec checkpoint: 8 seed currency pairs with correct settlement/leverage — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [x] Edge cases: concurrent migration, partial migration rollback, partition creation failure
 
 ---
 

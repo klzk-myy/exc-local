@@ -51,3 +51,14 @@ Scope: 12 tasks (1.3.1–1.3.12), 22 AC rows. Infra up per bootstrap. Dispatchin
 foundations (1.3.1 C++ scaffold / 1.3.2 Go scaffold / 1.3.3 PG migrations) → dependents
 (1.3.4 Redis / 1.3.6 WAL / 1.3.8 audit) → integration (1.3.5 IPC / 1.3.7 shardmap /
 1.3.11 NATS) → resilience (1.3.9 sentinel / 1.3.10 aeron tuning / 1.3.12 error handling).
+
+### [2026-09-27 17:25 UTC] — Task 1.3.3 PostgreSQL 16 Schema Migrations — DONE
+- **Files:** `services/internal/db/migrations/00[1-9]_*`, `01[0-9]_*`, `02[0-1]_*` up+down (42 files) + `test_serializable.sql` (43 total).
+- **Verification:** all 21 up-migrations clean on fresh PG16.15 (and re-up after full down-chain); `trades` partitioned daily via pg_partman 5.5 — insert routed to `trades_p20260927` (61 premade partitions); seeds verified (EUR/USD…NZD/USD T+1 lev30, USD/CAD same-day lev30, USD/MXN same-day lev10); required indexes present; SERIALIZABLE concurrency proof: session B received SQLSTATE 40001, retry committed, final balance 100−10−20=70 version=2 (no lost update).
+- **Checklist:** DoD 5/5 marked, SDD 6/6 marked.
+- **Decisions:**
+  - pg_partman v5.5.0 signature used: `public.create_parent('public.trades','created_at','1 day', p_premake:=30)` — the task-text `'native','daily'` call is pg_partman 4.x syntax and fails on 5.5. Documented in 006 header.
+  - `settlement_instructions.trade_id` kept plain BIGINT (no declarative FK — partitioned PK (id,created_at) precludes it; application-level enforcement; documented in 019).
+  - `trades.id` = BIGINT GENERATED ALWAYS AS IDENTITY inside composite PK (id,created_at) — required for partitioned parent.
+  - Column-ownership exclusions verified mechanically: zero later-migration columns present.
+- **Deviation:** none vs plan intent.
