@@ -67,6 +67,7 @@ add_library(exch_core STATIC
     src/election/LeaderElection.cpp
     src/health/HealthChecker.cpp
     src/ipc/AeronChannel.cpp
+    src/ipc/AeronDriverConfig.cpp
     src/ipc/IpcChannel.cpp
     src/ipc/SharedMemChannel.cpp
     src/matching/MatchingEngine.cpp

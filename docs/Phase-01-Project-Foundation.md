@@ -433,14 +433,14 @@ Remediation #37 continues the append-only migration index: 103 `orders_discretio
 4. **Channel Setup:** Scaffolding for `aeron:ipc` (in-process/NUMA shared-memory) and `aeron:udp` multicast channels.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Dedicated Aeron media driver boots with 128MB term buffers and 16MB socket buffers
-* [ ] Benchmark validates round-trip Go ↔ C++ IPC latency < 50µs
-* [ ] Kernel network tuning script sets socket buffers and CPU governor without errors
+* [x] Dedicated Aeron media driver boots with 128MB term buffers and 16MB socket buffers
+* [x] Benchmark validates round-trip Go ↔ C++ IPC latency < 50µs
+* [x] Kernel network tuning script sets socket buffers and CPU governor without errors
 
 **SDD Checklist (MANDATORY):**
-- [ ] Spec checkpoint: Aeron low-latency media driver configuration (§2.3, §24 #185) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: driver crash recovery, buffer wrap-around, unpinned thread jitter
+- [x] Spec checkpoint: Aeron low-latency media driver configuration (§2.3, §24 #185) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [x] Edge cases: driver crash recovery, buffer wrap-around, unpinned thread jitter
 
 ---
 

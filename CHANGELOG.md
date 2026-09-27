@@ -139,3 +139,10 @@ foundations (1.3.1 C++ scaffold / 1.3.2 Go scaffold / 1.3.3 PG migrations) → d
 - **Checklist:** SDD 2/2 marked.
 - **Decisions:** `safe_math` uses scratch-then-copy out-param (intrinsics store wrapped value on overflow — preserves fail-closed); `OrderBookCapacityExceeded`/`TimeSyncLossHalt` are non-allocating literal-pointer exceptions (`alloc_or_throw` no heap in throw path); clock guard reads `ntp_adjtime` (STA_UNSYNC→fail-closed), injectable probe, bound 100µs; unknown codes → L2/500 per fail-closed pessimism.
 - **Deviation:** `require_clock_sync` delivered as startup gate but not wired into main.cpp (Phase-02 owns engine wiring; documented at header).
+
+### [2026-09-27 20:45 UTC] — Task 1.3.10 Aeron Driver Config & Kernel Tuning — DONE
+- **Files:** `config/aeron-low-latency.properties`, `core/include/ipc/AeronDriverConfig.hpp`, `core/src/ipc/AeronDriverConfig.cpp`, `scripts/tune-kernel-network.sh`.
+- **Verification (orchestrator re-run):** `tune-kernel-network.sh --check` → 10/10 tunables verified (rmem_max=wmem_max=16MB, busy_read/poll=50, netdev_budget=600, max_backlog=4096, governor=performance, exit 0). aeronmd `print.configuration` dump confirmed `term_buffer_length=134217728`, `ipc_term_buffer_length=134217728`, `socket_{snd,rcv}buf=16777216`, `mtu=1408`, `threading_mode=DEDICATED`, busy-spin sender/receiver + backoff conductor. Bench n=100k on tuned driver: **aeron p99=2.9µs**, shm p99=3.5µs ≪ 50µs. `launch_aeronmd` smoke: start → relaunch→`AlreadyRunning` (fail-closed) → SIGINT graceful.
+- **Checklist:** DoD 3/3, SDD 3/3 marked.
+- **Decisions:** added `aeron.ipc.term.buffer.length`/`ipc.mtu.length` (hot path is `aeron:ipc` — network props alone wouldn't apply); netdev_budget/max_backlog/budget_usecs sysctls added; governor via runtime sysfs (non-persistent); isolcpus = guidance only (single dev host); `aeron.dir` kept out of properties (file-wins over -D); vendored `aeronmd` swapped to static `aeronmd_s` — original had rpath into volatile `/tmp/aeron-src`.
+- **Deviation:** none.
