@@ -93,9 +93,27 @@ if(EXCH_AERON_FOUND)
 endif()
 
 if(EXCH_FLATBUFFERS_FOUND)
-    # Generated wire schema (core/proto/gen/exchange_generated.h) + runtime.
+    # Regenerate the C++ wire header with the found flatc so generated code
+    # always matches the installed runtime headers (flatbuffers changed
+    # Verifier/VerifyField signatures across versions — a committed generated
+    # header built against 1.12.x breaks on 23.x headers). Committed
+    # proto/gen/ remains the source of truth for review; the build-tree copy
+    # wins the include path.
+    set(_exch_fbs "${CMAKE_CURRENT_SOURCE_DIR}/proto/exchange.fbs")
+    set(_exch_gen_dir "${CMAKE_CURRENT_BINARY_DIR}/proto/gen")
+    file(MAKE_DIRECTORY "${_exch_gen_dir}")
+    add_custom_command(
+        OUTPUT "${_exch_gen_dir}/exchange_generated.h"
+        COMMAND "${EXCH_FLATC}" --cpp
+                -o "${_exch_gen_dir}" "${_exch_fbs}"
+        DEPENDS "${_exch_fbs}"
+        COMMENT "flatc --cpp exchange.fbs (regenerate to match installed headers)"
+        VERBATIM)
+    add_custom_target(exch_flatbuf_gen DEPENDS "${_exch_gen_dir}/exchange_generated.h")
+    add_dependencies(exch_core exch_flatbuf_gen)
     target_include_directories(exch_core SYSTEM PUBLIC
-        "${EXCH_FLATBUFFERS_INCLUDE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/proto/gen")
+        "${EXCH_FLATBUFFERS_INCLUDE_DIR}" "${_exch_gen_dir}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/proto/gen")
 endif()
 
 # --- Engine executable ------------------------------------------------------
