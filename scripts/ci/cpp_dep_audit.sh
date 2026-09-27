@@ -25,7 +25,7 @@
 #   MANIFEST         default core/third_party/vendored-deps.txt
 #   CMAKE_FILES      space-separated CMake files to scan (default: core/CMakeLists.txt
 #                    plus any core/**/*.cmake)
-#   OSV_BATCH        default https://api.osv.org/v1/querybatch
+#   OSV_BATCH        default https://api.osv.dev/v1/querybatch
 #   ALLOW_FEED_UNAVAILABLE=1  downgrade OSV-unreachable to a warning.
 #                      Default strict: a dep whose CVE status cannot be checked
 #                      is treated as unverified → fail (spec §2.7 fail-closed).
@@ -33,7 +33,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 MANIFEST="${MANIFEST:-$REPO_ROOT/core/third_party/vendored-deps.txt}"
-OSV_BATCH="${OSV_BATCH:-https://api.osv.org/v1/querybatch}"
+OSV_BATCH="${OSV_BATCH:-https://api.osv.dev/v1/querybatch}"
 ALLOW_FEED_UNAVAILABLE="${ALLOW_FEED_UNAVAILABLE:-0}"
 FAILURES=0
 
