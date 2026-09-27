@@ -171,16 +171,16 @@ Establish the foundational infrastructure for the FOREX exchange: C++ project sc
 4. **Structured logging:** `log/slog` with JSON handler. Log level configurable.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] `go build ./cmd/gateway/` produces a binary
-* [ ] Gateway binary starts, binds port 8080, logs "gateway started"
-* [ ] Config loading from YAML + env overrides works
-* [ ] Structured logging (slog JSON) outputs to stdout
+* [x] `go build ./cmd/gateway/` produces a binary
+* [x] Gateway binary starts, binds port 8080, logs "gateway started"
+* [x] Config loading from YAML + env overrides works
+* [x] Structured logging (slog JSON) outputs to stdout
 
 **SDD Checklist (MANDATORY):**
-- [ ] Spec checkpoint: Go 1.23+ with structured logging (slog) — defined first, validated against spec
-- [ ] Spec checkpoint: single binary per service — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: missing config, invalid env, port conflict
+- [x] Spec checkpoint: Go 1.23+ with structured logging (slog) — defined first, validated against spec
+- [x] Spec checkpoint: single binary per service — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [x] Edge cases: missing config, invalid env, port conflict
 
 ---
 

@@ -62,3 +62,14 @@ foundations (1.3.1 C++ scaffold / 1.3.2 Go scaffold / 1.3.3 PG migrations) → d
   - `trades.id` = BIGINT GENERATED ALWAYS AS IDENTITY inside composite PK (id,created_at) — required for partitioned parent.
   - Column-ownership exclusions verified mechanically: zero later-migration columns present.
 - **Deviation:** none vs plan intent.
+
+### [2026-09-27 17:30 UTC] — Task 1.3.2 Go Services Scaffold — DONE
+- **Files:** `services/go.mod` (module `exchange`, go 1.23.0 + toolchain go1.23.12), `cmd/{gateway,marketdata,fix,settlement,compliance,admin}/main.go`, `internal/{api,auth,config,db,redis,ipc,middleware,models,settlement,compliance,utils}`, `pkg/{decimal,errors,logging}`, `config.example.yaml`, `.gitignore`, `tools/tools.go` (build-tag dep pin).
+- **Verification (orchestrator re-run):** `GOTOOLCHAIN=local go build ./...` clean; `go vet` clean; gateway bound :18099 via `EXC_GATEWAY_PORT`, `/health` → `{"status":"ok"}`, slog JSON, SIGTERM clean.
+- **Checklist:** DoD 4/4 marked, SDD 4/4 marked.
+- **Decisions:**
+  - `shopspring/decimal v1.4.0` added (spec §5.3 precision standard names it).
+  - `pgx v5.7.5` / `go-redis v9.7.3` pinned — newest versions compatible with go1.23.12 (v5.11/v9.22 require ≥1.24/1.25).
+  - Invalid env value → fail-closed exit 1 (spec §2.7 pessimism); missing config file → defaults.
+  - `EXC_CONFIG` env for explicit config path; `tools/tools.go` keeps gorilla/websocket+quickfix+cobra pinned until Phase-05/06/18 consumers land.
+- **Deviation:** none.

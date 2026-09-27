@@ -1,0 +1,51 @@
+# Exchange services configuration — copy to config.yaml and edit.
+#
+# Lookup order (lowest → highest precedence):
+#   1. defaults built into internal/config
+#   2. this file (searched in . and ./config, or an explicit path via
+#      the EXC_CONFIG environment variable)
+#   3. environment variables prefixed EXC_ — e.g. EXC_GATEWAY_PORT=9000
+#      overrides gateway.port; nested keys use "_" (EXC_POSTGRES_DSN,
+#      EXC_REDIS_ADDR, EXC_LOGGING_LEVEL, ...).
+#
+# A missing config file is NOT an error — services boot on defaults.
+# An invalid value IS a startup error (fail-closed, spec §2.7).
+
+environment: development   # development|staging|production (free-form label)
+
+logging:
+  level: info              # debug|info|warn|error
+  format: json             # json|text
+
+# Per-service sections. Only gateway binds a listener in the scaffold;
+# other addresses are reserved for each service's future health/admin port.
+gateway:                   # cmd/gateway — REST order gateway (Phase-05)
+  host: 0.0.0.0
+  port: 8080
+marketdata:                # cmd/marketdata — WS fan-out (Phase-06)
+  host: 0.0.0.0
+  port: 8081
+fix:                       # cmd/fix — FIX acceptors (Phase-18)
+  host: 0.0.0.0
+  port: 8082
+settlement:                # cmd/settlement (Phase-03)
+  host: 127.0.0.1
+  port: 8083
+compliance:                # cmd/compliance (Phases 14/17/21)
+  host: 127.0.0.1
+  port: 8084
+admin:                     # cmd/admin — admin/monitoring (Phase-07)
+  host: 0.0.0.0
+  port: 8085
+
+postgres:
+  dsn: postgres://exchange:exchange_dev@127.0.0.1:5433/exchange?sslmode=disable
+  max_conns: 20
+
+redis:                     # coordination instance (noeviction); cache Redis is separate
+  addr: 127.0.0.1:16379
+  password: ""
+  db: 0
+
+nats:                      # JetStream cluster seeds, comma-separated
+  urls: nats://127.0.0.1:4222,nats://127.0.0.1:4223,nats://127.0.0.1:4224

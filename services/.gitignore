@@ -1,0 +1,11 @@
+# Built service binaries (go build ./cmd/<svc>)
+/gateway
+/marketdata
+/fix
+/settlement
+/compliance
+/admin
+/bin/
+
+# Local config override — copy config.example.yaml
+/config.yaml
