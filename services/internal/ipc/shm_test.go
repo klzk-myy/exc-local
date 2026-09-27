@@ -74,14 +74,14 @@ func TestRingZeroLoss1000(t *testing.T) {
 	for i := uint64(0); i < 1000; i++ {
 		b.Reset()
 		msg := EncodeOrderNewEvent(b, i, uint64(time.Now().UnixNano()), OrderNewMsg{
-			OrderID:      5000 + i,
-			AccountID:    1000,
-			InstrumentID: 3,
-			Side:         wire.SideBuy,
-			Type:         wire.OrderTypeLimit,
-			Qty:          100000000,
-			Price:        105000000,
-			TIF:          wire.TimeInForceGTC,
+			OrderID:       5000 + i,
+			AccountID:     1000,
+			InstrumentID:  3,
+			Side:          wire.SideBuy,
+			Type:          wire.OrderTypeLimit,
+			Qty:           100000000,
+			Price:         105000000,
+			TIF:           wire.TimeInForceGTC,
 			ClientOrderID: fmt.Sprintf("g-%d", i),
 		})
 		cp := make([]byte, len(msg))

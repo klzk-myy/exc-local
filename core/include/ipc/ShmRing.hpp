@@ -95,9 +95,13 @@ public:
     }
     ~ShmRing() { close(); }
 
-    // `create` = this endpoint sizes & initializes the ring image; the peer
-    // waits for the magic/version stamp instead (bounded ~5s spin).
-    bool open(std::string_view shm_name, Role role, bool create,
+    // `create` is advisory: whichever endpoint finds a fresh (zero-size) image
+    // initializes it; a live image (magic stamped) is always attached as-is —
+    // never re-initialized — so late-joining peers can never wipe in-flight
+    // messages. Stale images from a dead run must be removed via shm_unlink
+    // (deploy/scripts/bench_ipc.sh unlinks before benching).
+    bool open(std::string_view shm_name, Role role,
+              [[maybe_unused]] bool create,
               uint32_t capacity = kDefaultCapacity,
               uint32_t slot_payload = kDefaultSlotPayload) noexcept {
         close();
@@ -127,23 +131,33 @@ public:
             return false;
         }
 
-        if (create || st.st_size == 0) {
+        const bool fresh = (st.st_size == 0);
+        if (!fresh && st.st_size < static_cast<off_t>(kHeaderBytes)) {
+            ::close(fd);
+            return false;  // truncated image — cannot hold the header
+        }
+        if (fresh) {
             if (::ftruncate(fd, static_cast<off_t>(want_size)) != 0) {
                 ::close(fd);
                 return false;
             }
         }
 
-        void* base = ::mmap(nullptr, want_size, PROT_READ | PROT_WRITE,
+        // Fresh images map the size we just truncated; attaches map exactly
+        // the existing file (never past EOF — avoids SIGBUS on a truncated
+        // image). The header capacity check below still bounds slot access.
+        const uint64_t map_len =
+            fresh ? want_size : static_cast<uint64_t>(st.st_size);
+        void* base = ::mmap(nullptr, map_len, PROT_READ | PROT_WRITE,
                             MAP_SHARED, fd, 0);
         ::close(fd);
         if (base == MAP_FAILED)
             return false;
 
         base_ = static_cast<uint8_t*>(base);
-        map_size_ = want_size;
+        map_size_ = map_len;
 
-        if (create || st.st_size == 0) {
+        if (fresh) {
             std::memset(base_, 0, static_cast<size_t>(kHeaderBytes));
             write_u32(kOffVersion, kVersion);
             write_u64(kOffCapacity, capacity);

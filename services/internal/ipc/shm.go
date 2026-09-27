@@ -89,9 +89,10 @@ type Ring struct {
 	slotStride  uint64
 }
 
-// OpenRing maps shm object `name` ("/dev/shm/"+name). `create` means this
-// endpoint sizes and initializes the image; otherwise it attaches and spins
-// (bounded) until the creator stamps the magic word. Header capacity/
+// OpenRing maps shm object `name` ("/dev/shm/"+name). `create` is advisory:
+// whichever endpoint finds a fresh (zero-size) image initializes it; a live
+// image (magic stamped) is attached as-is — never re-initialized — so a
+// late-joining peer can never wipe in-flight messages. Header capacity/
 // slot_payload are authoritative — an attaching endpoint adopts them.
 func OpenRing(name string, role RingRole, create bool, capacity, slotPayload uint32) (*Ring, error) {
 	if capacity == 0 || capacity&(capacity-1) != 0 {
@@ -114,15 +115,21 @@ func OpenRing(name string, role RingRole, create bool, capacity, slotPayload uin
 		f.Close()
 		return nil, err
 	}
-	needInit := create || st.Size() == 0
+	needInit := st.Size() == 0
+	if st.Size() > 0 && st.Size() < offSlots {
+		f.Close()
+		return nil, fmt.Errorf("ipc: %s truncated image (%d bytes)", path, st.Size())
+	}
 	if needInit {
 		if err := f.Truncate(wantSize); err != nil {
 			f.Close()
 			return nil, fmt.Errorf("ipc: ftruncate %s: %w", path, err)
 		}
 	}
+	// Fresh images map the size we just truncated; attaches map exactly the
+	// existing file (never past EOF — avoids SIGBUS on a truncated image).
 	mapLen := wantSize
-	if st.Size() > wantSize {
+	if st.Size() > 0 {
 		mapLen = st.Size()
 	}
 	m, err := unix.Mmap(int(f.Fd()), 0, int(mapLen),
@@ -189,10 +196,10 @@ func (r *Ring) Close() error {
 	return nil
 }
 
-func (r *Ring) Name() string      { return r.name }
-func (r *Ring) Role() RingRole    { return r.role }
-func (r *Ring) Capacity() uint32  { return r.capacity }
-func (r *Ring) SlotPayload() int  { return int(r.slotPayload) }
+func (r *Ring) Name() string     { return r.name }
+func (r *Ring) Role() RingRole   { return r.role }
+func (r *Ring) Capacity() uint32 { return r.capacity }
+func (r *Ring) SlotPayload() int { return int(r.slotPayload) }
 
 func (r *Ring) u64(off int) *uint64 { return (*uint64)(unsafe.Pointer(&r.m[off])) }
 func (r *Ring) u32(off int) *uint32 { return (*uint32)(unsafe.Pointer(&r.m[off])) }
@@ -216,8 +223,8 @@ func (r *Ring) TryWrite(p []byte) bool {
 	}
 	slot := r.slot(h)
 	binary.LittleEndian.PutUint32(slot[4:], uint32(len(p))) // len
-	binary.LittleEndian.PutUint32(slot[8:], 0)             // flags
-	binary.LittleEndian.PutUint32(slot[0:], uint32(h))     // seq (diagnostic)
+	binary.LittleEndian.PutUint32(slot[8:], 0)              // flags
+	binary.LittleEndian.PutUint32(slot[0:], uint32(h))      // seq (diagnostic)
 	copy(slot[slotHeaderBytes:], p)
 	r.Beat()
 	// Seq-cst store: slot contents are visible to the consumer before head

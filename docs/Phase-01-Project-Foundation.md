@@ -297,17 +297,17 @@ Remediation #37 continues the append-only migration index: 103 `orders_discretio
 4. **Zero-copy:** C++ reads directly from ring buffer; no memcpy into intermediate buffer.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Aeron media driver starts; C++ and Go both connect to IPC channels
-* [ ] (Fallback) Shared-memory ring buffer: Go writes 1000 messages, C++ reads all 1000 with zero loss
-* [ ] FlatBuffers schema compiles for both C++ and Go
-* [ ] Round-trip latency (Go → C++ → Go) measured at < 50µs end-to-end (the 10µs figure is the IPC-layer-only measurement; Task 1.3.10 and spec §2.3 use the 50µs end-to-end budget; remediation #35)
+* [x] Aeron media driver starts; C++ and Go both connect to IPC channels
+* [x] (Fallback) Shared-memory ring buffer: Go writes 1000 messages, C++ reads all 1000 with zero loss
+* [x] FlatBuffers schema compiles for both C++ and Go
+* [x] Round-trip latency (Go → C++ → Go) measured at < 50µs end-to-end (the 10µs figure is the IPC-layer-only measurement; Task 1.3.10 and spec §2.3 use the 50µs end-to-end budget; remediation #35)
 
 **SDD Checklist (MANDATORY):**
-- [ ] Spec checkpoint: Aeron or shared-memory IPC (never HTTP/gRPC in hot path) — defined first, validated against spec
-- [ ] Spec checkpoint: zero-copy message passing — defined first, validated against spec
-- [ ] Spec checkpoint: sub-10µs IPC round-trip — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: IPC channel full (backpressure), consumer slow, producer crash
+- [x] Spec checkpoint: Aeron or shared-memory IPC (never HTTP/gRPC in hot path) — defined first, validated against spec
+- [x] Spec checkpoint: zero-copy message passing — defined first, validated against spec
+- [x] Spec checkpoint: sub-10µs IPC round-trip — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [x] Edge cases: IPC channel full (backpressure), consumer slow, producer crash
 
 ---
 

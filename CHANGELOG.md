@@ -118,3 +118,10 @@ foundations (1.3.1 C++ scaffold / 1.3.2 Go scaffold / 1.3.3 PG migrations) → d
 - **Checklist:** DoD 5/5, SDD 5/5 marked.
 - **Decisions:** (a) rotation names `{seq_base}.wal` under caller's shard dir; (b) `posix_fallocate` in 16MB quanta converts SIGBUS-on-full-disk → clean NoSpace; (c) O_DIRECT rejected by fs → staged-block buffered fallback with `direct_fallback()` flag (`strict_direct` fails open); (d) `seq=UINT64_MAX` reserved as pad sentinel; (e) EFBIG ≡ NoSpace.
 - **Deviation:** none vs amended spec (all 5 deviations are design strengthenings, recorded here).
+
+### [2026-09-27 19:10 UTC] — Task 1.3.5 Aeron IPC + Shared-Memory Transport — DONE
+- **Files:** `core/proto/exchange.fbs` + gen (C++/Go), `core/include|src/ipc/` (ShmRing, SharedMemChannel, AeronChannel, echo bench), `services/internal/ipc/**` (shm.go ABI mirror, channel.go, messages.go, aeron cgo wrapper, bench), `deploy/scripts/bench_ipc.sh`, go flatbuffers v1.12.1.
+- **Verification (orchestrator re-ran `deploy/scripts/bench_ipc.sh 5000`):** shm RTT avg=1767ns p50=732ns **p99=6.3µs** max=90µs, 5000/5000 echoed drops=0; aeron RTT avg=1160ns p50=913ns **p99=3.7µs** — both well under 50µs budget. ctest 7/7 both configs at verification. 1000-msg zero-loss shm test + Go↔C++ round-trips pass. Aeron loopback gated when aeronmd present.
+- **Checklist:** DoD 4/4, SDD 5/5 marked.
+- **Decisions:** shm ring = SPSC 64B-aligned slots, seq/len/flags slot header, zero-copy peek/consume; liveness = pid + realtime-ns heartbeat + kill(pid,0); `create` flag advisory (first-attacher-inits; live images never re-init — fixes create/attach race); AeronChannel channels `aeron:ipc?alias=orders_{in,out}` streams 1001/1002; EXCH_WITH_AERON=0 stub when SDK absent.
+- **Deviation:** none. NOTE: concurrent ShardMap task (1.3.7) temporarily broke full build (std::atomic<shared_ptr> unsupported on g++11.4 libstdc++) — owner agent must fix before Phase-01 gate.
