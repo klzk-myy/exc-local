@@ -1,10 +1,24 @@
 #pragma once
 
-// PHASE-01 TASK-1.3.6 STUB — binary WAL wire format per spec §3.4.
+// Binary WAL wire format (Task 1.3.6, spec §3.4).
+//
 // Frame: [WalFileHeader] then repeated entries:
 //   WalEntryHeader | payload[payload_len] | crc32 u32
+// The CRC32 (CRC32C, Castagnoli — SSE4.2 `crc32` instruction or table fallback)
+// covers the 21-byte entry header followed by the payload; the stored u32
+// trailer follows the payload.
+//
+// O_DIRECT mode pads every flushed batch to a 4KB block boundary:
+//   - pad >= 8 bytes: u64 kWalPadSeq sentinel (never a valid seq) then zeros
+//   - pad 1..7 bytes: zeros only
+// The scanner below recognizes both forms plus the "zeros to EOF" tail of a
+// preallocated segment, so readers of either mode share one code path.
+//
+// Little-endian host assumed (x86-64 target per spec §3).
 
+#include <cstddef>
 #include <cstdint>
+#include <cstring>
 
 namespace exch {
 
@@ -28,14 +42,105 @@ struct WalFileHeader {
 };
 
 struct WalEntryHeader {
-    uint64_t seq;          // monotonic sequence
+    uint64_t seq;          // monotonic sequence; kWalPadSeq is reserved (pad sentinel)
     uint64_t timestamp_ns;
     uint8_t event_type;    // WalEventType
-    uint32_t payload_len;  // FlatBuffers payload follows; crc32 u32 trailer after it
+    uint32_t payload_len;  // payload follows; crc32 u32 trailer after it
 };
 #pragma pack(pop)
 
 static_assert(sizeof(WalFileHeader) == 8);
 static_assert(sizeof(WalEntryHeader) == 21);
+static_assert(__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__,
+              "WAL wire format is little-endian (spec §3.4)");
+
+// --- Format constants -------------------------------------------------------
+
+inline constexpr uint64_t kWalBlockSize = 4096;          // O_DIRECT flush quantum
+inline constexpr uint64_t kWalPadSeq = ~uint64_t{0};     // seq slot => pad marker
+inline constexpr uint32_t kWalMaxPayload = 64u * 1024 * 1024;  // sanity cap 64 MiB
+inline constexpr uint64_t kWalDefaultSegmentLimit = 1ull << 30;  // 1 GiB rotation
+inline constexpr uint64_t kWalDefaultFlushNs = 1'000'000;        // 1 ms batch window
+inline constexpr uint32_t kWalDefaultFlushEvents = 100;
+inline constexpr uint32_t kWalEntryOverhead =
+    sizeof(WalEntryHeader) + sizeof(uint32_t);           // 21 + 4 = 25
+
+// --- CRC32C -----------------------------------------------------------------
+
+// Runtime SSE4.2 probe (cpuid via __builtin_cpu_supports). crc32c() dispatches
+// to the hardware instruction when present, else the table-driven software
+// implementation. Both compute identical CRC32C values.
+[[nodiscard]] bool wal_crc32c_hardware() noexcept;
+[[nodiscard]] uint32_t wal_crc32c(const void* data, std::size_t len) noexcept;
+[[nodiscard]] uint32_t wal_crc32c_sw(const void* data, std::size_t len) noexcept;
+// Streaming form: crc value carries across calls.
+[[nodiscard]] uint32_t wal_crc32c_continue(uint32_t crc, const void* data,
+                                           std::size_t len) noexcept;
+
+// --- Entry encode / pad emit -------------------------------------------------
+
+// Serializes header+payload+crc into dst (must hold kWalEntryOverhead+len bytes).
+// Returns bytes written.
+uint64_t wal_encode_entry(uint8_t* dst, uint64_t seq, uint64_t timestamp_ns,
+                          WalEventType type, const void* payload,
+                          uint32_t payload_len) noexcept;
+
+// Emits a pad region of pad_bytes at dst (pad_bytes >= 1). Writes the kWalPadSeq
+// sentinel when pad_bytes >= 8, else zeros only.
+void wal_emit_pad(uint8_t* dst, uint64_t pad_bytes) noexcept;
+
+// --- Scanner -----------------------------------------------------------------
+// Shared by Wal recovery (detect + truncate) and WalReader iteration. Operates
+// on a memory image of the segment (mmap'd or read into a buffer).
+
+enum class WalScanStep : uint8_t { Entry, Pad, End, Corrupt };
+
+struct WalEntryView {
+    uint64_t seq;
+    uint64_t timestamp_ns;
+    WalEventType type;
+    const uint8_t* payload;   // points into the scanned image; not copied
+    uint32_t payload_len;
+    uint64_t offset;          // byte offset of this record inside the segment
+    uint64_t record_bytes;    // kWalEntryOverhead + payload_len
+};
+
+// Examines the record at *pos in image [base, size).
+//   Entry:   *out filled, *pos advances past the record.
+//   Pad:     *pos advances to the next 4KB boundary.
+//   End:     clean end of log (*pos unchanged = valid tail offset).
+//   Corrupt: torn/garbage record (*pos unchanged = truncate target).
+[[nodiscard]] WalScanStep wal_scan_step(const uint8_t* base, uint64_t size,
+                                        uint64_t* pos, WalEntryView* out) noexcept;
+
+struct WalScanResult {
+    bool header_ok = false;      // magic + version valid
+    uint16_t header_version = 0;
+    uint16_t header_shard = 0;
+    uint64_t entries = 0;        // valid entries seen
+    uint64_t last_seq = 0;       // seq of last valid entry (valid iff entries > 0)
+    uint64_t pads = 0;           // O_DIRECT pad regions skipped
+    uint64_t entry_bytes = 0;    // sum of record_bytes over valid entries
+    uint64_t pad_bytes = 0;      // sum of pad-region sizes skipped
+    uint64_t valid_end = sizeof(WalFileHeader);  // truncate target
+    bool corrupt = false;        // torn/garbage tail detected at valid_end
+};
+
+// Validates the file header then scans entries from offset sizeof(WalFileHeader)
+// until End/Corrupt. valid_end is the offset after the last valid record or pad.
+[[nodiscard]] WalScanResult wal_scan(const uint8_t* base, uint64_t size) noexcept;
+
+// --- Unaligned load helpers (internal; public for tests) ----------------------
+
+[[nodiscard]] inline uint64_t wal_load64(const void* p) noexcept {
+    uint64_t v;
+    std::memcpy(&v, p, sizeof(v));
+    return v;
+}
+[[nodiscard]] inline uint32_t wal_load32(const void* p) noexcept {
+    uint32_t v;
+    std::memcpy(&v, p, sizeof(v));
+    return v;
+}
 
 }  // namespace exch

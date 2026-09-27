@@ -45,6 +45,19 @@ if(EXCH_WITH_AERON)
     endif()
 endif()
 
+# --- FlatBuffers detection (Task 1.3.5) -------------------------------------
+# System flatc + headers compile core/proto/exchange.fbs outputs; generated
+# sources are committed under core/proto/gen (regenerate via deploy/scripts).
+find_program(EXCH_FLATC NAMES flatc)
+find_path(EXCH_FLATBUFFERS_INCLUDE_DIR NAMES flatbuffers/flatbuffers.h)
+set(EXCH_FLATBUFFERS_FOUND OFF)
+if(EXCH_FLATC AND EXCH_FLATBUFFERS_INCLUDE_DIR)
+    set(EXCH_FLATBUFFERS_FOUND ON)
+    message(STATUS "FlatBuffers found: ${EXCH_FLATC} (${EXCH_FLATBUFFERS_INCLUDE_DIR})")
+else()
+    message(STATUS "FlatBuffers not found -- wire schema users must skip")
+endif()
+
 # --- Core library -----------------------------------------------------------
 add_library(exch_core STATIC
     src/book/Order.cpp
@@ -75,6 +88,12 @@ if(EXCH_AERON_FOUND)
     # SYSTEM: vendor headers must not trip our warning set.
     target_include_directories(exch_core SYSTEM PUBLIC "${EXCH_AERON_INCLUDE_DIR}")
     target_link_libraries(exch_core PUBLIC "${EXCH_AERON_CLIENT_LIB}")
+endif()
+
+if(EXCH_FLATBUFFERS_FOUND)
+    # Generated wire schema (core/proto/gen/exchange_generated.h) + runtime.
+    target_include_directories(exch_core SYSTEM PUBLIC
+        "${EXCH_FLATBUFFERS_INCLUDE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/proto/gen")
 endif()
 
 # --- Engine executable ------------------------------------------------------

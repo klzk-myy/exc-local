@@ -1,0 +1,74 @@
+// Task 1.3.5 — wire schema for C++ core <-> Go services IPC.
+//
+// All order-flow messages are carried inside the Event envelope on both the
+// Aeron `aeron:ipc` channels and the shared-memory SPSC ring fallback
+// (services/internal/ipc, core/src/ipc/SharedMemChannel.cpp).
+//
+// Conventions:
+//   - qty/price are int64 scaled by 1e8 (spec fixed-point convention).
+//   - Event.seq is a per-channel monotonic sequence assigned by the producer;
+//     Event.ts is the producer's CLOCK_REALTIME timestamp in nanoseconds.
+//   - Never HTTP/gRPC in this path (spec §2.3).
+
+namespace exc.wire;
+
+enum Side : ubyte { Buy = 0, Sell = 1 }
+
+enum OrderType : ubyte { Market = 0, Limit = 1, StopMarket = 2, StopLimit = 3 }
+
+enum TimeInForce : ubyte { GTC = 0, IOC = 1, FOK = 2, GTD = 3, DAY = 4 }
+
+/// Inbound: order submission from the Go gateway to the matching core.
+table OrderNew {
+    order_id: uint64;
+    account_id: uint64;
+    instrument_id: uint32;
+    side: Side;
+    type: OrderType;
+    qty: int64;            // scaled 1e8
+    price: int64;          // scaled 1e8; ignored for Market
+    tif: TimeInForce;
+    client_order_id: string;
+}
+
+/// Inbound: cancel request.
+table OrderCancel {
+    order_id: uint64;
+    account_id: uint64;
+}
+
+/// Outbound: execution report emitted by the matching core.
+table TradeFill {
+    trade_id: uint64;
+    buy_order_id: uint64;
+    sell_order_id: uint64;
+    price: int64;          // scaled 1e8
+    qty: int64;            // scaled 1e8
+    seq: uint64;           // engine sequence
+}
+
+/// One aggregated price level within a BookSnapshot.
+table PriceLevel {
+    price: int64;          // scaled 1e8
+    qty: int64;            // scaled 1e8
+    count: uint32;         // resting orders at this level
+}
+
+/// Outbound: aggregated order-book snapshot for market data fan-out.
+table BookSnapshot {
+    instrument_id: uint32;
+    seq: uint64;
+    bids: [PriceLevel];
+    asks: [PriceLevel];
+}
+
+union EventType { OrderNew, OrderCancel, TradeFill, BookSnapshot }
+
+/// Envelope for every IPC message. `type_type` carries the discriminator.
+table Event {
+    seq: uint64;
+    ts: uint64;
+    type: EventType;
+}
+
+root_type Event;

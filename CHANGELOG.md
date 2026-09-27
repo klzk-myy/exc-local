@@ -104,3 +104,10 @@ foundations (1.3.1 C++ scaffold / 1.3.2 Go scaffold / 1.3.3 PG migrations) → d
 - **Checklist:** DoD 4/4, SDD 4/4 marked.
 - **Decisions:** `canonical_payload` preimage = `seq|id|created_at_utc|hex(payload)` over stored fields — self-verifiable; opaque emitter payloads need a `PayloadProvider` (documented in package doc). Genesis prev_hash=sha256(""). Tail-read serialized via `pg_advisory_xact_lock`; `AppendAuto` retries on 23505/40001/40P01 ≤3×. verify-audit also re-checks stored daily merkle root.
 - **Deviation:** none.
+
+### [2026-09-27 18:35 UTC] — Task 1.3.9 Redis Sentinel HA — DONE
+- **Files:** `services/internal/redis/sentinel.go` (+tests), `services/internal/config/redis_sentinel.go`, `config/redis-sentinel.yaml`, `deploy/redis/sentinel.conf`, `docker-compose.dev.yml`.
+- **Verification (live drills ×2):** kill primary → +sdown→+odown→+promoted in **1.07s/1.09s** detection→promotion; ~3.0s end-to-end (bounded by spec down-after=2000ms). Session key survived both failovers; leader-lease key pattern verified. Reconnect to new master: **43ms / 81µs** (<100ms). Old primary rejoins as replica via sentinel rewrite. Live-config verified by orchestrator: quorum=2, down-after=2000, failover-timeout=10000, parallel-syncs=1, num-slaves=2, min-replicas-to-write=1, max-lag=5, appendonly=yes.
+- **Checklist:** DoD 3/3, SDD 3/3 marked.
+- **Decisions:** (a) **Root-cause fix** — Sentinel monitoring DNS hostname `redis-primary` deadlocks failover (container stop kills DNS → getaddrinfo stalls event loop ~8s → +tilt loop aborts every failover). Added `redis-ha` 10.99.0.0/24 pinned-IP subnet; sentinel now monitors 10.99.0.11 by IP. Production-correct pattern. (b) Three resolve modes: `as_announced` (in-network), `host_probe` (host), `announce_map`. (c) `min-replicas-to-write=1` is the split-brain guard.
+- **Deviation:** compose/sentinel.conf deviate from plan prose (IP-pinned monitoring) — recorded in spec §27 pending; strictly better than monitoring ephemeral DNS names.

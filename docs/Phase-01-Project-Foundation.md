@@ -409,14 +409,14 @@ Remediation #37 continues the append-only migration index: 103 `orders_discretio
 4. **C++ Integration:** C++ matching engine coordination module connects via Sentinel discovery for leader lease tracking and degradation state observation.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] 3-node Sentinel cluster monitors primary and handles automatic failover within 3s
-* [ ] Go `FailoverClient` discovers new primary seamlessly on master switch without dropping active sessions
-* [ ] AOF persistence and replication lag parameters enforced
+* [x] 3-node Sentinel cluster monitors primary and handles automatic failover within 3s
+* [x] Go `FailoverClient` discovers new primary seamlessly on master switch without dropping active sessions
+* [x] AOF persistence and replication lag parameters enforced
 
 **SDD Checklist (MANDATORY):**
-- [ ] Spec checkpoint: Redis Sentinel 3-node HA topology (§4.5, §24 #181) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: network partition (split-brain guard), sentinel quorum loss, reconnect storm
+- [x] Spec checkpoint: Redis Sentinel 3-node HA topology (§4.5, §24 #181) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [x] Edge cases: network partition (split-brain guard), sentinel quorum loss, reconnect storm
 
 ---
 

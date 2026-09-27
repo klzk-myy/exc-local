@@ -1,0 +1,57 @@
+# Redis Sentinel failover client config (Task 1.3.9, spec §4.5 / §24 #181).
+# Coordination topology: 1 primary + 2 replicas + 3 sentinels (quorum 2).
+# Coordination keys (noeviction): sessions, rate limits, engine:leader:{shard}
+# epoch leases, system:degradation:*, circuit breakers, halt:global.
+
+master_name: mymaster
+
+# Sentinel endpoints as this process sees them. Dev host: the compose
+# port forwards. In-network (exc-dev_redis-ha): the pinned sentinel IPs
+# 10.99.0.21-23:26379 or container names redis-sentinel-{1,2,3}:26379.
+# Overridable with EXC_SENTINEL_ADDRS="host:port,host:port,...".
+sentinel_addrs:
+  - 127.0.0.1:36379
+  - 127.0.0.1:36380
+  - 127.0.0.1:36381
+
+password: ""
+db: 0
+
+# Connection pool + timeouts (defaults match redis.New when 0/empty).
+pool_size: 20
+min_idle_conns: 2
+max_retries: 3
+dial_timeout: 1s     # tight: a refused local dial errors instantly anyway
+read_timeout: 3s
+write_timeout: 3s
+pool_timeout: 4s
+
+# Announced-address resolution (see services/internal/redis/sentinel.go):
+#   as_announced  — dial whatever Sentinel announces. Use in production and
+#                   inside the redis-ha network.
+#   announce_map  — rewrite through the static table below; fail-closed on
+#                   a miss. Deterministic here because the redis-ha topology
+#                   uses pinned IPs (docker-compose.dev.yml).
+#   host_probe    — dev-host mode: join Sentinel's node records (runid)
+#                   against the run_id each host_addrs endpoint reports.
+#                   Still correct if the pinned IPs ever change.
+resolve_mode: host_probe
+
+# Static rewrite table (used only in announce_map mode; ignored by
+# as_announced and host_probe). Keys are the announced host:port — sentinel
+# announces the pinned redis-ha IPs. Hostname keys kept for forward-compat
+# if name announcements ever return.
+announce_map:
+  "10.99.0.11:6379": "127.0.0.1:16379"
+  "10.99.0.12:6379": "127.0.0.1:16380"
+  "10.99.0.13:6379": "127.0.0.1:16381"
+  "redis-primary:6379": "127.0.0.1:16379"
+  "redis-replica-1:6379": "127.0.0.1:16380"
+  "redis-replica-2:6379": "127.0.0.1:16381"
+
+# host_probe candidates: the compose host-port forwards of every
+# coordination Redis node. Order is irrelevant; run_id is the join key.
+host_addrs:
+  - 127.0.0.1:16379
+  - 127.0.0.1:16380
+  - 127.0.0.1:16381
