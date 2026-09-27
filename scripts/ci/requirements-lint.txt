@@ -1,0 +1,5 @@
+# C++ lint toolchain pins for .github/workflows/ci.yml (build-and-lint job).
+# Pip wheels ship standalone binaries — pinning here keeps CI identical to
+# the local dev loop and avoids apt version drift between runner images.
+clang-format==19.1.0
+clang-tidy==19.1.0.1

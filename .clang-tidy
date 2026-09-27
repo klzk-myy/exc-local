@@ -1,0 +1,12 @@
+# clang-tidy gate for the C++ matching core (Phase-01.5 Task 1.5.3.1).
+# Executed by scripts/ci/lint_cpp.sh against core/build/compile_commands.json
+# (configure with -DCMAKE_EXPORT_COMPILE_COMMANDS=ON).
+#
+# Minimal safety set: real bugs and analyzer issues only. Exclusions:
+#   -bugprone-easily-swappable-parameters — extreme false-positive rate on the
+#     fixed-width POD signatures this codebase uses deliberately (packed wire
+#     fields, ring-buffer parameters).
+# Diagnostics inside system/vendor headers (/usr/include, third_party/,
+# build _deps/) are surfaced as informational only — filtering lives in
+# lint_cpp.sh, not here.
+Checks: 'bugprone-*,clang-analyzer-*,-bugprone-easily-swappable-parameters'

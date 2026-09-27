@@ -1,0 +1,19 @@
+# golangci-lint configuration (Phase-01.5 Task 1.5.3.1).
+#
+# v2 schema — the services module declares `go 1.26.0`, which requires a
+# golangci-lint binary built with go>=1.26 (v2.x). CI pins the binary via
+# golangci/golangci-lint-action (see .github/workflows/ci.yml).
+#
+# Gate scope: the `exchange` module (services/). The exchange-testspec
+# (tests/spec) and exchange/fault (ci/fault-injection) harness modules are
+# wired by their owning Phase-01.5 tasks. Standard linter set + gofmt;
+# generated files (flatbuffers wire/*.go carry `DO NOT EDIT`) are excluded
+# automatically by golangci-lint's generated-code detection.
+version: "2"
+run:
+  timeout: 4m
+linters:
+  default: standard
+formatters:
+  enable:
+    - gofmt

@@ -84,7 +84,7 @@ struct AeronChannel::Impl {
     void do_work() noexcept {
         try {
             if (aeron) aeron->conductorAgentInvoker().invoke();
-        } catch (...) {
+        } catch (...) {  // NOLINT(bugprone-empty-catch)
             // Conductor errors (e.g. driver timeout) are surfaced through
             // is_open()/send() failure paths; never propagate out of noexcept.
         }
@@ -122,7 +122,7 @@ void AeronChannel::close() noexcept {
             impl_->sub.reset();
             impl_->pub.reset();
             impl_->aeron.reset();
-        } catch (...) {
+        } catch (...) {  // NOLINT(bugprone-empty-catch) — teardown is noexcept
         }
     }
 #endif

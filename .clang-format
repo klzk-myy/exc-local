@@ -1,0 +1,10 @@
+# C++ source style for the matching core (Phase-01.5 Task 1.5.3.1).
+#
+# Enforcement is DIFF-SCOPED in CI (scripts/ci/lint_cpp.sh): only LINES under
+# core/ changed by a PR/push must be format-clean (clang-format-diff gate).
+# The pre-existing tree predates clang-format — gating the diff adopts the
+# style incrementally instead of demanding a ~45-file reformat in the wiring
+# commit. `FORMAT_ALL=1 scripts/ci/lint_cpp.sh` audits the whole tree.
+BasedOnStyle: Google
+IndentWidth: 4
+ColumnLimit: 100

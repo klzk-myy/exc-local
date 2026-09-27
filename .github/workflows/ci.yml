@@ -1,0 +1,322 @@
+# ci.yml — build/lint/test pipeline (Phase-01.5 Task 1.5.3.1).
+#
+# Three parallel stages, all on every PR (plus pushes to the default branch):
+#   build-and-lint  — CMake build (Release) + clang-tidy/clang-format gates +
+#                     golangci-lint + `go build`. Target < 5 min.
+#   unit-tests      — googletest via ctest + `go test -race ./...`. Target < 3 min.
+#   spec-validation — 4 shards × spec-checkpoint validator against an
+#                     ephemeral compose stack (PG16+partman, Redis 7 +3-node
+#                     sentinel quorum, ClickHouse, 3-node NATS JetStream).
+#                     Hard timeout 20 min; shard reports merge in spec-report.
+#   migrations      — applies all services/internal/db/migrations/*.up.sql to
+#                     ephemeral PG16 and verifies schema. Budget < 1 min apply.
+#
+# Caching: actions/cache on core/build (cmake objects + FetchContent deps),
+# setup-go module+build cache keyed on every go.sum, pip wheel cache for the
+# C++ lint toolchain, type=gha layer cache for the postgres image build.
+#
+# Security.yml owns supply-chain gates (CodeQL/Trivy/gitleaks/dep audit);
+# this file owns build/test/spec gates — do not duplicate security jobs here.
+
+name: ci
+
+on:
+  pull_request:
+  push:
+    # Repo default branch is `master` today; `main` kept for a future rename.
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  # Cache key prefix for core/build — the full key appends
+  # `hashFiles(core/**, config/sharding.yaml)`; hashFiles() is only legal in
+  # step context so each actions/cache step spells it out (keep them in sync).
+  # Every job is ubuntu-latest → the OS component is the literal Linux.
+  CORE_CACHE_PREFIX: ci-core-Linux-
+
+jobs:
+  # ── 1. Build + lint ──────────────────────────────────────────────────────
+  build-and-lint:
+    name: Build + lint (C++ / Go)
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # format gate + dep diffs need the PR base
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: services/go.mod
+          cache: true
+          cache-dependency-path: |
+            services/go.sum
+            tests/spec/go.sum
+
+      # Isolated interpreter (not the PEP-668-managed system python); the
+      # pip cache makes the C++ lint toolchain install near-instant on warm runs.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+          cache: pip
+          cache-dependency-path: scripts/ci/requirements-lint.txt
+
+      - name: Install C++ lint toolchain (clang-format/tidy 19 — pinned wheels)
+        run: pip install -r scripts/ci/requirements-lint.txt
+
+      - name: Install flatbuffers headers + flatc (core wire schema)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libflatbuffers-dev flatbuffers-compiler
+
+      - name: Restore CMake build tree
+        id: core-cache
+        uses: actions/cache@v4
+        with:
+          path: core/build
+          key: ${{ env.CORE_CACHE_PREFIX }}${{ hashFiles('core/CMakeLists.txt', 'core/src/**', 'core/include/**', 'core/tests/**', 'core/proto/**', 'config/sharding.yaml') }}
+          restore-keys: ${{ env.CORE_CACHE_PREFIX }}
+
+      - name: CMake configure + build (Release, -j)
+        run: |
+          cmake -S core -B core/build -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+          cmake --build core/build -j "$(nproc)"
+
+      - name: clang-tidy + clang-format gate
+        env:
+          # PR → base commit; push → pre-push head; dispatch/first-push →
+          # lint_cpp.sh falls back through origin/master merge-base → HEAD~1.
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: scripts/ci/lint_cpp.sh
+
+      - name: Go build (services module)
+        run: cd services && go build ./...
+
+      - name: golangci-lint (services module)
+        uses: golangci/golangci-lint-action@v9
+        with:
+          # v2 binary built with go1.26 — v1.x linters cannot parse the
+          # module's `go 1.26.0` directive.
+          version: v2.14.0
+          working-directory: services
+
+  # ── 2. Unit tests ─────────────────────────────────────────────────────────
+  unit-tests:
+    name: Unit tests (gtest + go test -race)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: services/go.mod
+          cache: true
+          cache-dependency-path: |
+            services/go.sum
+            tests/spec/go.sum
+
+      - name: Restore CMake build tree (lookup-only; build on miss)
+        id: core-cache
+        uses: actions/cache@v4
+        with:
+          path: core/build
+          key: ${{ env.CORE_CACHE_PREFIX }}${{ hashFiles('core/CMakeLists.txt', 'core/src/**', 'core/include/**', 'core/tests/**', 'core/proto/**', 'config/sharding.yaml') }}
+          restore-keys: ${{ env.CORE_CACHE_PREFIX }}
+          lookup-only: true
+
+      - name: Build core when cache missed
+        if: steps.core-cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libflatbuffers-dev flatbuffers-compiler
+          cmake -S core -B core/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build core/build -j "$(nproc)"
+
+      - name: Incremental rebuild on stale cache hit
+        if: steps.core-cache.outputs.cache-hit == 'true'
+        run: cmake --build core/build -j "$(nproc)"
+
+      - name: C++ googletest (ctest)
+        run: ctest --test-dir core/build --output-on-failure -j "$(nproc)"
+
+      # Live-infra tests self-gate on EXC_*_TEST env vars (unset here → pure
+      # unit run); the integration coverage lives in the spec-validation job.
+      - name: Go unit tests with race detector (services module)
+        run: cd services && go test -race -count=1 ./...
+
+      - name: Go unit tests (spec-validation harness module)
+        run: cd tests/spec && go test -count=1 ./...
+
+  # ── 3. Migrations on ephemeral PostgreSQL 16 ─────────────────────────────
+  migrations:
+    name: Migrations on ephemeral PG16
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build postgres image (gha layer cache)
+        run: |
+          docker buildx build --load -t exc-postgres:16-partman \
+            --cache-from type=gha,scope=exc-postgres \
+            --cache-to   type=gha,mode=max,scope=exc-postgres \
+            deploy/postgres
+
+      - name: Start ephemeral postgres (compose, health-gated)
+        run: docker compose -f docker-compose.dev.yml up -d --wait postgres
+
+      - name: Apply all migrations + verify schema (<1 min budget)
+        run: scripts/ci/apply_migrations.sh
+
+      - name: Teardown ephemeral postgres
+        if: always()
+        run: docker compose -f docker-compose.dev.yml down -v
+
+  # ── 4. Spec validation — 4 parallel shards ────────────────────────────────
+  spec-validation:
+    name: Spec validation shard ${{ matrix.shard }}/4
+    runs-on: ubuntu-latest
+    timeout-minutes: 20 # hard cap — the pipeline fails if a shard exceeds it
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    env:
+      EXC_TEST_DSN: postgres://exchange:exchange_dev@127.0.0.1:5433/exchange?sslmode=disable
+      EXC_REDIS_TEST_ADDR: 127.0.0.1:16379
+      EXC_NATS_URLS: nats://127.0.0.1:4222,nats://127.0.0.1:4223,nats://127.0.0.1:4224
+      EXC_SENTINEL_ADDRS: 127.0.0.1:36379,127.0.0.1:36380,127.0.0.1:36381
+      EXC_CLICKHOUSE_HTTP: http://127.0.0.1:8123
+      EXC_CORE_BUILD: ${{ github.workspace }}/core/build
+      SPEC_FAIL_ON_SKIP: "1" # stack is health-checked — a skip means broken infra
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: services/go.mod
+          cache: true
+          cache-dependency-path: |
+            services/go.sum
+            tests/spec/go.sum
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build postgres image (gha layer cache)
+        run: |
+          docker buildx build --load -t exc-postgres:16-partman \
+            --cache-from type=gha,scope=exc-postgres \
+            --cache-to   type=gha,mode=max,scope=exc-postgres \
+            deploy/postgres
+
+      - name: Ephemeral stack up (PG16 + Redis 7 + ClickHouse + NATS + sentinels)
+        run: docker compose -f docker-compose.dev.yml up -d --wait
+
+      - name: Health-check the full topology before tests
+        run: scripts/ci/wait_stack.sh
+
+      - name: Apply all migrations + verify schema
+        run: scripts/ci/apply_migrations.sh
+
+      - name: Provision coordination state (shard map, JetStream streams)
+        run: |
+          cd services
+          go run ./cmd/exchange cache-shard-map
+          go run ./cmd/natsctl init
+
+      - name: Restore CMake build tree (lookup-only; build on miss)
+        id: core-cache
+        uses: actions/cache@v4
+        with:
+          path: core/build
+          key: ${{ env.CORE_CACHE_PREFIX }}${{ hashFiles('core/CMakeLists.txt', 'core/src/**', 'core/include/**', 'core/tests/**', 'core/proto/**', 'config/sharding.yaml') }}
+          restore-keys: ${{ env.CORE_CACHE_PREFIX }}
+          lookup-only: true
+
+      - name: Build core when cache missed
+        if: steps.core-cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libflatbuffers-dev flatbuffers-compiler
+          cmake -S core -B core/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build core/build -j "$(nproc)"
+
+      - name: Incremental rebuild on stale cache hit
+        if: steps.core-cache.outputs.cache-hit == 'true'
+        run: cmake --build core/build -j "$(nproc)"
+
+      - name: Checkpoint corpus drift check (committed corpus must match docs)
+        run: cd tests/spec && go run . extract
+
+      - name: Run spec-validation shard
+        run: scripts/ci/shard_runner.sh ${{ matrix.shard }} 4 reports
+
+      - name: Upload shard report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spec-report-shard-${{ matrix.shard }}
+          path: reports/shard-${{ matrix.shard }}.json
+          if-no-files-found: error
+
+      - name: Teardown ephemeral stack
+        if: always()
+        run: docker compose -f docker-compose.dev.yml down -v
+
+  # ── 5. Merge shard reports → one verdict artifact ────────────────────────
+  spec-report:
+    name: Spec validation report (merged)
+    needs: spec-validation
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: services/go.mod
+          cache: true
+          cache-dependency-path: |
+            services/go.sum
+            tests/spec/go.sum
+
+      - name: Download shard reports
+        uses: actions/download-artifact@v4
+        with:
+          pattern: spec-report-shard-*
+          path: reports
+          merge-multiple: true
+
+      - name: Require all 4 shard reports
+        run: |
+          n=$(ls reports/shard-*.json 2>/dev/null | wc -l)
+          [ "$n" -eq 4 ] || { echo "expected 4 shard reports, found $n"; exit 1; }
+
+      - name: Merge + verdict
+        run: |
+          cd tests/spec
+          go run . merge --reports='../reports/shard-*.json' --report=../reports/merged.json
+
+      - name: Upload merged report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spec-report-merged
+          path: reports/merged.json
+          if-no-files-found: warn

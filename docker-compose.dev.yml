@@ -143,7 +143,9 @@ services:
     volumes:
       - clickhouse-data:/var/lib/clickhouse
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8123/ping || exit 1"]
+      # 127.0.0.1, not localhost: on IPv6-disabled docker networks `localhost`
+      # resolves to ::1 first and ClickHouse (listen_host 0.0.0.0) refuses it.
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8123/ping || exit 1"]
       interval: 5s
       timeout: 3s
       retries: 20
