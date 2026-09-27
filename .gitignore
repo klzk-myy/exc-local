@@ -21,4 +21,4 @@ node_modules/
 # CMake build trees (any depth)
 core/build*/
 **/build/
-fault
+ci/fault-injection/fault
