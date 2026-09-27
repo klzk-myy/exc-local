@@ -146,3 +146,30 @@ foundations (1.3.1 C++ scaffold / 1.3.2 Go scaffold / 1.3.3 PG migrations) → d
 - **Checklist:** DoD 3/3, SDD 3/3 marked.
 - **Decisions:** added `aeron.ipc.term.buffer.length`/`ipc.mtu.length` (hot path is `aeron:ipc` — network props alone wouldn't apply); netdev_budget/max_backlog/budget_usecs sysctls added; governor via runtime sysfs (non-persistent); isolcpus = guidance only (single dev host); `aeron.dir` kept out of properties (file-wins over -D); vendored `aeronmd` swapped to static `aeronmd_s` — original had rpath into volatile `/tmp/aeron-src`.
 - **Deviation:** none.
+
+### [2026-09-27 21:05 UTC] — PHASE 01 COMPLETE — C++ Core Foundation
+**AC 1.7 evidence (22/22):**
+1. Debug (-O0 -g -fsanitize=address) + Release (-O3 -march=native) builds green — ctest **9/9 each**.
+2. All 6+2 service binaries compile (`go build ./cmd/...` — admin, compliance, exchange, fix, gateway, marketdata, natsctl, settlement).
+3. 21 migrations applied to fresh `fresh_gate` PG16 (post pg_partman+pgcrypto bootstrap): **86 tables, zero errors**.
+4. 8 seed instruments present with correct settlement_cycle/max_leverage.
+5. `trades` pg_partman daily partitioned — **63 partitions** (premake 30).
+6. Redis AOF+maxmemory live; key types exercised (Task 1.3.4).
+7. IPC RTT: **shm p99=6.3µs, aeron p99=3.7µs** <50µs (n=5000–100000).
+8. WAL 1000 entries fsync'd + CRC32 verified (`test_wal` 19/19).
+9. WAL crash sim: torn tail detected + truncated, appends resume clean.
+10. Shard map EUR/USD→0, USD/JPY→1, cached in Redis `shard:map` (12 syms + meta).
+11. SHA-256 payload_hash/prev_hash chain correct (genesis = sha256("")).
+12. `verify-audit` detects modified row → exit 2, field+seq identified.
+13. Daily Merkle root job (`merkle --run-daily`, 00:10 UTC body) computes+stores; scheduler wiring deferred to Phase-07 per ownership map.
+14. Decimal: fixed-point int64 mantissa ×1e8, no float (test_decimal).
+15. MemoryPool 1M orders preallocated, alloc/free heap-free, high-watermark+OrderBookCapacityExceeded.
+16. slog JSON in all Go services.
+17. YAML config + EXC_* env overrides in all services.
+18. `exchange cache-shard-map` writes `shard:map` HASH.
+19. Sentinel failover: promotion **1.07s**, reconnect **43ms/81µs**, zero session loss, 2 live drills.
+20. Aeron C driver: 128MB term bufs, DEDICATED threading, 16MB sockbufs, kernel tuned, p99 2.9µs.
+21. NATS 3-node healthy, 7 streams R3 workqueue 7d, at-least-once verified.
+22. safe_math overflow detect, pool capacity bound, clock-drift>100µs halts (TIME_SYNC_LOSS_HALT) — 18/18 tests.
+- **Commits:** c6422d0(1.3.7) 516b051(1.3.10) 866680c(1.3.12) 14a5083(1.3.5) 73f3fbb(1.3.6) 15c340d(1.3.9) c708087(1.3.8) + earlier da80696(1.3.1/1.3.11), 1.3.2–1.3.4 commits.
+- **Next:** Phase-01.5 CI/CD Validation Harness.
