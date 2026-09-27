@@ -1,0 +1,19 @@
+# Syncthing conflict copies - never commit quarantines
+*.sync-conflict-*
+
+# Per-device tool caches - machine-local, never share or version
+.gitnexus/
+.mimocode/
+.freebuff/
+.claude/
+
+# MCP local-scope config may contain secrets - never commit
+.devin/mcp_config.local.json
+
+# Hosting panel artifact - not part of the repo
+.user.ini
+
+# Build outputs
+core/build/
+build/
+node_modules/
