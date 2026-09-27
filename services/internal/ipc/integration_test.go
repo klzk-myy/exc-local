@@ -58,10 +58,23 @@ func echoBinary(t *testing.T) string {
 		out := filepath.Join(os.TempDir(),
 			fmt.Sprintf("ipc_echo_test_%d", os.Getpid()))
 		core := filepath.Join(root, "core")
+		// Prefer the build-tree regenerated wire header (CMake flatc output,
+		// always matches the installed flatbuffers headers). Fall back to the
+		// committed proto/gen copy when the build tree isn't present.
+		genDir := filepath.Join(core, "proto", "gen")
+		for _, cand := range []string{
+			filepath.Join(core, "build", "proto", "gen"),
+			filepath.Join(core, "build-debug", "proto", "gen"),
+		} {
+			if _, err := os.Stat(filepath.Join(cand, "exchange_generated.h")); err == nil {
+				genDir = cand
+				break
+			}
+		}
 		cmd := exec.Command(gpp,
 			"-std=c++20", "-O2", "-DEXCH_WITH_AERON=1",
 			"-I"+filepath.Join(core, "include"),
-			"-I"+filepath.Join(core, "proto", "gen"),
+			"-I"+genDir,
 			"-I"+filepath.Join(core, "third_party", "aeron", "include", "cpp"),
 			filepath.Join(core, "src", "ipc", "bench", "ipc_echo_main.cpp"),
 			filepath.Join(core, "src", "ipc", "SharedMemChannel.cpp"),
