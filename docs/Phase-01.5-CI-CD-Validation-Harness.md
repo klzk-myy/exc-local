@@ -66,18 +66,18 @@ Harden the CI pipeline and test infrastructure to support 400+ per-task spec val
 5. **Report:** JSON report with pass/fail per checkpoint; CI fails on any failure.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] 400+ spec checkpoints extracted from phase docs (actual 543 across 479 tasks; supersedes 530/466, 527/463, 523/461, 467/405, 466/404, 422/360, unverified 407/346 and prior 377/316, 373/312, 365+, 358/297, 369+, 340+, 323, 310+, 240+, 182+)
-* [ ] 4 parallel shards with deterministic assignment
-* [ ] Golden corpus: 20+ spec-derived test cases
-* [ ] JSON report generated with per-checkpoint pass/fail
-* [ ] CI fails on any checkpoint failure
+* [x] 400+ spec checkpoints extracted from phase docs (actual 543 across 479 tasks; supersedes 530/466, 527/463, 523/461, 467/405, 466/404, 422/360, unverified 407/346 and prior 377/316, 373/312, 365+, 358/297, 369+, 340+, 323, 310+, 240+, 182+)
+* [x] 4 parallel shards with deterministic assignment
+* [x] Golden corpus: 20+ spec-derived test cases
+* [x] JSON report generated with per-checkpoint pass/fail
+* [x] CI fails on any checkpoint failure
 
 **SDD Checklist (MANDATORY):**
-- [ ] Spec checkpoint: 400+ per-task spec validation checks (actual 543 across 479 tasks; supersedes 530/466, 527/463, 523/461, 467/405, 466/404, 422/360 and prior 350+/377/316) — defined first, validated against spec
-- [ ] Spec checkpoint: 4 parallel shards < 20 min — defined first, validated against spec
-- [ ] Spec checkpoint: golden corpus 20+ spec-derived cases — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: checkpoint timeout, flaky checkpoint, missing dependency
+- [x] Spec checkpoint: 400+ per-task spec validation checks (actual 543 across 479 tasks; supersedes 530/466, 527/463, 523/461, 467/405, 466/404, 422/360 and prior 350+/377/316) — defined first, validated against spec
+- [x] Spec checkpoint: 4 parallel shards < 20 min — defined first, validated against spec
+- [x] Spec checkpoint: golden corpus 20+ spec-derived cases — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [x] Edge cases: checkpoint timeout, flaky checkpoint, missing dependency
 
 ---
 
@@ -118,14 +118,14 @@ Harden the CI pipeline and test infrastructure to support 400+ per-task spec val
 5. New dependencies require a version published ≥ 7 days ago (supply-chain cooldown).
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] CodeQL/SAST runs on every PR and fails on HIGH findings
-* [ ] govulncheck + npm audit + C++ dep audit gate the build
-* [ ] Trivy image scan fails on HIGH/CRITICAL vulnerabilities
-* [ ] Secret scanning blocks pushes containing credentials
+* [x] CodeQL/SAST runs on every PR and fails on HIGH findings
+* [x] govulncheck + npm audit + C++ dep audit gate the build
+* [x] Trivy image scan fails on HIGH/CRITICAL vulnerabilities
+* [x] Secret scanning blocks pushes containing credentials
 
 **SDD Checklist (MANDATORY):**
-- [ ] Spec checkpoint: SAST + dependency audit gates PRs (§24 #161) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: SAST + dependency audit gates PRs (§24 #161) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 

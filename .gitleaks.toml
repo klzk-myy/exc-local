@@ -1,0 +1,12 @@
+# gitleaks config — extends the built-in ruleset (Phase-01.5 Task 1.5.3.4;
+# spec §19.2 secret scan, workflow .github/workflows/security.yml).
+[extend]
+useDefault = true
+
+# Verified false positives. Keep entries exact-token-scoped (regexTarget =
+# "secret" + anchored regex): a broad path allowlist would mask a real
+# credential pasted into the same file later.
+[[allowlists]]
+description = "Spec prose: the auth-algorithm list 'JWT/HMAC/Ed25519' in the deployment component table (Specification §19, ~line 3005) trips generic-api-key. Not a credential — suppresses only this literal token."
+regexTarget = "secret"
+regexes = ['''^JWT/HMAC/Ed25519$''']

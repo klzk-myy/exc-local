@@ -1,0 +1,209 @@
+# security.yml — supply-chain security gate (Phase-01.5 Task 1.5.3.4).
+# Implements spec §19.2 PR check + §24 #161:
+#   SAST (CodeQL Go + TypeScript) · dependency audit (govulncheck / npm audit /
+#   vendored C++ CVE feed) · Trivy HIGH/CRITICAL image+fs scan · gitleaks
+#   secret scan · 7-day dependency publish-age cooldown.
+# Fires on every PR and every push to the default branch. All jobs fail-closed:
+# a tool that cannot complete its check fails the job rather than passing it.
+
+name: security
+
+on:
+  pull_request:
+  push:
+    # Repo default branch is `master` today; `main` kept for a future rename.
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  # ── 1. SAST ────────────────────────────────────────────────────────────────
+  codeql:
+    name: CodeQL SAST (Go + TypeScript)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      actions: read          # required by codeql-action/init
+      contents: read
+      security-events: write # SARIF upload to code scanning (GHAS)
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Detect languages present in the repo
+        id: langs
+        run: |
+          langs=""
+          # Go module lives in services/ (module `exchange`).
+          if [ -f services/go.mod ]; then langs="go"; fi
+          # TypeScript/JavaScript — only when the frontend tree actually
+          # exists (Phase-10); the CodeQL gate must degrade gracefully until
+          # then, not error on an empty database.
+          if git ls-files '*.ts' '*.tsx' '*.js' '*.jsx' '*.mts' '*.cts' \
+               | grep -qvE 'node_modules/|/build[^/]*/'; then
+            langs="${langs:+$langs,}javascript-typescript"
+          fi
+          echo "languages=$langs" >> "$GITHUB_OUTPUT"
+          echo "CodeQL languages: ${langs:-<none>}"
+
+      - name: Set up Go (for CodeQL autobuild of services/)
+        if: contains(steps.langs.outputs.languages, 'go')
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: services/go.mod
+
+      - name: Initialize CodeQL
+        if: steps.langs.outputs.languages != ''
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ steps.langs.outputs.languages }}
+          queries: security-and-quality
+          build-mode: autobuild
+
+      - name: Autobuild
+        if: steps.langs.outputs.languages != ''
+        uses: github/codeql-action/autobuild@v4
+
+      - name: Perform CodeQL analysis
+        if: steps.langs.outputs.languages != ''
+        uses: github/codeql-action/analyze@v4
+        with:
+          # Upload handled by the dedicated upload-sarif step below so that
+          # the SARIF gate can evaluate results first and upload can degrade
+          # gracefully where GHAS is not licensed on this private repo.
+          upload: never
+          output: ${{ runner.temp }}/sarif-results
+
+      - name: Gate on HIGH+ security findings
+        if: steps.langs.outputs.languages != ''
+        run: scripts/ci/sarif_gate.sh "${{ runner.temp }}/sarif-results" 7.0
+
+      - name: Upload SARIF to code scanning
+        if: steps.langs.outputs.languages != ''
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: ${{ runner.temp }}/sarif-results
+        # Upload requires GitHub Advanced Security on private repos. The
+        # merge gate above does not depend on it — do not red the pipeline
+        # when GHAS is not licensed.
+        continue-on-error: true
+
+  # ── 2. Dependency vulnerability audit ───────────────────────────────────────
+  dep-audit:
+    name: Dependency audit (Go / npm / C++ vendored)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: services/go.mod
+          cache: true
+
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: govulncheck (every tracked Go module — reachable-symbol scan)
+        run: |
+          mapfile -t mods < <(git ls-files '*go.mod' \
+              | grep -vE '(^|/)build[^/]*/|third_party/')
+          for mod in "${mods[@]}"; do
+            echo "── govulncheck ./... in $(dirname "$mod")"
+            (cd "$(dirname "$mod")" && govulncheck ./...)
+          done
+
+      - name: npm audit (React frontend — skips gracefully until Phase-10)
+        run: |
+          mapfile -t locks < <(git ls-files '*package-lock.json')
+          if [ "${#locks[@]}" -eq 0 ]; then
+            echo "No package-lock.json tracked — npm audit skipped" \
+                 "(frontend lands in Phase-10; gate activates automatically)."
+            exit 0
+          fi
+          for lock in "${locks[@]}"; do
+            echo "── npm audit --audit-level=high in $(dirname "$lock")"
+            (cd "$(dirname "$lock")" && npm audit --audit-level=high)
+          done
+
+      - name: Vendored C++ dependency audit (FetchContent pins + OSV CVE feed)
+        run: scripts/ci/cpp_dep_audit.sh
+
+  # ── 3. Dependency publish-age cooldown ──────────────────────────────────────
+  dep-cooldown:
+    name: Dependency cooldown (≥7-day publish age)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # need the base commit to diff lockfiles
+
+      - name: Check new dependencies are ≥7 days old
+        env:
+          # PR → base commit; push → pre-push head; dispatch → script falls
+          # back to HEAD~1.
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: scripts/ci/dep_cooldown.sh
+
+  # ── 4. Container / filesystem scan ──────────────────────────────────────────
+  container-scan:
+    name: Trivy scan (fs + images)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Trivy (pinned release, checksum-verified)
+        env:
+          TRIVY_VERSION: "0.70.0" # bundled version of trivy-action v0.36.0
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          base="https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}"
+          curl -fsSL -o trivy.tgz "${base}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          curl -fsSL "${base}/trivy_${TRIVY_VERSION}_checksums.txt" \
+            | grep 'Linux-64bit\.tar\.gz' \
+            | sed 's/  trivy_.*Linux-64bit.tar.gz/  trivy.tgz/' \
+            | sha256sum -c -
+          tar xzf trivy.tgz trivy
+          sudo mv trivy /usr/local/bin/trivy
+          trivy version
+
+      - name: Trivy filesystem scan (tracked lockfiles — services/go.sum today)
+        run: |
+          trivy fs --scanners vuln --severity HIGH,CRITICAL --exit-code 1 \
+            --skip-dirs 'core/build*,docs,.git' .
+
+      - name: Trivy image scan (Dockerfile builds + compose images)
+        run: scripts/ci/scan_images.sh
+
+  # ── 5. Secret scan ──────────────────────────────────────────────────────────
+  secrets:
+    name: gitleaks secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # scan the full commit range of the PR/push
+
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Repo-root .gitleaks.toml extends defaults + allowlists the one
+          # verified spec-prose false positive (JWT/HMAC/Ed25519 token).
+          # NOTE: organization-owned repos additionally need a
+          # GITLEAKS_LICENSE secret; if this job errors with a license
+          # message, either add the license or swap this step for a pinned
+          # gitleaks binary run (`gitleaks git . --redact`), which needs no
+          # license.

@@ -1,0 +1,4 @@
+# Build outputs + run artifacts (Task 1.5.3.5)
+/bin/
+/fault-report.json
+/work/

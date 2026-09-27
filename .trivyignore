@@ -1,0 +1,21 @@
+# .trivyignore — accepted CVE exceptions for Trivy scans (Phase-01.5
+# Task 1.5.3.4 supply-chain gate; spec §19.2).
+#
+# Policy: this file is loaded automatically by every `trivy` invocation and
+# applies globally to all scan targets. Therefore ONLY entries that cannot be
+# path-scoped belong here (OS packages inside upstream base images). Findings
+# in third-party Go binaries are suppressed with per-path scoping in
+# .trivyignore.yaml — loaded by scripts/ci/scan_images.sh via --ignorefile —
+# so the same CVE in a binary WE build still fails the gate.
+#
+# Every entry MUST carry: target, reason it cannot be remediated by us, and a
+# review trigger. Entries without justification are defects.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# nats:2.11-alpine + clickhouse/clickhouse-server:25.8-alpine (docker-compose
+# dev infra). Alpine openssl 3.5.6/3.5.7-r0 → fixed in 3.5.8-r0; the alpine
+# pkg inside these upstream images is only rebuilt when upstream republishes
+# the tag. Dev-infra only — never shipped as a production artifact.
+# REVIEW: on every compose base-image tag bump, or 2026-12-27 at latest.
+CVE-2026-14456   # openssl DoS via unbounded memory (libcrypto3/libssl3) — upstream alpine, fixed 3.5.8-r0
+CVE-2026-45447   # openssl heap UAF in PKCS7_verify (libcrypto3/libssl3) — upstream alpine, fixed 3.5.7-r0

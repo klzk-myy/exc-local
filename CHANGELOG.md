@@ -173,3 +173,21 @@ foundations (1.3.1 C++ scaffold / 1.3.2 Go scaffold / 1.3.3 PG migrations) → d
 22. safe_math overflow detect, pool capacity bound, clock-drift>100µs halts (TIME_SYNC_LOSS_HALT) — 18/18 tests.
 - **Commits:** c6422d0(1.3.7) 516b051(1.3.10) 866680c(1.3.12) 14a5083(1.3.5) 73f3fbb(1.3.6) 15c340d(1.3.9) c708087(1.3.8) + earlier da80696(1.3.1/1.3.11), 1.3.2–1.3.4 commits.
 - **Next:** Phase-01.5 CI/CD Validation Harness.
+
+## [2026-09-27 21:30 UTC] — Phase 01.5 START — CI/CD & Validation Harness
+Scope: 5 tasks (1.5.3.1–1.5.3.5), 19 AC rows. GitHub remote `github.com/klzk-myy/exc-local` (private) created + pushed — real CI verification possible.
+
+### [2026-09-27 21:55 UTC] — Task 1.5.3.2 Spec Validation Harness — DONE
+- **Files:** `tests/spec/` module `exchange-testspec` (validator CLI run|extract|list|stubs|merge, spec/ framework, checks/ registry, golden/ corpus, checkpoints/ corpus+PENDING.md, README policy).
+- **Verification:** `go test ./...` — spec 6 + golden 29 PASS; extractor yields **542 strict checkpoints / 479 tasks**; FNV-1a%4 shards deterministic [117,131,140,154], two runs identical; JSON report schema verified (571 records); failure/vanished → rc=1, clean → rc=0; `--fail-on-skip` works.
+- **Checklist:** DoD 5/5, SDD 5/5 marked.
+- **Decisions:** checkpoint ID `P<phase>-T<task>-C<idx>`; status policy `implemented`/`pending`/`skip` — pending (later-phase) checkpoints report but don't fail; harness is separate go.mod to isolate deps; checkers call ctest/gtest/`go test -run` subprocesses (internal/ not cross-module importable); skip-aware.
+- **Deviation:** strict count 542 vs canonical 543 — raw grep includes 1 prose "Spec checkpoint:" mention (this task's text); reconciled + asserted in self-check C1.
+
+### [2026-09-27 22:00 UTC] — Task 1.5.3.4 Supply-Chain Security — DONE
+- **Files:** `.github/workflows/security.yml` (5 jobs), `.trivyignore`+`.trivyignore.yaml`, `.gitleaks.toml`, `scripts/ci/{dep_cooldown,cpp_dep_audit,scan_images,sarif_gate}.sh`, `core/third_party/vendored-deps.txt`.
+- **Verification (local):** gitleaks clean (1 FP allowlisted by exact-token); trivy fs+image scanned 4 imgs, gate green after documented exceptions; dep_cooldown verified vs proxy.golang.org; cpp_dep_audit FetchContent SHA256 pin ✓ + OSV fail-closed ✓; sarif_gate high→FAIL/low→PASS/malformed→FAIL; actionlint clean.
+- **Checklist:** DoD 4/4, SDD 2/2 marked.
+- **Decisions:** CodeQL @v4; `--ignore-unfixed` on image gate (Debian unactionable noise) + SCAN_UNFIXED=1 audit mode; path-scoped yaml ignorefile as gate-canonical; dep-cooldown gates new deps AND version bumps (go + npm).
+- **Security remediation applied by orchestrator:** bumped pgx v5.7.5→v5.9.2, x/crypto→v0.57, x/net→v0.59, x/text→v0.42, go directive→1.26.0/toolchain go1.26.8 (pgx v5.9.2 requires ≥1.25; new toolchain also clears 24 stdlib vulns) — `govulncheck` now reports **0 reachable vulns**; `go test`/`vet` all green.
+- **Deviation:** triggers cover [main, master] (repo default branch is master).

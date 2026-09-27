@@ -1,0 +1,17 @@
+# Vendored C/C++ dependency manifest — audited by scripts/ci/cpp_dep_audit.sh
+# (Phase-01.5 Task 1.5.3.4 supply-chain gate; spec §19.2).
+#
+# Every dependency vendored under core/third_party/ OR fetched by CMake
+# FetchContent MUST be listed here. Columns are tab-separated:
+#
+#   name            — human label (also the OSV query name unless overridden)
+#   version         — exact pinned version we ship/fetch
+#   osv_name        — package name to query in the OSV feed ('-' to skip the
+#                     feed check, e.g. for private forks — justify inline)
+#   source          — upstream URL we vendored/fetched from
+#
+# After bumping any vendored dep, update its version here in the same commit —
+# cpp_dep_audit.sh fails if a vendored directory or FetchContent_Declare block
+# has no manifest entry.
+aeron	1.48.6	aeron	https://github.com/aeron-io/aeron
+googletest	1.14.0	googletest	https://github.com/google/googletest
