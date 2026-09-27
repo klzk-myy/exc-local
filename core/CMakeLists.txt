@@ -80,6 +80,7 @@ add_library(exch_core STATIC
     src/matching/SelfTradeGuard.cpp
     src/matching/IcebergManager.cpp
     src/matching/StopOrderTrigger.cpp
+    src/matching/ExpiryScheduler.cpp
     src/matching/EngineLoop.cpp
     src/recovery/RecoveryManager.cpp
     src/recovery/SnapshotStore.cpp
@@ -166,7 +167,9 @@ if(EXCH_BUILD_TESTS)
             test_health
             test_matching_engine
             test_recovery
-            test_engine_pump)
+            test_engine_pump
+            test_pretrade
+            test_expiry)
         add_executable(${t} tests/${t}.cpp)
         target_link_libraries(${t} PRIVATE exch_core gtest_main)
         add_test(NAME ${t} COMMAND ${t})
