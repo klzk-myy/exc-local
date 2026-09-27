@@ -301,9 +301,12 @@ func scenarioAuthEdge(ctx context.Context, _ *env) *Checks {
 		ct == excerrors.ProblemMediaType, "problem=%v", pb)
 
 	// 4) valid signature, insufficient scope -> 403 FORBIDDEN
-	now2 := strconv.FormatInt(time.Now().UnixMilli(), 10)
-	// distinct ts so the signature is fresh (not a replay)
-	time.Sleep(time.Millisecond * 2)
+	// The signature does NOT cover the API key, so a same-millisecond ts
+	// would reproduce the replayed signature byte-for-byte — the oracle
+	// would (correctly) answer REPLAY_ATTACK_DETECTED instead of reaching
+	// the scope check. Derive now2 = now+1ms deterministically.
+	nowMs, _ := strconv.ParseInt(now, 10, 64)
+	now2 := strconv.FormatInt(nowMs+1, 10)
 	st, ct, pb = do("k-readonly", now2, sign("k-readonly", now2, body))
 	c.okf("scope:403", st == http.StatusForbidden, "status=%d", st)
 	c.okf("scope:code", jstr(pb, "code") == "FORBIDDEN" &&

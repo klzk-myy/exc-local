@@ -104,14 +104,14 @@ type scenarioReport struct {
 }
 
 type report struct {
-	Task        string           `json:"task"`
-	Spec        string           `json:"spec"`
-	StartedAt   string           `json:"started_at"`
-	DurationMs  int64            `json:"duration_ms"`
-	Tools       map[string]any   `json:"tools"`
-	Scenarios   []scenarioReport `json:"scenarios"`
-	TiersHit    map[string]int   `json:"tiers_covered"`
-	Totals      map[string]int   `json:"totals"`
+	Task       string           `json:"task"`
+	Spec       string           `json:"spec"`
+	StartedAt  string           `json:"started_at"`
+	DurationMs int64            `json:"duration_ms"`
+	Tools      map[string]any   `json:"tools"`
+	Scenarios  []scenarioReport `json:"scenarios"`
+	TiersHit   map[string]int   `json:"tiers_covered"`
+	Totals     map[string]int   `json:"totals"`
 }
 
 func main() {
@@ -269,13 +269,13 @@ func main() {
 		}
 	}
 	rep.Totals = map[string]int{
-		"scenarios":      len(rep.Scenarios) - skipped,
-		"passed":         passed,
-		"failed":         failed,
-		"errored":        errored,
-		"skipped":        skipped,
-		"checks":         checks,
-		"checks_failed":  checksFailed,
+		"scenarios":     len(rep.Scenarios) - skipped,
+		"passed":        passed,
+		"failed":        failed,
+		"errored":       errored,
+		"skipped":       skipped,
+		"checks":        checks,
+		"checks_failed": checksFailed,
 	}
 
 	// Stable key order for the tiers map in output.

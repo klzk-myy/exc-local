@@ -8,6 +8,7 @@ package main
 import (
 	"context"
 	stderrors "errors"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -16,6 +17,7 @@ import (
 
 	"exchange/internal/audit"
 	"exchange/internal/db"
+	excerrors "exchange/pkg/errors"
 )
 
 // specSQLSTATERetryable mirrors audit.retryableSQLSTATEs (unexported there):
@@ -77,8 +79,8 @@ func scenarioPGConflict(ctx context.Context, e *env) *Checks {
 	// Txn A: lock + update, hold ~400ms, commit.
 	// Txn B: same row; blocks on FOR UPDATE, then SSI aborts it on commit.
 	type bResult struct {
-		err      error // error observed anywhere in B's txn (incl. commit)
-		stage    string
+		err       error // error observed anywhere in B's txn (incl. commit)
+		stage     string
 		committed bool
 	}
 	bCh := make(chan bResult, 1)
@@ -182,13 +184,25 @@ func scenarioPGConflict(ctx context.Context, e *env) *Checks {
 	return c
 }
 
-// pgAuditRetryScenario holds a SERIALIZABLE blocker that predicate-reads
-// audit_hash_chain and writes its tail row, forcing AppendAuto's
-// SERIALIZABLE commits to abort 40001 until the 3-attempt budget exhausts
-// to TRANSACTION_CONFLICT_RETRY_EXHAUSTED (spec §5.40).
+// auditAppendLockKey mirrors audit.appendLockKey (unexported there) — the
+// pg_advisory_xact_lock key serializing audit tail reads.
+const auditAppendLockKey int64 = 0x415544495443
+
+// pgAuditRetryScenario proves the §5.40 retry contract deterministically:
+// each audit append attempt is parked on the advisory tail lock while a
+// dedicated conflictor commits an overlapping read/write set, forcing
+// SQLSTATE 40001 on every attempt until the retry budget yields
+// TRANSACTION_CONFLICT_RETRY_EXHAUSTED — a coded retriable-class error.
+//
+// Gating trick: session-level pg_advisory_lock and the xact-level lock in
+// audit.Append share one lock space. Holding the session key blocks the
+// attempt's first statement *after its snapshot is taken* (verified
+// empirically — the abort lands on the INSERT), so a conflictor that
+// commits during the block is always "concurrent" to the attempt:
+// conflictor's predicate SIREAD on audit_hash_chain + committed state vs
+// the attempt's tail-read + INSERT = dangerous structure -> 40001 abort.
 func pgAuditRetryScenario(ctx context.Context, c *Checks, pool *pgxpool.Pool) {
-	// The dangerous structure needs a non-empty chain (blocker writes the
-	// tail row the appender's tail-read touches). Seed one probe row.
+	// Seed a chain row — the dangerous structure needs a tail to touch.
 	if _, err := audit.AppendAuto(ctx, pool, "fault_probe_seed", nil, "INSERT", nil); err != nil {
 		c.ok("pg:audit_seed", false, err.Error())
 		return
@@ -196,69 +210,153 @@ func pgAuditRetryScenario(ctx context.Context, c *Checks, pool *pgxpool.Pool) {
 	var chainBefore int64
 	_ = pool.QueryRow(ctx, "SELECT count(*) FROM audit_hash_chain").Scan(&chainBefore)
 
-	const outerAttempts = 3
-	for outer := 1; outer <= outerAttempts; outer++ {
-		bconn, err := pool.Acquire(ctx)
+	hold, err := pool.Acquire(ctx)
+	if err != nil {
+		c.ok("pg:hold_acquire", false, err.Error())
+		return
+	}
+	defer hold.Release()
+	if _, err = hold.Exec(ctx, "SELECT pg_advisory_lock($1)", auditAppendLockKey); err != nil {
+		c.ok("pg:hold_lock", false, err.Error())
+		return
+	}
+	unlock := func() {
+		cx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_, _ = hold.Exec(cx, "SELECT pg_advisory_unlock($1)", auditAppendLockKey)
+	}
+	defer unlock()
+
+	// Launch the real AppendAuto (3-attempt §5.40 budget) — it will be
+	// parked on the advisory xact lock the moment it begins.
+	appendDone := make(chan error, 1)
+	go func() {
+		_, err := audit.AppendAuto(ctx, pool, "fault_probe_blocked", nil, "INSERT", nil)
+		appendDone <- err
+	}()
+
+	// Per attempt: arm a conflictor, let the blocked attempt's snapshot
+	// predate its commit, then release. Relock immediately afterwards so
+	// the NEXT attempt queues behind our session lock (FIFO grant order).
+	for attempt := 1; attempt <= 3; attempt++ {
+		conf, err := pool.Acquire(ctx)
 		if err != nil {
-			c.ok("pg:blocker_acquire", false, err.Error())
+			c.ok("pg:conflictor_acquire", false, err.Error())
 			return
 		}
-		btx, err := bconn.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+		txW, err := conf.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 		if err != nil {
-			bconn.Release()
-			c.ok("pg:blocker_begin", false, err.Error())
+			conf.Release()
+			c.okf("pg:conflictor_begin_%d", false, "err=%v", err)
 			return
 		}
-		// Predicate-read the whole table + write the tail row: appender's
-		// tail-read hits the written row (wr edge) and its INSERT overlaps
-		// the predicate (rw edge) -> dangerous structure -> appender aborts.
 		var n int64
-		err = btx.QueryRow(ctx, "SELECT count(*) FROM audit_hash_chain").Scan(&n)
+		err = txW.QueryRow(ctx, "SELECT count(*) FROM audit_hash_chain").Scan(&n)
 		if err == nil {
-			_, err = btx.Exec(ctx,
+			_, err = txW.Exec(ctx,
 				"UPDATE audit_hash_chain SET table_name = table_name "+
 					"WHERE sequence_num = (SELECT max(sequence_num) FROM audit_hash_chain)")
 		}
 		if err != nil {
-			_ = btx.Rollback(ctx)
-			bconn.Release()
-			c.okf("pg:blocker_arm", false, "err=%v", err)
+			_ = txW.Rollback(ctx)
+			conf.Release()
+			c.okf("pg:conflictor_arm_%d", false, "err=%v", err)
 			return
 		}
-
-		_, aErr := audit.AppendAuto(ctx, pool, "fault_probe_blocked", nil, "INSERT", nil)
-		_ = btx.Rollback(ctx)
-		bconn.Release()
-
-		if aErr == nil {
-			// SSI may choose the blocker as victim on rare schedules —
-			// retry the whole sub-scenario rather than flake.
-			if outer < outerAttempts {
-				continue
+		time.Sleep(80 * time.Millisecond) // attempt is parked on the lock now
+		err = txW.Commit(ctx)
+		conf.Release()
+		if err != nil {
+			c.okf("pg:conflictor_commit_%d", false, "err=%v", err)
+			return
+		}
+		unlock() // attempt proceeds into the committed conflict -> 40001
+		// Re-acquire before the next attempt's lock request is queued —
+		// blocks until the just-aborted attempt's xact lock is released.
+		if attempt < 3 {
+			if _, err = hold.Exec(ctx, "SELECT pg_advisory_lock($1)", auditAppendLockKey); err != nil {
+				c.okf("pg:relock_%d", false, "err=%v", err)
+				return
 			}
-			c.okf("pg:appendauto_exhausted", false,
-				"AppendAuto committed under held serializable conflict after %d tries", outer)
-			return
 		}
-		c.okf("pg:appendauto_coded",
-			errCode(aErr) == "TRANSACTION_CONFLICT_RETRY_EXHAUSTED",
-			"err=%v code=%q", aErr, errCode(aErr))
-		var pgErr *pgconn.PgError
-		c.okf("pg:exhaustion_wraps_40001", stderrors.As(aErr, &pgErr) &&
-			pgErr.Code == "40001",
-			"cause sqlstate=%q", pgCode(aErr))
+	}
 
-		// Zero partial mutation: no half-written chain row survived.
-		var chainAfter int64
-		_ = pool.QueryRow(ctx, "SELECT count(*) FROM audit_hash_chain").Scan(&chainAfter)
-		c.okf("pg:chain_rowcount_unchanged", chainAfter == chainBefore,
-			"rows %d -> %d", chainBefore, chainAfter)
-
-		// And the chain itself still verifies end-to-end.
-		rep, verr := audit.VerifyThrough(ctx, pool,
-			time.Now().UTC().AddDate(0, 0, 1), nil)
-		c.okf("pg:chain_still_verifies", verr == nil && rep.OK(),
-			"violations=%v err=%v", rep.Violations, verr)
+	var aErr error
+	select {
+	case aErr = <-appendDone:
+	case <-time.After(15 * time.Second):
+		c.ok("pg:appendauto_terminated", false, "AppendAuto never returned")
 		return
 	}
+	c.okf("pg:appendauto_coded",
+		aErr != nil && errCode(aErr) == "TRANSACTION_CONFLICT_RETRY_EXHAUSTED",
+		"err=%v code=%q", aErr, errCode(aErr))
+	c.okf("pg:exhaustion_wraps_40001", pgCode(aErr) == "40001",
+		"cause sqlstate=%q err=%v", pgCode(aErr), aErr)
+	// Severity classification: retry-exhausted conflicts are L2 boundary
+	// rejects (fail-closed default), surfaced to the client as a coded error.
+	c.okf("pg:exhaustion_severity_L2",
+		excerrors.SeverityOf(aErr) == excerrors.SeverityL2,
+		"severity=%s", excerrors.SeverityOf(aErr))
+
+	// Zero partial mutation: no half-written chain row survived the 3 aborts.
+	var chainAfter int64
+	_ = pool.QueryRow(ctx, "SELECT count(*) FROM audit_hash_chain").Scan(&chainAfter)
+	c.okf("pg:chain_rowcount_unchanged", chainAfter == chainBefore,
+		"rows %d -> %d", chainBefore, chainAfter)
+
+	// Concurrent-append storm on the REAL AppendAuto path. The advisory
+	// lock serializes the critical section, but SIREAD predicate locks
+	// outlive commits, so some writers legitimately exhaust the 3-attempt
+	// budget under 12-way serializable contention — that IS the fail-closed
+	// §5.40 contract, not a defect. Assert the actual invariants instead:
+	//   * every failure is a coded TRANSACTION_CONFLICT_RETRY_EXHAUSTED
+	//     error whose cause is SQLSTATE 40001 (no silent loss, no panic);
+	//   * committed rows == successful appends (exactly-once: a committed
+	//     append is never lost, a failed append never half-lands);
+	//   * the chain still verifies end-to-end.
+	// Rows persist across runs — measure the delta, not the absolute count.
+	var stormRowsBefore int64
+	_ = pool.QueryRow(ctx,
+		"SELECT count(*) FROM audit_hash_chain WHERE table_name='fault_probe_storm'").Scan(&stormRowsBefore)
+	const storm = 12
+	var wg sync.WaitGroup
+	stormErrs := make(chan error, storm)
+	for i := 0; i < storm; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, err := audit.AppendAuto(ctx, pool, "fault_probe_storm", nil, "INSERT", nil)
+			stormErrs <- err
+		}(i)
+	}
+	wg.Wait()
+	close(stormErrs)
+	successes, failures, coded := 0, 0, true
+	for err := range stormErrs {
+		if err == nil {
+			successes++
+			continue
+		}
+		failures++
+		if errCode(err) != "TRANSACTION_CONFLICT_RETRY_EXHAUSTED" ||
+			pgCode(err) != "40001" {
+			coded = false
+		}
+	}
+	c.okf("pg:storm_failures_coded", coded,
+		"failures=%d (all must be TRANSACTION_CONFLICT_RETRY_EXHAUSTED/40001)",
+		failures)
+	rep, verr := audit.VerifyThrough(ctx, pool,
+		time.Now().UTC().AddDate(0, 0, 1), nil)
+	c.okf("pg:chain_verifies_after_storm", verr == nil && rep.OK(),
+		"violations=%v err=%v", rep.Violations, verr)
+	var stormRowsAfter int64
+	_ = pool.QueryRow(ctx,
+		"SELECT count(*) FROM audit_hash_chain WHERE table_name='fault_probe_storm'").Scan(&stormRowsAfter)
+	c.okf("pg:storm_exactly_once", stormRowsAfter-stormRowsBefore == int64(successes),
+		"committed delta=%d, successful appends=%d, failed=%d",
+		stormRowsAfter-stormRowsBefore, successes, failures)
+	c.okf("pg:storm_accounted", successes+failures == storm,
+		"%d/%d", successes+failures, storm)
 }

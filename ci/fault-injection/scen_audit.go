@@ -56,6 +56,19 @@ func scenarioAuditTamper(ctx context.Context, e *env) *Checks {
 	c.okf("audit:probes_verify", err == nil && rep.OK(),
 		"violations=%v", rep.Violations)
 
+	// Re-anchor today's stored Merkle root over the current chain via the
+	// real `exchange merkle` CLI. Any root stored before this run predates
+	// the probe appends (production anchors lag by design — RunDailyMerkleJob
+	// writes yesterday's root at 00:10 UTC), so a stale anchor would falsely
+	// flag the clean-verify below. Recomputing keeps the stored root honest
+	// AND means the tamper check exercises both detection layers.
+	today := time.Now().UTC().Format("2006-01-02")
+	mres := runExecEnv(ctx, "", []string{"EXC_POSTGRES_DSN=" + e.pgDSN},
+		e.exchange, "merkle", "--date", today)
+	c.okf("audit:merkle_anchored", mres.Err == nil && mres.ExitCode == 0,
+		"exit=%d stdout=%q stderr=%q err=%v",
+		mres.ExitCode, mres.Stdout, mres.Stderr, mres.Err)
+
 	// Tamper: overwrite the probe row's payload_hash with a constant.
 	var origHash string
 	err = pool.QueryRow(ctx,
@@ -81,7 +94,7 @@ func scenarioAuditTamper(ctx context.Context, e *env) *Checks {
 	// The child resolves its DSN via EXC_POSTGRES_DSN — pin it to the
 	// harness's -pg-dsn so both see the same database.
 	res := runExecEnv(ctx, "", []string{"EXC_POSTGRES_DSN=" + e.pgDSN},
-		e.exchange, "verify-audit", "--date", time.Now().UTC().Format("2006-01-02"))
+		e.exchange, "verify-audit", "--date", today)
 	c.okf("audit:cli_exit_2", res.Err == nil && res.ExitCode == 2 &&
 		strings.Contains(res.Stdout, "FAILED"),
 		"exit=%d stdout=%q stderr=%q err=%v", res.ExitCode, res.Stdout, res.Stderr, res.Err)
@@ -95,7 +108,7 @@ func scenarioAuditTamper(ctx context.Context, e *env) *Checks {
 	c.okf("audit:restored_verifies", err == nil && rep.OK(),
 		"violations=%v err=%v", rep.Violations, err)
 	res = runExecEnv(ctx, "", []string{"EXC_POSTGRES_DSN=" + e.pgDSN},
-		e.exchange, "verify-audit", "--date", time.Now().UTC().Format("2006-01-02"))
+		e.exchange, "verify-audit", "--date", today)
 	c.okf("audit:cli_exit_0_clean", res.Err == nil && res.ExitCode == 0,
 		"exit=%d stdout=%q", res.ExitCode, res.Stdout)
 

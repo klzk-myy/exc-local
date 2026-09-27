@@ -139,13 +139,13 @@ Harden the CI pipeline and test infrastructure to support 400+ per-task spec val
 3. **Automated Recovery Check:** Verify secondary standby engine replays up to last valid transaction without data loss after simulated primary crash.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Negative test suite runs on CI and asserts fail-closed invariants across all 4 error tiers
-* [ ] Simulated WAL corruption halts matching core and invokes recovery report
-* [ ] Replay attack and invalid signature inputs rejected with HTTP 401/403 RFC 7807 envelopes
+* [x] Negative test suite runs on CI and asserts fail-closed invariants across all 4 error tiers
+* [x] Simulated WAL corruption halts matching core and invokes recovery report
+* [x] Replay attack and invalid signature inputs rejected with HTTP 401/403 RFC 7807 envelopes
 
 **SDD Checklist (MANDATORY):**
-- [ ] Spec checkpoint: CI negative test suite injects faults and validates deterministic fail-closed behavior (§24 #298) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: CI negative test suite injects faults and validates deterministic fail-closed behavior (§24 #298) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 

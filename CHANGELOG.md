@@ -191,3 +191,10 @@ Scope: 5 tasks (1.5.3.1–1.5.3.5), 19 AC rows. GitHub remote `github.com/klzk-m
 - **Decisions:** CodeQL @v4; `--ignore-unfixed` on image gate (Debian unactionable noise) + SCAN_UNFIXED=1 audit mode; path-scoped yaml ignorefile as gate-canonical; dep-cooldown gates new deps AND version bumps (go + npm).
 - **Security remediation applied by orchestrator:** bumped pgx v5.7.5→v5.9.2, x/crypto→v0.57, x/net→v0.59, x/text→v0.42, go directive→1.26.0/toolchain go1.26.8 (pgx v5.9.2 requires ≥1.25; new toolchain also clears 24 stdlib vulns) — `govulncheck` now reports **0 reachable vulns**; `go test`/`vet` all green.
 - **Deviation:** triggers cover [main, master] (repo default branch is master).
+
+### [2026-09-27 22:30 UTC] — Task 1.5.3.5 Fault Injection Harness — DONE
+- **Files:** `ci/fault-injection/` (Go module `exchange/fault` + `cpp/walverify.cpp` + `run.sh`); 10 scenarios, 143 checks.
+- **Verification (orchestrator re-ran `./run.sh`):** **10/10 scenarios, 143/143 checks, 0 fail** — wal_corrupt(38), wal_crash_recovery(10, kill -9 → replay to last valid seq), clock_jump(33, 200µs→TIME_SYNC_LOSS_HALT L0/503), audit_tamper(8, exit 2), shm_faults(9), aeron_unreachable(5), pg_serializable(14, deterministic 40001→TRANSACTION_CONFLICT_RETRY_EXHAUSTED, 12-writer exactly-once), arithmetic_overflow(4), malformed_frames(10), auth_edge_rejects(12, 401/403 RFC7807). Tiers L0–L3 all covered.
+- **Checklist:** DoD 3/3, SDD 2/2 marked.
+- **Decisions:** auth/scope edges asserted via harness-local HMAC oracle + real pkg/errors.Problem envelopes (Phase-05 middleware owns production path); audit scenario re-anchors today's Merkle root post-probe (prod anchors lag by design); storm asserts exactly-once+coded-failures (retry-exhaustion under SSI contention IS the fail-closed contract).
+- **Deviation:** none.
