@@ -55,10 +55,101 @@ struct WalEntryHeader {
     uint8_t event_type;    // WalEventType
     uint32_t payload_len;  // payload follows; crc32 u32 trailer after it
 };
+
+// --- Phase-02 engine event payloads (Task 2.3.2 writer, Task 2.3.4 replayer) --
+//
+// These packed structs are the WAL contract for matching-engine state changes.
+// The engine (matching/WalWriter) encodes them verbatim; RecoveryManager
+// decodes them verbatim. Both sides must agree on field order — extend by
+// APPENDING new structs/enumerators only, never reorder.
+
+struct WalOrderNewPayload {
+    uint64_t order_id;
+    uint64_t account_id;
+    uint32_t instrument_id;
+    uint8_t  side;          // wire::Side (0=Buy,1=Sell)
+    uint8_t  type;          // wire::OrderType
+    uint8_t  tif;           // wire::TimeInForce
+    uint8_t  flags;         // bit0 post_only, bit1 reduce_only, bit2 stp_cancel_newest...
+    int64_t  price_ticks;
+    int64_t  qty_units;
+    int64_t  visible_qty_units;   // iceberg display slice; == qty_units when non-iceberg
+    int64_t  stop_price_ticks;    // 0 unless stop order
+    uint32_t stp_mode;            // wire STP mode (Task 2.3.11); 0 = CANCEL_NEWEST
+    uint32_t trade_group_id;      // 0 = none (accounts.trade_group_id, migration 072)
+    int64_t  gtd_expiry_ns;       // 0 unless TIF=GTD
+    uint8_t  _pad[8];
+};
+
+struct WalOrderCancelPayload {
+    uint64_t order_id;
+    uint64_t account_id;    // for auth-check replay consistency
+    uint8_t  reason;        // 0=user, 1=expired(GTD/DAY), 2=STP, 3=FOK_unfilled, 4=IOC_remainder
+    uint8_t  _pad[7];
+};
+
+struct WalOrderModifyPayload {
+    uint64_t order_id;
+    int64_t  new_price_ticks;
+    int64_t  new_qty_units;
+    int64_t  new_stop_price_ticks;
+    uint8_t  _pad[8];
+};
+
+struct WalTradePayload {
+    uint64_t trade_id;
+    uint64_t buy_order_id;
+    uint64_t sell_order_id;
+    uint32_t instrument_id;
+    uint8_t  _pad0[4];
+    int64_t  price_ticks;
+    int64_t  qty_units;
+};
+
+struct WalTimeTickPayload {
+    uint64_t tick_ns;       // engine logical clock value applied to expiry checks
+    uint8_t  _pad[8];
+};
+
+// BOOK_SNAPSHOT payload: WalBookSnapshotHeader followed by `level_count` ×
+// WalSnapshotLevel records, then `order_count` × WalSnapshotOrder records.
+// Levels first (bids descending then asks ascending), then orders FIFO per
+// level in the same order. This gives deterministic bit-identical replay.
+struct WalBookSnapshotHeader {
+    uint32_t instrument_id;
+    uint32_t level_count;
+    uint64_t order_count;
+    uint64_t book_seq;      // book_seq_ at snapshot time — boot invariant source
+};
+
+struct WalSnapshotLevel {
+    int64_t  price_ticks;
+    uint8_t  side;          // 0=bid, 1=ask
+    uint8_t  _pad[7];
+};
+
+struct WalSnapshotOrder {
+    uint64_t order_id;
+    uint64_t account_id;
+    int64_t  qty_units;         // remaining (qty - filled)
+    int64_t  visible_qty_units;
+    int64_t  stop_price_ticks;
+    uint32_t stp_mode;
+    uint8_t  tif;
+    uint8_t  _pad[3];
+};
 #pragma pack(pop)
 
 static_assert(sizeof(WalFileHeader) == 8);
 static_assert(sizeof(WalEntryHeader) == 21);
+static_assert(sizeof(WalOrderNewPayload) == 80);
+static_assert(sizeof(WalOrderCancelPayload) == 24);
+static_assert(sizeof(WalOrderModifyPayload) == 40);
+static_assert(sizeof(WalTradePayload) == 48);
+static_assert(sizeof(WalTimeTickPayload) == 16);
+static_assert(sizeof(WalBookSnapshotHeader) == 24);
+static_assert(sizeof(WalSnapshotLevel) == 16);
+static_assert(sizeof(WalSnapshotOrder) == 48);
 static_assert(__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__,
               "WAL wire format is little-endian (spec §3.4)");
 
