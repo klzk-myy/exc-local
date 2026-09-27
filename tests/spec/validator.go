@@ -7,6 +7,10 @@
 //	validator list     — print the extracted checkpoint table
 //	validator stubs    — print checkpoint IDs with no implementation
 //	validator merge    — merge per-shard reports into one
+//	validator trace    — §24 criteria→test traceability matrix; --strict is
+//	                     the CI gate (0 unmapped, no defects), --write
+//	                     regenerates tests/spec/traceability.{json,md}
+//	                     (Phase-01.5 Task 1.5.3.3)
 //
 // CI contract (scripts/ci/shard_runner.sh):
 //
@@ -49,6 +53,8 @@ func main() {
 		err = cmdStubs(os.Args[2:])
 	case "merge":
 		err = cmdMerge(os.Args[2:])
+	case "trace":
+		err = cmdTrace(os.Args[2:])
 	default:
 		usage()
 		os.Exit(2)
@@ -68,6 +74,9 @@ func usage() {
   list     [--shard=<i>] [--status]           print checkpoint table
   stubs                                       print unimplemented checkpoint IDs
   merge    --reports=<glob> --report=<path>   merge per-shard JSON reports
+  trace    [--strict] [--write] [--waivers=p] [--expected=N] [--unmapped]
+             §24 criteria→test traceability matrix; fails on unmapped
+             criteria / fail-severity defects (all defects under --strict)
 
 env: EXC_REPO_ROOT EXC_DOCS_DIR EXC_CORE_BUILD EXC_TEST_DSN
      EXC_REDIS_TEST_ADDR EXC_NATS_URLS EXC_SENTINEL_ADDRS EXC_CLICKHOUSE_HTTP

@@ -145,7 +145,7 @@ func TestShmRoundTripCpp(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start helper: %v", err)
 	}
-	defer cmd.Process.Kill()
+	defer func() { _ = cmd.Process.Kill() }()
 
 	// Attach as the gateway end; the helper creates the images.
 	gw, err := ipc.OpenChannel(base, 0, ipc.EndpointGateway, false,
@@ -153,7 +153,7 @@ func TestShmRoundTripCpp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("channel attach: %v", err)
 	}
-	defer gw.Close()
+	defer func() { _ = gw.Close() }()
 
 	b := flatbuffers.NewBuilder(256)
 	order := ipc.OrderNewMsg{
@@ -282,7 +282,7 @@ func TestAeronRoundTripCpp(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start helper: %v", err)
 	}
-	defer cmd.Process.Kill()
+	defer func() { _ = cmd.Process.Kill() }()
 
 	client, err := ipcaeron.Connect(dir, 5000)
 	if err != nil {

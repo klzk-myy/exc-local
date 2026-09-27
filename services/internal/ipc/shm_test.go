@@ -35,8 +35,8 @@ func openPair(t *testing.T, base string) (prod, cons *Ring) {
 		t.Fatalf("consumer open: %v", err)
 	}
 	t.Cleanup(func() {
-		p.Close()
-		c.Close()
+		_ = p.Close()
+		_ = c.Close()
 		_ = os.Remove("/dev/shm/" + base + "_ring")
 	})
 	return p, c
@@ -110,8 +110,8 @@ func TestRingBackpressure(t *testing.T) {
 		t.Fatalf("consumer open: %v", err)
 	}
 	defer func() {
-		p.Close()
-		c.Close()
+		_ = p.Close()
+		_ = c.Close()
 		_ = os.Remove("/dev/shm/" + base + "_ring")
 	}()
 
@@ -152,7 +152,7 @@ func TestRingProducerLiveness(t *testing.T) {
 	if cons.ProducerHeartbeatNs() == 0 {
 		t.Fatal("heartbeat never stamped")
 	}
-	prod.Close()
+	_ = prod.Close()
 	// pid still ours & alive — semantics verified cross-process in the C++
 	// test (ShmRing.ProducerDeathDetection) via fork+exit.
 	_ = cons
@@ -169,8 +169,8 @@ func TestChannelLoopback(t *testing.T) {
 		t.Fatalf("gw open: %v", err)
 	}
 	defer func() {
-		core.Close()
-		gw.Close()
+		_ = core.Close()
+		_ = gw.Close()
 	}()
 
 	b := flatbuffers.NewBuilder(256)

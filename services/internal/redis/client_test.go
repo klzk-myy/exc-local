@@ -28,10 +28,10 @@ func testClient(t *testing.T) *Client {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := c.Ping(ctx); err != nil {
-		c.Close()
+		_ = c.Close()
 		t.Skipf("redis coordination instance unreachable at %s: %v", addr, err)
 	}
-	t.Cleanup(func() { c.Close() })
+	t.Cleanup(func() { _ = c.Close() })
 	return c
 }
 

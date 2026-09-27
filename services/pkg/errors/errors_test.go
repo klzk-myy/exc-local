@@ -13,7 +13,7 @@ import (
 
 func TestSeverityConstantsAndOrdering(t *testing.T) {
 	// L0..L3 ordered most→least severe (spec §2.7.2).
-	if !(SeverityL0 < SeverityL1 && SeverityL1 < SeverityL2 && SeverityL2 < SeverityL3) {
+	if SeverityL0 >= SeverityL1 || SeverityL1 >= SeverityL2 || SeverityL2 >= SeverityL3 {
 		t.Fatalf("severity ordering broken: %v %v %v %v",
 			SeverityL0, SeverityL1, SeverityL2, SeverityL3)
 	}

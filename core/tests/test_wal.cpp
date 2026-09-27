@@ -609,7 +609,7 @@ TEST(WalDiskFull, FailsCleanAndStaysRecoverable) {
     struct rlimit old_lim {};
     ASSERT_EQ(::getrlimit(RLIMIT_FSIZE, &old_lim), 0);
     // Soft cap only — raising the hard cap back would need CAP_SYS_RESOURCE.
-    const struct rlimit small {48 * 1024, old_lim.rlim_max};
+    const struct rlimit small {rlim_t{48} * 1024, old_lim.rlim_max};
     ASSERT_EQ(::setrlimit(RLIMIT_FSIZE, &small), 0);
 
     uint64_t committed = 0;

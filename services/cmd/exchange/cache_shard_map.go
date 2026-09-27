@@ -32,7 +32,7 @@ symbols. Run after editing sharding.yaml or after Redis DR recovery.`,
 
 		ctx := cmd.Context()
 		rdb := redis.New(cfg.Redis.Addr, cfg.Redis.Password, cfg.Redis.DB)
-		defer rdb.Close()
+		defer func() { _ = rdb.Close() }()
 
 		if err := sm.WriteToRedis(ctx, rdb); err != nil {
 			return err

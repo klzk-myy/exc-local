@@ -39,7 +39,8 @@ int main(int argc, char** argv) {
     uint32_t shard = 0;
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "-shard") == 0) {
-            if (i + 1 >= argc || !parse_shard(argv[++i], &shard)) {
+            ++i;
+            if (i >= argc || !parse_shard(argv[i], &shard)) {
                 usage(argv[0]);
                 return 2;
             }

@@ -275,7 +275,7 @@ func SentinelMasterAddr(ctx context.Context, sentinelAddr, masterName string) (s
 		DialTimeout: probeTimeout,
 		ReadTimeout: probeTimeout,
 	})
-	defer sc.Close()
+	defer func() { _ = sc.Close() }()
 	addr, err := sc.GetMasterAddrByName(ctx, masterName).Result()
 	if err != nil {
 		return "", fmt.Errorf("sentinel %s get-master-addr-by-name %q: %w", sentinelAddr, masterName, err)
@@ -487,7 +487,7 @@ func probeRunID(ctx context.Context, addr string) (string, error) {
 		ReadTimeout: probeTimeout,
 		MaxRetries:  0,
 	})
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	info, err := c.Info(ctx, "server").Result()
 	if err != nil {
 		return "", err

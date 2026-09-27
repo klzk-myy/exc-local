@@ -99,10 +99,10 @@ func failoverTestClient(t *testing.T) *FailoverClient {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := fc.Ping(ctx); err != nil {
-		fc.Close()
+		_ = fc.Close()
 		t.Skipf("sentinel topology unreachable (%s): %v", cfg.SentinelAddrs, err)
 	}
-	t.Cleanup(func() { fc.Close() })
+	t.Cleanup(func() { _ = fc.Close() })
 	return fc
 }
 
@@ -205,13 +205,13 @@ func TestSentinelAddrResolver(t *testing.T) {
 	cfg.ResolveMode = ResolveAsAnnounced
 	cfg.OnSwitch = func(a string) { switched <- a }
 	r = newSentinelAddrResolver(cfg)
-	r.resolve(ctx, "172.18.0.7:6379") // first observation: no switch
+	_, _ = r.resolve(ctx, "172.18.0.7:6379") // first observation: no switch
 	select {
 	case a := <-switched:
 		t.Fatalf("OnSwitch fired on first observation (%s)", a)
 	case <-time.After(20 * time.Millisecond):
 	}
-	r.resolve(ctx, "172.18.0.9:6379") // master switched
+	_, _ = r.resolve(ctx, "172.18.0.9:6379") // master switched
 	select {
 	case a := <-switched:
 		if a != "172.18.0.9:6379" {
@@ -299,7 +299,7 @@ func TestFailoverDrill(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFailoverClient: %v", err)
 	}
-	t.Cleanup(func() { fc.Close() })
+	t.Cleanup(func() { _ = fc.Close() })
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

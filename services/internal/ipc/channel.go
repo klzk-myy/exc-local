@@ -54,7 +54,7 @@ func OpenChannel(base string, shard uint16, ep Endpoint, create bool,
 		return nil, err
 	}
 	if c.out, err = OpenRing(OutName(base, shard), outRole, create, capacity, slotPayload); err != nil {
-		c.in.Close()
+		_ = c.in.Close()
 		return nil, err
 	}
 	return c, nil

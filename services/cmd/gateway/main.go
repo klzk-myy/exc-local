@@ -47,10 +47,10 @@ func run() error {
 	shardMap, shardSrc, err := config.LoadShardMapForService(shardCtx, rdb)
 	shardCancel()
 	if err != nil {
-		rdb.Close()
+		_ = rdb.Close()
 		return fmt.Errorf("shard map: %w", err)
 	}
-	defer rdb.Close() // Phase-02+ keeps this client for routing/health use
+	defer func() { _ = rdb.Close() }() // Phase-02+ keeps this client for routing/health use
 	log.Info("shard map loaded",
 		"source", shardSrc.String(),
 		"static_symbols", len(shardMap.Entries()),

@@ -93,14 +93,14 @@ Harden the CI pipeline and test infrastructure to support 400+ per-task spec val
 3. CI job validates: 0 unmapped criteria; fails on gaps.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Specification §24 traceability matrix maps all 414 criteria (canonical, remediation #37) to owner phase, phase AC and stable test contract (supersedes prior 401, 398, 335, 334, 333, 296, 276, 256, 252, 237, 219, 206, 201, 192, 174; consolidated from prior standalone acceptance-matrix.md)
-* [ ] CI job validates 0 unmapped criteria
-* [ ] Matrix updated automatically when new criteria added
+* [x] Specification §24 traceability matrix maps all 414 criteria (canonical, remediation #37) to owner phase, phase AC and stable test contract (supersedes prior 401, 398, 335, 334, 333, 296, 276, 256, 252, 237, 219, 206, 201, 192, 174; consolidated from prior standalone acceptance-matrix.md)
+* [x] CI job validates 0 unmapped criteria
+* [x] Matrix updated automatically when new criteria added
 
 **SDD Checklist (MANDATORY):**
-- [ ] Spec checkpoint: every §24 criterion mapped to ≥1 test — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: deleted tests, renamed criteria, manual waiver
+- [x] Spec checkpoint: every §24 criterion mapped to ≥1 test — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [x] Edge cases: deleted tests, renamed criteria, manual waiver
 
 ---
 

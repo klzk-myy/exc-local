@@ -112,17 +112,17 @@ func OpenRing(name string, role RingRole, create bool, capacity, slotPayload uin
 
 	st, err := f.Stat()
 	if err != nil {
-		f.Close()
+		_ = f.Close()
 		return nil, err
 	}
 	needInit := st.Size() == 0
 	if st.Size() > 0 && st.Size() < offSlots {
-		f.Close()
+		_ = f.Close()
 		return nil, fmt.Errorf("ipc: %s truncated image (%d bytes)", path, st.Size())
 	}
 	if needInit {
 		if err := f.Truncate(wantSize); err != nil {
-			f.Close()
+			_ = f.Close()
 			return nil, fmt.Errorf("ipc: ftruncate %s: %w", path, err)
 		}
 	}
@@ -135,7 +135,7 @@ func OpenRing(name string, role RingRole, create bool, capacity, slotPayload uin
 	m, err := unix.Mmap(int(f.Fd()), 0, int(mapLen),
 		unix.PROT_READ|unix.PROT_WRITE, unix.MAP_SHARED)
 	if err != nil {
-		f.Close()
+		_ = f.Close()
 		return nil, fmt.Errorf("ipc: mmap %s: %w", path, err)
 	}
 
@@ -157,18 +157,18 @@ func OpenRing(name string, role RingRole, create bool, capacity, slotPayload uin
 		deadline := time.Now().Add(attachMagicTimeout)
 		for atomic.LoadUint32(r.u32(offMagic)) != ShmMagic {
 			if time.Now().After(deadline) {
-				r.Close()
+				_ = r.Close()
 				return nil, ErrAttachTimeout
 			}
 		}
 		if atomic.LoadUint32(r.u32(offVersion)) != ShmVersion {
-			r.Close()
+			_ = r.Close()
 			return nil, ErrBadMagic
 		}
 		capacity = uint32(atomic.LoadUint64(r.u64(offCapacity)))
 		slotPayload = uint32(atomic.LoadUint64(r.u64(offSlotPayload)))
 		if int64(offSlots)+int64(capacity)*int64(slotHeaderBytes+slotPayload) > int64(len(m)) {
-			r.Close()
+			_ = r.Close()
 			return nil, fmt.Errorf("ipc: ring %s larger than mapping", name)
 		}
 	}

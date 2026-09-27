@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "comment": "Manual waivers for §24 criteria with zero validation edges. Each entry: {\"criterion\": <int 1-414>, \"reason\": <non-empty>, \"added_by\": <name>, \"added\": \"YYYY-MM-DD\", \"expires\": \"YYYY-MM-DD\"}. Waivers can only suppress the unmapped verdict — never structural defects (spec §24.4 rule 4 prohibits waiving deleted/renamed criteria). Stale or expired waivers are reported by `validator trace --strict`.",
+  "waivers": []
+}

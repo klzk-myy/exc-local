@@ -198,3 +198,10 @@ Scope: 5 tasks (1.5.3.1–1.5.3.5), 19 AC rows. GitHub remote `github.com/klzk-m
 - **Checklist:** DoD 3/3, SDD 2/2 marked.
 - **Decisions:** auth/scope edges asserted via harness-local HMAC oracle + real pkg/errors.Problem envelopes (Phase-05 middleware owns production path); audit scenario re-anchors today's Merkle root post-probe (prod anchors lag by design); storm asserts exactly-once+coded-failures (retry-exhaustion under SSI contention IS the fail-closed contract).
 - **Deviation:** none.
+
+### [2026-09-27 23:00 UTC] — Task 1.5.3.3 Criteria-to-Test Traceability — DONE
+- **Files:** `tests/spec/spec/traceability.go` (1.3k-line parser: §24 matrix, owner-phase/AC resolution, checkpoint→ID binding, waivers, drift diff, JSON+MD renderers), `tests/spec/traceability.go` (`trace` CLI: --strict/--write/--waivers), `traceability.{json,md,waivers.json}` committed artifacts.
+- **Verification (orchestrator):** `go run . trace --strict` → **criteria=414 declared=414 contiguous mapped=414 unmapped=0 defects: fail=0** exit 0. Edges: phase_ac=477, task_ac=56, checkpoint=247, golden=1.
+- **Checklist:** DoD 3/3, SDD 3/3 marked.
+- **Spec defect FIXED by orchestrator:** criterion #391's stable contract `T11-012` collided with #224 (remediation #35 reassigned it off `T11-011` onto the already-owned `T11-012`) — reassigned to `T11-013` with provenance note. Gate caught it, fix verified: warn→0.
+- **Deviation:** none.

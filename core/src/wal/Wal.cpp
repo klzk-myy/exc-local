@@ -265,7 +265,8 @@ WalStatus Wal::recover_existing(uint64_t file_size) {
         logical_ = sizeof(WalFileHeader) + last_scan_.entry_bytes;
         physical_ = blk;
         pads_written_ = last_scan_.pad_bytes;
-        if (valid_end < file_size && ::ftruncate(fd_, blk) != 0) {
+        if (valid_end < file_size &&
+            ::ftruncate(fd_, static_cast<off_t>(blk)) != 0) {
             return note_errno(WalStatus::Io);
         }
         return WalStatus::Ok;
@@ -274,7 +275,8 @@ WalStatus Wal::recover_existing(uint64_t file_size) {
     ::munmap(const_cast<uint8_t*>(img), file_size);
     ::close(rfd);
     // mmap mode: cut the torn tail, then the map regrows lazily on append.
-    if (valid_end < file_size && ::ftruncate(fd_, valid_end) != 0) {
+    if (valid_end < file_size &&
+        ::ftruncate(fd_, static_cast<off_t>(valid_end)) != 0) {
         return note_errno(WalStatus::Io);
     }
     logical_ = valid_end;
