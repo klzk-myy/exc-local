@@ -32,6 +32,14 @@ enum class WalEventType : uint8_t {
     TRADE,
     TIME_TICK,      // deterministic clock tick for GTD/DAY replay (Task 2.3.10)
     BOOK_SNAPSHOT,
+    // Task 2.3.12 — cross-shard margin slice commitments (spec §5.35/§13.1).
+    // Payloads are the packed structs in risk/CrossShardMarginCoordinator.h.
+    // Only committed state transitions are logged: an ACK'd grant writes
+    // MARGIN_RESERVE, a release/expiry/compensation writes MARGIN_RELEASE.
+    // In-flight (un-ACK'd) requests are never logged — they carry no
+    // committed state and must not survive restart (fail-closed recovery).
+    MARGIN_RESERVE,
+    MARGIN_RELEASE,
 };
 
 #pragma pack(push, 1)

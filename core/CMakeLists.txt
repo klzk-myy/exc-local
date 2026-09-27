@@ -63,8 +63,11 @@ add_library(exch_core STATIC
     src/book/Order.cpp
     src/book/OrderBook.cpp
     src/book/PriceLevel.cpp
+    src/degradation/ModeEventPublisher.cpp
     src/degradation/ModeManager.cpp
+    src/degradation/RedisModeStore.cpp
     src/election/LeaderElection.cpp
+    src/election/RedisLeaseStore.cpp
     src/health/HealthChecker.cpp
     src/ipc/AeronChannel.cpp
     src/ipc/AeronDriverConfig.cpp
@@ -72,6 +75,9 @@ add_library(exch_core STATIC
     src/ipc/SharedMemChannel.cpp
     src/matching/MatchingEngine.cpp
     src/recovery/RecoveryManager.cpp
+    src/redis/RespClient.cpp
+    src/risk/BilateralCreditMatrix.cpp
+    src/risk/CrossShardMarginCoordinator.cpp
     src/risk/PreTradeChecker.cpp
     src/utils/ClockSyncGuard.cpp
     src/utils/Decimal.cpp
@@ -137,11 +143,19 @@ if(EXCH_BUILD_TESTS)
             test_memory_pool
             test_time_utils
             test_order_book
+            test_book_pipette
             test_matching
             test_wal
             test_ipc
             test_shard_map
-            test_error_handling)
+            test_error_handling
+            test_credit_matrix
+            test_margin_coordinator
+            test_resp_client
+            test_election
+            test_election_live
+            test_mode_manager
+            test_health)
         add_executable(${t} tests/${t}.cpp)
         target_link_libraries(${t} PRIVATE exch_core gtest_main)
         add_test(NAME ${t} COMMAND ${t})

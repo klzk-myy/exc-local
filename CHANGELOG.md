@@ -264,3 +264,24 @@ Authoritative run on PR #1 (`ci-verify`), merged → master @ `7f6dc44`.
 - Tasks 1.5.3.1–1.5.3.5 all done; AC rows 1–19/19 verified against authoritative green CI (runs 36352122357 + 36352122360, PR #1 merged @ `7f6dc44`).
 - All Phase-01.5 self-checkpoints pass inside the shards (8/8 incl. trace --strict unmapped=0 and fault suite 0-fail).
 - Commit: this entry. Next: Phase-02 — Matching Engine core.
+
+## [2026-09-27 22:15 UTC] — Phase 02 START — Matching Engine Core
+Scope: 26 tasks (2.3.1–2.3.26), 67 AC rows. Critical spec correction noted at dispatch: Task 2.3.5's 10s/3s SETNX election is **superseded** by §18.6.2 epoch-lease (2,000ms TTL / 500ms refresh / 64-bit fencing / Lua compare-and-del) — canonical values implemented, plan text documented as legacy.
+
+### [2026-09-27 22:15 UTC] — Task 2.3.1+2.3.23 Order Book + Pipette Fixed-Point — DONE
+- **Files:** `core/{include,src}/book/*` (Order/PriceLevel/OrderBook + NEW Instrument.hpp), tests `test_order_book.cpp` (19 tests) + `test_book_pipette.cpp` (10 tests).
+- **Verification:** both configs build clean; ctest 17/17 release+debug; ASan clean; counting-`new` proves **0 heap allocs** in add/cancel/modify/fill; FIFO head-consumption, binary-search probe bound ≤13 @ 4096 levels, fixed-seed 20k-op fuzz never-crossed+qty-conserved; no `float`/`double` in book/*.
+- **Checklist:** DoD 5/5, SDD 5/5 (combined task scope).
+- **Deviations:** `add_order(const Order&, Order**)` signature; legacy Decimal mirror field kept read-only for compat; one-time ctor alloc for id-index buckets only.
+
+### [2026-09-27 22:15 UTC] — Task 2.3.5+2.3.6 Epoch-Lease Election + ModeManager + HealthChecker — DONE
+- **Files:** `core/src/redis/RespClient.cpp` (sync RESP2, reconnect, fail-closed), `core/src/election/RedisLeaseStore.cpp` (Lua atomic acquire/heartbeat/release), `LeaderElection.cpp` (fencing epoch, fence_or_die→SIGTERM, 5s settle), `degradation/{ModeManager,RedisModeStore,ModeEventPublisher}`, `health/HealthChecker` (5s loop, 7 injectable probes, dwell+cooldown), `services/internal/middleware/degradation.go` + gateway wiring.
+- **Verification:** ctest 17/17 both configs; **live Redis** election 4/4 (acquire, 500ms heartbeat, expiry takeover epoch 1→2, token-checked release, split-brain fence fires P1); mode transitions atomic via MSET; middleware sets `X-Degradation-Mode` verified live.
+- **Checklist:** DoD 5/5 + 7/7, SDD 4/4 + 4/4.
+- **Decisions:** persistent INCR epoch counter (`engine:leader:epoch:{shard}`) — strictly stronger than value-embedded increment (expired key carries no epoch); heartbeat transport error freezes matching then self-terminates past lease boundary; mode-store write failure jumps to threshold (fail-closed Maintenance read).
+
+### [2026-09-27 22:15 UTC] — Task 2.3.24+2.3.12 Credit Matrix + Cross-Shard Margin + Migrations — DONE
+- **Files:** `core/src/risk/BilateralCreditMatrix.cpp` (shm `MAP_SHARED` 1024² atomic matrix, `/dev/shm`), `CrossShardMarginCoordinator.cpp` (500µs soft / >10ms hard layered timeout + compensation, WAL persist+recovery), `WalEntry` +MARGIN_RESERVE/MARGIN_RELEASE; migrations 050/072/094/103 applied to dev PG (columns verified live).
+- **Verification:** ctest 17/17; `can_match` p99 **12ns** rel / 25ns dbg (<2µs budget ✓); concurrent debit never overspends; cross-process shm visibility; margin reserve/timeout/release/recovery tests green.
+- **Checklist:** DoD 3/3 + 3/3, SDD 3/3 + 3/3.
+- **Deviation:** packed control-msg codec at CREDIT_UPDATE seam (FlatBuffers swap later); migrations applied via direct psql (apply script only covers 001–021).

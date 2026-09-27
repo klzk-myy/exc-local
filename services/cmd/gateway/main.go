@@ -60,8 +60,13 @@ func run() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", api.Health)
 	srv := &http.Server{
-		Addr:              cfg.Gateway.Addr(),
-		Handler:           middleware.Logging(log, mux),
+		Addr: cfg.Gateway.Addr(),
+		// Task 2.3.6: X-Degradation-Mode on every response — outermost so
+		// even early middleware rejections carry the header. Reads the same
+		// coordination client the shard map uses; read failures report
+		// Maintenance (fail-closed, spec §2.7).
+		Handler: middleware.DegradationModeHeader(
+			rdb, middleware.Logging(log, mux)),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

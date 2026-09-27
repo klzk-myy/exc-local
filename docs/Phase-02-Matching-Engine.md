@@ -35,18 +35,18 @@ Implement the C++ matching engine: order book data structure, price-time priorit
 5. Memory: orders allocated from MemoryPool (Task 1.3.1). Zero `new`/`delete`.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Add/cancel/modify order operations are O(log N) for level lookup, O(1) for order insertion
-* [ ] Best bid > best ask never occurs (invariant maintained)
-* [ ] Price-time priority: orders at same price level execute in timestamp order (FIFO)
-* [ ] Book snapshot returns consistent bids + asks + seq
-* [ ] Zero heap allocation during add/cancel/modify (verified with allocator hook)
+* [x] Add/cancel/modify order operations are O(log N) for level lookup, O(1) for order insertion
+* [x] Best bid > best ask never occurs (invariant maintained)
+* [x] Price-time priority: orders at same price level execute in timestamp order (FIFO)
+* [x] Book snapshot returns consistent bids + asks + seq
+* [x] Zero heap allocation during add/cancel/modify (verified with allocator hook)
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: flat array price levels + intrusive linked-list orders — defined first, validated against spec
-- [ ] Spec checkpoint: zero allocations in hot path — defined first, validated against spec
-- [ ] Spec checkpoint: price-time priority (FIFO at each level) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: empty book, single order, full level cancel, max levels
+- [x] Spec checkpoint: flat array price levels + intrusive linked-list orders — defined first, validated against spec
+- [x] Spec checkpoint: zero allocations in hot path — defined first, validated against spec
+- [x] Spec checkpoint: price-time priority (FIFO at each level) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [x] Edge cases: empty book, single order, full level cancel, max levels
 
 ---
 
@@ -180,17 +180,17 @@ Implement the C++ matching engine: order book data structure, price-time priorit
 5. Follower: subscribes to leader's IPC output; skips recovery; 5s startup delay for election stabilization.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] SETNX acquire works: first caller wins, second fails
-* [ ] Heartbeat renewal every 3s; TTL extended to 10s
-* [ ] Follower detects leader death when heartbeat > 12s stale; attempts SETNX
-* [ ] Split-brain: both workers stop matching; P1 alert fires; degradation → ReadOnly
-* [ ] On restart, election runs before any order processing; 5s startup delay
+* [x] SETNX acquire works: first caller wins, second fails
+* [x] Heartbeat renewal every 3s; TTL extended to 10s
+* [x] Follower detects leader death when heartbeat > 12s stale; attempts SETNX
+* [x] Split-brain: both workers stop matching; P1 alert fires; degradation → ReadOnly
+* [x] On restart, election runs before any order processing; 5s startup delay
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: Redis SETNX leader election with 10s TTL — defined first, validated against spec
-- [ ] Spec checkpoint: split-brain detection fail-closed — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: Redis down, network partition, simultaneous SETNX, stale heartbeat
+- [x] Spec checkpoint: Redis SETNX leader election with 10s TTL — defined first, validated against spec
+- [x] Spec checkpoint: split-brain detection fail-closed — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [x] Edge cases: Redis down, network partition, simultaneous SETNX, stale heartbeat
 
 ---
 
@@ -209,19 +209,19 @@ Implement the C++ matching engine: order book data structure, price-time priorit
 6. HTTP middleware: `X-Degradation-Mode` header on every API response.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] `setMode('ReadOnly', 'redis_slow')` atomically sets Redis keys; `getMode()` returns 'ReadOnly'
-* [ ] All 6 mode constants defined (Normal + 5 degraded)
-* [ ] HealthChecker runs every 5s, evaluates all metrics, auto-transitions
-* [ ] Matching-loop p50 self-probe drives the ReadOnly "core slow" trigger (spec §2.4, remediation #8); Redis/PG signals feed the same FSM
-* [ ] Auto-recovery: when triggers clear, transitions down (e.g., ReadOnly → Normal)
-* [ ] Cooldown prevents flapping (min 60s between transitions)
-* [ ] X-Degradation-Mode header present on all API responses
+* [x] `setMode('ReadOnly', 'redis_slow')` atomically sets Redis keys; `getMode()` returns 'ReadOnly'
+* [x] All 6 mode constants defined (Normal + 5 degraded)
+* [x] HealthChecker runs every 5s, evaluates all metrics, auto-transitions
+* [x] Matching-loop p50 self-probe drives the ReadOnly "core slow" trigger (spec §2.4, remediation #8); Redis/PG signals feed the same FSM
+* [x] Auto-recovery: when triggers clear, transitions down (e.g., ReadOnly → Normal)
+* [x] Cooldown prevents flapping (min 60s between transitions)
+* [x] X-Degradation-Mode header present on all API responses
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: 6 degradation modes with correct triggers/recovery — defined first, validated against spec
-- [ ] Spec checkpoint: HealthChecker auto-transition with cooldown — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: simultaneous triggers, flapping, Redis down during mode read
+- [x] Spec checkpoint: 6 degradation modes with correct triggers/recovery — defined first, validated against spec
+- [x] Spec checkpoint: HealthChecker auto-transition with cooldown — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [x] Edge cases: simultaneous triggers, flapping, Redis down during mode read
 
 ---
 
@@ -371,14 +371,14 @@ Implement the C++ matching engine: order book data structure, price-time priorit
 4. **WAL State:** Margin reservation IDs and slice commitments are recorded in the binary WAL to ensure deterministic recovery across restarts.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Margin slice reservations processed with <10µs latency in matching loop
-* [ ] Orders rejected if allocated reservation slice is insufficient
-* [ ] Timeout on coordinator IPC triggers fail-closed pessimistic margin fallback
+* [x] Margin slice reservations processed with <10µs latency in matching loop
+* [x] Orders rejected if allocated reservation slice is insufficient
+* [x] Timeout on coordinator IPC triggers fail-closed pessimistic margin fallback
 
 **SDD Checklist (MANDATORY):**
-- [ ] Spec checkpoint: cross-shard margin coordination interface (§13.1, §24 #176) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: reservation timeout during match, out-of-order slice release, shard engine restart mid-reservation
+- [x] Spec checkpoint: cross-shard margin coordination interface (§13.1, §24 #176) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [x] Edge cases: reservation timeout during match, out-of-order slice release, shard engine restart mid-reservation
 
 ---
 
@@ -596,13 +596,13 @@ STP mode `NONE` (disabled) — gated to `PROFESSIONAL` and `ELIGIBLE_COUNTERPART
 4. SBE serialization and FlatBuffers IPC encode raw integer ticks without float string conversion.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] All matching engine order book operations execute strictly with `int64_t` ticks
-* [ ] Pipette calculations (0.1 pip) for major (5-decimal) and JPY (3-decimal) pairs verified exact without rounding error
-* [ ] SBE serialization encodes integer ticks; zero floating-point math in hot path
+* [x] All matching engine order book operations execute strictly with `int64_t` ticks
+* [x] Pipette calculations (0.1 pip) for major (5-decimal) and JPY (3-decimal) pairs verified exact without rounding error
+* [x] SBE serialization encodes integer ticks; zero floating-point math in hot path
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: pipette fixed-point integer scaling ($10^8$ ticks) and zero float math in hot path (§24 #402) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: pipette fixed-point integer scaling ($10^8$ ticks) and zero float math in hot path (§24 #402) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -619,13 +619,13 @@ STP mode `NONE` (disabled) — gated to `PROFESSIONAL` and `ELIGIBLE_COUNTERPART
 4. On fill: atomically decrement credit in both directions; the Go Risk service updates limits asynchronously via Aeron control messages (`CREDIT_UPDATE`).
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] In-memory bilateral credit checks execute in < 2µs in the matching loop
-* [ ] Orders from counterparties with exhausted bilateral credit are skipped; price-time priority preserved among credit-eligible counterparties
-* [ ] Credit limits decremented atomically on fill; credit replenishments applied via Aeron control plane
+* [x] In-memory bilateral credit checks execute in < 2µs in the matching loop
+* [x] Orders from counterparties with exhausted bilateral credit are skipped; price-time priority preserved among credit-eligible counterparties
+* [x] Credit limits decremented atomically on fill; credit replenishments applied via Aeron control plane
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: in-memory bilateral credit matrix counterparty screening in matching loop (§24 #403) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: in-memory bilateral credit matrix counterparty screening in matching loop (§24 #403) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
