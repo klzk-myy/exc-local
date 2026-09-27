@@ -132,3 +132,10 @@ foundations (1.3.1 C++ scaffold / 1.3.2 Go scaffold / 1.3.3 PG migrations) → d
 - **Checklist:** DoD 4/4, SDD 3/3 marked.
 - **Decisions:** elastic policy = FNV-1a-32 hash of canonical symbol into shards [4,8) — identical Go/C++ (pinned FNV vectors); canonicalization strips non-alnum + uppercase, 6-char→BASE/QUOTE; `shard:map` carries `meta:{version,elastic_base,elastic_count}` so Redis-only readers resolve identically; `LoadShardMapForService` Redis-first→yaml-fallback; C++ uses shared_mutex+shared_ptr swap (g++11.4 lacks atomic<shared_ptr>).
 - **Deviation:** none.
+
+### [2026-09-27 20:10 UTC] — Task 1.3.12 Error Handling & Safe Allocations — DONE
+- **Files:** `core/include/utils/{error_severity,safe_math,ClockSyncGuard}.hpp`, `core/src/utils/ClockSyncGuard.cpp`, `core/tests/test_error_handling.cpp` (18 tests), `CheckedMath`/`MemoryPool` consolidated, `services/pkg/errors/{severity,codes,problem}.go` (+tests), `services/internal/timesync/guard.go` (+tests).
+- **Verification (orchestrator re-run):** ctest **9/9 both configs** (test_error_handling 18/18 incl. INT64_MIN/MAX edges, i128, out-unmodified-on-failure); `go test` pkg/errors 12 + timesync 7 PASS; vet/gofmt clean.
+- **Checklist:** SDD 2/2 marked.
+- **Decisions:** `safe_math` uses scratch-then-copy out-param (intrinsics store wrapped value on overflow — preserves fail-closed); `OrderBookCapacityExceeded`/`TimeSyncLossHalt` are non-allocating literal-pointer exceptions (`alloc_or_throw` no heap in throw path); clock guard reads `ntp_adjtime` (STA_UNSYNC→fail-closed), injectable probe, bound 100µs; unknown codes → L2/500 per fail-closed pessimism.
+- **Deviation:** `require_clock_sync` delivered as startup gate but not wired into main.cpp (Phase-02 owns engine wiring; documented at header).

@@ -5,11 +5,20 @@
 // zero heap traffic in the hot path. Free slots store an intrusive FreeNode
 // overlay in the object storage. Exhausted alloc() returns nullptr; the caller
 // maps that to ORDER_BOOK_CAPACITY_EXCEEDED (spec §3.6.1).
+//
+// Task 1.3.12: the pool tracks a high-watermark (peak live slots) for
+// capacity telemetry, and alloc_or_throw() provides the cold-path error
+// sentinel — it throws OrderBookCapacityExceeded
+// (ORDER_BOOK_CAPACITY_EXCEEDED, HTTP 503, L2), an exception that performs
+// no heap allocation itself (string-literal members only, spec §3.6.1).
 
+#include <atomic>
 #include <cassert>
 #include <cstddef>
 #include <new>
 #include <type_traits>
+
+#include "utils/error_severity.hpp"
 
 namespace exch {
 
@@ -47,7 +56,24 @@ public:
         if (n == nullptr) return nullptr;
         free_head_ = n->next;
         --remaining_;
+        const std::size_t used = capacity_ - remaining_;
+        const std::size_t hw = high_watermark_.load(std::memory_order_relaxed);
+        if (used > hw) {
+            high_watermark_.store(used, std::memory_order_relaxed);
+        }
         return new (n) T();
+    }
+
+    // Cold-path convenience: identical to alloc() but throws
+    // OrderBookCapacityExceeded (ORDER_BOOK_CAPACITY_EXCEEDED, HTTP 503, L2)
+    // on exhaustion instead of returning nullptr. The exception carries only
+    // string-literal members — the throw path performs no heap allocation
+    // (spec §3.6.1). Hot paths should keep using alloc() and map nullptr to
+    // the error code without throwing.
+    [[nodiscard]] T* alloc_or_throw() {
+        T* p = alloc();
+        if (p == nullptr) throw OrderBookCapacityExceeded{};
+        return p;
     }
 
     void free(T* p) noexcept {
@@ -62,6 +88,15 @@ public:
     [[nodiscard]] std::size_t capacity() const noexcept { return capacity_; }
     [[nodiscard]] std::size_t size() const noexcept { return capacity_ - remaining_; }
     [[nodiscard]] std::size_t remaining() const noexcept { return remaining_; }
+    // Peak live-slot count ever reached (Task 1.3.12). Relaxed atomic so the
+    // health/telemetry thread may read it while the owner thread allocates.
+    [[nodiscard]] std::size_t high_watermark() const noexcept {
+        return high_watermark_.load(std::memory_order_relaxed);
+    }
+    // Re-bases the watermark at the current live count (admin/diagnostics).
+    void reset_high_watermark() noexcept {
+        high_watermark_.store(capacity_ - remaining_, std::memory_order_relaxed);
+    }
     [[nodiscard]] bool owns(const T* p) const noexcept {
         const auto byte_off =
             reinterpret_cast<const char*>(p) - reinterpret_cast<const char*>(storage_);
@@ -83,6 +118,7 @@ private:
     std::size_t capacity_ = 0;
     std::size_t remaining_ = 0;
     FreeNode* free_head_ = nullptr;
+    std::atomic<std::size_t> high_watermark_{0};
 };
 
 }  // namespace exch

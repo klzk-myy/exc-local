@@ -468,8 +468,8 @@ Deploy a 3-node NATS JetStream cluster in Kubernetes as the cold-path event back
 5. **L0–L3 Error Severity Hierarchy Foundation:** Implement baseline error classification types and severity enums (`SeverityL0`, `SeverityL1`, `SeverityL2`, `SeverityL3`) in C++ (`error_severity.hpp`) and Go (`pkg/errors/severity.go`) establishing Strict Fail-Closed Zero-Loss Pessimism across all services (spec §2.7.2).
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: C++ core checked arithmetic and bounded memory pool fail closed on violation (§24 #297) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: C++ core checked arithmetic and bounded memory pool fail closed on violation (§24 #297) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
