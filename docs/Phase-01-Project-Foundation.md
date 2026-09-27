@@ -327,18 +327,18 @@ Remediation #37 continues the append-only migration index: 103 `orders_discretio
 5. **WAL rotation:** When file reaches 1GB, create new file; old file archived to S3.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] WAL file created with correct header (magic, version, shard_id)
-* [ ] 1000 entries written, fsync'd, and read back with all CRC32s verified
-* [ ] `O_DIRECT` mode works with 4KB-aligned buffers (no page cache, no EINVAL)
-* [ ] WAL file rotates at 1GB; new file created; old file ready for S3 archive
-* [ ] Crash simulation: kill process mid-write; on restart, reader detects incomplete entry and truncates
+* [x] WAL file created with correct header (magic, version, shard_id)
+* [x] 1000 entries written, fsync'd, and read back with all CRC32s verified
+* [x] `O_DIRECT` mode works with 4KB-aligned buffers (no page cache, no EINVAL)
+* [x] WAL file rotates at 1GB; new file created; old file ready for S3 archive
+* [x] Crash simulation: kill process mid-write; on restart, reader detects incomplete entry and truncates
 
 **SDD Checklist (MANDATORY):**
-- [ ] Spec checkpoint: custom binary WAL (mmap + fsync) — defined first, validated against spec
-- [ ] Spec checkpoint: CRC32 per entry for corruption detection — defined first, validated against spec
-- [ ] Spec checkpoint: O_DIRECT option with aligned block-flushing (4KB posix_memalign) for page cache bypass — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: partial write (crash mid-entry), disk full, WAL corruption
+- [x] Spec checkpoint: custom binary WAL (mmap + fsync) — defined first, validated against spec
+- [x] Spec checkpoint: CRC32 per entry for corruption detection — defined first, validated against spec
+- [x] Spec checkpoint: O_DIRECT option with aligned block-flushing (4KB posix_memalign) for page cache bypass — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [x] Edge cases: partial write (crash mid-entry), disk full, WAL corruption
 
 ---
 

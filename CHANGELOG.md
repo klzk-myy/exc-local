@@ -111,3 +111,10 @@ foundations (1.3.1 C++ scaffold / 1.3.2 Go scaffold / 1.3.3 PG migrations) → d
 - **Checklist:** DoD 3/3, SDD 3/3 marked.
 - **Decisions:** (a) **Root-cause fix** — Sentinel monitoring DNS hostname `redis-primary` deadlocks failover (container stop kills DNS → getaddrinfo stalls event loop ~8s → +tilt loop aborts every failover). Added `redis-ha` 10.99.0.0/24 pinned-IP subnet; sentinel now monitors 10.99.0.11 by IP. Production-correct pattern. (b) Three resolve modes: `as_announced` (in-network), `host_probe` (host), `announce_map`. (c) `min-replicas-to-write=1` is the split-brain guard.
 - **Deviation:** compose/sentinel.conf deviate from plan prose (IP-pinned monitoring) — recorded in spec §27 pending; strictly better than monitoring ephemeral DNS names.
+
+### [2026-09-27 18:55 UTC] — Task 1.3.6 Binary WAL Infrastructure — DONE
+- **Files:** `core/include/wal/{Wal,WalEntry}.hpp`, `core/src/wal/{Wal,WalEntry}.cpp`, `core/tests/test_wal.cpp` (19 tests).
+- **Verification (orchestrator re-run):** Release+Debug(ASan) ctest **7/7 both configs**; `test_wal` 19/19. Orchestrator reran crash/CRC/direct tests: `ThousandEntriesAllCrcVerified`, `CorruptCrcTruncatesLastEntry`, `DirectModeTornTail`, `TornTail*` — all PASS. Header magic `0x57414C00`/version=1/shard_id verified in file bytes + reader. CRC32C hw path (SSE4.2 `__builtin_ia32_crc32*` + cpuid dispatch) known-vector `0xE3069283` OK, sw table identical. O_DIRECT: file exact 4096 multiple, `posix_memalign` buffers, pad sentinel at block boundary; ENOSPC→clean `NoSpace` (no half-committed record); rotation emits `{seq_base}.wal` + `pending_archive()`.
+- **Checklist:** DoD 5/5, SDD 5/5 marked.
+- **Decisions:** (a) rotation names `{seq_base}.wal` under caller's shard dir; (b) `posix_fallocate` in 16MB quanta converts SIGBUS-on-full-disk → clean NoSpace; (c) O_DIRECT rejected by fs → staged-block buffered fallback with `direct_fallback()` flag (`strict_direct` fails open); (d) `seq=UINT64_MAX` reserved as pad sentinel; (e) EFBIG ≡ NoSpace.
+- **Deviation:** none vs amended spec (all 5 deviations are design strengthenings, recorded here).
