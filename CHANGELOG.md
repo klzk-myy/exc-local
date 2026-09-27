@@ -205,3 +205,11 @@ Scope: 5 tasks (1.5.3.1–1.5.3.5), 19 AC rows. GitHub remote `github.com/klzk-m
 - **Checklist:** DoD 3/3, SDD 3/3 marked.
 - **Spec defect FIXED by orchestrator:** criterion #391's stable contract `T11-012` collided with #224 (remediation #35 reassigned it off `T11-011` onto the already-owned `T11-012`) — reassigned to `T11-013` with provenance note. Gate caught it, fix verified: warn→0.
 - **Deviation:** none.
+
+### [2026-09-27 23:40 UTC] — Task 1.5.3.1 CI Pipeline — DONE
+- **Files:** `.github/workflows/ci.yml` (5 jobs: build-and-lint, unit-tests, migrations, spec-validation×4 matrix, spec-report merge), `scripts/ci/{shard_runner,lint_cpp,apply_migrations,wait_stack}.sh` + clang-format-diff.py + requirements, `.clang-format`/`.clang-tidy`/`.golangci.yml`.
+- **Verification:** cold C++ build 9.3s + tidy clean (32 TUs) + ctest 9/9; `go build` 0.49s + golangci-lint v2.14 0 issues + `go test -race` 15.6s green; migrations 21/21 in 1s on fresh container; wait_stack probes all-green; shard_runner×4 → reports written, fail-closed verified; actionlint clean.
+- **Checklist:** DoD 5/5, SDD 4/4 marked.
+- **Orchestrator addendum:** registered 5 missing CheckFuncs for Phase-01.5's own SDD checkpoints (T1.5.3.1-C1/C2, T1.5.3.3-C1, T1.5.3.4-C1, T1.5.3.5-C1) in `tests/spec/checks/phase01_5.go` + exported `RunOutput/Tail/LastLine/KeepLines` in spec/exec.go. All 4 shards re-run: 60 pass / 481 pending / **0 fail / 0 missing**.
+- **Decisions:** format gate is line-level clang-format-diff (whole-file would churn legacy sources; FORMAT_ALL=1 audits full tree); migrations is its own job for the <1min measurable AC; golangci-lint-action@v9 pin v2.14.0 (v1.x can't parse go1.26 directive); integration tests self-gate on EXC_*_TEST env (unit job doesn't start stack).
+- **Deviation:** AeronChannel.cpp gained 2 NOLINT on deliberate noexcept teardown catches (tidy is fail-closed); compose clickhouse healthcheck localhost→127.0.0.1 (container ::1 resolution broke --wait).

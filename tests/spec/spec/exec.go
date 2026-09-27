@@ -242,3 +242,29 @@ func lastLine(s string) string {
 	}
 	return strings.TrimSpace(lines[len(lines)-1])
 }
+
+// RunOutput executes a subprocess in dir and returns combined output.
+// Exported so checkpoint CheckFuncs can drive repo tooling (validator
+// subcommands, fault-injection suite) without re-implementing exec plumbing.
+func RunOutput(ctx context.Context, dir, name string, args ...string) (string, error) {
+	c := exec.CommandContext(ctx, name, args...)
+	c.Dir = dir
+	out, err := c.CombinedOutput()
+	return string(out), err
+}
+
+// Tail returns the last n lines of s.
+func Tail(s string, n int) string { return tail(s, n) }
+
+// LastLine returns the final non-empty content line of s.
+func LastLine(s string) string { return lastLine(s) }
+
+// KeepLines returns the first line of s containing needle (empty if none).
+func KeepLines(s, needle string) string {
+	for _, l := range strings.Split(s, "\n") {
+		if strings.Contains(l, needle) {
+			return strings.TrimSpace(l)
+		}
+	}
+	return ""
+}

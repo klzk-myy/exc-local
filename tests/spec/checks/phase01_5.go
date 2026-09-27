@@ -3,21 +3,82 @@ package checks
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	spec "exchange-testspec/spec"
 )
 
 // Phase-01.5 self-checks: this harness validates its own spec checkpoints.
-// Other Phase-01.5 tasks (1.5.3.1 CI pipeline, 1.5.3.3 traceability,
-// 1.5.3.4 supply-chain, 1.5.3.5 fault injection) are owned by other tasks —
-// their checkpoints report `pending` until their implementations land.
 func registerPhase015(r *spec.Registry) {
+	r.Register("P01.5-T1.5.3.1-C1", ckCIRunsOnPR,
+		"CI runs on every PR (workflow trigger present)")
+	r.Register("P01.5-T1.5.3.1-C2", ckCIEphemeralStack,
+		"ephemeral PostgreSQL 16 + Redis 7 + ClickHouse health-checked before tests")
 	r.Register("P01.5-T1.5.3.2-C1", ckCheckpointExtraction,
 		"400+ per-task spec validation checks extracted (canonical 543 raw / 542 strict)")
 	r.Register("P01.5-T1.5.3.2-C2", ckShardPartitioning,
 		"4 parallel shards with deterministic assignment; < 20 min budget")
 	r.Register("P01.5-T1.5.3.2-C3", ckGoldenCorpusCount,
 		"golden corpus 20+ spec-derived cases")
+	r.Register("P01.5-T1.5.3.3-C1", ckTraceabilityComplete,
+		"every §24 criterion mapped to ≥1 test (trace --strict clean)")
+	r.Register("P01.5-T1.5.3.4-C1", ckSupplyChainGates,
+		"SAST + dependency audit gates PRs (§24 #161)")
+	r.Register("P01.5-T1.5.3.5-C1", ckFaultInjectionSuite,
+		"CI negative test suite injects faults, validates fail-closed (§24 #298)")
+}
+
+func ckCIRunsOnPR(ctx context.Context, env *spec.Env) spec.Result {
+	if r := spec.FileContains(env, ".github/workflows/ci.yml",
+		"pull_request", "name:"); r.Status != spec.StatusPass {
+		return r
+	}
+	return spec.Passf("ci.yml declares pull_request trigger")
+}
+
+func ckCIEphemeralStack(ctx context.Context, env *spec.Env) spec.Result {
+	if r := spec.RequireFiles(env,
+		"docker-compose.dev.yml", "scripts/ci/wait_stack.sh"); r.Status != spec.StatusPass {
+		return r
+	}
+	if r := spec.FileContains(env, ".github/workflows/ci.yml",
+		"docker compose", "wait_stack.sh"); r.Status != spec.StatusPass {
+		return r
+	}
+	return spec.FileContains(env, "docker-compose.dev.yml",
+		"postgres:16", "redis:7", "clickhouse")
+}
+
+func ckTraceabilityComplete(ctx context.Context, env *spec.Env) spec.Result {
+	out, err := spec.RunOutput(ctx, env.RepoRoot+"/tests/spec",
+		"go", "run", ".", "trace", "--strict")
+	if err != nil {
+		return spec.Failf("trace --strict: %v — %s", err, spec.Tail(out, 6))
+	}
+	if !strings.Contains(out, "unmapped=0") {
+		return spec.Failf("unmapped criteria remain: %s", spec.Tail(out, 6))
+	}
+	return spec.Passf("trace --strict: %s", spec.LastLine(out))
+}
+
+func ckSupplyChainGates(ctx context.Context, env *spec.Env) spec.Result {
+	if r := spec.FileContains(env, ".github/workflows/security.yml",
+		"codeql", "govulncheck", "trivy", "gitleaks", "pull_request"); r.Status != spec.StatusPass {
+		return r
+	}
+	return spec.Passf("security.yml wires codeql+govulncheck+trivy+gitleaks on pull_request")
+}
+
+func ckFaultInjectionSuite(ctx context.Context, env *spec.Env) spec.Result {
+	out, err := spec.RunOutput(ctx, env.RepoRoot+"/ci/fault-injection",
+		"./run.sh")
+	if err != nil {
+		return spec.Failf("run.sh: %v — %s", err, spec.Tail(out, 8))
+	}
+	if !strings.Contains(out, "0 fail") {
+		return spec.Failf("fault suite reported failures: %s", spec.Tail(out, 8))
+	}
+	return spec.Passf("fault suite: %s", spec.LastLine(spec.KeepLines(out, "scenarios:")))
 }
 
 func ckCheckpointExtraction(ctx context.Context, env *spec.Env) spec.Result {

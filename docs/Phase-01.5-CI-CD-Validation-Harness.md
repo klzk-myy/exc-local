@@ -38,17 +38,17 @@ Harden the CI pipeline and test infrastructure to support 400+ per-task spec val
 5. **Timeout:** Hard 20-minute timeout; any job exceeding it fails.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] CI runs on every PR
-* [ ] C++ build + clang-tidy + unit tests complete in < 5 min
-* [ ] Go build + golangci-lint + unit tests complete in < 3 min
-* [ ] Migrations apply to ephemeral PostgreSQL in < 1 min
-* [ ] Spec validation: 4 shards complete in < 20 min total
+* [x] CI runs on every PR
+* [x] C++ build + clang-tidy + unit tests complete in < 5 min
+* [x] Go build + golangci-lint + unit tests complete in < 3 min
+* [x] Migrations apply to ephemeral PostgreSQL in < 1 min
+* [x] Spec validation: 4 shards complete in < 20 min total
 
 **SDD Checklist (MANDATORY):**
-- [ ] Spec checkpoint: CI runs on every PR — defined first, validated against spec
-- [ ] Spec checkpoint: ephemeral PostgreSQL 16 + Redis 7 + ClickHouse — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: flaky tests, container startup failure, cache miss
+- [x] Spec checkpoint: CI runs on every PR — defined first, validated against spec
+- [x] Spec checkpoint: ephemeral PostgreSQL 16 + Redis 7 + ClickHouse — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [x] Edge cases: flaky tests, container startup failure, cache miss
 
 ---
 
