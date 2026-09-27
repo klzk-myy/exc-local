@@ -97,3 +97,10 @@ foundations (1.3.1 C++ scaffold / 1.3.2 Go scaffold / 1.3.3 PG migrations) → d
 
 ### [2026-09-27 18:05 UTC] — Repo hygiene
 - Removed 476 committed `core/build-debug/` artifacts from index; `.gitignore` now covers `core/build*/` and `**/build/`.
+
+### [2026-09-27 18:20 UTC] — Task 1.3.8 Audit Hash Chain — DONE
+- **Files:** `services/internal/audit/{HashChain,merkle}.go` + 3 test files; `services/cmd/exchange/` cobra CLI (`verify-audit --date`, `merkle --date|--run-daily`, `audit-append` operator fixture).
+- **Verification (orchestrator re-run, live DB):** 3 self-verifiable rows appended → `verify-audit` exit 0 (chain + merkle root clean); `UPDATE ... SET record_id=9999` on middle row → exit **2**, named `sequence_num=2 field=payload_hash`; prev_hash linkage chains correctly (genesis = sha256("")). 21 tests green incl. live integration.
+- **Checklist:** DoD 4/4, SDD 4/4 marked.
+- **Decisions:** `canonical_payload` preimage = `seq|id|created_at_utc|hex(payload)` over stored fields — self-verifiable; opaque emitter payloads need a `PayloadProvider` (documented in package doc). Genesis prev_hash=sha256(""). Tail-read serialized via `pg_advisory_xact_lock`; `AppendAuto` retries on 23505/40001/40P01 ≤3×. verify-audit also re-checks stored daily merkle root.
+- **Deviation:** none.

@@ -383,16 +383,16 @@ Remediation #37 continues the append-only migration index: 103 `orders_discretio
 **Migration note:** Create migration `021_create_audit_merkle_roots.up.sql` with columns: `root_id`, `date`, `merkle_root`, `computed_at`. This table was missing from the original Phase 1 migration list (001–020).
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Audit row insertion computes correct payload_hash and prev_hash
-* [ ] Daily Merkle root computed and stored
-* [ ] `exchange:verify-audit` detects a manually modified row (non-zero exit with offending day + sequence)
-* [ ] Tamper detection: modifying any field in `audit_hash_chain` causes verification failure
+* [x] Audit row insertion computes correct payload_hash and prev_hash
+* [x] Daily Merkle root computed and stored
+* [x] `exchange:verify-audit` detects a manually modified row (non-zero exit with offending day + sequence)
+* [x] Tamper detection: modifying any field in `audit_hash_chain` causes verification failure
 
 **SDD Checklist (MANDATORY):**
-- [ ] Spec checkpoint: SHA-256 hash chain with prev_hash linkage — defined first, validated against spec
-- [ ] Spec checkpoint: daily Merkle root computation — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: concurrent inserts, missing prev_hash, corrupted row
+- [x] Spec checkpoint: SHA-256 hash chain with prev_hash linkage — defined first, validated against spec
+- [x] Spec checkpoint: daily Merkle root computation — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [x] Edge cases: concurrent inserts, missing prev_hash, corrupted row
 
 ---
 

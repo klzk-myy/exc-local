@@ -5,6 +5,7 @@
 //	exchange verify-audit --date=YYYY-MM-DD   recompute the chain genesis→end of date
 //	exchange merkle --date=YYYY-MM-DD         compute+store that day's Merkle root
 //	exchange merkle --run-daily               00:10 UTC job body (previous UTC day)
+//	exchange audit-append                     dev/operator fixture driving audit.AppendAuto
 //
 // Exit codes: 0 clean/success, 1 operational error, 2 integrity violation
 // detected by verify-audit (kept distinct so automation can alert on 2

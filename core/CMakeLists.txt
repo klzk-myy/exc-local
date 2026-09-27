@@ -55,11 +55,13 @@ add_library(exch_core STATIC
     src/health/HealthChecker.cpp
     src/ipc/AeronChannel.cpp
     src/ipc/IpcChannel.cpp
+    src/ipc/SharedMemChannel.cpp
     src/matching/MatchingEngine.cpp
     src/recovery/RecoveryManager.cpp
     src/risk/PreTradeChecker.cpp
     src/utils/Decimal.cpp
     src/utils/MemoryPool.cpp
+    src/utils/ShardMap.cpp
     src/utils/TimeUtils.cpp
     src/wal/Wal.cpp
     src/wal/WalEntry.cpp)
@@ -97,7 +99,8 @@ if(EXCH_BUILD_TESTS)
             test_time_utils
             test_order_book
             test_matching
-            test_wal)
+            test_wal
+            test_ipc)
         add_executable(${t} tests/${t}.cpp)
         target_link_libraries(${t} PRIVATE exch_core gtest_main)
         add_test(NAME ${t} COMMAND ${t})
