@@ -125,3 +125,10 @@ foundations (1.3.1 C++ scaffold / 1.3.2 Go scaffold / 1.3.3 PG migrations) → d
 - **Checklist:** DoD 4/4, SDD 5/5 marked.
 - **Decisions:** shm ring = SPSC 64B-aligned slots, seq/len/flags slot header, zero-copy peek/consume; liveness = pid + realtime-ns heartbeat + kill(pid,0); `create` flag advisory (first-attacher-inits; live images never re-init — fixes create/attach race); AeronChannel channels `aeron:ipc?alias=orders_{in,out}` streams 1001/1002; EXCH_WITH_AERON=0 stub when SDK absent.
 - **Deviation:** none. NOTE: concurrent ShardMap task (1.3.7) temporarily broke full build (std::atomic<shared_ptr> unsupported on g++11.4 libstdc++) — owner agent must fix before Phase-01 gate.
+
+### [2026-09-27 19:40 UTC] — Task 1.3.7 Shard Mapping System — DONE
+- **Files:** `config/sharding.yaml`, `services/internal/config/sharding.go`(+test), `core/include/utils/ShardMap.hpp`, `core/src/utils/ShardMap.cpp`, `core/tests/test_shard_map.cpp`, `services/cmd/exchange/cache_shard_map.go`, `cmd/gateway` startup wiring.
+- **Verification (orchestrator re-run):** `exchange cache-shard-map` → `HGETALL shard:map` = 12 symbols + meta fields; deleted key + rewrote = 15 fields. Go `TestShardMap*` 7/7 PASS; C++ `test_shard_map` 7/7 PASS (canonical repo file). EUR/USD→0, USD/JPY→1 confirmed both languages + USD/MXN→2, EUR/JPY→3. Gateway logged `shard map loaded source=redis`.
+- **Checklist:** DoD 4/4, SDD 3/3 marked.
+- **Decisions:** elastic policy = FNV-1a-32 hash of canonical symbol into shards [4,8) — identical Go/C++ (pinned FNV vectors); canonicalization strips non-alnum + uppercase, 6-char→BASE/QUOTE; `shard:map` carries `meta:{version,elastic_base,elastic_count}` so Redis-only readers resolve identically; `LoadShardMapForService` Redis-first→yaml-fallback; C++ uses shared_mutex+shared_ptr swap (g++11.4 lacks atomic<shared_ptr>).
+- **Deviation:** none.

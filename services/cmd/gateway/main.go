@@ -15,6 +15,7 @@ import (
 	"exchange/internal/api"
 	"exchange/internal/config"
 	"exchange/internal/middleware"
+	"exchange/internal/redis"
 	"exchange/internal/utils"
 	"exchange/pkg/logging"
 )
@@ -36,6 +37,25 @@ func run() error {
 	if err != nil {
 		return err
 	}
+
+	// Task 1.3.7: every service resolves symbols → shard ids. Read the
+	// shard:map HASH at startup (written by `exchange cache-shard-map`),
+	// falling back to config/sharding.yaml on cache miss/Redis outage;
+	// both failing is fatal — an unroutable order gateway must not start.
+	shardCtx, shardCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	rdb := redis.New(cfg.Redis.Addr, cfg.Redis.Password, cfg.Redis.DB)
+	shardMap, shardSrc, err := config.LoadShardMapForService(shardCtx, rdb)
+	shardCancel()
+	if err != nil {
+		rdb.Close()
+		return fmt.Errorf("shard map: %w", err)
+	}
+	defer rdb.Close() // Phase-02+ keeps this client for routing/health use
+	log.Info("shard map loaded",
+		"source", shardSrc.String(),
+		"static_symbols", len(shardMap.Entries()),
+		"elastic_base", shardMap.ElasticBase(),
+		"elastic_count", shardMap.ElasticCount())
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", api.Health)

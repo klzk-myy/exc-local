@@ -1,0 +1,32 @@
+# Shard mapping (Task 1.3.7, spec §2.2) — single source of truth shared by
+# the Go services (internal/config/sharding.go) and the C++ matching engine
+# (core/src/utils/ShardMap.cpp). Both parse this exact file; keep the
+# structure flat — the C++ side uses a minimal parser (flow lists and
+# `key: value` lines only).
+#
+# Resolution order for the file itself:
+#   1. EXC_SHARDING_CONFIG env var (explicit path; missing file = error)
+#   2. ./config/sharding.yaml, ./sharding.yaml, ../config/sharding.yaml,
+#      ../../config/sharding.yaml, ../../../config/sharding.yaml
+#
+# At runtime the map is also cached in the Redis `shard:map` HASH (written
+# by `exchange cache-shard-map`); services read Redis first and fall back
+# to this file on cache miss / Redis outage.
+
+version: 1
+
+# Elastic range (spec §2.2 "4+ — exotic pairs, derivatives | Elastic"):
+# any symbol not statically listed in `shards` is assigned
+#   base_shard + (fnv1a32(canonical_symbol) % num_shards)
+# FNV-1a 32-bit is implemented identically in Go and C++ so every process
+# agrees on the shard for an unmapped symbol without consulting Redis.
+elastic:
+  base_shard: 4
+  num_shards: 4
+
+# Static map, spec §2.2 table (values are canonical "BASE/QUOTE" symbols).
+shards:
+  0: [EUR/USD, GBP/USD, USD/CHF]   # major European pairs
+  1: [USD/JPY, AUD/USD, NZD/USD]   # Asia-Pacific pairs
+  2: [USD/CAD, USD/MXN, USD/BRL]   # Americas pairs
+  3: [EUR/GBP, EUR/JPY, EUR/CHF]   # cross pairs

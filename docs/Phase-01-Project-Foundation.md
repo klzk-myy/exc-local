@@ -356,15 +356,15 @@ Remediation #37 continues the append-only migration index: 103 `orders_discretio
 5. **CLI command:** `exchange:cache-shard-map` writes the shard map to Redis.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Shard map config loads correctly in both Go and C++
-* [ ] `GetShard("EUR/USD")` returns 0; `GetShard("USD/JPY")` returns 1
-* [ ] `exchange:cache-shard-map` writes shard map to Redis
-* [ ] All services read shard map from Redis at startup
+* [x] Shard map config loads correctly in both Go and C++
+* [x] `GetShard("EUR/USD")` returns 0; `GetShard("USD/JPY")` returns 1
+* [x] `exchange:cache-shard-map` writes shard map to Redis
+* [x] All services read shard map from Redis at startup
 
 **SDD Checklist (MANDATORY):**
-- [ ] Spec checkpoint: shard mapping by currency pair group — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: unknown symbol, config reload, Redis cache miss
+- [x] Spec checkpoint: shard mapping by currency pair group — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [x] Edge cases: unknown symbol, config reload, Redis cache miss
 
 ---
 
