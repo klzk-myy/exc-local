@@ -128,26 +128,23 @@ jobs:
             services/go.sum
             tests/spec/go.sum
 
-      - name: Restore CMake build tree (lookup-only; build on miss)
+      - name: Install flatbuffers headers + flatc (core wire schema)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libflatbuffers-dev flatbuffers-compiler
+
+      - name: Restore CMake build tree
         id: core-cache
         uses: actions/cache@v4
         with:
           path: core/build
           key: ${{ env.CORE_CACHE_PREFIX }}${{ hashFiles('core/CMakeLists.txt', 'core/src/**', 'core/include/**', 'core/tests/**', 'core/proto/**', 'config/sharding.yaml') }}
           restore-keys: ${{ env.CORE_CACHE_PREFIX }}
-          lookup-only: true
 
-      - name: Build core when cache missed
-        if: steps.core-cache.outputs.cache-hit != 'true'
+      - name: CMake build (incremental on cache hit, cold on miss)
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends libflatbuffers-dev flatbuffers-compiler
           cmake -S core -B core/build -DCMAKE_BUILD_TYPE=Release
           cmake --build core/build -j "$(nproc)"
-
-      - name: Incremental rebuild on stale cache hit
-        if: steps.core-cache.outputs.cache-hit == 'true'
-        run: cmake --build core/build -j "$(nproc)"
 
       - name: C++ googletest (ctest)
         run: ctest --test-dir core/build --output-on-failure -j "$(nproc)"
@@ -239,26 +236,23 @@ jobs:
           go run ./cmd/exchange cache-shard-map
           go run ./cmd/natsctl init
 
-      - name: Restore CMake build tree (lookup-only; build on miss)
+      - name: Install flatbuffers headers + flatc (core wire schema)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libflatbuffers-dev flatbuffers-compiler
+
+      - name: Restore CMake build tree
         id: core-cache
         uses: actions/cache@v4
         with:
           path: core/build
           key: ${{ env.CORE_CACHE_PREFIX }}${{ hashFiles('core/CMakeLists.txt', 'core/src/**', 'core/include/**', 'core/tests/**', 'core/proto/**', 'config/sharding.yaml') }}
           restore-keys: ${{ env.CORE_CACHE_PREFIX }}
-          lookup-only: true
 
-      - name: Build core when cache missed
-        if: steps.core-cache.outputs.cache-hit != 'true'
+      - name: CMake build (incremental on cache hit, cold on miss)
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends libflatbuffers-dev flatbuffers-compiler
           cmake -S core -B core/build -DCMAKE_BUILD_TYPE=Release
           cmake --build core/build -j "$(nproc)"
-
-      - name: Incremental rebuild on stale cache hit
-        if: steps.core-cache.outputs.cache-hit == 'true'
-        run: cmake --build core/build -j "$(nproc)"
 
       - name: Checkpoint corpus drift check (committed corpus must match docs)
         run: cd tests/spec && go run . extract
