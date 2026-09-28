@@ -458,3 +458,32 @@ Scope: 26 tasks (2.3.1–2.3.26), 67 AC rows. Critical spec correction noted at 
 - **§27:** implementation records 1+2 added (audit-chain binding, complaint SLA clocks,
   readiness classification, queue confinement, RBAC store design, resolver keying fix,
   observability/DLQ conventions, LP schema rulings, governance-pack hash invariants).
+
+## [2026-10-06] — PHASE-08: INTEGRATION VALIDATION + PERFORMANCE — 5 TASKS, 5/5 CHECKPOINTS
+
+- **Task 8.3.1:** `tests/integration/` standalone module — contracts.json maps all
+  **419** §24 criteria to owner phase + stable test ID + PLANNED|EXECUTABLE|PASS|BLOCKED
+  status; executed Phase 1–7 subset against live PG/Redis: **135 PASS / 0 FAIL /
+  10 BLOCKED** (honest env gates: docker socket×5, sentinel×2, aeronmd, snapbench×2).
+- **Task 8.3.2:** `tests/load/` harness (run.sh + bookpump/wsprobe/restprobe, real shm
+  ingress reusing soak loadgen). Honest measurements: 50k/s OPEN (host contention,
+  7–15/s; ceiling ~15k/s×5h soak); WS leg PASS (120 conns, 46,320 frames, 0 drops/600s);
+  REST p99 6.3ms contended / 2.3ms quiet; zero corruption (dup=0, decode_err=0).
+- **Task 8.3.3:** profiling + evidence-based fixes — BookSnapshot deep-book shm-slot
+  overflow fixed (top-20/side cap per §10.2, slot 2048B); marketdata IPC attach
+  capacity=0 defect fixed; migration 192 index (ReferencePrice 17.3ms→0.24ms, 73×);
+  report at docs/perf/phase08-tuning-report.md.
+- **Task 8.3.4:** §24 traceability now CI-gated (`validator trace`, 0 unmapped);
+  artifacts regenerated — 419/419 mapped, 0 defects.
+- **Task 8.3.5:** `tests/integration/error_scenarios/` — 24/24 pass: engine-absent/
+  pause, real pg_terminate_backend atomicity + pool recovery, Redis eviction/outage
+  fail-closed, HMAC/Ed25519 rejections + replay guard, gateway.Breaker trip/recovery,
+  L0–L3 tier contracts.
+- **Defect surfaced for spec review (§27):** §2.7.3 ≥95% ring halt watermark is an
+  unrecoverable livelock — halted consumer never drains, occupancy can't fall.
+- **Test-layer fixes:** WS drain dial→register race (removes P06-T6.3.19-C1 flake at
+  root), REST-latency deflake, RBAC recert residue scrub, degradation-key name fix.
+- **Phase-08 doc:** criterion counts 418→419 synced; 8 AC rows honestly open
+  (docker-ephemeral leg, 50k/s, p99 50µs, REST 5ms, zero-loss-under-load, Go GC change,
+  error-scenarios-in-CI, all-419-passing).
+- **Checkpoints:** 5/5 P08 PASS (`tests/spec` runner).
