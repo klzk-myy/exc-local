@@ -36,15 +36,15 @@ Validate crash recovery under 6 chaos scenarios, each run 3 times: crash mid-bat
 6. **Warm recovery:** Follower takes over after leader crash; verify < 10s recovery with zero loss.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] All 6 scenarios pass 3 times each (18 total runs)
-* [ ] Zero duplicate trades on every run
-* [ ] Zero missing trades on every run
-* [ ] Recovery time < 10s on every run
+* [x] All 6 scenarios pass 3 times each (18 total runs)
+* [x] Zero duplicate trades on every run
+* [x] Zero missing trades on every run
+* [x] Recovery time < 10s on every run
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: 6 chaos scenarios pass 3x each — defined first, validated against spec
-- [ ] Spec checkpoint: zero dup/miss on every recovery — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: 6 chaos scenarios pass 3x each — defined first, validated against spec
+- [x] Spec checkpoint: zero dup/miss on every recovery — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -58,13 +58,13 @@ Validate crash recovery under 6 chaos scenarios, each run 3 times: crash mid-bat
 3. **Standby Promotion Parity Check:** Measure failover latency and verify promoted node validates book sequence against WAL tail before opening order ingress.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Database serialization contention resolves with zero balance anomalies
-* [ ] Network partition trips leader fencing and avoids split-brain dual execution
-* [ ] Standby promotion maintains monotonic sequence ordering without missing transactions
+* [x] Database serialization contention resolves with zero balance anomalies
+* [x] Network partition trips leader fencing and avoids split-brain dual execution
+* [x] Standby promotion maintains monotonic sequence ordering without missing transactions
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: Chaos validation verifies database serialization retries and split-brain fencing (§24 #303) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: Chaos validation verifies database serialization retries and split-brain fencing (§24 #303) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
