@@ -1,1 +1,5 @@
-stopped (duration): sent=5999 fills=1134 cancels=85 dup_trade_ids=0 report=/www/wwwroot/exc.local/tests/chaos/results/s3_stale_snapshot/run-3/loadgen-seed.json
+SLOWFILL oid=301000000000385 d=119ms sendNs=257613960 nowNs=377588693 tid=46
+SLOWFILL oid=301000000000386 d=119ms sendNs=258277938 nowNs=377617294 tid=47
+SLOWFILL oid=301000000000391 d=116ms sendNs=261616350 nowNs=377636539 tid=48
+SLOWFILL oid=301000000000407 d=105ms sendNs=272278741 nowNs=377737812 tid=49
+stopped (duration): sent=6000 fills=1136 cancels=85 dup_trade_ids=0 report=/www/wwwroot/exc.local/tests/chaos/results/s3_stale_snapshot/run-3/loadgen-seed.json

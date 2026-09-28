@@ -1478,7 +1478,11 @@ TEST(RecoveryLadder, ForwardDivergenceRebasesViaMarkerSegment) {
     EXPECT_TRUE(lad.rebase_marker_written);
     // Marker segment anchors the seq space at snapshot_seq: tail = 9+1.
     EXPECT_EQ(lad.result.wal_tail, 10u);
-    EXPECT_EQ(lad.result.covered_gap_seqs, 8u);  // seqs 1..8 snapshot-covered
+    // Bounded prescan: segment 0.wal's span sits below every snapshot cursor
+    // (next base 9 <= snapshot 9), so its nominal seq span covers seqs 1..8
+    // without an entry walk — no lost range is ever materialised.
+    EXPECT_EQ(lad.result.covered_gap_seqs, 0u);
+    EXPECT_EQ(lad.result.prescan_segments_skipped, 1u);
     ASSERT_TRUE(std::filesystem::exists(wal_dir / "9.wal"));
     ASSERT_TRUE(lad.report_written);
     EXPECT_NE(read_all(report_path).find("\"outcome\":\"SNAPSHOT_REBASED\""),
@@ -1488,7 +1492,7 @@ TEST(RecoveryLadder, ForwardDivergenceRebasesViaMarkerSegment) {
     EXPECT_EQ(fingerprint(dst.book), fingerprint(src.book));
 }
 
-TEST(RecoveryLadder, CoveredSealedCorruptionRebasesAtLevel2) {
+TEST(RecoveryLadder, CoveredSealedCorruptionSkipsToCleanBoot) {
     const auto root = tmp_dir("ladder_covered");
     const auto wal_dir = root / "wal";
     std::filesystem::create_directories(wal_dir);
@@ -1503,9 +1507,13 @@ TEST(RecoveryLadder, CoveredSealedCorruptionRebasesAtLevel2) {
               {{0, 100, WalEventType::ORDER_NEW, &n1, sizeof(n1)}});
     write_wal(p3.string(), kShard,
               {{3, 104, WalEventType::ORDER_NEW, &n5, sizeof(n5)}});
-    // Sealed damage in 0.wal: seqs 1..2 are unverifiable — but the snapshot
-    // at seq 3 covers them, so level 2 tolerates the loss (strict level 1
-    // still fails: immutable bytes changed).
+    // Sealed damage in 0.wal: seqs 1..2 are unverifiable — and with the
+    // snapshot at seq 3 covering the whole span, bounded prescan never
+    // walks those bytes: the filename contract pins 0.wal's nominal span
+    // at [0,3) entirely below the coverage cursor. Boot is CLEAN — the
+    // covered domain is unreachable through any bound cursor, so zero-loss
+    // holds; integrity of covered sealed journal is the offline wal_audit
+    // sweep's job (spec §27 remediation — bounded prescan trade-off).
     inject_torn_tail(p0.string(), valid_end_of(p0.string()));
 
     Fixture src;
@@ -1522,12 +1530,10 @@ TEST(RecoveryLadder, CoveredSealedCorruptionRebasesAtLevel2) {
     RecoveryManager rm(kShard, sink);
     const RecoveryLadderResult lad = rm.recover_ladder(
         wal_dir.string(), {{kIid, &dst.book}}, report_path.string());
-    ASSERT_EQ(lad.outcome, RecoveryOutcome::SNAPSHOT_REBASED)
-        << lad.result.detail;
-    EXPECT_EQ(lad.level, 2u);
-    EXPECT_EQ(lad.result.covered_gap_seqs, 2u);  // seqs 1..2 lost + covered
+    ASSERT_EQ(lad.outcome, RecoveryOutcome::CLEAN) << lad.result.detail;
+    EXPECT_EQ(lad.level, 1u);
+    EXPECT_EQ(lad.result.prescan_segments_skipped, 1u);
     EXPECT_EQ(lad.result.wal_tail, 4u);
-    ASSERT_TRUE(lad.report_written);
     // Snapshot order restored + seq-3 entry replayed.
     EXPECT_EQ(dst.book.live_orders(), 2u);
     EXPECT_NE(dst.book.find_order(1), nullptr);

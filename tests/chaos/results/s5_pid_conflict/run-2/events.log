@@ -1,13 +1,13 @@
-[13:39:02] engine start pid=3590361 ipc=chaos-s5r2x14 args=
-[13:39:02] loadgen start pid=3590375 rate=2000 dur=8 obase=201000000000001 report=/www/wwwroot/exc.local/tests/chaos/results/s5_pid_conflict/run-2/loadgen-1.json
-[13:39:03] contender exited rc=1
-[13:39:03] check[1] contender_fail_closed = PASS (exit=1)
-[13:39:03] check[2] contender_reason = PASS (shard lock refused)
-[13:39:03] check[3] contender_no_ready = PASS (never reached ingress)
-[13:39:03] check[4] leader_alive = PASS (pid=3590361)
-[13:39:05] check[5] wal_clean_during_contention = PASS (dups=0)
-[13:39:06] engine stopped
-[13:39:06] engine start pid=3590540 ipc=chaos-s5r2x14 args=
-[13:39:06] check[6] reacquire_after_stop = PASS (109ms)
-[13:39:06] engine stopped
-[13:39:06] check[7] final_scan_clean = PASS (dups=0 gaps=0)
+[14:46:16] engine start pid=3736546 ipc=chaos-s5r2x14 args=
+[14:46:16] loadgen start pid=3736561 rate=2000 dur=8 obase=201000000000001 report=/www/wwwroot/exc.local/tests/chaos/results/s5_pid_conflict/run-2/loadgen-1.json
+[14:46:17] contender exited rc=1
+[14:46:17] check[1] contender_fail_closed = PASS (exit=1)
+[14:46:17] check[2] contender_reason = PASS (shard lock refused)
+[14:46:17] check[3] contender_no_ready = PASS (never reached ingress)
+[14:46:17] check[4] leader_alive = PASS (pid=3736546)
+[14:46:19] check[5] wal_clean_during_contention = PASS (dups=0)
+[14:46:20] engine stopped
+[14:46:20] engine start pid=3736692 ipc=chaos-s5r2x14 args=
+[14:46:20] check[6] reacquire_after_stop = PASS (110ms)
+[14:46:20] engine stopped
+[14:46:20] check[7] final_scan_clean = PASS (dups=0 gaps=0)

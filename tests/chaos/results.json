@@ -1,65 +1,65 @@
 {
   "suite": "phase-04.5-task-4.5.3.1",
-  "generated_at": "2026-09-28T13:39:43Z",
+  "generated_at": "2026-09-28T14:46:58Z",
   "runs": [
     {
       "scenario": "s1_crash_mid_batch",
       "run": 1,
       "pass": true,
-      "recovery_ms": 746,
+      "recovery_ms": 824,
       "dup_trade_ids": 0,
       "missing_trades": 0,
-      "wall_ms": 9306,
+      "wall_ms": 9357,
       "evidence": "/www/wwwroot/exc.local/tests/chaos/results/s1_crash_mid_batch/run-1"
     },
     {
       "scenario": "s1_crash_mid_batch",
       "run": 2,
       "pass": true,
-      "recovery_ms": 751,
+      "recovery_ms": 748,
       "dup_trade_ids": 0,
       "missing_trades": 0,
-      "wall_ms": 9316,
+      "wall_ms": 9303,
       "evidence": "/www/wwwroot/exc.local/tests/chaos/results/s1_crash_mid_batch/run-2"
     },
     {
       "scenario": "s1_crash_mid_batch",
       "run": 3,
       "pass": true,
-      "recovery_ms": 741,
+      "recovery_ms": 756,
       "dup_trade_ids": 0,
       "missing_trades": 0,
-      "wall_ms": 9280,
+      "wall_ms": 9505,
       "evidence": "/www/wwwroot/exc.local/tests/chaos/results/s1_crash_mid_batch/run-3"
     },
     {
       "scenario": "s2_timeout_requeue",
       "run": 1,
       "pass": true,
-      "recovery_ms": 641,
+      "recovery_ms": 675,
       "dup_trade_ids": 0,
       "missing_trades": 0,
-      "wall_ms": 6900,
+      "wall_ms": 6936,
       "evidence": "/www/wwwroot/exc.local/tests/chaos/results/s2_timeout_requeue/run-1"
     },
     {
       "scenario": "s2_timeout_requeue",
       "run": 2,
       "pass": true,
-      "recovery_ms": 640,
+      "recovery_ms": 728,
       "dup_trade_ids": 0,
       "missing_trades": 0,
-      "wall_ms": 6898,
+      "wall_ms": 7023,
       "evidence": "/www/wwwroot/exc.local/tests/chaos/results/s2_timeout_requeue/run-2"
     },
     {
       "scenario": "s2_timeout_requeue",
       "run": 3,
       "pass": true,
-      "recovery_ms": 641,
+      "recovery_ms": 645,
       "dup_trade_ids": 0,
       "missing_trades": 0,
-      "wall_ms": 6899,
+      "wall_ms": 6901,
       "evidence": "/www/wwwroot/exc.local/tests/chaos/results/s2_timeout_requeue/run-3"
     },
     {
@@ -69,7 +69,7 @@
       "recovery_ms": 109,
       "dup_trade_ids": 0,
       "missing_trades": 0,
-      "wall_ms": 5502,
+      "wall_ms": 5541,
       "evidence": "/www/wwwroot/exc.local/tests/chaos/results/s3_stale_snapshot/run-1"
     },
     {
@@ -86,40 +86,40 @@
       "scenario": "s3_stale_snapshot",
       "run": 3,
       "pass": true,
-      "recovery_ms": 109,
+      "recovery_ms": 110,
       "dup_trade_ids": 0,
       "missing_trades": 0,
-      "wall_ms": 5506,
+      "wall_ms": 5645,
       "evidence": "/www/wwwroot/exc.local/tests/chaos/results/s3_stale_snapshot/run-3"
     },
     {
       "scenario": "s4_wal_trimmed_pitr",
       "run": 1,
       "pass": true,
-      "recovery_ms": 16,
+      "recovery_ms": 59,
       "dup_trade_ids": 0,
       "missing_trades": 0,
-      "wall_ms": 4908,
+      "wall_ms": 5024,
       "evidence": "/www/wwwroot/exc.local/tests/chaos/results/s4_wal_trimmed_pitr/run-1"
     },
     {
       "scenario": "s4_wal_trimmed_pitr",
       "run": 2,
       "pass": true,
-      "recovery_ms": 17,
+      "recovery_ms": 18,
       "dup_trade_ids": 0,
       "missing_trades": 0,
-      "wall_ms": 5003,
+      "wall_ms": 4912,
       "evidence": "/www/wwwroot/exc.local/tests/chaos/results/s4_wal_trimmed_pitr/run-2"
     },
     {
       "scenario": "s4_wal_trimmed_pitr",
       "run": 3,
       "pass": true,
-      "recovery_ms": 17,
+      "recovery_ms": 15,
       "dup_trade_ids": 0,
       "missing_trades": 0,
-      "wall_ms": 4915,
+      "wall_ms": 4922,
       "evidence": "/www/wwwroot/exc.local/tests/chaos/results/s4_wal_trimmed_pitr/run-3"
     },
     {
@@ -129,17 +129,17 @@
       "recovery_ms": 109,
       "dup_trade_ids": 0,
       "missing_trades": 0,
-      "wall_ms": 3969,
+      "wall_ms": 3968,
       "evidence": "/www/wwwroot/exc.local/tests/chaos/results/s5_pid_conflict/run-1"
     },
     {
       "scenario": "s5_pid_conflict",
       "run": 2,
       "pass": true,
-      "recovery_ms": 109,
+      "recovery_ms": 110,
       "dup_trade_ids": 0,
       "missing_trades": 0,
-      "wall_ms": 3963,
+      "wall_ms": 3976,
       "evidence": "/www/wwwroot/exc.local/tests/chaos/results/s5_pid_conflict/run-2"
     },
     {
@@ -149,37 +149,37 @@
       "recovery_ms": 109,
       "dup_trade_ids": 0,
       "missing_trades": 0,
-      "wall_ms": 3965,
+      "wall_ms": 3979,
       "evidence": "/www/wwwroot/exc.local/tests/chaos/results/s5_pid_conflict/run-3"
     },
     {
       "scenario": "s6_warm_recovery",
       "run": 1,
       "pass": true,
-      "recovery_ms": 688,
+      "recovery_ms": 690,
       "dup_trade_ids": 0,
       "missing_trades": 0,
-      "wall_ms": 8534,
+      "wall_ms": 8533,
       "evidence": "/www/wwwroot/exc.local/tests/chaos/results/s6_warm_recovery/run-1"
     },
     {
       "scenario": "s6_warm_recovery",
       "run": 2,
       "pass": true,
-      "recovery_ms": 697,
+      "recovery_ms": 741,
       "dup_trade_ids": 0,
       "missing_trades": 0,
-      "wall_ms": 8543,
+      "wall_ms": 8599,
       "evidence": "/www/wwwroot/exc.local/tests/chaos/results/s6_warm_recovery/run-2"
     },
     {
       "scenario": "s6_warm_recovery",
       "run": 3,
       "pass": true,
-      "recovery_ms": 695,
+      "recovery_ms": 699,
       "dup_trade_ids": 0,
       "missing_trades": 0,
-      "wall_ms": 8540,
+      "wall_ms": 8554,
       "evidence": "/www/wwwroot/exc.local/tests/chaos/results/s6_warm_recovery/run-3"
     }
   ],

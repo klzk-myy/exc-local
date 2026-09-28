@@ -1,4 +1,4 @@
 {"scenario":"s2_timeout_requeue","run":3,"pass":true,
- "recovery_ms":641,"dup_trade_ids":0,"missing_trades":0,
- "orders_sent":9751,"fills_observed":2618,
- "trades_journaled":2618,"stop_reason":"engine_dead"}
+ "recovery_ms":645,"dup_trade_ids":0,"missing_trades":0,
+ "orders_sent":9751,"fills_observed":2617,
+ "trades_journaled":2617,"stop_reason":"engine_dead"}

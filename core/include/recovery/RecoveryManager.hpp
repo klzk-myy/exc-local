@@ -205,6 +205,17 @@ struct RecoveryResult {
     uint64_t entries_replayed = 0;    // entries >= their book's snapshot_seq
     uint64_t dedup_skips = 0;
     uint64_t covered_skips = 0;
+    uint64_t covered_segments_skipped = 0;  // contiguous sealed segments
+        // entirely below every bound snapshot_seq — prescan either
+        // CRC-verified them or pinned their seq span via the filename
+        // contract — so replay attributed their entries to covered_skips
+        // without walking them (boot-time optimisation; entry-path
+        // semantics preserved)
+    uint64_t prescan_segments_skipped = 0;  // sealed segments whose seq span
+        // sits entirely below every bound book's snapshot cursor — prescan
+        // verified the header and took the filename seq contract instead of
+        // a full CRC walk (Phase-02.5 recovery-time finding: cold-boot CRC
+        // verification of a multi-GB covered journal is disk-rate bound)
     uint64_t shard_events = 0;        // TIME_TICK/BOOK_SNAPSHOT/MARGIN_*
     uint64_t audit_events = 0;        // PREVENTED_MATCH audit records (no-op)
     uint64_t foreign_entries = 0;     // targeting instruments not bound

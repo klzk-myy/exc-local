@@ -1,8 +1,8 @@
-fixture_state	PASS	wal_tail=14647 snapshot_seq=14647
+fixture_state	PASS	wal_tail=14264 snapshot_seq=14264
 gap_detected	PASS	scan_rc=3 lost_ranges=1
 ladder_fail_closed	PASS	exit=3 WAL_RECOVERY_HALT row emitted
-decision_lt_10s	PASS	16ms
+decision_lt_10s	PASS	59ms
 engine_boot_fail_closed	PASS	exit=1
 archive_empty	PASS	trimmed segments never archived — PITR selected
 pitr_staged	PASS	recovery.signal + restore_command + recovery_target_time written
-pg_report_persisted	PASS	inserted=1 pg_halt_rows=5
+pg_report_persisted	PASS	inserted=1 pg_halt_rows=11

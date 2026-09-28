@@ -5,13 +5,16 @@
 #include "recovery/RecoveryManager.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <cerrno>
 #include <cinttypes>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <memory>
 #include <system_error>
+#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -90,6 +93,13 @@ struct SegmentInfo {
     uint64_t entries = 0;
     bool corrupt = false;
     uint64_t valid_end = sizeof(WalFileHeader);
+    // Numeric filename stem — rotations and rebase markers are named
+    // {base_seq}.wal. UINT64_MAX when the stem isn't a seq literal.
+    uint64_t name_seq = UINT64_MAX;
+    uint64_t file_size = 0;
+    // Set when the seq span came from the filename contract (snapshot-covered
+    // segment skipped by bounded prescan) rather than a CRC-verified walk.
+    bool nominal = false;
 };
 
 // Scan one segment read-only. Returns false on unreadable/bad-header/foreign
@@ -122,6 +132,17 @@ bool scan_segment(const std::string& path, uint16_t shard_id,
         }
     }
     return true;
+}
+
+// Header-only check for snapshot-covered segments the bounded prescan skips:
+// verifies the file is a WAL segment of this shard without walking entries
+// (mmap touches the header page only). Returns false on the same conditions
+// scan_segment would — unreadable/bad-header/foreign shard.
+bool check_segment_header(const std::string& path, uint16_t shard_id) {
+    WalReader r;
+    if (r.open(path) != WalStatus::Ok) return false;
+    return r.magic() == kWalMagic && r.version() == kWalVersion &&
+           r.shard_id() == shard_id;
 }
 
 // Fixed expected payload sizes per event type (pinned contract); 0 = accept
@@ -346,10 +367,14 @@ RecoveryResult RecoveryManager::recover(
         uint64_t max_ts = 0;
         uint64_t max_seq = 0;
 
-        // --- Phase 1: WAL prescan — enumerate, scan, order -------------------
+        // --- Phase 1a: WAL enumeration (filenames only) ---------------------
         // Runs BEFORE any book mutation so that every prescan/snapshot
         // failure leaves the bound books clean — the recover_ladder level-2
-        // rebase can then re-run recover() in place.
+        // rebase can then re-run recover() in place. Filenames carry the
+        // segment's base seq ({base_seq}.wal for rotations and rebase
+        // markers) — enough to order the stream and, once the verified
+        // snapshot bound is known, to decide which sealed segments a CRC
+        // walk can skip.
         std::vector<SegmentInfo> segs;
         {
             std::error_code ec;
@@ -361,21 +386,161 @@ RecoveryResult RecoveryManager::recover(
                     std::error_code tec;
                     if (!de.is_regular_file(tec) || tec) continue;
                     if (de.path().extension() != ".wal") continue;
-                    segs.push_back(SegmentInfo{});
-                    segs.back().path = de.path().string();
+                    SegmentInfo si;
+                    si.path = de.path().string();
+                    std::error_code sec;
+                    si.file_size = de.file_size(sec);
+                    if (sec) si.file_size = 0;
+                    const std::string stem = de.path().stem().string();
+                    if (!stem.empty() &&
+                        std::all_of(stem.begin(), stem.end(), [](char c) {
+                            return c >= '0' && c <= '9';
+                        })) {
+                        si.name_seq =
+                            std::strtoull(stem.c_str(), nullptr, 10);
+                    }
+                    segs.push_back(std::move(si));
                 }
             }
         }
-        for (auto& si : segs) {
-            if (!scan_segment(si.path, static_cast<uint16_t>(shard_id_), si)) {
+        // Name order = stream order for rotations (a sealed segment holds
+        // entries strictly below the next segment's base). Non-numeric stems
+        // (UINT64_MAX) sort last and are always fully scanned.
+        std::sort(segs.begin(), segs.end(), [](const SegmentInfo& a,
+                                               const SegmentInfo& b) {
+            if (a.name_seq != b.name_seq) return a.name_seq < b.name_seq;
+            return a.path < b.path;
+        });
+
+        // --- Phase 2 (pre-scan): snapshot read — verify + parse, NO mutation -
+        // Runs before the entry walk so the verified coverage bound can gate
+        // which sealed segments need a CRC scan at all (Phase-02.5 finding:
+        // walking a multi-GB covered journal is disk-rate bound — ~34s cold
+        // for 15GB at ~440MB/s — while the entries it proves can never be
+        // applied: snapshot coverage already pins their seq domain).
+        for (auto& bs : states) {
+            if (!read_snapshot(res, bs, opts)) {
+                res.books.push_back(bs.report);
+                wal_tail_ = res.wal_tail;
+                last_outcome_ = res.outcome();
+                return res;
+            }
+        }
+
+        // Coverage bound: seqs below min_snapshot are inside EVERY bound
+        // book's snapshot image. A bound book without a snapshot contributes
+        // 0 — it needs genesis replay, so nothing is covered for it (this
+        // also guards the covered-segment replay skip below: a segment must
+        // never be skipped while any bound book still needs its entries).
+        uint64_t min_snapshot = UINT64_MAX;
+        for (auto& bs : states) {
+            const uint64_t cov = bs.snapshot_have ? bs.snapshot_seq : 0;
+            if (cov < min_snapshot) min_snapshot = cov;
+        }
+        if (min_snapshot == UINT64_MAX) min_snapshot = 0;  // no snapshots
+
+        // --- Phase 1b: bounded CRC prescan ----------------------------------
+        // A sealed segment is fully covered when the NEXT segment's base seq
+        // is <= min_snapshot: every entry it can contain sits below the
+        // coverage cursor, so the prescan takes its nominal seq span from the
+        // filename contract instead of CRC-walking bytes (a header check
+        // still proves magic/version/shard). The last segment, every segment
+        // overlapping the coverage boundary, and any segment whose span
+        // cannot be bounded by a numeric successor are always scanned — tail
+        // detection, torn-tail repair, divergence and uncovered-gap checks
+        // keep full fidelity. Trade-off (documented, spec §27): bitrot inside
+        // a covered sealed segment no longer gates strict boot — those bytes
+        // are unreachable through any bound cursor; the offline wal_audit
+        // sweep remains the covered-journal integrity check.
+        std::vector<std::size_t> scan_idx;
+        for (std::size_t i = 0; i < segs.size(); ++i) {
+            SegmentInfo& si = segs[i];
+            const bool covered =
+                si.name_seq != UINT64_MAX && i + 1 < segs.size() &&
+                segs[i + 1].name_seq != UINT64_MAX &&
+                segs[i + 1].name_seq > si.name_seq &&
+                segs[i + 1].name_seq <= min_snapshot;
+            if (!covered) {
+                scan_idx.push_back(i);
+                continue;
+            }
+            // Header-verify the skipped segment: a foreign/unreadable file
+            // still fails closed even when its span is snapshot-covered.
+            if (!check_segment_header(si.path,
+                                      static_cast<uint16_t>(shard_id_))) {
                 set_fail(res, RecoveryStatus::WalOpenFailed, UINT64_MAX, 0,
                          "segment unreadable/bad header/foreign shard");
                 wal_tail_ = res.wal_tail;
                 last_outcome_ = res.outcome();
                 return res;
             }
+            si.nominal = true;
+            if (si.file_size > sizeof(WalFileHeader)) {
+                si.has_entries = true;
+                si.first_seq = si.name_seq;
+                si.last_seq = segs[i + 1].name_seq - 1;
+                si.entries = si.last_seq - si.first_seq + 1;
+            }
+            ++res.prescan_segments_skipped;
         }
-        // Order segments by first entry seq (empties carry no seqs — sort last).
+
+        // Segments are independent mmapped files — scan them in parallel
+        // (bounded worker pool) so a long uncovered tail doesn't dominate
+        // boot time. Each worker writes only its own SegmentInfo slot; any
+        // failure fails the whole prescan after the workers drain.
+        {
+            const std::size_t nscan = scan_idx.size();
+            const unsigned hw = std::thread::hardware_concurrency();
+            const std::size_t nthreads =
+                std::min<std::size_t>(
+                    {nscan, 8, hw == 0 ? 1 : static_cast<std::size_t>(hw)});
+            if (nthreads <= 1) {
+                for (const std::size_t i : scan_idx) {
+                    if (!scan_segment(segs[i].path,
+                                      static_cast<uint16_t>(shard_id_),
+                                      segs[i])) {
+                        set_fail(res, RecoveryStatus::WalOpenFailed,
+                                 UINT64_MAX, 0,
+                                 "segment unreadable/bad header/foreign "
+                                 "shard");
+                        wal_tail_ = res.wal_tail;
+                        last_outcome_ = res.outcome();
+                        return res;
+                    }
+                }
+            } else {
+                std::atomic<std::size_t> next{0};
+                std::atomic<bool> failed{false};
+                std::vector<std::thread> workers;
+                workers.reserve(nthreads);
+                const uint16_t sid = static_cast<uint16_t>(shard_id_);
+                for (std::size_t t = 0; t < nthreads; ++t) {
+                    workers.emplace_back([&]() noexcept {
+                        for (;;) {
+                            const std::size_t i = next.fetch_add(
+                                1, std::memory_order_relaxed);
+                            if (i >= nscan) return;
+                            if (!scan_segment(segs[scan_idx[i]].path, sid,
+                                              segs[scan_idx[i]])) {
+                                failed.store(true,
+                                             std::memory_order_release);
+                            }
+                        }
+                    });
+                }
+                for (auto& w : workers) w.join();
+                if (failed.load(std::memory_order_acquire)) {
+                    set_fail(res, RecoveryStatus::WalOpenFailed,
+                             UINT64_MAX, 0,
+                             "segment unreadable/bad header/foreign shard");
+                    wal_tail_ = res.wal_tail;
+                    last_outcome_ = res.outcome();
+                    return res;
+                }
+            }
+        }
+        // Order segments by first entry seq (empties carry no seqs — sort
+        // last; nominal covered segments carry their filename base).
         std::sort(segs.begin(), segs.end(), [](const SegmentInfo& a,
                                                const SegmentInfo& b) {
             if (a.has_entries != b.has_entries) return a.has_entries;
@@ -473,27 +638,11 @@ RecoveryResult RecoveryManager::recover(
             if (i != tail_idx && segs[i].corrupt) sealed_damage = true;
         }
 
-        // --- Phase 2: snapshot read (verify + parse — NO book mutation) ------
-        for (auto& bs : states) {
-            if (!read_snapshot(res, bs, opts)) {
-                res.books.push_back(bs.report);
-                wal_tail_ = res.wal_tail;
-                last_outcome_ = res.outcome();
-                return res;
-            }
-        }
-
         // --- Phase 3: coverage + divergence verification (books still clean) -
-        // Smallest covered cursor across bound books — the bound every lost
-        // range must satisfy.
-        uint64_t min_snapshot = UINT64_MAX;
-        for (auto& bs : states) {
-            if (bs.snapshot_have && bs.snapshot_seq < min_snapshot) {
-                min_snapshot = bs.snapshot_seq;
-            }
-        }
-        if (min_snapshot == UINT64_MAX) min_snapshot = 0;  // no snapshots
-
+        // min_snapshot was computed ahead of the prescan (pre-scan Phase 2):
+        // the bound every lost range must satisfy — a seq is covered only if
+        // below EVERY bound book's snapshot cursor (books without a snapshot
+        // contribute 0).
         for (const LostRange& lr : lost_ranges) {
             if (lr.end <= min_snapshot) {
                 res.covered_gap_seqs += lr.end - lr.begin;
@@ -626,6 +775,50 @@ RecoveryResult RecoveryManager::recover(
         for (const auto& si : segs) {
             if (!si.has_entries) continue;
             ++res.segments_scanned;
+
+            // Fast path (Phase-02.5 recovery-time finding): a segment whose
+            // entire verified span sits below every bound snapshot cursor
+            // can only produce covered skips — prescan already CRC-verified
+            // every entry, and none of them can be applied. Skip the walk
+            // when the segment is internally contiguous
+            // (entries == last-first+1) so intra-segment gaps still get the
+            // full per-entry continuity check below. Boundary continuity
+            // is verified here with exactly the entry-path semantics.
+            // Covered-segment entries are attributed to covered_skips per
+            // book (matching per-entry accounting); the by-type counters
+            // (shard_events/audit/foreign/dedup) only count walked entries.
+            if (min_snapshot > 0 && si.last_seq < min_snapshot &&
+                si.entries == si.last_seq - si.first_seq + 1) {
+                if (!replay_started) {
+                    replay_started = true;
+                    expected = si.first_seq;
+                }
+                if (si.first_seq > expected) {
+                    // Lost range between segments — legal only when fully
+                    // snapshot-covered (same rule as the entry path).
+                    if (si.first_seq > min_snapshot) {
+                        set_fail(res, RecoveryStatus::SeqGap,
+                                 si.first_seq, 0,
+                                 "non-contiguous WAL seq — entries lost");
+                        break;
+                    }
+                } else if (si.first_seq < expected) {
+                    set_fail(res, RecoveryStatus::SeqGap, si.first_seq, 0,
+                             "WAL seq regression — overlapping streams");
+                    break;
+                }
+                expected = si.last_seq + 1;
+                res.covered_skips += si.entries;
+                ++res.covered_segments_skipped;
+                for (auto& b : states) {
+                    b.covered_skips += si.entries;
+                    if (si.last_seq + 1 > b.cursor) {
+                        b.cursor = si.last_seq + 1;
+                    }
+                }
+                continue;
+            }
+
             WalReader r;
             if (r.open(si.path) != WalStatus::Ok) {
                 set_fail(res, RecoveryStatus::WalOpenFailed, UINT64_MAX, 0,

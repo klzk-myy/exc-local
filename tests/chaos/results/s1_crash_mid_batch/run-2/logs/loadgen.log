@@ -1,2 +1,18 @@
-stopped (signal:terminated): sent=10532 fills=3945 cancels=302 dup_trade_ids=0 report=/www/wwwroot/exc.local/tests/chaos/results/s1_crash_mid_batch/run-2/loadgen-1.json
-stopped (duration): sent=11999 fills=5356 cancels=402 dup_trade_ids=0 report=/www/wwwroot/exc.local/tests/chaos/results/s1_crash_mid_batch/run-2/loadgen-2.json
+SLOWFILL oid=201000000003183 d=179ms sendNs=1061972660 nowNs=1241535641 tid=575
+SLOWFILL oid=201000000003188 d=225ms sendNs=1063640232 nowNs=1288832123 tid=576
+SLOWFILL oid=201000000003192 d=244ms sendNs=1064974302 nowNs=1309072943 tid=577
+SLOWFILL oid=201000000003202 d=240ms sendNs=1068306587 nowNs=1309148086 tid=578
+SLOWFILL oid=201000000003208 d=238ms sendNs=1070305764 nowNs=1309189568 tid=579
+SLOWFILL oid=201000000003210 d=238ms sendNs=1070977501 nowNs=1309206442 tid=580
+SLOWFILL oid=201000000003213 d=237ms sendNs=1071972679 nowNs=1309224641 tid=581
+SLOWFILL oid=201000000003215 d=236ms sendNs=1072641641 nowNs=1309238737 tid=582
+stopped (signal:terminated): sent=10517 fills=3942 cancels=302 dup_trade_ids=0 report=/www/wwwroot/exc.local/tests/chaos/results/s1_crash_mid_batch/run-2/loadgen-1.json
+SLOWFILL oid=202000000005889 d=101ms sendNs=1963947061 nowNs=2065438500 tid=5245
+SLOWFILL oid=202000000005896 d=144ms sendNs=1966281402 nowNs=2111277352 tid=5246
+SLOWFILL oid=202000000005900 d=143ms sendNs=1967612949 nowNs=2111374939 tid=5247
+SLOWFILL oid=202000000005908 d=141ms sendNs=1970278974 nowNs=2111789239 tid=5248
+SLOWFILL oid=202000000005912 d=140ms sendNs=1971613051 nowNs=2111875512 tid=5251
+SLOWFILL oid=202000000005921 d=137ms sendNs=1974614868 nowNs=2112045512 tid=5252
+SLOWFILL oid=202000000005927 d=135ms sendNs=1976614846 nowNs=2112156010 tid=5253
+SLOWFILL oid=202000000005931 d=134ms sendNs=1977946136 nowNs=2112235359 tid=5254
+stopped (duration): sent=11999 fills=5353 cancels=402 dup_trade_ids=0 report=/www/wwwroot/exc.local/tests/chaos/results/s1_crash_mid_batch/run-2/loadgen-2.json

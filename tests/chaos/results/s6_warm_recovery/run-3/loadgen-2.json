@@ -1,40 +1,40 @@
 {
-  "started": "2026-09-28T13:39:32.75157338Z",
-  "ended": "2026-09-28T13:39:36.251064433Z",
-  "duration_s": 3.499491051,
+  "started": "2026-09-28T14:46:47.055902481Z",
+  "ended": "2026-09-28T14:46:50.555488635Z",
+  "duration_s": 3.499586154,
   "orders_sent": 5999,
-  "fills": 1213,
-  "cancels": 95,
+  "fills": 1211,
+  "cancels": 93,
   "book_snapshots": 0,
   "time_ticks": 0,
   "other_events": 0,
   "decode_errors": 0,
   "duplicate_trade_ids": 0,
-  "my_orders_filled": 1213,
-  "my_distinct_orders_in_fills": 1155,
+  "my_orders_filled": 1211,
+  "my_distinct_orders_in_fills": 1156,
   "foreign_fills": 0,
   "send_drops": 0,
   "ring_drops": 0,
   "latency_ns": {
-    "p50": 10999,
-    "p99": 7255999,
-    "p999": 31646253,
-    "max": 31646253,
-    "mean": 322298,
-    "count": 882
+    "p50": 9999,
+    "p99": 44041112,
+    "p999": 44041112,
+    "max": 44041112,
+    "mean": 547145,
+    "count": 885
   },
   "cancel_latency_ns": {
     "p50": 7999,
-    "p99": 18404999,
-    "p999": 18404999,
-    "max": 18404735,
-    "mean": 340673,
-    "count": 95
+    "p99": 12153999,
+    "p999": 12153999,
+    "max": 12153636,
+    "mean": 190676,
+    "count": 93
   },
   "throughput": {
     "min_1s": 1999,
     "mean_1s": 1999.6666666666667,
-    "max_1s": 2000
+    "max_1s": 2001
   },
   "target_rate": 2000,
   "stop_reason": "duration",
@@ -42,8 +42,8 @@
   "shard": 0,
   "instrument_id": 7,
   "dup_trade_ids": 0,
-  "achieved_rate": 1714.2492758441977,
-  "p50_us": 10.999,
-  "p99_us": 7255.999,
-  "p999_us": 31646.253
+  "achieved_rate": 1714.20269026473,
+  "p50_us": 9.999,
+  "p99_us": 44041.112,
+  "p999_us": 44041.112
 }

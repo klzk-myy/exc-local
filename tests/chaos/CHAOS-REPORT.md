@@ -1,10 +1,10 @@
 # Chaos Scenario Suite — Phase-04.5 Task 4.5.3.1
 
-- generated: 2026-09-28 13:39:43Z
+- generated: 2026-09-28 14:46:58Z
 - engine: `/www/wwwroot/exc.local/core/build/matching_engine`  (shard 0, instrument 7)
 - runs: 3 per scenario × 6 scenarios = 18 runs
 - evidence root: `/www/wwwroot/exc.local/tests/chaos/results/` (per-run logs, scans, fingerprints, reports)
-- suite wall time: 126s
+- suite wall time: 127s
 - PITR end-to-end smoke (deploy/postgres/pitr_smoke.sh): pass
 
 ## Verdicts
@@ -22,24 +22,24 @@
 
 | scenario | run | verdict | recovery_ms | dup_trades | missing_trades |
 |----------|-----|---------|-------------|------------|----------------|
-| s1_crash_mid_batch | 1 | PASS | 746 | 0 | 0 |
-| s1_crash_mid_batch | 2 | PASS | 751 | 0 | 0 |
-| s1_crash_mid_batch | 3 | PASS | 741 | 0 | 0 |
-| s2_timeout_requeue | 1 | PASS | 641 | 0 | 0 |
-| s2_timeout_requeue | 2 | PASS | 640 | 0 | 0 |
-| s2_timeout_requeue | 3 | PASS | 641 | 0 | 0 |
+| s1_crash_mid_batch | 1 | PASS | 824 | 0 | 0 |
+| s1_crash_mid_batch | 2 | PASS | 748 | 0 | 0 |
+| s1_crash_mid_batch | 3 | PASS | 756 | 0 | 0 |
+| s2_timeout_requeue | 1 | PASS | 675 | 0 | 0 |
+| s2_timeout_requeue | 2 | PASS | 728 | 0 | 0 |
+| s2_timeout_requeue | 3 | PASS | 645 | 0 | 0 |
 | s3_stale_snapshot | 1 | PASS | 109 | 0 | 0 |
 | s3_stale_snapshot | 2 | PASS | 109 | 0 | 0 |
-| s3_stale_snapshot | 3 | PASS | 109 | 0 | 0 |
-| s4_wal_trimmed_pitr | 1 | PASS | 16 | 0 | 0 |
-| s4_wal_trimmed_pitr | 2 | PASS | 17 | 0 | 0 |
-| s4_wal_trimmed_pitr | 3 | PASS | 17 | 0 | 0 |
+| s3_stale_snapshot | 3 | PASS | 110 | 0 | 0 |
+| s4_wal_trimmed_pitr | 1 | PASS | 59 | 0 | 0 |
+| s4_wal_trimmed_pitr | 2 | PASS | 18 | 0 | 0 |
+| s4_wal_trimmed_pitr | 3 | PASS | 15 | 0 | 0 |
 | s5_pid_conflict | 1 | PASS | 109 | 0 | 0 |
-| s5_pid_conflict | 2 | PASS | 109 | 0 | 0 |
+| s5_pid_conflict | 2 | PASS | 110 | 0 | 0 |
 | s5_pid_conflict | 3 | PASS | 109 | 0 | 0 |
-| s6_warm_recovery | 1 | PASS | 688 | 0 | 0 |
-| s6_warm_recovery | 2 | PASS | 697 | 0 | 0 |
-| s6_warm_recovery | 3 | PASS | 695 | 0 | 0 |
+| s6_warm_recovery | 1 | PASS | 690 | 0 | 0 |
+| s6_warm_recovery | 2 | PASS | 741 | 0 | 0 |
+| s6_warm_recovery | 3 | PASS | 699 | 0 | 0 |
 
 ## Scenario semantics
 

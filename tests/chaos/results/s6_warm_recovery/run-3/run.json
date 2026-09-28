@@ -1,4 +1,4 @@
 {"scenario":"s6_warm_recovery","run":3,"pass":true,
- "recovery_ms":695,"dup_trade_ids":0,"missing_trades":0,
- "fp_pre":"639d14cc904517d7","fp_post":"639d14cc904517d7",
+ "recovery_ms":699,"dup_trade_ids":0,"missing_trades":0,
+ "fp_pre":"3bc606259c585996","fp_post":"3bc606259c585996",
  "detail":"kill -9 leader -> promote on shared WAL+snap (snapshot+tail replay)"}

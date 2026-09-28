@@ -1,11 +1,11 @@
-snapshot_present	PASS	/www/wwwroot/exc.local/tests/chaos/results/s3_stale_snapshot/run-3/snap/0/i7/snap_00000000000000011693.bin
+snapshot_present	PASS	/www/wwwroot/exc.local/tests/chaos/results/s3_stale_snapshot/run-3/snap/0/i7/snap_00000000000000011366.bin
 A_recovery_lt_10s	PASS	109ms
 A_guard_fires_rebase	PASS	NOTICE SNAPSHOT_REBASED
 A_book_parity	PASS	payload identical modulo book_seq
-B_recovery_lt_10s	PASS	108ms
+B_recovery_lt_10s	PASS	110ms
 B_rebase_outcome	PASS	SNAPSHOT_REBASED
-B_rebase_marker	PASS	/www/wwwroot/exc.local/tests/chaos/results/s3_stale_snapshot/run-3/wal/0/11737.wal
-B_seq_domain_resumed	PASS	wal_tail=11738 >= snap=11737
+B_rebase_marker	PASS	/www/wwwroot/exc.local/tests/chaos/results/s3_stale_snapshot/run-3/wal/0/11367.wal
+B_seq_domain_resumed	PASS	wal_tail=11368 >= snap=11367
 dup_trade_ids	PASS	0
-C_emptywal_failclosed	PASS	rebased (tail=11738)
+C_emptywal_failclosed	PASS	rebased (tail=11368)
 B_book_parity	PASS	payload identical modulo replay stamps

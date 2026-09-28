@@ -1,3 +1,3 @@
 {"scenario":"s3_stale_snapshot","run":1,"pass":true,
  "recovery_ms":109,"dup_trade_ids":0,"missing_trades":0,
- "snapshot_seq":11527,"detail":"guard->rebase/genesis replay (A) + forward-divergence rebase marker (B)"}
+ "snapshot_seq":11104,"detail":"guard->rebase/genesis replay (A) + forward-divergence rebase marker (B)"}

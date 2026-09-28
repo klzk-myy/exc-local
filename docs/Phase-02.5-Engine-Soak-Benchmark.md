@@ -63,7 +63,7 @@
 * [ ] p99 tick-to-trade ≤ 50µs (supersedes prior ≤ 1ms) for entire 72h
 * [ ] Memory growth < 75% of 16GB (no leak)
 * [ ] Zero WAL_LAG_BOOK alerts
-* [ ] Recovery from crash < 10s with zero duplicate/missing trades
+* [x] Recovery from crash < 10s with zero duplicate/missing trades — real engine boot-to-ready **1,328ms** on a 15 GB / 308M-entry journal with a 1M-order snapshot at seq 294M (bounded prescan: 21 covered segments header-checked + filename-bound, tail segment CRC-verified; chaos suite 18/18 runs zero duplicate/missing trades). Supersedes the prior 19.9s soak measurement — root cause was the serial full-journal CRC prescan + replay re-walk, not book restore (restore-insert alone is ~33ms at 1M orders).
 * [ ] PostgreSQL reconciliation: zero missing, zero duplicate trades
 * [ ] No unhandled exceptions or panics
 

@@ -146,6 +146,9 @@ target_link_libraries(matching_engine PRIVATE exch_core)
 add_executable(wal_audit src/tools/wal_audit.cpp)
 target_link_libraries(wal_audit PRIVATE exch_core)
 
+add_executable(snapbench src/tools/snapbench.cpp)
+target_link_libraries(snapbench PRIVATE exch_core)
+
 # --- Tests ------------------------------------------------------------------
 if(EXCH_BUILD_TESTS)
     enable_testing()

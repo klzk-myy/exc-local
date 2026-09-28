@@ -1,2 +1,18 @@
-stopped (signal:terminated): sent=10523 fills=3946 cancels=302 dup_trade_ids=0 report=/www/wwwroot/exc.local/tests/chaos/results/s1_crash_mid_batch/run-3/loadgen-1.json
+SLOWFILL oid=301000000009714 d=228ms sendNs=3239043296 nowNs=3467606916 tid=3218
+SLOWFILL oid=301000000009718 d=227ms sendNs=3240379197 nowNs=3467661803 tid=3221
+SLOWFILL oid=301000000009727 d=224ms sendNs=3243387302 nowNs=3467801581 tid=3231
+SLOWFILL oid=301000000009731 d=223ms sendNs=3244806664 nowNs=3467879952 tid=3237
+SLOWFILL oid=301000000009734 d=222ms sendNs=3245739166 nowNs=3467918569 tid=3240
+SLOWFILL oid=301000000009739 d=220ms sendNs=3247387360 nowNs=3468003727 tid=3244
+SLOWFILL oid=301000000009747 d=218ms sendNs=3250050961 nowNs=3468133857 tid=3249
+SLOWFILL oid=301000000009756 d=215ms sendNs=3253056773 nowNs=3468543051 tid=3255
+stopped (signal:terminated): sent=10520 fills=3945 cancels=302 dup_trade_ids=0 report=/www/wwwroot/exc.local/tests/chaos/results/s1_crash_mid_batch/run-3/loadgen-1.json
+SLOWFILL oid=302000000011405 d=208ms sendNs=3802567460 nowNs=4011353428 tid=8804
+SLOWFILL oid=302000000011425 d=202ms sendNs=3809231815 nowNs=4011565613 tid=8822
+SLOWFILL oid=302000000011447 d=195ms sendNs=3816564371 nowNs=4011793735 tid=8843
+SLOWFILL oid=302000000011460 d=191ms sendNs=3820898281 nowNs=4012214685 tid=8852
+SLOWFILL oid=302000000011471 d=187ms sendNs=3824564258 nowNs=4012333316 tid=8862
+SLOWFILL oid=302000000011475 d=186ms sendNs=3825899389 nowNs=4012377395 tid=8863
+SLOWFILL oid=302000000011478 d=185ms sendNs=3826898230 nowNs=4012410190 tid=8868
+SLOWFILL oid=302000000011493 d=180ms sendNs=3831897988 nowNs=4012564600 tid=8886
 stopped (duration): sent=11998 fills=5354 cancels=402 dup_trade_ids=0 report=/www/wwwroot/exc.local/tests/chaos/results/s1_crash_mid_batch/run-3/loadgen-2.json

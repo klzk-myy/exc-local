@@ -1,18 +1,18 @@
-[13:37:56] engine start pid=3586217 ipc=chaos-s1r3x3 args=
-[13:37:56] check[1] boot_ready = PASS (ready)
-[13:37:56] loadgen start pid=3586233 rate=3000 dur=15 obase=301000000000001 report=/www/wwwroot/exc.local/tests/chaos/results/s1_crash_mid_batch/run-3/loadgen-1.json
-[13:38:00] engine SIGKILLed mid-batch
-[13:38:00] injected 97 junk bytes at valid_end=1538819 of /www/wwwroot/exc.local/tests/chaos/results/s1_crash_mid_batch/run-3/wal/0/0.wal + marker at seq=18003
-[13:38:00] engine start pid=3586398 ipc=chaos-s1r3x3 args=
-[13:38:00] check[2] recovery_lt_10s = PASS (741ms)
-[13:38:00] check[3] injection_sealed_damage = PASS (prescan flags sealed_damage)
-[13:38:00] check[4] ladder_repair_exercised = PASS (recovery: level=2 + NOTICE row)
-[13:38:00] restored 97 zero bytes at valid_end=1538819
-[13:38:00] check[5] journal_restored_pristine = PASS (scan clean after restore)
-[13:38:01] check[6] fp_parity_pre_post = PASS (225dbe0aed94ceea)
-[13:38:01] check[7] replay_deterministic = PASS (225dbe0aed94ceea)
-[13:38:01] loadgen start pid=3586479 rate=3000 dur=4 obase=302000000000001 report=/www/wwwroot/exc.local/tests/chaos/results/s1_crash_mid_batch/run-3/loadgen-2.json
-[13:38:05] engine stopped
-[13:38:05] check[8] wal_clean = PASS (dups=0 gaps=0)
-[13:38:05] check[9] client_dup_fills = PASS (0)
-[13:38:05] check[10] journaled_covers_fills = PASS (trades=9300 fills=9300)
+[14:45:10] engine start pid=3729629 ipc=chaos-s1r3x3 args=
+[14:45:10] check[1] boot_ready = PASS (ready)
+[14:45:10] loadgen start pid=3729646 rate=3000 dur=15 obase=301000000000001 report=/www/wwwroot/exc.local/tests/chaos/results/s1_crash_mid_batch/run-3/loadgen-1.json
+[14:45:14] engine SIGKILLed mid-batch
+[14:45:14] injected 97 junk bytes at valid_end=1504365 of /www/wwwroot/exc.local/tests/chaos/results/s1_crash_mid_batch/run-3/wal/0/0.wal + marker at seq=17165
+[14:45:14] engine start pid=3730501 ipc=chaos-s1r3x3 args=
+[14:45:14] check[2] recovery_lt_10s = PASS (756ms)
+[14:45:14] check[3] injection_sealed_damage = PASS (prescan flags sealed_damage)
+[14:45:14] check[4] ladder_repair_exercised = PASS (recovery: level=2 + NOTICE row)
+[14:45:14] restored 97 zero bytes at valid_end=1504365
+[14:45:14] check[5] journal_restored_pristine = PASS (scan clean after restore)
+[14:45:14] check[6] fp_parity_pre_post = PASS (0ca7dbce48aaba43)
+[14:45:14] check[7] replay_deterministic = PASS (0ca7dbce48aaba43)
+[14:45:14] loadgen start pid=3730598 rate=3000 dur=4 obase=302000000000001 report=/www/wwwroot/exc.local/tests/chaos/results/s1_crash_mid_batch/run-3/loadgen-2.json
+[14:45:19] engine stopped
+[14:45:19] check[8] wal_clean = PASS (dups=0 gaps=0)
+[14:45:19] check[9] client_dup_fills = PASS (0)
+[14:45:19] check[10] journaled_covers_fills = PASS (trades=9299 fills=9299)
