@@ -1,16 +1,16 @@
 {
   "tool": "exchange-testspec/validator trace",
   "version": "1.0.0",
-  "generated_at": "2026-09-27T20:16:02.474776094Z",
+  "generated_at": "2026-09-28T12:26:04.395759085Z",
   "repo_root": "/www/wwwroot/exc.local",
   "docs": "/www/wwwroot/exc.local/docs",
   "spec": "Specification - Complete Exchange System Suite.md",
-  "expected_criteria": 414,
+  "expected_criteria": 419,
   "summary": {
-    "declared_total": 414,
-    "criteria": 414,
+    "declared_total": 419,
+    "criteria": 419,
     "contiguous": true,
-    "mapped": 414,
+    "mapped": 419,
     "unmapped": 0,
     "waived": 0,
     "edge_totals": {
@@ -20,7 +20,7 @@
       "spec_components": 101,
       "task_ac": 56
     },
-    "checkpoint_edges_implemented": 3,
+    "checkpoint_edges_implemented": 39,
     "fail_defects": 0,
     "warn_defects": 0
   },
@@ -6094,8 +6094,8 @@
         "checkpoints": [
           {
             "id": "P02-T2.3.11-C1",
-            "implemented": false,
-            "checked": false,
+            "implemented": true,
+            "checked": true,
             "text": "configurable STP modes per spec §6.5 / §24 #154"
           }
         ],
@@ -6316,8 +6316,8 @@
         "checkpoints": [
           {
             "id": "P04-T4.3.6-C1",
-            "implemented": false,
-            "checked": false,
+            "implemented": true,
+            "checked": true,
             "text": "ClickHouse S3 backup + restore drill (spec §18.3, §24 #159)"
           }
         ]
@@ -6404,7 +6404,7 @@
         "checkpoints": [
           {
             "id": "P01.5-T1.5.3.4-C1",
-            "implemented": false,
+            "implemented": true,
             "checked": true,
             "text": "SAST + dependency audit gates PRs (§24 #161)"
           }
@@ -7066,8 +7066,8 @@
         "checkpoints": [
           {
             "id": "P02-T2.3.12-C1",
-            "implemented": false,
-            "checked": false,
+            "implemented": true,
+            "checked": true,
             "text": "cross-shard margin coordination interface (§13.1, §24 #176)"
           },
           {
@@ -7217,8 +7217,8 @@
         "checkpoints": [
           {
             "id": "P04-T4.3.7-C1",
-            "implemented": false,
-            "checked": false,
+            "implemented": true,
+            "checked": true,
             "text": "PostgreSQL partition archival pipeline (§19.7, §24 #179)"
           },
           {
@@ -7267,8 +7267,8 @@
         "checkpoints": [
           {
             "id": "P03-T3.3.9-C1",
-            "implemented": false,
-            "checked": false,
+            "implemented": true,
+            "checked": true,
             "text": "multi-currency P\u0026L base conversion (§13.1, §24 #180)"
           }
         ]
@@ -7644,8 +7644,8 @@
         "checkpoints": [
           {
             "id": "P02-T2.3.13-C1",
-            "implemented": false,
-            "checked": false,
+            "implemented": true,
+            "checked": true,
             "text": "sparse order book protection and level serialization (§6.6, §24 #188)"
           }
         ],
@@ -11202,8 +11202,8 @@
         "checkpoints": [
           {
             "id": "P02-T2.3.16-C1",
-            "implemented": false,
-            "checked": false,
+            "implemented": true,
+            "checked": true,
             "text": "STP NONE is category-gated and surveillance-visible (§24 #274)"
           }
         ],
@@ -11370,8 +11370,8 @@
         "checkpoints": [
           {
             "id": "P02-T2.3.17-C1",
-            "implemented": false,
-            "checked": false,
+            "implemented": true,
+            "checked": true,
             "text": "reference-price execution limits are fixed for the taker phase and emit an expiry reason (§24 #277)"
           }
         ],
@@ -11462,8 +11462,8 @@
         "checkpoints": [
           {
             "id": "P02-T2.3.18-C1",
-            "implemented": false,
-            "checked": false,
+            "implemented": true,
+            "checked": true,
             "text": "trade-group STP, TRANSFER, and prevented-match accounting replay deterministically (§24 #279–280)"
           }
         ],
@@ -11526,8 +11526,8 @@
         "checkpoints": [
           {
             "id": "P02-T2.3.18-C1",
-            "implemented": false,
-            "checked": false,
+            "implemented": true,
+            "checked": true,
             "text": "trade-group STP, TRANSFER, and prevented-match accounting replay deterministically (§24 #279–280)"
           }
         ],
@@ -11738,17 +11738,10 @@
       "stable_test_contract": "TBN-284",
       "edges": {
         "phase_ac": [
-          "Phase-03-Risk-Settlement.md#AC40",
           "Phase-06-Market-Data-Distribution.md#AC31",
           "Phase-18-FIX-Protocol-Gateway.md#AC46"
         ],
         "checkpoints": [
-          {
-            "id": "P03-T3.3.14-C1",
-            "implemented": false,
-            "checked": false,
-            "text": "multi-asset auto-exchange deficit settlement with GL journal posting (§13.6, §24 #284)"
-          },
           {
             "id": "P06-T6.3.18-C1",
             "implemented": false,
@@ -11931,16 +11924,9 @@
       "stable_test_contract": "TBN-288",
       "edges": {
         "phase_ac": [
-          "Phase-03-Risk-Settlement.md#AC41",
           "Phase-05-Order-Gateway-API.md#AC65"
         ],
         "checkpoints": [
-          {
-            "id": "P03-T3.3.15-C1",
-            "implemented": false,
-            "checked": false,
-            "text": "carry trade swap yield tracking and daily rollover settlement (§15.3, §24 #288)"
-          },
           {
             "id": "P05-T5.3.40-C1",
             "implemented": false,
@@ -12052,16 +12038,9 @@
       "stable_test_contract": "TBN-290",
       "edges": {
         "phase_ac": [
-          "Phase-03-Risk-Settlement.md#AC42",
           "Phase-15-Market-Admin-Lifecycle.md#AC23"
         ],
         "checkpoints": [
-          {
-            "id": "P03-T3.3.16-C1",
-            "implemented": false,
-            "checked": false,
-            "text": "VIP 0-9 tier calculation engine with daily 00:00 UTC volume/equity aggregation (migration 086, §8.5, §24 #290)"
-          },
           {
             "id": "P15-T15.3.1-C1",
             "implemented": false,
@@ -12128,17 +12107,10 @@
       "stable_test_contract": "TBN-291",
       "edges": {
         "phase_ac": [
-          "Phase-03-Risk-Settlement.md#AC43",
           "Phase-06-Market-Data-Distribution.md#AC33",
           "Phase-23-Market-Data-Products.md#AC18"
         ],
         "checkpoints": [
-          {
-            "id": "P03-T3.3.17-C1",
-            "implemented": false,
-            "checked": false,
-            "text": "negative maker fee rebate GL accounting with liquidity expense debit (§8.5, §24 #291)"
-          },
           {
             "id": "P06-T6.3.20-C1",
             "implemented": false,
@@ -12193,17 +12165,10 @@
       "stable_test_contract": "TBN-292",
       "edges": {
         "phase_ac": [
-          "Phase-04-Persistence-Recovery.md#AC26",
           "Phase-10-Trader-UI.md#AC26",
           "Phase-10-Trader-UI.md#AC27"
         ],
         "checkpoints": [
-          {
-            "id": "P04-T4.3.8-C1",
-            "implemented": false,
-            "checked": false,
-            "text": "ClickHouse-to-S3 daily batch compactor and bulk archive exporter (§16.1, §24 #292)"
-          },
           {
             "id": "P10-T10.3.14-C1",
             "implemented": false,
@@ -12497,7 +12462,7 @@
         "checkpoints": [
           {
             "id": "P01.5-T1.5.3.5-C1",
-            "implemented": false,
+            "implemented": true,
             "checked": true,
             "text": "CI negative test suite injects faults and validates deterministic fail-closed behavior (§24 #298)"
           }
@@ -12541,8 +12506,8 @@
         "checkpoints": [
           {
             "id": "P02-T2.3.19-C1",
-            "implemented": false,
-            "checked": false,
+            "implemented": true,
+            "checked": true,
             "text": "Matching engine backpressure, ring buffer watermarks, and poison-pill containment fail closed (§24 #299)"
           }
         ],
@@ -12588,9 +12553,9 @@
         "checkpoints": [
           {
             "id": "P02.5-T2.5.3.3-C1",
-            "implemented": false,
-            "checked": false,
-            "text": "Matching engine soak fault injection and backpressure recovery validated (§24 #300)"
+            "implemented": true,
+            "checked": true,
+            "text": "Matching engine soak fault injection and backpressure recovery validated (§24 #300) — defined first, validated against spec (PASS: crash+recovery+burst events recorded)"
           }
         ]
       },
@@ -12632,8 +12597,8 @@
         "checkpoints": [
           {
             "id": "P03-T3.3.18-C1",
-            "implemented": false,
-            "checked": false,
+            "implemented": true,
+            "checked": true,
             "text": "Balance invariant verification, serialization retries, and settlement compensation fail closed (§24 #301)"
           }
         ]
@@ -12676,8 +12641,8 @@
         "checkpoints": [
           {
             "id": "P04-T4.3.9-C1",
-            "implemented": false,
-            "checked": false,
+            "implemented": true,
+            "checked": true,
             "text": "Graduated WAL recovery ladder and snapshot divergence fail-closed verification (§24 #302)"
           }
         ]
@@ -14140,8 +14105,8 @@
         "checkpoints": [
           {
             "id": "P04-T4.3.10-C1",
-            "implemented": false,
-            "checked": false,
+            "implemented": true,
+            "checked": true,
             "text": "End-to-end crash recovery and cross-region DR orchestration engine with 6-stage data integrity audit (§24 #335)"
           }
         ]
@@ -14184,8 +14149,8 @@
         "checkpoints": [
           {
             "id": "P02-T2.3.20-C1",
-            "implemented": false,
-            "checked": false,
+            "implemented": true,
+            "checked": true,
             "text": "atomic cancel-replace, amend priority per field class, auction-state amend gate and deterministic fairness timestamping (§24 #336)"
           }
         ],
@@ -14232,8 +14197,8 @@
         "checkpoints": [
           {
             "id": "P03-T3.3.19-C1",
-            "implemented": false,
-            "checked": false,
+            "implemented": true,
+            "checked": true,
             "text": "full chart of accounts, swap markup with per-currency day-count, negative-rate and swap-free rules, non-trading fee schedule with VAT flags (§24 #337)"
           }
         ]
@@ -14946,8 +14911,8 @@
         "checkpoints": [
           {
             "id": "P04-T4.3.11-C1",
-            "implemented": false,
-            "checked": false,
+            "implemented": true,
+            "checked": true,
             "text": "time-boxed audit with running digests and snapshot checksums inside RTO (§24 #353)"
           }
         ]
@@ -14990,8 +14955,8 @@
         "checkpoints": [
           {
             "id": "P04-T4.3.12-C1",
-            "implemented": false,
-            "checked": false,
+            "implemented": true,
+            "checked": true,
             "text": "per-shard scoped reopen with external-feed fallback, zero-sum exempt from fallback (§24 #354)"
           }
         ]
@@ -15430,8 +15395,8 @@
         "checkpoints": [
           {
             "id": "P03-T3.3.20-C1",
-            "implemented": false,
-            "checked": false,
+            "implemented": true,
+            "checked": true,
             "text": "dust eligibility, disclosed-spread conversion and balanced GL posting (§24 #364)"
           }
         ]
@@ -15613,8 +15578,8 @@
         "checkpoints": [
           {
             "id": "P02-T2.3.21-C1",
-            "implemented": false,
-            "checked": false,
+            "implemented": true,
+            "checked": true,
             "text": "account-default STP with category gating and per-fill persistence (§24 #368)"
           }
         ],
@@ -15704,8 +15669,8 @@
         "checkpoints": [
           {
             "id": "P03-T3.3.21-C1",
-            "implemented": false,
-            "checked": false,
+            "implemented": true,
+            "checked": true,
             "text": "minor-unit posting, zero-balance switching and single-helper reads (§24 #370)"
           }
         ]
@@ -16980,8 +16945,8 @@
         "checkpoints": [
           {
             "id": "P02-T2.3.22-C1",
-            "implemented": false,
-            "checked": false,
+            "implemented": true,
+            "checked": true,
             "text": "trade-through prevention and price-improvement recording (§24 #400)"
           }
         ],
@@ -17074,8 +17039,8 @@
         "checkpoints": [
           {
             "id": "P02-T2.3.23-C1",
-            "implemented": false,
-            "checked": false,
+            "implemented": true,
+            "checked": true,
             "text": "pipette fixed-point integer scaling ($10^8$ ticks) and zero float math in hot path (§24 #402)"
           }
         ],
@@ -17121,8 +17086,8 @@
         "checkpoints": [
           {
             "id": "P02-T2.3.24-C1",
-            "implemented": false,
-            "checked": false,
+            "implemented": true,
+            "checked": true,
             "text": "in-memory bilateral credit matrix counterparty screening in matching loop (§24 #403)"
           }
         ]
@@ -17165,8 +17130,8 @@
         "checkpoints": [
           {
             "id": "P02-T2.3.25-C1",
-            "implemented": false,
-            "checked": false,
+            "implemented": true,
+            "checked": true,
             "text": "optimistic cross-shard routing with 500µs timeout and compensating unwinds (§24 #404)"
           }
         ],
@@ -17212,8 +17177,8 @@
         "checkpoints": [
           {
             "id": "P02-T2.3.26-C1",
-            "implemented": false,
-            "checked": false,
+            "implemented": true,
+            "checked": true,
             "text": "discretionary offset order execution with hidden price band and passive public display (§24 #405)"
           }
         ],
@@ -17259,8 +17224,8 @@
         "checkpoints": [
           {
             "id": "P03-T3.3.22-C1",
-            "implemented": false,
-            "checked": false,
+            "implemented": true,
+            "checked": true,
             "text": "physical delivery vs rolling spot ledger partitioning (§24 #406)"
           }
         ]
@@ -17303,8 +17268,8 @@
         "checkpoints": [
           {
             "id": "P03-T3.3.23-C1",
-            "implemented": false,
-            "checked": false,
+            "implemented": true,
+            "checked": true,
             "text": "swap-free administrative holding fee engine (§24 #407)"
           }
         ]
@@ -17614,6 +17579,226 @@
             "implemented": false,
             "checked": false,
             "text": "unmatched bank deposit suspense GL routing and compliance quarantine (§24 #414)"
+          }
+        ]
+      },
+      "status": "mapped"
+    },
+    {
+      "id": 415,
+      "criterion": "Multi-asset auto-exchange converts negative balances at index price + 0.1% buffer with balanced multi-currency GL journal, clearing deficits without external banking rails",
+      "spec_line": 3907,
+      "subsection": "24.2",
+      "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
+      "owner_phase_tags": [
+        "03"
+      ],
+      "owner_phase_docs": [
+        "Phase-03-Risk-Settlement.md"
+      ],
+      "phase_ac_refs": [
+        {
+          "raw": "Phase 03-Risk-Settlement §AC row 40",
+          "doc": "Phase-03-Risk-Settlement.md",
+          "rows": [
+            {
+              "row": 40,
+              "exists": true,
+              "cites_criterion": true,
+              "text": "Multi-asset auto-exchange converts negative balances at index+0.1%; GL balanced (§24 #415)",
+              "line": 702
+            }
+          ],
+          "resolved": true
+        }
+      ],
+      "stable_test_contract": "MAT-415",
+      "edges": {
+        "phase_ac": [
+          "Phase-03-Risk-Settlement.md#AC40"
+        ],
+        "checkpoints": [
+          {
+            "id": "P03-T3.3.14-C1",
+            "implemented": true,
+            "checked": true,
+            "text": "multi-asset auto-exchange deficit settlement with GL journal posting (§13.6, §24 #415)"
+          }
+        ]
+      },
+      "status": "mapped"
+    },
+    {
+      "id": 416,
+      "criterion": "Carry-trade swap yield tracked per allocation with net-yield legs and settled daily during the 17:00 ET rollover, cumulative yield recorded",
+      "spec_line": 3908,
+      "subsection": "24.2",
+      "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
+      "owner_phase_tags": [
+        "03"
+      ],
+      "owner_phase_docs": [
+        "Phase-03-Risk-Settlement.md"
+      ],
+      "phase_ac_refs": [
+        {
+          "raw": "Phase 03-Risk-Settlement §AC row 41",
+          "doc": "Phase-03-Risk-Settlement.md",
+          "rows": [
+            {
+              "row": 41,
+              "exists": true,
+              "cites_criterion": true,
+              "text": "Carry trade swap yield tracked and settled during 17:00 NY rollover (§24 #416)",
+              "line": 703
+            }
+          ],
+          "resolved": true
+        }
+      ],
+      "stable_test_contract": "MAT-416",
+      "edges": {
+        "phase_ac": [
+          "Phase-03-Risk-Settlement.md#AC41"
+        ],
+        "checkpoints": [
+          {
+            "id": "P03-T3.3.15-C1",
+            "implemented": true,
+            "checked": true,
+            "text": "carry trade swap yield tracking and daily rollover settlement (§15.3, §24 #416)"
+          }
+        ]
+      },
+      "status": "mapped"
+    },
+    {
+      "id": 417,
+      "criterion": "VIP 0–9 tier engine recalculates 30-day volume and equity at 00:00 UTC daily with auditable tier history (migration 086)",
+      "spec_line": 3909,
+      "subsection": "24.2",
+      "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
+      "owner_phase_tags": [
+        "03"
+      ],
+      "owner_phase_docs": [
+        "Phase-03-Risk-Settlement.md"
+      ],
+      "phase_ac_refs": [
+        {
+          "raw": "Phase 03-Risk-Settlement §AC row 42",
+          "doc": "Phase-03-Risk-Settlement.md",
+          "rows": [
+            {
+              "row": 42,
+              "exists": true,
+              "cites_criterion": true,
+              "text": "VIP 0–9 tier calculation runs daily at 00:00 UTC; volume and equity thresholds enforced (migration 086, §24 #417)",
+              "line": 704
+            }
+          ],
+          "resolved": true
+        }
+      ],
+      "stable_test_contract": "MAT-417",
+      "edges": {
+        "phase_ac": [
+          "Phase-03-Risk-Settlement.md#AC42"
+        ],
+        "checkpoints": [
+          {
+            "id": "P03-T3.3.16-C1",
+            "implemented": true,
+            "checked": true,
+            "text": "VIP 0-9 tier calculation engine with daily 00:00 UTC volume/equity aggregation (migration 086, §8.5, §24 #417)"
+          }
+        ]
+      },
+      "status": "mapped"
+    },
+    {
+      "id": 418,
+      "criterion": "Negative maker fees are credited as cash rebates to the client balance with an offsetting debit to the liquidity-expense GL account",
+      "spec_line": 3910,
+      "subsection": "24.2",
+      "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
+      "owner_phase_tags": [
+        "03"
+      ],
+      "owner_phase_docs": [
+        "Phase-03-Risk-Settlement.md"
+      ],
+      "phase_ac_refs": [
+        {
+          "raw": "Phase 03-Risk-Settlement §AC row 43",
+          "doc": "Phase-03-Risk-Settlement.md",
+          "rows": [
+            {
+              "row": 43,
+              "exists": true,
+              "cites_criterion": true,
+              "text": "Negative maker fees credited as cash rebates with debit to liquidity expense GL (§24 #418)",
+              "line": 705
+            }
+          ],
+          "resolved": true
+        }
+      ],
+      "stable_test_contract": "MAT-418",
+      "edges": {
+        "phase_ac": [
+          "Phase-03-Risk-Settlement.md#AC43"
+        ],
+        "checkpoints": [
+          {
+            "id": "P03-T3.3.17-C1",
+            "implemented": true,
+            "checked": true,
+            "text": "negative maker fee rebate GL accounting with liquidity expense debit (§8.5, §24 #418)"
+          }
+        ]
+      },
+      "status": "mapped"
+    },
+    {
+      "id": 419,
+      "criterion": "Automated daily ClickHouse→S3 batch export at 01:00 UTC produces compressed tick/aggTrade/kline/book-snapshot artifacts with a SHA256 manifest verified on upload (§16.1)",
+      "spec_line": 3911,
+      "subsection": "24.2",
+      "owner_phase": "Phase 4 — Persistence \u0026 Recovery",
+      "owner_phase_tags": [
+        "04"
+      ],
+      "owner_phase_docs": [
+        "Phase-04-Persistence-Recovery.md"
+      ],
+      "phase_ac_refs": [
+        {
+          "raw": "Phase 04-Persistence-Recovery §AC row 26",
+          "doc": "Phase-04-Persistence-Recovery.md",
+          "rows": [
+            {
+              "row": 26,
+              "exists": true,
+              "cites_criterion": true,
+              "text": "Daily batch compactor exports historical trades/aggTrades/klines to S3 ZIPs with SHA256 (§24 #419)",
+              "line": 409
+            }
+          ],
+          "resolved": true
+        }
+      ],
+      "stable_test_contract": "MAT-419",
+      "edges": {
+        "phase_ac": [
+          "Phase-04-Persistence-Recovery.md#AC26"
+        ],
+        "checkpoints": [
+          {
+            "id": "P04-T4.3.8-C1",
+            "implemented": true,
+            "checked": true,
+            "text": "ClickHouse-to-S3 daily batch compactor and bulk archive exporter (§16.1, §24 #419)"
           }
         ]
       },

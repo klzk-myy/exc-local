@@ -12,21 +12,6 @@ r.Register("P05-T5.3.1-C1", func(ctx context.Context, env *spec.Env) spec.Result
 
 | Checkpoint | Task | Status | Text |
 |---|---|---|---|
-| `P04-T4.3.1-C1` | 4.3.1 (Phase-04-Persistence-Recovery.md:48) | [ ] | snapshot cadence 100k trades / 5 min |
-| `P04-T4.3.1-C2` | 4.3.1 (Phase-04-Persistence-Recovery.md:49) | [ ] | WAL trim after snapshot confirmed |
-| `P04-T4.3.2-C1` | 4.3.2 (Phase-04-Persistence-Recovery.md:77) | [ ] | WAL S3 archive before trim (zero-loss guard) |
-| `P04-T4.3.2-C2` | 4.3.2 (Phase-04-Persistence-Recovery.md:78) | [ ] | 90-day retention + Glacier |
-| `P04-T4.3.3-C1` | 4.3.3 (Phase-04-Persistence-Recovery.md:104) | [ ] | replay-from-archive for historical reconstruction |
-| `P04-T4.3.4-C1` | 4.3.4 (Phase-04-Persistence-Recovery.md:130) | [ ] | PostgreSQL PITR RPO ≤ 15s / RTO ≤ 5min |
-| `P04-T4.3.5-C1` | 4.3.5 (Phase-04-Persistence-Recovery.md:163) | [ ] | snapshot + WAL replay exact recovery |
-| `P04-T4.3.5-C2` | 4.3.5 (Phase-04-Persistence-Recovery.md:164) | [ ] | boot-time invariant fail-closed as last resort of graduated recovery ladder — defined first, valida… |
-| `P04-T4.3.6-C1` | 4.3.6 (Phase-04-Persistence-Recovery.md:189) | [ ] | ClickHouse S3 backup + restore drill (spec §18.3, §24 #159) |
-| `P04-T4.3.7-C1` | 4.3.7 (Phase-04-Persistence-Recovery.md:214) | [ ] | PostgreSQL partition archival pipeline (§19.7, §24 #179) |
-| `P04-T4.3.8-C1` | 4.3.8 (Phase-04-Persistence-Recovery.md:239) | [ ] | ClickHouse-to-S3 daily batch compactor and bulk archive exporter (§16.1, §24 #292) |
-| `P04-T4.3.9-C1` | 4.3.9 (Phase-04-Persistence-Recovery.md:261) | [ ] | Graduated WAL recovery ladder and snapshot divergence fail-closed verification (§24 #302) |
-| `P04-T4.3.10-C1` | 4.3.10 (Phase-04-Persistence-Recovery.md:292) | [ ] | End-to-end crash recovery and cross-region DR orchestration engine with 6-stage data integrity audi… |
-| `P04-T4.3.11-C1` | 4.3.11 (Phase-04-Persistence-Recovery.md:314) | [ ] | time-boxed audit with running digests and snapshot checksums inside RTO (§24 #353) |
-| `P04-T4.3.12-C1` | 4.3.12 (Phase-04-Persistence-Recovery.md:334) | [ ] | per-shard scoped reopen with external-feed fallback, zero-sum exempt from fallback (§24 #354) |
 | `P04.5-T4.5.3.1-C1` | 4.5.3.1 (Phase-04.5-Recovery-Chaos-Validation.md:45) | [ ] | 6 chaos scenarios pass 3x each |
 | `P04.5-T4.5.3.1-C2` | 4.5.3.1 (Phase-04.5-Recovery-Chaos-Validation.md:46) | [ ] | zero dup/miss on every recovery |
 | `P04.5-T4.5.3.2-C1` | 4.5.3.2 (Phase-04.5-Recovery-Chaos-Validation.md:66) | [ ] | Chaos validation verifies database serialization retries and split-brain fencing (§24 #303) |

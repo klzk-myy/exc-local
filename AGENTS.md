@@ -231,7 +231,7 @@ Phase 1 (Foundation: C++ core scaffold, CMake, IPC, WAL, PostgreSQL migrations)
 | **Phase 19.5 → 22** | **Single PriceOracle consumed by margin/derivatives/auto-halt; staleness gates fail-closed; circuit breaker alerts** | **Phase 22 (derivatives margin)** |
 | Phase 20 → 24 | Analytics computation working | Phase 24 (settlement reporting) |
 | Phase 21 → 24 | Compliance rules + sanctions functional | Phase 24 (compliance reporting) |
-| **Phase 24 → production release** | **All 418 §24 criteria have executable tests and pass; traceability has zero `PLANNED`/unmapped rows; conditional legal/venue/CLS/bank launch attestations complete** (supersedes prior 414, 401, 398, 390, 389, 381, 377, 373, 368, 354, 352, 349, 347, 335, 334, 333, 296, 276, 256, 252, 237, 219, 206, 201, 192 and 174) | **Production launch** |
+| **Phase 24 → production release** | **All 419 §24 criteria have executable tests and pass; traceability has zero `PLANNED`/unmapped rows; conditional legal/venue/CLS/bank launch attestations complete** (supersedes prior 418, 414, 401, 398, 390, 389, 381, 377, 373, 368, 354, 352, 349, 347, 335, 334, 333, 296, 276, 256, 252, 237, 219, 206, 201, 192 and 174) | **Production launch** |
 
 > **Each gate is a hard stop.** If criteria don't pass, the next phase does not begin.
 

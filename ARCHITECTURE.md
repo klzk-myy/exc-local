@@ -610,7 +610,7 @@ Single owner per mechanism — no duplication across phases.
 | `ARCHITECTURE.md` | This file — system architecture overview |
 | `docs/Specification - Complete Exchange System Suite.md` | Master contract (v7.0) |
 | `docs/Phase-01-Project-Foundation.md` | C++ core scaffold, CMake, IPC, WAL, PostgreSQL migrations, canonical filesystem aliases (remediation #39) |
-| `docs/Phase-01.5-CI-CD-Validation-Harness.md` | CI/CD, 400+ spec checkpoints (actual 543 across 479 tasks; supersedes 530/466, 527/463, 523/461, 522/460, 514/452, 510/448, 506/444, 501/439, 487/425, 485/423, 482/420, 480/418, unverified 467/405, 466/404, 422/360, 407/346), 418-criterion traceability (supersedes prior 414, 401, 398, 390, 389, 381, 377, 373, 368, 354, 352, 349, 347, 335, 334, 333, 296, 276, 256/377/316, 252/373/312, 237/358/297, 219, 206, 201, 192), golden tests |
+| `docs/Phase-01.5-CI-CD-Validation-Harness.md` | CI/CD, 400+ spec checkpoints (actual 543 across 479 tasks; supersedes 530/466, 527/463, 523/461, 522/460, 514/452, 510/448, 506/444, 501/439, 487/425, 485/423, 482/420, 480/418, unverified 467/405, 466/404, 422/360, 407/346), 419-criterion traceability (supersedes prior 418, 414, 401, 398, 390, 389, 381, 377, 373, 368, 354, 352, 349, 347, 335, 334, 333, 296, 276, 256/377/316, 252/373/312, 237/358/297, 219, 206, 201, 192), golden tests |
 | `docs/Phase-02-Matching-Engine.md` | C++ matching engine, order book, TIF expiry (GTD/DAY), WAL, leader election, degradation |
 | `docs/Phase-02.5-Engine-Soak-Benchmark.md` | 72h soak, 50k/sec, crash injection |
 | `docs/Phase-03-Risk-Settlement.md` | Go settlement, T+1/T+2, SWIFT, nostro, fees, risk limits, double-entry GL posting, EOD Tom-Next rollover, holiday calendar |

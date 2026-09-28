@@ -3532,7 +3532,7 @@ Full registry maintained in Phase-05 Task 5.3.21, which enforces the owner-resol
 | 45 | Price oracle: ≥2 independent sources; 5s staleness gate; fail-closed on stale | Phase 19.5 — Price Oracle & Mark Price Service | Phase 19.5-Price-Oracle-Mark-Price §AC rows 2, 9 | `T195-001` |
 | 46 | Global trading halt: kill-switch rejects all new orders; cancels/reads/WS survive | Phase 11 — Funding via Banking Rails, Suspension, Stats | Phase 11-Funding-Suspension §AC rows 18, 19 | `T11-011` |
 
-### 24.2 Extended Criteria (47–418) (supersedes prior 47–401/398/390/389/381/377/373/368/354/352/349/347/335/334/333/296/276/256/237; criteria 257–276 integrate remediation #13, 277–296 add remediation #14, 297–326 add remediation #15, 327–333 add remediation #17, 334 adds remediation #22, 335 adds remediation #23, 336–347 add remediation #24, 348–349 add remediation #25, 350–352 add remediation #26, 353–354 add remediation #27, 355–368 add remediation #28, 369–373 add remediation #29, 374–377 add remediation #30, 378–381 add remediation #31, 382–389 add remediation #32, 390 adds remediation #33, 391–398 add remediation #35, 399–401 add audit #36, 402–414 add remediation #37, 415–418 add remediation #40)
+### 24.2 Extended Criteria (47–419) (supersedes prior 47–418/401/398/390/389/381/377/373/368/354/352/349/347/335/334/333/296/276/256/237; criteria 257–276 integrate remediation #13, 277–296 add remediation #14, 297–326 add remediation #15, 327–333 add remediation #17, 334 adds remediation #22, 335 adds remediation #23, 336–347 add remediation #24, 348–349 add remediation #25, 350–352 add remediation #26, 353–354 add remediation #27, 355–368 add remediation #28, 369–373 add remediation #29, 374–377 add remediation #30, 378–381 add remediation #31, 382–389 add remediation #32, 390 adds remediation #33, 391–398 add remediation #35, 399–401 add audit #36, 402–414 add remediation #37, 415–418 add remediation #40, 419 adds remediation #41)
 
 | # | Criterion | Owner Phase | Phase AC Reference | Stable Test Contract |
 |---|-----------|-------------|--------------------|--------------------|
@@ -3908,24 +3908,25 @@ Full registry maintained in Phase-05 Task 5.3.21, which enforces the owner-resol
 | 416 | Carry-trade swap yield tracked per allocation with net-yield legs and settled daily during the 17:00 ET rollover, cumulative yield recorded | Phase 3 — Risk & Settlement (Go, T+1/T+2) | Phase 03-Risk-Settlement §AC row 41 | `MAT-416` |
 | 417 | VIP 0–9 tier engine recalculates 30-day volume and equity at 00:00 UTC daily with auditable tier history (migration 086) | Phase 3 — Risk & Settlement (Go, T+1/T+2) | Phase 03-Risk-Settlement §AC row 42 | `MAT-417` |
 | 418 | Negative maker fees are credited as cash rebates to the client balance with an offsetting debit to the liquidity-expense GL account | Phase 3 — Risk & Settlement (Go, T+1/T+2) | Phase 03-Risk-Settlement §AC row 43 | `MAT-418` |
+| 419 | Automated daily ClickHouse→S3 batch export at 01:00 UTC produces compressed tick/aggTrade/kline/book-snapshot artifacts with a SHA256 manifest verified on upload (§16.1) | Phase 4 — Persistence & Recovery | Phase 04-Persistence-Recovery §AC row 26 | `MAT-419` |
 
 ### 24.3 Coverage Summary
 
 | Metric | Value |
 |---|---|
-| Total §24 criteria | 418 (supersedes prior 414, 401, 398, 390, 368, 354, 352, 349, 347, 335, 334, 333, 326, 296, 276, 256, 252, 237, 219) |
-| Criteria with explicit phase AC row reference | 418 (supersedes prior 414, 401, 398, 390, 368, 354, 352, 349, 347, 335, 334, 333, 326, 296) |
+| Total §24 criteria | 419 (supersedes prior 418, 414, 401, 398, 390, 368, 354, 352, 349, 347, 335, 334, 333, 326, 296, 276, 256, 252, 237, 219) |
+| Criteria with explicit phase AC row reference | 419 (supersedes prior 418, 414, 401, 398, 390, 368, 354, 352, 349, 347, 335, 334, 333, 326, 296) |
 | Criteria mapped by owner-phase inference | 0 |
 | Unmapped criteria | 0 |
 | Criteria without stable test contract | 0 |
 
 ### 24.4 Traceability Validation Rules
 
-1. CI extracts every §24 criterion ID (1–418) from this master specification and verifies exactly 418 matrix rows.
+1. CI extracts every §24 criterion ID (1–419) from this master specification and verifies exactly 419 matrix rows.
 2. CI fails if any criterion lacks an owner phase, phase AC reference, or stable test contract.
 3. New §24 criteria require an append-only matrix row plus a corresponding phase task/AC before merge.
 4. Deleted or renamed criteria require matrix row removal plus a changelog entry; manual waivers are prohibited.
-5. Phase 8 executes the Phase 1–7-owned executable subset; the Phase 24 → production gate requires all 418 criteria (supersedes prior 414, 401, 398, 390, 368, 354, 352, 349, 347, 335, 334, 333, 326, 296, 276, 256, 252, 237, 219, 206 and 201) executable and passing with zero PLANNED/unmapped rows.
+5. Phase 8 executes the Phase 1–7-owned executable subset; the Phase 24 → production gate requires all 419 criteria (supersedes prior 418, 414, 401, 398, 390, 368, 354, 352, 349, 347, 335, 334, 333, 326, 296, 276, 256, 252, 237, 219, 206 and 201) executable and passing with zero PLANNED/unmapped rows.
 
 ## 25. Summary
 
@@ -4071,6 +4072,16 @@ This specification defines a **complete production-grade FOREX exchange system s
   - **Migration numbering beyond plan corpus:** the plan corpus prescribes migrations 001–108; Phase-03 tasks required additional tables beyond their assigned numbers (022/036/086/088/096/104/105), allocating **109–119 and 150** (`109_risk_limits_exposure`, `110_multi_currency_pnl`, `111_position_fills_and_limits`, `112_settlement_dispatch_and_nostro_movements`, `113_dust_sweeps`, `114_swap_rates`, `115_carry_trade`, `116_accounts_swapfree_status`, `117_swap_free_admin_fee_assessments`, `118_positions_rollover_columns`, `119_commission_engine`, `150_currency_holidays`). Future phases continue at 151+ or use their plan-assigned numbers, whichever is free.
   - **`scripts/ci/apply_migrations.sh` corpus gate:** the "exactly 21 contiguous migrations" check was superseded by sparse task-numbered migrations; the gate now verifies unique numeric prefixes + up/down pairing instead.
   - **New emitted error codes pending Phase-05 registry (Task 5.3.21):** `SWAP_RATE_STALE`, `SWAP_FEED_UNAVAILABLE`, plus settlement/commission codes emitted by the Phase-03 services — to be registered when Phase-05 owns the route/error registry.
+
+- **Phase-04 implementation evidence remediation #41 (2026-09-28):** Recorded during Phase-04 landing:
+  - **§24 citation repair:** Phase-04 Task 4.3.8 cited §24 row #292 for ClickHouse→S3 daily export; #292 is a Phase-10 UI-layout criterion (dangling citation from a prior renumber). Repaired by appending §24 row **#419** (daily CH→S3 export, 01:00 UTC, SHA256 manifest) and updating the 3 phase-file citation sites. §24 criteria count 418 → **419**.
+  - **Snapshot integrity algorithm:** Task 4.3.5/4.3.9 say "SHA-256 and/or CRC" for snapshot-hash verification; the implementation uses CRC32C (`SnapFileHeader.payload_crc`, same primitive as the WAL) — satisfies the and/or clause; recorded so audits don't read SHA-256 as mandatory.
+  - **Recovery report transport seam:** the C++ core cannot reach PostgreSQL; it emits `recovery_report.jsonl` (JSONL + stderr mirror) and `wal-recovery persist-reports` drains it into migration 065 `recovery_reports` (consumed files renamed `.consumed-*`). Contract columns match the migration exactly.
+  - **Ops alert seam:** recovery/daily-reconcile P1 alerts publish plain NATS core messages on `ops.alerts.recovery`; no dedicated JetStream stream is defined (stream inventory is another task's scope).
+  - **Wallet-domain reconcile rows** use `recovery_reports.shard_id = -1` (shard-agnostic; SMALLINT accepts it).
+  - **ClickHouse live-drill env-blocker:** Task 4.3.6 AC rows for the scratch-cluster restore drill and RPO≤60s/RTO≤30min stay unchecked — `clickhouse-backup` and a scratch CH cluster are not provisioned on the dev host. Mechanism + runbook + `verify_counts_test.sh` are in place; drill is scheduled per RUNBOOK.md.
+  - **Fill-ingest throughput finding (cross-phase, Phase-03 AC):** set-based serializable commit path measured **8,068 fills/s** end-to-end (200k fills, zero loss) vs the 50k/s target; parallel SERIALIZABLE partitions measured 5.7k/s (SSI abort churn) and were rejected; READ COMMITTED probe (11.5k/s) rejected as an illegitimate weakening of §5.3 isolation. The 50k/s criterion remains open; options (partitioned ledger tables, pipeline batching, relaxed isolation per-account) need a spec-level ruling.
+  - **Migration 102 authored:** `ledger_entries`/`journal_sums` (the §5.3 wallet-shadow tables Task 3.3.6's DoD asserted) existed only in test fixtures; `102_ledger_wallet_shadow.{up,down}.sql` now creates them (enums + generated `net_balance` column). Applied-count gates updated accordingly.
 
 ### 27.1 Operational Domains & High-Level Completeness Matrix
 

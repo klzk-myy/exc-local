@@ -24,12 +24,12 @@
 
 All counts are verified mechanically across the corpus:
 - **Evaluated Operational Domains:** **13** domains (**133** components, 100% spec & plan depth, 0% code implementation, remediation #39)
-- **§24 Acceptance Criteria:** **418** criteria (contiguous 1..418, each with unique Stable Test Contract ID)
+- **§24 Acceptance Criteria:** **419** criteria (contiguous 1..419, each with unique Stable Test Contract ID; supersedes prior 418, 414)
 - **Phase Tasks:** **479** tasks across 30 phase plans
 - **Checklist Spec Checkpoints:** **543** checklist checkpoints across all phase tasks
 - **Acceptance Criteria Rows:** **1,079** rows (976 core + 103 buffer phase rows)
 - **Spec §23 Error Codes:** **149** codes (100% owner-resolvable against phase tasks)
-- **Database Migrations:** **108** migrations (`001_` to `108_` contiguous, collision-free)
+- **Database Migrations:** **49** `.up.sql` files on disk (sparse task-numbered prefixes 001–150, collision-free, each paired `.down.sql`; supersedes prior "108 contiguous" prose — planned corpus allocated 001–108 by task number, implementation allocates beyond it, e.g. 109–119/150 in Phase-03, 023/065/092/120 in Phase-04)
 - **Phase Plans:** **30 phases** (24 core + 6 mandatory buffer phases: 01.5, 02.5, 04.5, 08.5, 13.5, 19.5)
 - **Financial Correctness Categories:** **9** categories (including double-entry GL zero-sum conservation)
 - **Degradation Modes:** **6** exact-cased modes (`Normal · ReadOnly · MarketDataOnly · SpotOnly · Throttled · Maintenance`)

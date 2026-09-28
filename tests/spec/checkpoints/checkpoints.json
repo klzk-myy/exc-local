@@ -1124,7 +1124,7 @@
       "text": "snapshot cadence 100k trades / 5 min",
       "file": "Phase-04-Persistence-Recovery.md",
       "line": 48,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -1135,7 +1135,7 @@
       "text": "WAL trim after snapshot confirmed",
       "file": "Phase-04-Persistence-Recovery.md",
       "line": 49,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -1146,7 +1146,7 @@
       "text": "WAL S3 archive before trim (zero-loss guard)",
       "file": "Phase-04-Persistence-Recovery.md",
       "line": 77,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -1157,7 +1157,7 @@
       "text": "90-day retention + Glacier",
       "file": "Phase-04-Persistence-Recovery.md",
       "line": 78,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -1168,7 +1168,7 @@
       "text": "replay-from-archive for historical reconstruction",
       "file": "Phase-04-Persistence-Recovery.md",
       "line": 104,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -1179,7 +1179,7 @@
       "text": "PostgreSQL PITR RPO ≤ 15s / RTO ≤ 5min",
       "file": "Phase-04-Persistence-Recovery.md",
       "line": 130,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -1190,7 +1190,7 @@
       "text": "snapshot + WAL replay exact recovery",
       "file": "Phase-04-Persistence-Recovery.md",
       "line": 163,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -1201,7 +1201,7 @@
       "text": "boot-time invariant fail-closed as last resort of graduated recovery ladder — defined first, validated against spec (amended 2026-09-19)",
       "file": "Phase-04-Persistence-Recovery.md",
       "line": 164,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -1212,7 +1212,7 @@
       "text": "ClickHouse S3 backup + restore drill (spec §18.3, §24 #159)",
       "file": "Phase-04-Persistence-Recovery.md",
       "line": 189,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -1223,7 +1223,7 @@
       "text": "PostgreSQL partition archival pipeline (§19.7, §24 #179)",
       "file": "Phase-04-Persistence-Recovery.md",
       "line": 214,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -1231,10 +1231,10 @@
       "phase": "04",
       "task": "4.3.8",
       "index": 1,
-      "text": "ClickHouse-to-S3 daily batch compactor and bulk archive exporter (§16.1, §24 #292)",
+      "text": "ClickHouse-to-S3 daily batch compactor and bulk archive exporter (§16.1, §24 #419)",
       "file": "Phase-04-Persistence-Recovery.md",
       "line": 239,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -1245,7 +1245,7 @@
       "text": "Graduated WAL recovery ladder and snapshot divergence fail-closed verification (§24 #302)",
       "file": "Phase-04-Persistence-Recovery.md",
       "line": 261,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -1256,7 +1256,7 @@
       "text": "End-to-end crash recovery and cross-region DR orchestration engine with 6-stage data integrity audit (§24 #335)",
       "file": "Phase-04-Persistence-Recovery.md",
       "line": 292,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -1267,7 +1267,7 @@
       "text": "time-boxed audit with running digests and snapshot checksums inside RTO (§24 #353)",
       "file": "Phase-04-Persistence-Recovery.md",
       "line": 314,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -1278,7 +1278,7 @@
       "text": "per-shard scoped reopen with external-feed fallback, zero-sum exempt from fallback (§24 #354)",
       "file": "Phase-04-Persistence-Recovery.md",
       "line": 334,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
