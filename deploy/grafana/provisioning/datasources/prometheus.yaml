@@ -1,0 +1,25 @@
+# Grafana datasource provisioning (Task 7.3.5, spec §19.3).
+# PROMETHEUS_URL is injected at container start (docker-compose /
+# systemd EnvironmentFile); default matches deploy/prometheus.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: ${PROMETHEUS_URL}
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: 15s          # matches scrape_interval
+      queryTimeout: 30s
+      httpMethod: POST
+
+  # Loki for structured log correlation (spec §19.3: slog → Loki).
+  # Provisioned but optional — the datasource is skipped if LOKI_URL
+  # is unset in environments without the log pipeline yet.
+  - name: Loki
+    type: loki
+    access: proxy
+    url: ${LOKI_URL}
+    editable: false

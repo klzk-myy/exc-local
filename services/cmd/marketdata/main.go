@@ -43,6 +43,7 @@ import (
 	"exchange/internal/ipc"
 	"exchange/internal/marketdata"
 	excnats "exchange/internal/nats"
+	"exchange/internal/observability"
 	excredis "exchange/internal/redis"
 	"exchange/internal/utils"
 	"exchange/internal/ws"
@@ -196,8 +197,79 @@ func run() error {
 	_ = sp // retained for future /healthz producer-depth reporting
 	// ===== END WAVE-2 ADDITIVE BLOCK =====
 
-	// HTTP surface: WS endpoints + health/readiness.
+	// HTTP surface: WS endpoints + health/readiness + Prometheus.
+	//
+	// Task 7.3.4: pull-metrics read internal/marketdata's exported atomics
+	// directly — the package's Metrics conventions are reused verbatim (no
+	// second counter set, no internal/marketdata changes).
+	reg := observability.New()
+	met := observability.NewMetrics(reg, "marketdata")
+	mdm := srv.Metrics()
+	reg.GaugeFunc("ws_connections_active",
+		"Currently open marketdata WS connections.",
+		func() float64 { c, _, _ := srv.Stats(); return float64(c) })
+	reg.GaugeFunc("ws_connections_authed",
+		"Authenticated marketdata WS connections.",
+		func() float64 { _, a, _ := srv.Stats(); return float64(a) })
+	reg.GaugeFunc("ws_subscriptions_active",
+		"Active channel subscriptions across all connections.",
+		func() float64 { _, _, s := srv.Stats(); return float64(s) })
+	reg.GaugeFunc("ws_push_latency_seconds",
+		"Marketdata send-side push latency (reservoir snapshot).",
+		func() float64 {
+			_, mean, _, _, _ := mdm.LatencySnapshot()
+			return mean.Seconds()
+		}, "quantile", "mean")
+	reg.GaugeFunc("ws_push_latency_seconds",
+		"Marketdata send-side push latency (reservoir snapshot).",
+		func() float64 {
+			_, _, p50, _, _ := mdm.LatencySnapshot()
+			return p50.Seconds()
+		}, "quantile", "0.5")
+	reg.GaugeFunc("ws_push_latency_seconds",
+		"Marketdata send-side push latency (reservoir snapshot).",
+		func() float64 {
+			_, _, _, p99, _ := mdm.LatencySnapshot()
+			return p99.Seconds()
+		}, "quantile", "0.99")
+	reg.CounterFunc("marketdata_conns_opened_total",
+		"WS connections opened since boot.",
+		func() float64 { return float64(mdm.ConnsOpened.Load()) })
+	reg.CounterFunc("marketdata_frames_published_total",
+		"Frames enqueued to subscriber queues.",
+		func() float64 { return float64(mdm.FramesPublished.Load()) })
+	reg.CounterFunc("marketdata_frames_dropped_total",
+		"Frames dropped on slow-consumer saturation (Task 6.3.21).",
+		func() float64 { return float64(mdm.FramesDropped.Load()) })
+	reg.CounterFunc("marketdata_deltas_received_total",
+		"Engine book deltas consumed by the conflator.",
+		func() float64 { return float64(mdm.DeltasReceived.Load()) })
+	reg.CounterFunc("marketdata_deltas_dropped_total",
+		"Input-queue saturation drops (fail-loud gap).",
+		func() float64 { return float64(mdm.DeltasDropped.Load()) })
+	reg.CounterFunc("marketdata_conflation_emits_total",
+		"Conflated L2 frames emitted downstream.",
+		func() float64 { return float64(mdm.ConflationEmits.Load()) })
+	reg.CounterFunc("marketdata_resync_directives_total",
+		"Resync frames emitted for gap repair.",
+		func() float64 { return float64(mdm.ResyncDirectives.Load()) })
+	reg.CounterFunc("marketdata_entitlement_rejections_total",
+		"ENTITLEMENT_REQUIRED subscription rejections (§10.7).",
+		func() float64 { return float64(mdm.EntitlementRejections.Load()) })
+	reg.VecFunc("marketdata_frames_by_tier_total",
+		"Frames delivered per entitlement tier (Task 6.3.22).", "counter",
+		func() []observability.PullSample {
+			byTier := mdm.FramesByTier()
+			out := make([]observability.PullSample, 0, len(byTier))
+			for tier, n := range byTier {
+				out = append(out, observability.PullSample{
+					Labels: []string{"tier", tier}, Value: float64(n)})
+			}
+			return out
+		})
+
 	mux := http.NewServeMux()
+	mux.Handle("/metrics", reg.Handler())
 	mux.Handle("/ws/v1/marketdata", srv)
 	mux.Handle("/ws/v1/orders", srv) // private surface shares conn machinery
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -219,8 +291,11 @@ func run() error {
 	})
 
 	httpSrv := &http.Server{
-		Addr:              cfg.MarketData.Addr(),
-		Handler:           mux,
+		Addr: cfg.MarketData.Addr(),
+		// Task 7.3.4: instrument request counts/latency/status for the
+		// WS-upgrade + health routes (long-lived WS conns report once at
+		// close — connection counts come from the gauges above).
+		Handler:           met.HTTPMiddleware(mux),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	go func() {

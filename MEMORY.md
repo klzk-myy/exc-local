@@ -86,7 +86,7 @@ All counts are verified mechanically across the corpus:
 ## 6. Key Mechanism Ownership Map
 
 - **API Route Registry (all endpoints):** Phase 5 (Task 5.3.7 / 5.3.46)
-- **Error Code Registry & Enforcement:** Phase 5 (Task 5.3.21) — 172 codes, zero ownerless codes
+- **Error Code Registry & Enforcement:** Phase 5 (Task 5.3.21) — 173 codes, zero ownerless codes
 - **Matching Core & Degradation Modes (6):** Phase 2 (ModeManager)
 - **Circuit Breaker (5-Tier):** Phase 13
 - **Double-Entry General Ledger & Tom-Next Rollover:** Phase 3 (Tasks 3.3.6, 3.3.7)

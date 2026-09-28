@@ -1,0 +1,157 @@
+{
+  "uid": "exc-system-overview",
+  "title": "Exchange — System Overview",
+  "description": "Golden signals + shard health at a glance. Task 7.3.5, spec §19.3.",
+  "tags": ["exchange", "overview", "golden-signals"],
+  "timezone": "utc",
+  "editable": true,
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "15s",
+  "time": {"from": "now-1h", "to": "now"},
+  "templating": {
+    "list": [
+      {
+        "name": "service",
+        "type": "query",
+        "datasource": {"type": "prometheus", "uid": "Prometheus"},
+        "query": "label_values(http_requests_total, service)",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "current": {"selected": true, "text": ["All"], "value": ["$__all"]}
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Degradation Mode",
+      "description": "1 = mode active. Normal is the only quiet state (spec §2.7.3).",
+      "gridPos": {"h": 6, "w": 6, "x": 0, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {"expr": "exchange_degradation_mode == 1", "legendFormat": "{{service}} {{mode}}", "refId": "A"}
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {"type": "value", "options": {"1": {"text": "ACTIVE", "color": "red"}}}
+          ],
+          "thresholds": {"steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Circuit Breakers Open",
+      "gridPos": {"h": 6, "w": 6, "x": 6, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {"expr": "sum(exchange_circuit_breaker_open)", "legendFormat": "open", "refId": "A"}
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {"steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Alerts Firing (in-process evaluator)",
+      "gridPos": {"h": 6, "w": 6, "x": 12, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {"expr": "sum(exchange_alert_firing)", "legendFormat": "firing", "refId": "A"}
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {"steps": [{"color": "green", "value": null}, {"color": "orange", "value": 1}, {"color": "red", "value": 3}]}
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Availability (30d error budget)",
+      "description": "SLO 99.99% — spec §19.3.",
+      "gridPos": {"h": 6, "w": 6, "x": 18, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {
+          "expr": "100 * (1 - sum(rate(exchange_errors_total{tier=~\"L0|L1|L2\"}[30d])) / sum(rate(http_requests_total[30d])))",
+          "legendFormat": "availability",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 4,
+          "thresholds": {"steps": [{"color": "red", "value": null}, {"color": "green", "value": 99.99}]}
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Traffic — requests/sec by service",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 6},
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {"expr": "sum by (service) (rate(http_requests_total{service=~\"$service\"}[1m]))", "legendFormat": "{{service}}", "refId": "A"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "reqps"}}
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Errors — by severity tier (spec §2.7.2)",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 6},
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {"expr": "sum by (tier) (rate(exchange_errors_total{service=~\"$service\"}[1m]))", "legendFormat": "{{tier}}", "refId": "A"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "ops"}}
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Latency — p50/p99 request duration",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 14},
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {"expr": "histogram_quantile(0.50, sum by (le) (rate(http_request_duration_seconds_bucket{service=~\"$service\"}[5m])))", "legendFormat": "p50", "refId": "A"},
+        {"expr": "histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket{service=~\"$service\"}[5m])))", "legendFormat": "p99", "refId": "B"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "s"}}
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Saturation — IPC ring depth + bridge buffer + HTTP 5xx rate",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 14},
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {"expr": "engine_ipc_ring_depth", "legendFormat": "ring depth shard {{shard}}", "refId": "A"},
+        {"expr": "bridge_health_buffer_depth", "legendFormat": "bridge buf shard {{shard}}", "refId": "B"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "short"}}
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Ops alerts dispatched (ops.alerts.monitoring)",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 22},
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {"expr": "sum by (severity, rule) (rate(exchange_alerts_fired_total[5m]))", "legendFormat": "{{severity}} {{rule}}", "refId": "A"},
+        {"expr": "increase(exchange_alert_dispatch_errors_total[5m])", "legendFormat": "dispatch errors", "refId": "B"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "ops"}}
+    }
+  ]
+}

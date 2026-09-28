@@ -676,8 +676,16 @@ func AdminOrderAudit(d *OrderDeps) http.HandlerFunc {
 			return
 		}
 		c := auth.ClaimsFrom(r.Context())
-		if c == nil || c.AccountID == 0 {
+		if c == nil {
 			WriteError(w, "UNAUTHORIZED", "authentication required",
+				gateway.RequestIDFrom(r.Context()), nil)
+			return
+		}
+		// The resolver keys on the admin USER id (subject), not the
+		// selected trading account — admins may have no account bound.
+		adminID, perr := strconv.ParseInt(c.Subject, 10, 64)
+		if perr != nil || adminID <= 0 {
+			WriteError(w, "UNAUTHORIZED", "admin identity unresolvable",
 				gateway.RequestIDFrom(r.Context()), nil)
 			return
 		}
@@ -686,7 +694,7 @@ func AdminOrderAudit(d *OrderDeps) http.HandlerFunc {
 				"role resolver not configured", gateway.RequestIDFrom(r.Context()), nil)
 			return
 		}
-		role, err := d.RoleResolver(r.Context(), c.AccountID)
+		role, err := d.RoleResolver(r.Context(), adminID)
 		if err != nil {
 			writeServiceErr(w, r, err)
 			return
@@ -727,8 +735,15 @@ func AdminMassCancel(d *OrderDeps) http.HandlerFunc {
 			return
 		}
 		c := auth.ClaimsFrom(r.Context())
-		if c == nil || c.AccountID == 0 {
+		if c == nil {
 			WriteError(w, "UNAUTHORIZED", "authentication required",
+				gateway.RequestIDFrom(r.Context()), nil)
+			return
+		}
+		// Resolver keys on the admin USER id (subject), not AccountID.
+		adminID, perr := strconv.ParseInt(c.Subject, 10, 64)
+		if perr != nil || adminID <= 0 {
+			WriteError(w, "UNAUTHORIZED", "admin identity unresolvable",
 				gateway.RequestIDFrom(r.Context()), nil)
 			return
 		}
@@ -737,7 +752,7 @@ func AdminMassCancel(d *OrderDeps) http.HandlerFunc {
 				"role resolver not configured", gateway.RequestIDFrom(r.Context()), nil)
 			return
 		}
-		role, err := d.RoleResolver(r.Context(), c.AccountID)
+		role, err := d.RoleResolver(r.Context(), adminID)
 		if err != nil {
 			writeServiceErr(w, r, err)
 			return

@@ -68,6 +68,31 @@ func (s liquidationSink) EmitManualLiquidation(ctx context.Context, ev api.Manua
 	return err
 }
 
+// supportAlerter routes support SLA / complaint-escalation alerts to the
+// ops alert channel (Task 7.3.7 — COMPLAINT_SLA_BREACH is internal, so
+// breach surfacing is an alert, not an API error). NATS publish is
+// best-effort; an absent or disconnected bus degrades to logging by
+// the caller, never an error — alerts must not wedge ticket writes.
+// Implements support.Alerter. (Named supportAlerter — `opsAlerter` is
+// the funding.OpsAlerter local in run().)
+type supportAlerter struct {
+	nc *nats.Client
+}
+
+func (a supportAlerter) Raise(_ context.Context, severity, code, message string) error {
+	payload, err := json.Marshal(map[string]string{
+		"severity": severity, "code": code, "message": message,
+		"source": "support",
+	})
+	if err != nil {
+		return err
+	}
+	if a.nc == nil || !a.nc.Connected() {
+		return nil
+	}
+	return a.nc.Conn().Publish("ops.alerts.support", payload)
+}
+
 // orderDispatchAdapter binds accounts.OrderDispatcher (dead-man sweeper,
 // close-all) to orders.Service — the single dispatch path, never a
 // direct engine call.

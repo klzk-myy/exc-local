@@ -1,0 +1,86 @@
+# Grafana unified-alerting contact points + notification policy
+# (Task 7.3.5 item 4: PagerDuty integration for P1/P2/P3; the P0 path
+# also lands here so Grafana-side alerts page the same rotation as
+# Alertmanager).
+#
+# Provisioned for Grafana >= 9 unified alerting. Keys are injected from
+# the environment at container start — never commit real service keys
+# (Vault/KMS per Phase-13.5 Task 13.5.3.5).
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: pagerduty-p0
+    receivers:
+      - uid: pd-p0
+        type: pagerduty
+        settings:
+          integrationKey: ${PAGERDUTY_P0_SERVICE_KEY}
+          severity: critical
+          class: exchange-critical
+          component: exchange-ops
+          group: exchange
+        disableResolveMessage: false
+
+  - orgId: 1
+    name: pagerduty-p1
+    receivers:
+      - uid: pd-p1
+        type: pagerduty
+        settings:
+          integrationKey: ${PAGERDUTY_P1_SERVICE_KEY}
+          severity: error
+          class: exchange-systemic
+          component: exchange-ops
+          group: exchange
+        disableResolveMessage: false
+
+  - orgId: 1
+    name: pagerduty-p2-ticket
+    receivers:
+      - uid: pd-p2
+        type: pagerduty
+        settings:
+          integrationKey: ${PAGERDUTY_P2_SERVICE_KEY}
+          severity: warning
+          class: exchange-degraded
+          component: exchange-ops
+          group: exchange
+        disableResolveMessage: false
+
+  - orgId: 1
+    name: slack-ops-p3
+    receivers:
+      - uid: slack-p3
+        type: slack
+        settings:
+          url: ${SLACK_OPS_WEBHOOK_URL}
+          recipient: "#exchange-ops"
+          title: "P3: {{ .CommonLabels.alertname }}"
+          text: "{{ range .Alerts }}{{ .Annotations.summary }}\n{{ end }}"
+        disableResolveMessage: false
+
+policies:
+  - orgId: 1
+    receiver: slack-ops-p3
+    group_by: [grafana_folder, alertname]
+    group_wait: 15s
+    group_interval: 1m
+    repeat_interval: 4h
+    routes:
+      - receiver: pagerduty-p0
+        matchers:
+          - severity = p0
+        repeat_interval: 15m
+      - receiver: pagerduty-p1
+        matchers:
+          - severity = p1
+        repeat_interval: 1h
+      - receiver: pagerduty-p2-ticket
+        matchers:
+          - severity = p2
+        repeat_interval: 4h
+      - receiver: slack-ops-p3
+        matchers:
+          - severity = p3
+        repeat_interval: 12h

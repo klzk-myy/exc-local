@@ -52,6 +52,12 @@ const (
 	ScopeAdmin    = "admin"
 )
 
+// RoleAnyAdmin is the registry sentinel for "any active venue-admin
+// binding" — used where the real authorization gate is the operation's
+// own required role (e.g. dual-control decide endpoints read it from the
+// request row) rather than a fixed §8.2 role. Not a grantable role.
+const RoleAnyAdmin = "*"
+
 // RBAC role names (spec §8.2 canonical list).
 const (
 	RoleSuperAdmin        = "Super Admin"
@@ -70,8 +76,8 @@ type AuthSpec struct {
 	// Required: anonymous requests are rejected (UNAUTHORIZED) once the
 	// auth middleware lands. Public endpoints set Required=false.
 	Required bool `json:"required"`
-	// Role: required RBAC role for admin routes (§8.2 names); "" = any
-	// authenticated principal.
+	// Role: required RBAC role for admin routes (§8.2 names, or the
+	// RoleAnyAdmin "*" sentinel); "" = any authenticated principal.
 	Role string `json:"role,omitempty"`
 	// Scopes: API-key permission scopes the caller must hold (§8.8).
 	Scopes []string `json:"scopes,omitempty"`

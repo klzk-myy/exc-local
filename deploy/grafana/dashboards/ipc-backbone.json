@@ -1,0 +1,202 @@
+{
+  "uid": "exc-ipc-backbone",
+  "title": "Exchange — IPC & Event Backbone",
+  "description": "Aeron media driver, bridge fan-out, and JetStream health. Task 7.3.8 item 4 (spec §2.3.1).",
+  "tags": ["exchange", "aeron", "nats", "bridge", "ipc"],
+  "timezone": "utc",
+  "editable": true,
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "15s",
+  "time": {"from": "now-1h", "to": "now"},
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Aeron media driver",
+      "gridPos": {"h": 5, "w": 4, "x": 0, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {"expr": "aeron_driver_up", "legendFormat": "up", "refId": "A"}
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {"type": "value", "options": {"0": {"text": "DOWN", "color": "red"}, "1": {"text": "UP", "color": "green"}}}
+          ]
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "NATS connected",
+      "gridPos": {"h": 5, "w": 4, "x": 4, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {"expr": "nats_connected", "legendFormat": "up", "refId": "A"}
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {"type": "value", "options": {"0": {"text": "DOWN", "color": "red"}, "1": {"text": "UP", "color": "green"}}}
+          ]
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Aeron subscription connected",
+      "gridPos": {"h": 5, "w": 4, "x": 8, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {"expr": "aeron_subscription_connected", "legendFormat": "{{shard}}", "refId": "A"}
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {"type": "value", "options": {"0": {"text": "DETACHED", "color": "red"}, "1": {"text": "CONNECTED", "color": "green"}}}
+          ]
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Worst subscriber lag (bytes)",
+      "gridPos": {"h": 5, "w": 6, "x": 12, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {"expr": "max(aeron_subscriber_lag_bytes)", "refId": "A"}
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "thresholds": {"steps": [{"color": "green", "value": null}, {"color": "red", "value": 1000}]}
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Worst consumer pending",
+      "gridPos": {"h": 5, "w": 6, "x": 18, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {"expr": "max(nats_consumer_pending)", "refId": "A"}
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {"steps": [{"color": "green", "value": null}, {"color": "red", "value": 50000}]}
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Aeron poll rate & errors (bridge)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 5},
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {"expr": "sum by (shard) (rate(aeron_poll_fragments_total[1m]))", "legendFormat": "shard {{shard}} fragments/s", "refId": "A"},
+        {"expr": "sum by (shard) (rate(aeron_poll_errors_total[5m]))", "legendFormat": "shard {{shard}} poll errors", "refId": "B"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "ops"}}
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Media driver counters (NAK / loss / backpressure)",
+      "description": "CnC counters mirrored verbatim — filter by label substring (rcv-naks, snd-bpe, images).",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 5},
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {"expr": "aeron_driver_counter{label=~\".*nak.*|.*bpe.*|.*loss.*\"}", "legendFormat": "{{label}}", "refId": "A"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "short"}}
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Subscriber position lag by channel",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 13},
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {"expr": "aeron_subscriber_lag_bytes", "legendFormat": "{{channel}} stream {{stream_id}}", "refId": "A"}
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "thresholds": {"steps": [{"color": "green", "value": null}, {"color": "red", "value": 1000}]}
+        }
+      }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Bridge buffer depth vs threshold (10k = P1)",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 13},
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {"expr": "bridge_buffer_depth", "legendFormat": "shard {{shard}} live", "refId": "A"},
+        {"expr": "bridge_health_buffer_depth", "legendFormat": "shard {{shard}} heartbeat", "refId": "B"}
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {"steps": [{"color": "green", "value": null}, {"color": "red", "value": 10000}]}
+        }
+      }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "JetStream consumer pending / ack-pending",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 21},
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {"expr": "nats_consumer_pending", "legendFormat": "{{stream}}/{{consumer}} pending", "refId": "A"},
+        {"expr": "nats_consumer_ack_pending", "legendFormat": "{{stream}}/{{consumer}} ack-pending", "refId": "B"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "short"}}
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Stream storage usage (bytes)",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 21},
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {"expr": "nats_stream_bytes", "legendFormat": "{{stream}}", "refId": "A"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "bytes"}}
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Bridge publish health — heartbeats, errors, reconnects",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 29},
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {"expr": "sum by (shard) (rate(bridge_heartbeats_total[1m]))", "legendFormat": "shard {{shard}} heartbeats/s", "refId": "A"},
+        {"expr": "sum by (shard) (rate(bridge_publish_errors_total[5m]))", "legendFormat": "shard {{shard}} publish errors", "refId": "B"},
+        {"expr": "sum by (shard) (increase(bridge_nats_reconnect_total[5m]))", "legendFormat": "shard {{shard}} reconnects", "refId": "C"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "ops"}}
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Redeliveries & DLQ depth",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 29},
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {"expr": "sum by (stream, consumer) (increase(nats_consumer_redelivered_total[15m]))", "legendFormat": "{{stream}}/{{consumer}} redeliveries", "refId": "A"},
+        {"expr": "nats_stream_messages{stream=\"ops-dlq\"}", "legendFormat": "ops-dlq depth", "refId": "B"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "short"}}
+    }
+  ]
+}

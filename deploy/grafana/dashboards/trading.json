@@ -1,0 +1,122 @@
+{
+  "uid": "exc-trading",
+  "title": "Exchange — Trading Activity",
+  "description": "Volumes, event throughput by stream, API order flow and error mix. Task 7.3.5 item 3.",
+  "tags": ["exchange", "trading"],
+  "timezone": "utc",
+  "editable": true,
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "15s",
+  "time": {"from": "now-6h", "to": "now"},
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Events published (1h)",
+      "gridPos": {"h": 6, "w": 6, "x": 0, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {"expr": "sum(increase(bridge_events_published_total[1h]))", "refId": "A"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "short"}}
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Events dropped (1h)",
+      "gridPos": {"h": 6, "w": 6, "x": 6, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {"expr": "sum(increase(bridge_events_dropped_total[1h]))", "refId": "A"}
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {"steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Order API requests (1h)",
+      "gridPos": {"h": 6, "w": 6, "x": 12, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {"expr": "sum(increase(http_requests_total{route=~\"/api/v1/orders.*\"}[1h]))", "refId": "A"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "short"}}
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Active WS connections",
+      "gridPos": {"h": 6, "w": 6, "x": 18, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {"expr": "sum(ws_connections_active)", "refId": "A"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "short"}}
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Event volume by JetStream stream",
+      "description": "Stream growth rate — trades/margin-events/market-data etc. (per-stream message counters from the admin JetStream monitor).",
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 6},
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {"expr": "sum by (stream) (rate(nats_stream_messages{stream!=\"ops-dlq\"}[5m]))", "legendFormat": "{{stream}}", "refId": "A"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "ops"}}
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Order flow — request rate by status class",
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 6},
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {"expr": "sum by (status) (rate(http_requests_total{route=~\"/api/v1/orders.*|/api/v1/order.*\"}[5m]))", "legendFormat": "HTTP {{status}}", "refId": "A"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "reqps"}}
+    },
+    {
+      "id": 7,
+      "type": "bargauge",
+      "title": "Top streams by message volume (1h)",
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 15},
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {"expr": "topk(10, sum by (stream) (increase(nats_stream_messages[1h])))", "legendFormat": "{{stream}}", "refId": "A"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "short"}},
+      "options": {"orientation": "horizontal", "displayMode": "gradient"}
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Fill/rejection mix — L2 vs L3 error rate on order routes",
+      "description": "L2 = transaction rejections (risk/state boundary); L3 = protocol edge rejections.",
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 15},
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {"expr": "sum by (tier) (rate(exchange_errors_total{tier=~\"L2|L3\"}[5m]))", "legendFormat": "{{tier}}", "refId": "A"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "ops"}}
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Reconciliation runs & mismatches",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 24},
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {"expr": "sum by (kind) (rate(reconciliation_runs_total[15m]))", "legendFormat": "{{kind}} runs", "refId": "A"},
+        {"expr": "sum by (kind) (increase(reconciliation_mismatches_total[15m]))", "legendFormat": "{{kind}} mismatches", "refId": "B"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "ops"}}
+    }
+  ]
+}

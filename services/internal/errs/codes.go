@@ -80,7 +80,7 @@ func localRow(code string, httpStatus int, owner, desc string) CodeDef {
 		Owner: owner, Spec: false}
 }
 
-// specCodes is the verbatim spec §23 table (170 rows).
+// specCodes is the verbatim spec §23 table (173 rows).
 var specCodes = []CodeDef{
 	specRow("INVALID_REQUEST", 400, "Malformed request body (Phase-05 Task 5.3.29 API Gateway & Load Balancer — centralized OpenAPI-schema request validation; remediation #19)"),
 	specRow("UNAUTHORIZED", 401, "Missing or invalid auth token (Phase-05 Task 5.3.26 WebSocket Authentication Upgrade & In-Flight Token Renewal; REST JWT/OAuth per spec §8.4; remediation #19)"),
@@ -254,6 +254,7 @@ var specCodes = []CodeDef{
 	specRow("WITHDRAWAL_CONFIRM_EXPIRED", 409, "Withdrawal confirmation window elapsed; request must be re-initiated (Phase-05 Task 5.3.6 Withdrawal Flow; remediation #44)"),
 	specRow("INVALID_DEPTH_LIMIT", 400, "Requested book depth levels/cadence outside the supported {5,10,20}×{100,250,1000}ms table (Phase-06 Task 6.3.15 Configurable Depth; §24 #265 — cited by §27.1 L2 Book row but never registered; remediation #44 follow-on)"),
 	specRow("INVALID_INTERVAL", 400, "Kline/aggregate interval outside the canonical 13-timeframe set (Phase-06 Task 6.3.14; Phase-20 Task 20.3.1 REST surface — cited by §27.1 Klines row but never registered; remediation #44 follow-on)"),
+	specRow("TICKET_NOT_FOUND", 404, "Support ticket identifier does not resolve, or resolves to a ticket outside the caller's account scope (Phase-07 Task 7.3.7 Support Tickets & Complaints; cited by the §27.1 Complaints & Dispute Resolution matrix row but never tabled — registered 2026-09-28, remediation #44 follow-on)"),
 }
 
 // localCodes are emitted by the gateway but carry no spec §23 row yet.

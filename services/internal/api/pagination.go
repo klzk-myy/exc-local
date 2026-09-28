@@ -63,6 +63,29 @@ var ListSpecs = []ListSpec{
 	{Path: "/api/v1/transfers", Default: 100, Max: 500,
 		Sortable:   []string{"created_at", "id"},
 		Filterable: []string{"currency", "direction", "from", "to"}},
+	// Phase-07 Task 7.3.7 support surfaces.
+	{Path: "/api/v1/support/tickets", Default: 50, Max: 200,
+		Sortable:   []string{"created_at", "id"},
+		Filterable: []string{"status"}},
+	{Path: "/api/v1/admin/support/tickets", Default: 100, Max: 500,
+		Sortable: []string{"created_at", "id"},
+		Filterable: []string{
+			"status", "category", "type", "queue", "assignee",
+			"account_id", "unassigned", "breached"}},
+	{Path: "/api/v1/admin/support/complaints/register", Default: 100, Max: 500,
+		Sortable:   []string{"created_at", "id"},
+		Filterable: []string{"status"}},
+	// Phase-07 Task 7.3.3 audit query (both paths share the handler).
+	{Path: "/api/v1/admin/audit-log", Default: 100, Max: 1000,
+		Sortable: []string{"created_at", "id"},
+		Filterable: []string{
+			"admin_user_id", "action", "action_prefix",
+			"target_type", "target_id", "from", "to"}},
+	{Path: "/api/v1/admin/audit", Default: 100, Max: 1000,
+		Sortable: []string{"created_at", "id"},
+		Filterable: []string{
+			"admin_user_id", "action", "action_prefix",
+			"target_type", "target_id", "from", "to"}},
 }
 
 // ListSpecFor resolves the spec row for a route path ("" key tolerated).

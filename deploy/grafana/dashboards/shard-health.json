@@ -1,0 +1,134 @@
+{
+  "uid": "exc-shard-health",
+  "title": "Exchange — Per-Shard Health",
+  "description": "Per matching-engine shard: throughput, latency, queue depth, WAL lag, host resources. Task 7.3.5 item 1.",
+  "tags": ["exchange", "shard", "matching-engine"],
+  "timezone": "utc",
+  "editable": true,
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "15s",
+  "time": {"from": "now-1h", "to": "now"},
+  "templating": {
+    "list": [
+      {
+        "name": "shard",
+        "type": "query",
+        "datasource": {"type": "prometheus", "uid": "Prometheus"},
+        "query": "label_values(bridge_events_published_total, shard)",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "current": {"selected": true, "text": ["All"], "value": ["$__all"]}
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Throughput — engine events published/sec (via bridge)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {"expr": "sum by (shard) (rate(bridge_events_published_total{shard=~\"$shard\"}[1m]))", "legendFormat": "shard {{shard}} published", "refId": "A"},
+        {"expr": "sum by (shard) (rate(bridge_events_received_total{shard=~\"$shard\"}[1m]))", "legendFormat": "shard {{shard}} received", "refId": "B"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "ops"}}
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Bridge publish latency (mean + error rate)",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {"expr": "sum by (shard) (rate(bridge_publish_latency_seconds_sum{shard=~\"$shard\"}[5m])) / sum by (shard) (rate(bridge_publish_latency_seconds_count{shard=~\"$shard\"}[5m]))", "legendFormat": "shard {{shard}} mean", "refId": "A"},
+        {"expr": "sum by (shard) (rate(bridge_publish_errors_total{shard=~\"$shard\"}[5m]))", "legendFormat": "shard {{shard}} publish errors", "refId": "B"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "s"}}
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Queue depth — IPC ring + bridge buffer",
+      "description": "§2.7.3 ladder: 80% shed / 95% critical on the 1M-entry ring.",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {"expr": "engine_ipc_ring_depth{shard=~\"$shard\"}", "legendFormat": "IPC ring shard {{shard}}", "refId": "A"},
+        {"expr": "bridge_buffer_depth", "legendFormat": "bridge buf {{instance}}", "refId": "B"}
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {"steps": [{"color": "green", "value": null}, {"color": "orange", "value": 800000}, {"color": "red", "value": 950000}]}
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "WAL lag (unarchived entries)",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {"expr": "wal_lag_entries{shard=~\"$shard\"}", "legendFormat": "shard {{shard}}", "refId": "A"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "short"}}
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Bridge heartbeat age (5s cadence; >15s = P1)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {"expr": "bridge_heartbeat_age_seconds{shard=~\"$shard\"}", "legendFormat": "shard {{shard}}", "refId": "A"}
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {"steps": [{"color": "green", "value": null}, {"color": "red", "value": 15}]}
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Dropped / malformed / unrouted events per shard",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {"expr": "sum by (shard) (rate(bridge_events_dropped_total{shard=~\"$shard\"}[5m]))", "legendFormat": "shard {{shard}} dropped", "refId": "A"},
+        {"expr": "sum by (shard) (rate(bridge_events_malformed_total{shard=~\"$shard\"}[5m]))", "legendFormat": "shard {{shard}} malformed", "refId": "B"},
+        {"expr": "sum by (shard) (rate(bridge_unrouted_events_total{shard=~\"$shard\"}[5m]))", "legendFormat": "shard {{shard}} unrouted", "refId": "C"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "ops"}}
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Host CPU % / memory (node_exporter)",
+      "description": "Per-host utilisation for shard nodes; requires the node job in prometheus.yml.",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24},
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {"expr": "100 - (avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)", "legendFormat": "{{instance}} cpu%", "refId": "A"},
+        {"expr": "(1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100", "legendFormat": "{{instance}} mem%", "refId": "B"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "percent"}}
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "HTTP request rate by route (shard services)",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24},
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {"expr": "topk(10, sum by (service, route) (rate(http_requests_total[5m])))", "legendFormat": "{{service}} {{route}}", "refId": "A"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "reqps"}}
+    }
+  ]
+}

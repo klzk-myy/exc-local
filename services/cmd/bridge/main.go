@@ -144,6 +144,9 @@ func run() error {
 	go func() {
 		for ctx.Err() == nil {
 			n := sub.Poll(10)
+			// Task 7.3.8: Aeron-side counters (fragment delivery rate,
+			// poll errors, subscription image presence).
+			b.Metrics().ObserveAeronPoll(n, sub.IsConnected())
 			if n < 0 {
 				log.Error("bridge: aeron poll error", "shard", bcfg.ShardID)
 				select {

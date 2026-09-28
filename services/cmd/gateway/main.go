@@ -14,10 +14,14 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"exchange/internal/accounts"
+	"exchange/internal/admin"
 	"exchange/internal/api"
 	"exchange/internal/auth"
 	"exchange/internal/config"
@@ -29,12 +33,14 @@ import (
 	"exchange/internal/marketapi"
 	"exchange/internal/middleware"
 	"exchange/internal/nats"
+	"exchange/internal/observability"
 	"exchange/internal/orders"
 	"exchange/internal/promos"
 	"exchange/internal/ratelimit"
 	"exchange/internal/redis"
 	"exchange/internal/risk"
 	"exchange/internal/settlement"
+	"exchange/internal/support"
 	"exchange/internal/tax"
 	"exchange/internal/testenv"
 	"exchange/internal/timesync"
@@ -89,6 +95,14 @@ func run() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", api.Health)
 
+	// Task 7.3.4: Prometheus /metrics on the same listener — the 15s
+	// scrape cadence (deploy/prometheus/prometheus.yml) is far below the
+	// rate limiter thresholds, and keeping it on the main mux means the
+	// endpoint itself is inside the request-metrics middleware chain.
+	metReg := observability.New()
+	met := observability.NewMetrics(metReg, "gateway")
+	mux.Handle("/metrics", metReg.Handler())
+
 	// Tasks 5.3.2/5.3.27/5.3.34: edge rate-limit + progressive-IP-ban
 	// cluster. One Lua round trip per request atomically runs the ban
 	// gate → token bucket → weighted counters (internal/ratelimit); a
@@ -134,10 +148,14 @@ func run() error {
 		return fmt.Errorf("ledger service: %w", err)
 	}
 	fundStore := funding.NewPgStore(pool)
-	// nil RoleResolver → privileged freeze/unfreeze calls reject
-	// UNAUTHORIZED_ROLE until Phase-07 wires RBAC (accounts seam); read +
-	// AssertMutable paths are unaffected.
-	freezeSvc := accounts.NewFreezeService(pool, nil)
+	// Phase-07 Task 7.3.1/7.3.11: the venue-admin role store (migration
+	// 090 admin_role_bindings). Its resolver feeds every Phase-05 seam —
+	// freeze/unfreeze, manual liquidation, order audit/mass-cancel,
+	// support tickets. No binding ⇒ "" ⇒ UNAUTHORIZED_ROLE (fail closed).
+	adminStore := admin.NewStore(pool)
+	adminRoleResolver := adminStore.RoleResolver()
+	freezeSvc := accounts.NewFreezeService(pool,
+		accounts.RoleResolver(adminRoleResolver))
 	riskLimits := risk.NewLimitsService(risk.NewPgStore(pool), nil, nil)
 	if err := riskLimits.Load(context.Background()); err != nil {
 		// Do not abort boot — the limits view fails closed per request and
@@ -151,6 +169,19 @@ func run() error {
 	var opsAlerter funding.OpsAlerter
 	if ledgerPub != nil {
 		opsAlerter = settlement.PublisherAlerter{Pub: ledgerPub}
+	}
+	// Task 7.3.10 DLQ inspection: bind the ops-dlq stream if it has been
+	// provisioned (`natsctl dlq init`) — the registered route returns a
+	// fail-closed 503 until then rather than silently fabricating one.
+	var dlqStore observability.Store
+	if natsClient != nil {
+		dlqCtx, dlqCancel := context.WithTimeout(context.Background(), 3*time.Second)
+		if s, derr := observability.OpenJetStreamDLQ(dlqCtx, natsClient.JetStream()); derr == nil {
+			dlqStore = s
+		} else {
+			log.Warn("dlq stream not provisioned — GET /admin/dlq serves 503", "err", derr)
+		}
+		dlqCancel()
 	}
 	withdrawalSvc, err := funding.NewWithdrawalService(fundStore, ledgerSvc, freezeSvc)
 	if err != nil {
@@ -396,7 +427,53 @@ func run() error {
 	if natsClient != nil {
 		liqSink = liquidationSink{nc: natsClient}
 	}
-	liqSvc := api.NewManualLiquidationService(pool, nil, liqSink)
+	liqSvc := api.NewManualLiquidationService(pool,
+		api.AdminRoleResolver(adminRoleResolver), liqSink)
+
+	// Phase-07 Tasks 7.3.7/7.3.3 — support tickets / complaints /
+	// read-only support-view + the admin audit query surface.
+	//
+	// RoleResolver seam: the shared admin-role store (admin.Store,
+	// migration 090) is constructed beside freezeSvc above — no binding
+	// resolves to "" which the services map to UNAUTHORIZED_ROLE (fail
+	// closed, spec §2.7).
+	ticketSvc := support.NewService(pool, support.RoleResolver(adminRoleResolver), supportAlerter{nc: natsClient})
+	supportViewSvc := admin.NewSupportViewService(pool)
+
+	// Phase-07 Task 7.3.9 — LP management. MetricsSource/AlertSink stay
+	// nil until the Phase-06/17 lp_performance pipeline + ops.alerts
+	// bridge land: scorecards then serve the last persisted snapshot
+	// marked stale (never fabricated), and threshold alerts persist to
+	// lp_performance_alerts undispatched.
+	lpSvc := admin.NewLPService(pool, admin.AdminRoleResolver(adminRoleResolver), nil, nil)
+
+	// Phase-07 Tasks 7.3.13/7.3.14 — governance packs. OpsSource stays
+	// nil until a ModeManager/SLO reader is wired; the ops section then
+	// renders STALE and generation never blocks. Delivery nil → QUEUED.
+	packSvc := admin.NewGovernancePackService(pool,
+		admin.AdminRoleResolver(adminRoleResolver), nil, nil)
+
+	// Task 7.3.7 SLA sweeper: marks breached complaint-ack / complaint-
+	// final / first-response SLAs and raises ops alerts
+	// (COMPLAINT_SLA_BREACH stays internal — surfaced as an alert, never
+	// an API error). Each SLA kind alerts once per ticket via the
+	// once-only escalations arithmetic in tickets.go.
+	go func() {
+		tick := time.NewTicker(60 * time.Second)
+		defer tick.Stop()
+		for {
+			select {
+			case <-sweepCtx.Done():
+				return
+			case <-tick.C:
+				if n, err := ticketSvc.SweepAlerts(sweepCtx, time.Now().UTC()); err != nil {
+					log.Warn("support SLA sweep", "err", err)
+				} else if n > 0 {
+					log.Warn("support SLA breaches flagged", "tickets", n)
+				}
+			}
+		}
+	}()
 	// --- end cluster E wiring ---
 
 	// Wave-2 cluster A REST order surface (Tasks 5.3.3/5.3.22/5.3.24/
@@ -404,12 +481,108 @@ func run() error {
 	// API-key path is reused for the signed REST path; TrustProxy=true
 	// because HAProxy (Task 5.3.29) is the only supported client path.
 	orderDeps := &api.OrderDeps{
-		SVC:        orderSvc,
-		Verifier:   sigVerifier,
-		TrustProxy: true,
-		// RoleResolver: nil → admin audit/mass-cancel fail closed
-		// UNAUTHORIZED_ROLE until Phase-07 lands the role store.
+		SVC:          orderSvc,
+		Verifier:     sigVerifier,
+		TrustProxy:   true,
+		RoleResolver: adminRoleResolver, // Phase-07 role store (fail-closed on no binding)
 	}
+
+	// --- Phase-07 Tasks 7.3.1/7.3.2/7.3.11/7.3.12 — admin RBAC cluster ---
+	// Session store on the coordination Redis (§4.1 noeviction): binding
+	// expiry/revocation kills sessions, and the middleware re-validates
+	// the sid claim so a kill lands on the very next request.
+	sessStore := auth.NewRedisSessionStore(rdb)
+	sessMgr, sessErr := auth.NewSessionManager(sessStore, jwtIssuer, auth.SessionConfig{})
+	if sessErr != nil {
+		return fmt.Errorf("session manager: %w", sessErr)
+	}
+	// §8.2b session kill: sessions index on the bound account once one is
+	// selected, else on the user — revoke BOTH indexes.
+	killSessions := func(ctx context.Context, userID int64) error {
+		uid := strconv.FormatInt(userID, 10)
+		if err := sessMgr.RevokeAll(ctx, 0, uid); err != nil {
+			return err
+		}
+		rows, err := pool.Query(ctx,
+			`SELECT id FROM accounts WHERE user_id=$1`, userID)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var acct int64
+			if err := rows.Scan(&acct); err != nil {
+				return err
+			}
+			if err := sessMgr.RevokeAll(ctx, acct, uid); err != nil {
+				return err
+			}
+		}
+		return rows.Err()
+	}
+	var rbacAlerter admin.Alerter
+	if opsAlerter != nil {
+		oa := opsAlerter
+		rbacAlerter = func(ctx context.Context, severity, summary string) error {
+			return oa.Raise(ctx, settlement.OpsAlert{
+				Severity: severity, Code: "RBAC_LIFECYCLE", Summary: summary})
+		}
+	}
+	adminSvc := admin.NewService(pool, adminStore, killSessions, rbacAlerter)
+	dualSvc := admin.NewDualControlService(pool, adminStore)
+	api.RegisterRoleChangeExecutor(dualSvc, adminSvc)
+
+	// RBACMiddleware on the registry: every route declaring Auth.Role gets
+	// identity → binding → role → env/scope enforcement — stubs included.
+	rbacMW := admin.NewMiddleware(adminStore, jwtIssuer, sessMgr, cfg.Environment)
+	router.SetWrapper(rbacMW.WrapRoute)
+
+	// Lifecycle sweeps (30s): binding expiry + session kill, recert
+	// suspension lag, break-glass expiry + overdue-review enforcement,
+	// four-eyes window lapse. Each is audited; a sweep failure logs and
+	// retries next tick — never silently allows.
+	go func() {
+		tick := time.NewTicker(30 * time.Second)
+		defer tick.Stop()
+		for {
+			select {
+			case <-sweepCtx.Done():
+				return
+			case <-tick.C:
+				if n, err := adminSvc.ExpireDue(sweepCtx, 500); err != nil {
+					log.Warn("rbac expiry sweep", "err", err)
+				} else if n > 0 {
+					log.Info("rbac bindings expired", "count", n)
+				}
+				if n, err := adminSvc.SuspendOverdueRecerts(sweepCtx, 500); err != nil {
+					log.Warn("recert sweep", "err", err)
+				} else if n > 0 {
+					log.Warn("recert suspensions applied", "count", n)
+				}
+				if n, err := adminSvc.ExpireBreakGlass(sweepCtx, 200); err != nil {
+					log.Warn("break-glass expiry sweep", "err", err)
+				} else if n > 0 {
+					log.Info("break-glass grants expired", "count", n)
+				}
+				if n, err := adminSvc.EnforceBreakGlassReview(sweepCtx, 200); err != nil {
+					log.Warn("break-glass review enforcement", "err", err)
+				} else if n > 0 {
+					log.Warn("break-glass reviews overdue — granters suspended", "count", n)
+				}
+				if n, err := dualSvc.ExpireDue(sweepCtx); err != nil {
+					log.Warn("dual-control expiry sweep", "err", err)
+				} else if n > 0 {
+					log.Info("dual-control requests expired", "count", n)
+				}
+			}
+		}
+	}()
+
+	rbacDeps := &api.RBACDeps{
+		Store: adminStore, SVC: adminSvc, Dual: dualSvc,
+		Routes: gateway.SeedRoutes(), TrustProxy: true,
+	}
+	// --- end RBAC cluster wiring ---
 
 	live := map[string]http.Handler{
 		"GET /api/v1/account/rate-limits": http.HandlerFunc(
@@ -493,13 +666,42 @@ func run() error {
 		"GET /api/v1/admin/api-deprecations":  http.HandlerFunc(depList),
 		"GET /developer/migration":            http.HandlerFunc(api.MigrationGuide(depStore)),
 		// R9 health schema (Task 5.3.28 item 6): /health/live is always-ok
-		// liveness; /health/ready reports mode/shards/version/timestamp.
-		"GET /health/live": http.HandlerFunc(api.Health),
-		"GET /health/ready": http.HandlerFunc(api.HealthFull(
-			func(ctx context.Context) (string, error) {
-				st, err := rdb.GetDegradationMode(ctx)
-				return string(st.Mode), err
-			}, nil, apiVersion)),
+		// liveness; /health/ready (Task 7.3.6) probes PostgreSQL, Redis,
+		// NATS (optional — ledger dispatch is fail-operational) and every
+		// engine IPC ring producer, reporting per-dependency detail +
+		// 503 when a required dependency or the mode is down. /health and
+		// /ready are the Task 7.3.6 aliases.
+		"GET /health/live":  http.HandlerFunc(api.Health),
+		"GET /health":       http.HandlerFunc(api.Health),
+		"GET /health/ready": http.HandlerFunc(readiness(rdb, pool, natsClient, orderSubmitter, shardMap, apiVersion)),
+		"GET /ready":        http.HandlerFunc(readiness(rdb, pool, natsClient, orderSubmitter, shardMap, apiVersion)),
+		// --- Phase-07 Task 7.3.3: admin audit query + verify ---
+		"GET /api/v1/admin/audit":        http.HandlerFunc(api.AdminAuditLog(pool, adminRoleResolver)),
+		"GET /api/v1/admin/audit-log":    http.HandlerFunc(api.AdminAuditLog(pool, adminRoleResolver)),
+		"GET /api/v1/admin/audit/verify": http.HandlerFunc(api.AdminAuditVerify(pool, adminRoleResolver)),
+		// --- Phase-07 Task 7.3.7: support tickets / complaints ---
+		"GET /api/v1/support/tickets":                   http.HandlerFunc(api.SupportTicketList(ticketSvc)),
+		"POST /api/v1/support/tickets":                  http.HandlerFunc(api.SupportTicketCreate(ticketSvc)),
+		"GET /api/v1/support/tickets/{id}":              http.HandlerFunc(api.SupportTicketGet(ticketSvc)),
+		"GET /api/v1/admin/support/tickets":             http.HandlerFunc(api.AdminSupportTicketList(ticketSvc)),
+		"GET /api/v1/admin/support/tickets/{id}":        http.HandlerFunc(api.AdminSupportTicketGet(ticketSvc)),
+		"PUT /api/v1/admin/support/tickets":             api.AdminSupportTicketUpdate(ticketSvc, true),
+		"POST /api/v1/admin/support/tickets/{id}/notes": api.AdminSupportTicketNote(ticketSvc, true),
+		"GET /api/v1/admin/support/complaints/register": http.HandlerFunc(api.AdminComplaintRegister(ticketSvc)),
+		"GET /api/v1/admin/support/accounts/{id}":       api.AdminSupportView(supportViewSvc, adminRoleResolver, true),
+		// --- Phase-07 Task 7.3.9: LP management ---
+		"GET  /api/v1/admin/liquidity-providers":                http.HandlerFunc(api.AdminLPList(lpSvc, true)),
+		"POST /api/v1/admin/liquidity-providers":                http.HandlerFunc(api.AdminLPCreate(lpSvc, true)),
+		"GET  /api/v1/admin/liquidity-providers/{id}":           http.HandlerFunc(api.AdminLPGet(lpSvc, true)),
+		"PUT  /api/v1/admin/liquidity-providers":                http.HandlerFunc(api.AdminLPUpdate(lpSvc, true)),
+		"PUT  /api/v1/admin/liquidity-providers/{id}":           http.HandlerFunc(api.AdminLPUpdate(lpSvc, true)),
+		"GET  /api/v1/admin/liquidity-providers/{id}/scorecard": http.HandlerFunc(api.AdminLPScorecard(lpSvc, true)),
+		"GET  /api/v1/admin/liquidity-providers/{id}/alerts":    http.HandlerFunc(api.AdminLPAlerts(lpSvc, true)),
+		// --- Phase-07 Tasks 7.3.13/7.3.14: governance packs ---
+		"GET  /api/v1/admin/governance-packs":              http.HandlerFunc(api.AdminPackList(packSvc, true)),
+		"GET  /api/v1/admin/governance-packs/{id}":         http.HandlerFunc(api.AdminPackGet(packSvc, true)),
+		"POST /api/v1/admin/governance-packs/generate":     http.HandlerFunc(api.AdminPackGenerate(packSvc, true)),
+		"POST /api/v1/admin/governance-packs/{id}/release": http.HandlerFunc(api.AdminPackRelease(packSvc, true)),
 		// --- Phase-05 Wave-2 Cluster E live handlers ---
 		// Tasks 5.3.26/5.3.31: unified WS endpoint.
 		"WS /ws/v1": wsSrv,
@@ -533,6 +735,29 @@ func run() error {
 		"GET /api/v1/admin/orders/{id}/audit":   http.HandlerFunc(api.AdminOrderAudit(orderDeps)),
 		"POST /api/v1/admin/orders/mass-cancel": http.HandlerFunc(api.AdminMassCancel(orderDeps)),
 		// --- end Cluster A handlers ---
+		// Task 7.3.10: DLQ review surface (registry row exists; replay/
+		// discard controls live on the admin service mux + natsctl until
+		// Phase-05 registers the POST routes).
+		"GET /api/v1/admin/dlq": observability.DLQHandler(dlqStore),
+		// Phase-07 RBAC lifecycle surface (Tasks 7.3.1/7.3.2/7.3.11/7.3.12).
+		"GET /api/v1/admin/roles":     http.HandlerFunc(api.AdminRoles(rbacDeps)),
+		"GET /api/v1/admin/bindings":  http.HandlerFunc(api.AdminBindings(rbacDeps)),
+		"POST /api/v1/admin/bindings": http.HandlerFunc(api.AdminGrantBinding(rbacDeps)),
+		"POST /api/v1/admin/bindings/{id}/revoke": http.HandlerFunc(
+			api.AdminRevokeBinding(rbacDeps)),
+		"GET /api/v1/admin/dual-control": http.HandlerFunc(
+			api.AdminDualControlList(rbacDeps)),
+		"POST /api/v1/admin/dual-control/{id}/approve": http.HandlerFunc(
+			api.AdminDualControlApprove(rbacDeps)),
+		"POST /api/v1/admin/dual-control/{id}/reject": http.HandlerFunc(
+			api.AdminDualControlReject(rbacDeps)),
+		"POST /api/v1/admin/recert":     http.HandlerFunc(api.AdminRecertStart(rbacDeps)),
+		"GET /api/v1/admin/recert/{id}": http.HandlerFunc(api.AdminRecertReport(rbacDeps)),
+		"POST /api/v1/admin/recert/{id}/decisions": http.HandlerFunc(
+			api.AdminRecertDecide(rbacDeps)),
+		"POST /api/v1/admin/break-glass": http.HandlerFunc(api.AdminBreakGlassGrant(rbacDeps)),
+		"POST /api/v1/admin/break-glass/{id}/review": http.HandlerFunc(
+			api.AdminBreakGlassReview(rbacDeps)),
 	}
 	if err := router.MountSeedLive(live); err != nil {
 		return fmt.Errorf("route registry: %w", err)
@@ -561,30 +786,31 @@ func run() error {
 		// money-moving POSTs, Redis ledger + account-scoped keys; the
 		// resolver additionally reads X-API-KEY identities so signed
 		// callers get the same dedup contract).
-		Handler: middleware.DegradationModeHeader(
-			rdb, middleware.SecurityHeaders(securityOpts(cfg),
-				gateway.RequestID(router.Recover(
-					func(f string, a ...any) { log.Error(fmt.Sprintf(f, a...)) },
-					middleware.Tracing(
-						middleware.Logging(log,
-							middleware.RateLimit(limiter, middleware.RateLimitOptions{
-								ResolveTier: tierResolver,
-								Emit:        router.WriteError,
-							})(
-								middleware.Idempotency(
-									middleware.NewRedisIdemStore(rdb.Client),
-									nil, idemResolver(keyStore), router.WriteError)(
-									middleware.APIVersion(middleware.VersionConfig{
-										Versions: map[int]string{1: apiVersion},
-										Emit:     router.WriteError,
-									})(
-										// Task 5.3.20: announced endpoints carry
-										// Deprecation/Sunset/Link; past-sunset endpoints
-										// answer 410 ENDPOINT_GONE before the handler.
-										deprecation.Middleware(depRules,
-											func(w http.ResponseWriter, req *http.Request, _ int, code, msg string) {
-												router.WriteError(w, req, code, msg, nil)
-											}, nil)(mux)))))))))),
+		Handler: met.HTTPMiddleware(
+			middleware.DegradationModeHeader(
+				rdb, middleware.SecurityHeaders(securityOpts(cfg),
+					gateway.RequestID(router.Recover(
+						func(f string, a ...any) { log.Error(fmt.Sprintf(f, a...)) },
+						middleware.Tracing(
+							middleware.Logging(log,
+								middleware.RateLimit(limiter, middleware.RateLimitOptions{
+									ResolveTier: tierResolver,
+									Emit:        router.WriteError,
+								})(
+									middleware.Idempotency(
+										middleware.NewRedisIdemStore(rdb.Client),
+										nil, idemResolver(keyStore), router.WriteError)(
+										middleware.APIVersion(middleware.VersionConfig{
+											Versions: map[int]string{1: apiVersion},
+											Emit:     router.WriteError,
+										})(
+											// Task 5.3.20: announced endpoints carry
+											// Deprecation/Sunset/Link; past-sunset endpoints
+											// answer 410 ENDPOINT_GONE before the handler.
+											deprecation.Middleware(depRules,
+												func(w http.ResponseWriter, req *http.Request, _ int, code, msg string) {
+													router.WriteError(w, req, code, msg, nil)
+												}, nil)(mux))))))))))),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -611,6 +837,65 @@ func run() error {
 	case err := <-serveErr:
 		return err
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Cluster E helpers (Tasks 5.3.26/29/30/31/42) + Task 7.3.6 readiness
+// ---------------------------------------------------------------------------
+
+// readiness composes the Task 7.3.6 dependency-checked readiness probe:
+// PostgreSQL + Redis + engine IPC rings are required (503 on failure),
+// NATS is optional (JetStream dispatch is fail-operational — a down bus
+// degrades, never pulls the pod). Mode and shard liveness fold in per
+// the R9 schema.
+func readiness(rdb *redis.Client, pool *pgxpool.Pool, nc *nats.Client,
+	sub *orders.ShmSubmitter, shardMap *config.ShardMap, version string) http.HandlerFunc {
+	deps := []api.Dependency{
+		{Name: "postgres", Required: true, Probe: pool.Ping},
+		{Name: "redis", Required: true, Probe: rdb.Ping},
+		{Name: "nats", Required: false, Probe: func(ctx context.Context) error {
+			if nc == nil {
+				return fmt.Errorf("nats client not configured")
+			}
+			// FlushWithContext is a real round-trip probe — stronger
+			// than Connected() (which only reflects socket state).
+			return nc.Conn().FlushWithContext(ctx)
+		}},
+		// Engine ring probe: every shard's far-end producer (the C++
+		// matching engine) must stamp a live pid. A dead engine is a
+		// required failure — orders would black-hole.
+		{Name: "engine_ipc", Required: true, Probe: func(ctx context.Context) error {
+			for _, id := range shardIDs(shardMap) {
+				ch, err := sub.Channel(id)
+				if err != nil {
+					return fmt.Errorf("shard %d channel: %w", id, err)
+				}
+				if !ch.ProducerAlive() {
+					return fmt.Errorf("shard %d engine producer not alive", id)
+				}
+			}
+			return nil
+		}},
+	}
+	shards := func(ctx context.Context) []api.ShardHealth {
+		ids := shardIDs(shardMap)
+		out := make([]api.ShardHealth, 0, len(ids))
+		for _, id := range ids {
+			sh := api.ShardHealth{ID: int(id), Status: "ok"}
+			ch, err := sub.Channel(id)
+			if err != nil || !ch.ProducerAlive() {
+				sh.Status = "down"
+			} else {
+				sh.Leader = true
+			}
+			out = append(out, sh)
+		}
+		return out
+	}
+	return api.HealthReady(func(ctx context.Context) (string, error) {
+		st, err := rdb.GetDegradationMode(ctx)
+		return string(st.Mode), err
+	}, deps, shards, version)
 }
 
 // ---------------------------------------------------------------------------

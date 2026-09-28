@@ -427,3 +427,34 @@ Scope: 26 tasks (2.3.1–2.3.26), 67 AC rows. Critical spec correction noted at 
 - **Verification (orchestrator):** `go build`/`vet`/`gofmt` clean · `go test ./...` — **37/37 packages green** on live scratch PG (migverify through mig 190) + Redis · spec harness `checks/phase06.go` binds **all 27 P06 IDs → 27/27 PASS** (1 flaky-once: drain deadline timing, passes on retry) · §23 follow-on: matrix-cited `INVALID_DEPTH_LIMIT`/`INVALID_INTERVAL` registered — registry **172**.
 - **Docs-as-code:** §27 remediation #45 records wire-format interim contracts (TradeFill lacks instrument_id/taker/ts; no BBO/liquidation/block/OI events), aggTrades contiguous-run semantics, 2s liquidation floor, block-tape deferral config, dedicated-WS-server duplication note; §27.1 Klines interval row corrected to canonical 13.
 - **Honest open:** 6.3.2 "no gaps under load" + p99≤100ms/99.95%-uptime AC rows — instrumentation landed (`LatencySnapshot`), sustained-evidence pending soak; real multicast A/B on independent NICs is a deploy-time check.
+
+## [2026-10-06] — PHASE-07: ADMIN RBAC + MONITORING — 14/14 TASKS, 13/13 CHECKPOINTS
+
+- **Landed:** `internal/admin` (6-role §8.2 RBAC with permission matrix generated from
+  `SeedRoutes()`, scoped bindings + grant-time intersection + disjoint-system trigger,
+  durable four-eyes queue, lifecycle/recertification/break-glass, append-only audit log
+  with in-tx `audit_hash_chain` anchoring, LP management, governance packs),
+  `internal/support` (tickets/complaints/ADR fields, SLA clocks, once-only breach sweep),
+  `internal/observability` (dependency-free Prometheus v0.0.4 registry, Aeron CnC
+  monitor, bridge heartbeat watcher, alert evaluator, JetStream `ops-dlq` DLQ),
+  dependency-aware health endpoints, `deploy/prometheus` + `deploy/grafana` assets.
+- **Wiring:** all fail-closed role seams replaced by `admin.Store.RoleResolver()` —
+  freeze/manual-liquidation/support/orders; `SetWrapper` RBAC middleware outermost;
+  30s lifecycle sweeper + 60s complaint-SLA sweeper; `/metrics` on gateway, admin,
+  marketdata, bridge, fix, settlement, compliance; `natsctl dlq` subcommands.
+- **Migrations:** 048 (support_tickets/ticket_notes + ADR/SLA columns), 090
+  (admin_role_bindings + cross-system guard trigger + dual-control/recert/break-glass),
+  101 (governance_packs, TEXT content + hash chain + immutability trigger), 191
+  (liquidity_providers/configs/alerts) — all verified up/down/re-up on scratch PG.
+- **Bugs caught by tests:** `governance_packs.content` JSONB→TEXT (hash invariant),
+  `window` reserved-word → `eval_window`, ORDER BY param ambiguity, empty-update
+  normalization, audit-payload base64 leak, AdminOrderAudit resolver keying
+  (AccountID→Subject).
+- **§23 registry:** `TICKET_NOT_FOUND` (404) tabled — 172 → **173**; codes.go + tests synced.
+- **Checkpoints:** 13/13 P07 PASS (`tests/spec` runner, live PostgreSQL + Redis).
+- **Open (env-blocked):** live PagerDuty delivery (config written, no PD receiver),
+  K8s probe manifests (Phase-09 surface), LP markup→market-data application
+  (consumer pending Phase-06/17 feed pipeline).
+- **§27:** implementation records 1+2 added (audit-chain binding, complaint SLA clocks,
+  readiness classification, queue confinement, RBAC store design, resolver keying fix,
+  observability/DLQ conventions, LP schema rulings, governance-pack hash invariants).

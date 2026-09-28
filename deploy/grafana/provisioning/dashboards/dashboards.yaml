@@ -1,0 +1,16 @@
+# Grafana dashboard provisioning — loads every JSON under
+# deploy/grafana/dashboards (mounted at /etc/grafana/dashboards).
+apiVersion: 1
+
+providers:
+  - name: exchange
+    orgId: 1
+    folder: "Exchange Operations"
+    folderUid: exchange-ops
+    type: file
+    disableDeletion: false
+    allowUiUpdates: true
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/dashboards
+      foldersFromFilesStructure: false

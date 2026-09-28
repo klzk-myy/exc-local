@@ -30,8 +30,9 @@ import (
 // with serving on the mux (registration is a startup-phase activity);
 // Routes()/table dumps are safe at any time.
 type Router struct {
-	mux *http.ServeMux
-	reg *errs.Registry
+	mux  *http.ServeMux
+	reg  *errs.Registry
+	wrap func(Route, http.Handler) http.Handler // cross-route hook (Task 7.3.1 RBAC)
 
 	mu     sync.RWMutex
 	routes map[string]Route // key() → route
@@ -56,6 +57,17 @@ func (r *Router) Mux() *http.ServeMux { return r.mux }
 
 // Registry exposes the error registry the router emits through.
 func (r *Router) Registry() *errs.Registry { return r.reg }
+
+// SetWrapper installs a cross-route wrapper consulted at Register time —
+// the Phase-07 RBAC middleware hook (Task 7.3.1, spec §8.2/§8.2a). The
+// wrapper receives the route's own metadata and the final mounted
+// handler (post stub/body-schema wrapping) and returns the outermost
+// handler: authorization runs BEFORE body parsing, and stubs are wrapped
+// too so an unauthorized caller gets 401/403 rather than the 501 shape.
+// Startup-phase setter like Register; pass nil to clear.
+func (r *Router) SetWrapper(fn func(Route, http.Handler) http.Handler) {
+	r.wrap = fn
+}
 
 // Register validates rt, mounts handler on the mux and records the route.
 // A nil handler mounts the 501 stub. Registering a Stub route with a real
@@ -88,6 +100,9 @@ func (r *Router) Register(rt Route, handler http.Handler) error {
 	}
 	if rt.Schema != nil {
 		h = r.validateBody(rt, h)
+	}
+	if r.wrap != nil {
+		h = r.wrap(rt, h)
 	}
 	r.mux.Handle(rt.mountPattern(), h)
 	return nil

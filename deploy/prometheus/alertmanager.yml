@@ -1,0 +1,95 @@
+# Alertmanager routing for the exchange alert taxonomy.
+#
+# Spec §19.3: Prometheus AlertManager → PagerDuty. Severity labels come
+# from rules/exchange-alerts.yml and from the in-process evaluator's
+# ops.alerts.monitoring payloads (P0/P1/P2/P3 ↔ severity p0..p3).
+#
+# PagerDuty keys are environment-sourced at container start (envsubst or
+# your secrets injector); NEVER commit real integration keys — Vault/KMS
+# is the secrets store (Phase-13.5 Task 13.5.3.5).
+#
+#   PAGERDUTY_P0_SERVICE_KEY  — critical service (phone/page)
+#   PAGERDUTY_P1_SERVICE_KEY  — high-urgency service
+#   PAGERDUTY_P2_SERVICE_KEY  — low-urgency / ticket queue
+
+route:
+  receiver: default
+  group_by: [alertname, service, shard]
+  group_wait: 15s
+  group_interval: 1m
+  repeat_interval: 4h
+  routes:
+    # P0 — L0 halt-domain: page immediately, no grouping delay.
+    - match: {severity: p0}
+      receiver: pagerduty-p0
+      group_wait: 0s
+      repeat_interval: 15m
+      continue: true
+    # P1 — systemic degradation / monitoring loss: page.
+    - match: {severity: p1}
+      receiver: pagerduty-p1
+      repeat_interval: 1h
+    # P2 — rejection spikes, lag, breakers: ticket + slack.
+    - match: {severity: p2}
+      receiver: pagerduty-p2-ticket
+      repeat_interval: 4h
+    # P3 — informational (DLQ growth, SLA warnings): slack only.
+    - match: {severity: p3}
+      receiver: slack-ops
+      repeat_interval: 12h
+
+# A firing P0 suppresses lower-severity alerts on the same service+shard —
+# fail-closed zero-loss: fix the halt first, noise second.
+inhibit_rules:
+  - source_match: {severity: p0}
+    target_match_re: {severity: "p[123]"}
+    equal: [service, shard]
+  - source_match: {severity: p1}
+    target_match: {severity: p3}
+    equal: [service, shard]
+
+# Receivers. Note: the in-process alert path (ops.alerts.monitoring on
+# JetStream) is independent of Alertmanager — Prometheus-side alerts page
+# via PagerDuty directly; the NATS-side evaluator is the fail-safe when
+# Prometheus itself is down (both paths carry the same rule IDs).
+receivers:
+  - name: default
+    slack_configs:
+      - api_url: "${SLACK_OPS_WEBHOOK_URL}"
+        channel: "#exchange-ops"
+
+  - name: pagerduty-p0
+    pagerduty_configs:
+      - service_key: "${PAGERDUTY_P0_SERVICE_KEY}"
+        severity: critical
+        description: "{{ .CommonAnnotations.summary }}"
+        details:
+          firing: "{{ .Alerts.Firing | len }}"
+          resolved: "{{ .Alerts.Resolved | len }}"
+        send_resolved: true
+
+  - name: pagerduty-p1
+    pagerduty_configs:
+      - service_key: "${PAGERDUTY_P1_SERVICE_KEY}"
+        severity: error
+        description: "{{ .CommonAnnotations.summary }}"
+        send_resolved: true
+
+  - name: pagerduty-p2-ticket
+    pagerduty_configs:
+      - service_key: "${PAGERDUTY_P2_SERVICE_KEY}"
+        severity: warning
+        description: "{{ .CommonAnnotations.summary }}"
+        send_resolved: true
+    slack_configs:
+      - api_url: "${SLACK_OPS_WEBHOOK_URL}"
+        channel: "#exchange-ops"
+        title: "P2: {{ .CommonAnnotations.summary }}"
+        text: "{{ range .Alerts }}{{ .Annotations.description }}\n{{ end }}"
+
+  - name: slack-ops
+    slack_configs:
+      - api_url: "${SLACK_OPS_WEBHOOK_URL}"
+        channel: "#exchange-ops"
+        title: "P3: {{ .CommonAnnotations.summary }}"
+        text: "{{ range .Alerts }}{{ .Annotations.description }}\n{{ end }}"

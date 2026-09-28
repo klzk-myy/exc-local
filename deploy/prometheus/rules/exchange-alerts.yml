@@ -1,0 +1,223 @@
+# Exchange alert rules — Prometheus-side mirror of the in-process
+# evaluator (services/internal/observability/rules.go). Thresholds are
+# verbatim from Phase-07 Tasks 7.3.8/7.3.10 and spec §2.7/§19.3.
+#
+# Severity label convention (consumed by alertmanager.yml routing):
+#   severity: p0 → immediate page (L0 critical/fatal)
+#   severity: p1 → page (systemic/degradation)
+#   severity: p2 → ticket + slack (rejection spikes, monitoring gaps)
+#   severity: p3 → informational
+groups:
+  # ---- Task 7.3.10: error-tier alerting (spec §2.7.2) -------------------
+  - name: exchange.error-tiers
+    interval: 15s
+    rules:
+      # L0 critical/fatal — any delta pages P0 immediately.
+      - alert: L0ErrorObserved
+        expr: increase(exchange_errors_total{tier="L0"}[1m]) > 0
+        labels: {severity: p0, team: ops}
+        annotations:
+          summary: "L0 critical/fatal error on {{ $labels.service }}"
+          description: "L0 (halt-domain) errors incremented by {{ $value }} on {{ $labels.service }} in the last minute. Strict fail-closed zero-loss: verify core state before anything else."
+
+      # L1 systemic — sustained >30s before P1 (matches L1SustainFor).
+      - alert: L1ErrorsSustained
+        expr: rate(exchange_errors_total{tier="L1"}[1m]) > 0
+        for: 30s
+        labels: {severity: p1, team: ops}
+        annotations:
+          summary: "Sustained L1 systemic errors on {{ $labels.service }}"
+          description: "L1 error rate {{ $value }}/s for >30s — degradation-mode territory (spec §2.7.3)."
+
+      # L2 transaction rejections >5% of requests over 1m → P2.
+      - alert: L2RejectionSpike
+        expr: |
+          sum by (service) (rate(exchange_errors_total{tier="L2"}[1m]))
+            / sum by (service) (rate(http_requests_total[1m])) > 0.05
+          and sum by (service) (rate(http_requests_total[1m])) * 60 > 100
+        labels: {severity: p2, team: ops}
+        annotations:
+          summary: "L2 rejection spike on {{ $labels.service }}"
+          description: "{{ $value | humanizePercentage }} of requests rejected at L2 over 1m (threshold 5%, min 100 req/min)."
+
+      # Error-rate anomaly — fast burn (5m) vs slow baseline (1h); the
+      # in-process EWMA evaluator catches subtler drifts, this catches
+      # step-changes between scrape intervals.
+      - alert: ErrorRateAnomaly
+        expr: |
+          sum(rate(exchange_errors_total[5m]))
+            / sum(rate(http_requests_total[5m]))
+          > 4 * (
+            sum(rate(exchange_errors_total[1h]))
+              / sum(rate(http_requests_total[1h]))
+          )
+          and sum(rate(exchange_errors_total[5m])) > 1
+        for: 10m
+        labels: {severity: p2, team: ops}
+        annotations:
+          summary: "Error-rate anomaly across services"
+          description: "5m error ratio is >4× the 1h baseline — possible systemic regression."
+
+      # Alerting pipeline self-check — dispatch failures mean pages are
+      # being lost; page on the monitoring gap itself.
+      - alert: AlertDispatchErrors
+        expr: increase(exchange_alert_dispatch_errors_total[5m]) > 0
+        labels: {severity: p1, team: ops}
+        annotations:
+          summary: "Ops alert dispatch failing on {{ $labels.service }}"
+          description: "ops.alerts.monitoring publishes are erroring — check NATS JetStream health; alerting may be silently down."
+
+  # ---- Task 7.3.8: Aeron / bridge / JetStream thresholds ----------------
+  - name: exchange.ipc-backbone
+    interval: 15s
+    rules:
+      # Aeron subscriber position lag > 1000 bytes → P2.
+      - alert: AeronSubscriberLag
+        expr: aeron_subscriber_lag_bytes > 1000
+        for: 30s
+        labels: {severity: p2, team: sre}
+        annotations:
+          summary: "Aeron subscriber lag on {{ $labels.channel }}"
+          description: "Subscriber position lags publisher by {{ $value }} bytes on {{ $labels.channel }} (stream {{ $labels.stream_id }}). Check consumer slow-down / NAKs."
+
+      # Media driver down/unreadable → P1 (bridge is flying blind).
+      - alert: AeronDriverDown
+        expr: aeron_driver_up == 0
+        for: 30s
+        labels: {severity: p1, team: sre}
+        annotations:
+          summary: "Aeron media driver down"
+          description: "cnc.dat unreadable/missing on the monitored host — engine IPC telemetry lost."
+
+      # Bridge buffer depth > 10000 events → P1 (NATS outage backlog).
+      - alert: BridgeBufferDepthHigh
+        expr: bridge_buffer_depth > 10000 or bridge_health_buffer_depth > 10000
+        labels: {severity: p1, team: sre}
+        annotations:
+          summary: "Bridge buffer depth high on shard {{ $labels.shard }}"
+          description: "{{ $value }} events buffered awaiting JetStream publish (spec §2.3.1 100k cap; disk spool >5GB forces ReadOnly)."
+
+      # Bridge heartbeat stale: 5s cadence, >15s silent → P1.
+      - alert: BridgeHeartbeatStale
+        expr: bridge_heartbeat_age_seconds > 15
+        labels: {severity: p1, team: sre}
+        annotations:
+          summary: "Bridge heartbeat stale on shard {{ $labels.shard }}"
+          description: "No bridge.health.{{ $labels.shard }} heartbeat for {{ $value }}s — bridge or shard down (3× missed beats)."
+
+      # Aeron poll/subscription health on the bridge itself.
+      - alert: BridgeSubscriptionDisconnected
+        expr: aeron_subscription_connected == 0
+        for: 60s
+        labels: {severity: p1, team: sre}
+        annotations:
+          summary: "Bridge Aeron subscription disconnected"
+          description: "Subscription image detached for >60s — engine events not flowing to NATS."
+
+      # JetStream consumer pending > 50000 → P1.
+      - alert: NATSConsumerPendingHigh
+        expr: nats_consumer_pending > 50000
+        for: 2m
+        labels: {severity: p1, team: sre}
+        annotations:
+          summary: "JetStream consumer {{ $labels.consumer }} lagging"
+          description: "{{ $value }} messages pending on {{ $labels.stream }}/{{ $labels.consumer }} — consumer stalled or down."
+
+      # DLQ growth — entries in ops-dlq need operator triage.
+      - alert: DLQEntriesAccumulating
+        expr: nats_stream_messages{stream="ops-dlq"} > 100
+        for: 15m
+        labels: {severity: p3, team: ops}
+        annotations:
+          summary: "DLQ accumulating entries"
+          description: "ops-dlq holds {{ $value }} dead letters. Inspect via GET /api/v1/admin/dlq or `natsctl dlq list`; replay/discard after triage."
+
+  # ---- Spec §19.3: golden-signal / platform rules ------------------------
+  - name: exchange.platform
+    interval: 15s
+    rules:
+      # Availability SLO 99.99% — multi-window burn-rate (fast + slow).
+      # 14.4× burn on 5m/1h composite → page; 6× on 30m/6h → ticket.
+      - alert: AvailabilityBurnFast
+        expr: |
+          (
+            sum(rate(exchange_errors_total{tier=~"L0|L1|L2"}[5m]))
+              / sum(rate(http_requests_total[5m]))
+          ) > (14.4 * 0.0001)
+          and
+          (
+            sum(rate(exchange_errors_total{tier=~"L0|L1|L2"}[1h]))
+              / sum(rate(http_requests_total[1h]))
+          ) > (14.4 * 0.0001)
+        labels: {severity: p0, team: ops}
+        annotations:
+          summary: "Availability SLO fast burn"
+          description: "Error ratio burning the 99.99% budget at >14.4× on both 5m and 1h windows."
+
+      - alert: AvailabilityBurnSlow
+        expr: |
+          (
+            sum(rate(exchange_errors_total{tier=~"L0|L1|L2"}[30m]))
+              / sum(rate(http_requests_total[30m]))
+          ) > (6 * 0.0001)
+          and
+          (
+            sum(rate(exchange_errors_total{tier=~"L0|L1|L2"}[6h]))
+              / sum(rate(http_requests_total[6h]))
+          ) > (6 * 0.0001)
+        labels: {severity: p2, team: ops}
+        annotations:
+          summary: "Availability SLO slow burn"
+          description: "Error ratio burning the 99.99% budget at >6× on 30m/6h composite windows."
+
+      # Degradation mode not Normal → P2 (mode transitions page at the
+      # severity the mode implies; Maintenance is expected and excluded).
+      - alert: DegradationModeActive
+        expr: exchange_degradation_mode{mode!~"Normal|Maintenance"} == 1
+        for: 1m
+        labels: {severity: p2, team: ops}
+        annotations:
+          summary: "Degradation mode {{ $labels.mode }} on {{ $labels.service }}"
+          description: "Service entered {{ $labels.mode }} — spec §2.7.3 requires 30s healthy telemetry before Normal returns."
+
+      - alert: CircuitBreakerOpen
+        expr: exchange_circuit_breaker_open == 1
+        for: 2m
+        labels: {severity: p2, team: ops}
+        annotations:
+          summary: "Circuit breaker {{ $labels.breaker }} open on {{ $labels.service }}"
+          description: "Five-tier breaker tripped — dependency fault or overload (Phase-13)."
+
+      # Reconciliation mismatches are zero-loss violations → P1.
+      - alert: ReconciliationMismatch
+        expr: increase(reconciliation_mismatches_total[15m]) > 0
+        labels: {severity: p1, team: ops}
+        annotations:
+          summary: "Reconciliation mismatch on {{ $labels.service }} ({{ $labels.kind }})"
+          description: "{{ $value }} mismatches in 15m — ledger/position divergence; fail-closed review required."
+
+      # WAL lag growth — durability risk approaching RPO bound.
+      - alert: WALLagGrowing
+        expr: wal_lag_entries > 100000
+        for: 5m
+        labels: {severity: p1, team: sre}
+        annotations:
+          summary: "WAL lag high on shard {{ $labels.shard }}"
+          description: "{{ $value }} unarchived WAL entries — fsync/archive stalled; durability/RPO at risk."
+
+      # IPC ring saturation ladder (spec §2.7.3: 80% shed / 95% critical
+      # on a 1M-entry ring — depths are entries, not percentages).
+      - alert: IPCRingSaturated
+        expr: engine_ipc_ring_depth > 800000
+        for: 30s
+        labels: {severity: p2, team: sre}
+        annotations:
+          summary: "IPC ring >80% on shard {{ $labels.shard }}"
+          description: "{{ $value }} entries queued — load-shedding threshold crossed; engine consumers behind."
+
+      - alert: IPCRingCritical
+        expr: engine_ipc_ring_depth > 950000
+        labels: {severity: p0, team: sre}
+        annotations:
+          summary: "IPC ring >95% on shard {{ $labels.shard }}"
+          description: "Critical backpressure — ring overflow drops engine events; immediate mitigation required."

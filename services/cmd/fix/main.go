@@ -2,6 +2,8 @@
 //
 // Scaffold scope (Task 1.3.2): load config, init slog, log startup, idle
 // until SIGINT/SIGTERM. QuickFIX session acceptors land in Phase-18.
+// Task 7.3.4: the reserved fix.port already serves /metrics + /healthz
+// so Prometheus coverage is uniform before session acceptors exist.
 package main
 
 import (
@@ -9,6 +11,7 @@ import (
 	"os"
 
 	"exchange/internal/config"
+	"exchange/internal/observability"
 	"exchange/internal/utils"
 	"exchange/pkg/logging"
 )
@@ -33,6 +36,14 @@ func run() error {
 
 	ctx, stop := utils.SignalContext()
 	defer stop()
+
+	reg := observability.New()
+	observability.NewMetrics(reg, "fix")
+	go func() {
+		if err := observability.ServeMetrics(ctx, cfg.Fix.Addr(), reg, "fix"); err != nil {
+			log.Error("fix: metrics listener died", "err", err)
+		}
+	}()
 
 	log.Info("fix started", "addr", cfg.Fix.Addr(), "env", cfg.Environment)
 	<-ctx.Done()

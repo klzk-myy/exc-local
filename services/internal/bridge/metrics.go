@@ -33,6 +33,13 @@ type Metrics struct {
 	publishErr atomic.Uint64 // failed publish attempts
 	heartbeats atomic.Uint64 // heartbeat messages sent
 
+	// Task 7.3.8: Aeron-side observability — the counters visible to the
+	// Go subscription (media-driver counters — NAKs, positions, snd-bpe —
+	// are scraped from the CnC file by observability.CnCMonitor).
+	pollFragments atomic.Uint64 // fragments delivered by Poll
+	pollErrors    atomic.Uint64 // Poll() returning < 0
+	subConnected  atomic.Int64  // subscription image attached (0/1)
+
 	publishNanosSum   atomic.Uint64
 	publishNanosCount atomic.Uint64
 
@@ -49,6 +56,21 @@ func (m *Metrics) incReconnects()         { m.reconnects.Add(1) }
 func (m *Metrics) incPublishErr()         { m.publishErr.Add(1) }
 func (m *Metrics) incHeartbeats()         { m.heartbeats.Add(1) }
 func (m *Metrics) setBufferDepth(n int64) { m.bufferDepth.Store(n) }
+
+// ObserveAeronPoll records one Poll() result: n<0 → error, else n
+// fragments delivered. connected mirrors subscription image presence.
+func (m *Metrics) ObserveAeronPoll(n int, connected bool) {
+	if n < 0 {
+		m.pollErrors.Add(1)
+	} else if n > 0 {
+		m.pollFragments.Add(uint64(n))
+	}
+	v := int64(0)
+	if connected {
+		v = 1
+	}
+	m.subConnected.Store(v)
+}
 func (m *Metrics) observePublishNanos(n int64) {
 	m.publishNanosSum.Add(uint64(n))
 	m.publishNanosCount.Add(1)
@@ -101,6 +123,12 @@ func (m *Metrics) defs() []metricDef {
 			func() float64 { return float64(m.publishNanosSum.Load()) / 1e9 }},
 		{"bridge_publish_latency_seconds_count", "JetStream publish latency observation count.", "counter",
 			func() float64 { return float64(m.publishNanosCount.Load()) }},
+		{"aeron_poll_fragments_total", "Fragments delivered by the Aeron subscription Poll loop.", "counter",
+			func() float64 { return float64(m.pollFragments.Load()) }},
+		{"aeron_poll_errors_total", "Aeron subscription Poll() errors.", "counter",
+			func() float64 { return float64(m.pollErrors.Load()) }},
+		{"aeron_subscription_connected", "Aeron subscription image attached (1 = connected).", "gauge",
+			func() float64 { return float64(m.subConnected.Load()) }},
 	}
 }
 

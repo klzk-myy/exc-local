@@ -1,0 +1,81 @@
+# Prometheus scrape configuration for the exchange suite.
+# Task 7.3.4: scrape interval is 15s (spec §19.3).
+#
+# Target ports mirror services/config.example.yaml:
+#   gateway 8080 · marketdata 8081 · fix 8082 · settlement 8083
+#   compliance 8084 · admin 8085 · bridge /metrics 9100+ (one per shard,
+#   bridge.metrics_addr — one target per matching-engine shard).
+#
+# Every service serves GET /metrics in Prometheus text exposition v0.0.4
+# from services/internal/observability (no client_golang dependency).
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: exchange-prod
+
+rule_files:
+  - rules/exchange-alerts.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+scrape_configs:
+  - job_name: gateway
+    static_configs:
+      - targets: ["gateway:8080"]
+        labels: {service: gateway}
+
+  - job_name: marketdata
+    static_configs:
+      - targets: ["marketdata:8081"]
+        labels: {service: marketdata}
+
+  - job_name: fix
+    static_configs:
+      - targets: ["fix:8082"]
+        labels: {service: fix}
+
+  - job_name: settlement
+    static_configs:
+      - targets: ["settlement:8083"]
+        labels: {service: settlement}
+
+  - job_name: compliance
+    static_configs:
+      - targets: ["compliance:8084"]
+        labels: {service: compliance}
+
+  # cmd/admin — the monitoring service: NATS JetStream monitor, bridge
+  # heartbeat watcher, Aeron CnC monitor and the alert evaluator all
+  # export here. This is the primary ops scrape target.
+  - job_name: admin
+    static_configs:
+      - targets: ["admin:8085"]
+        labels: {service: admin}
+
+  # cmd/bridge — one instance per engine shard, NUMA-colocated; each has
+  # its own metrics_addr (bridge.metrics_addr, default 127.0.0.1:9100).
+  # Add one target per shard; shard N conventionally uses 9100+N.
+  - job_name: bridge
+    static_configs:
+      - targets: ["bridge-0:9100", "bridge-1:9101"]
+        labels: {service: bridge}
+
+  # Node exporter for host memory/CPU panels on the shard-health
+  # dashboard (process_* series when per-service exporters are added).
+  - job_name: node
+    static_configs:
+      - targets: ["node-exporter:9100"]
+        labels: {service: node}
+
+  # NATS server monitoring is JSON (:8222/monitoring endpoints), not
+  # Prometheus format — scrape prometheus-nats-exporter if deployed.
+  # JetStream stream/consumer gauges are already exported by the admin
+  # service (nats_stream_*, nats_consumer_*), so this job is optional.
+  - job_name: nats-exporter
+    static_configs:
+      - targets: ["nats-exporter:7777"]
+        labels: {service: nats}
