@@ -128,6 +128,7 @@ engine_start() {
     [ -n "$LOADGEN" ] && dev_flag="-dev-all-accounts"
     "$ENGINE" -shard "$SHARD" -ipc-base "$IPC_BASE" -wal-dir "$WAL_ROOT" \
         -instrument-id "$INSTRUMENT" -idle-sleep-ns 0 $dev_flag \
+        -snap-dir "$TRIAL_DIR/snap" -snapshot-interval-s 30 \
         -poison-log "$TRIAL_DIR/poison_pill.log" >> "$ENGINE_LOG" 2>&1 &
     ENGINE_PID=$!
 }

@@ -29,6 +29,7 @@
 #include "matching/MatchingEngine.hpp"
 #include "matching/WalWriter.hpp"
 #include "recovery/RecoveryManager.hpp"
+#include "recovery/SnapshotStore.hpp"
 #include "risk/EngineRiskAdapter.hpp"
 #include "risk/PreTradeChecker.hpp"
 #include "utils/MemoryPool.hpp"
@@ -45,7 +46,9 @@ void usage(const char* argv0) {
     std::fprintf(stderr,
                  "usage: %s [-shard <n>] [-ipc-base <name>] [-wal-dir <dir>]\n"
                  "          [-poison-log <path>] [-idle-sleep-ns <ns>]\n"
-                 "          [-instrument-id <n>] [-dev-all-accounts]\n",
+                 "          [-instrument-id <n>] [-dev-all-accounts]\n"
+                 "          [-snap-dir <dir>] [-snapshot-trades <n>]\n"
+                 "          [-snapshot-interval-s <s>]\n",
                  argv0);
 }
 
@@ -81,6 +84,37 @@ public:
         return exch::KycTier::T2;
     }
 };
+
+// Snapshot cadence binding (Phase-02.5 soak finding): the engine's
+// on_time_tick tail invokes the hook on the matching thread; the closure
+// feeds SnapshotStore::maybe_snapshot the WAL tail cursor + the trades
+// delta since the previous tick. Book serialization runs between events
+// only when the cadence threshold is met — steady-state cost is two
+// compares per tick.
+struct SnapshotCtx {
+    exch::SnapshotStore* store;
+    exch::OrderBook* book;
+    exch::Wal* wal;
+    uint32_t instrument_id;
+    uint64_t last_trades = 0;
+    bool store_failed = false;
+};
+
+void on_snapshot_tick(void* raw, uint64_t now_ns,
+                      uint64_t trades_emitted) noexcept {
+    auto* c = static_cast<SnapshotCtx*>(raw);
+    const uint64_t delta = trades_emitted - c->last_trades;
+    c->last_trades = trades_emitted;
+    const exch::SnapshotOutcome oc = c->store->maybe_snapshot(
+        *c->book, c->instrument_id, c->wal->tail_seq(), now_ns, delta);
+    // Sink I/O failure must not kill the matching loop (journaling is the
+    // durability guarantee; the snapshot is a recovery accelerator) — report
+    // on the transition only, the next cadence window retries.
+    if (oc == exch::SnapshotOutcome::StoreFailed && !c->store_failed) {
+        std::fprintf(stderr, "snapshot store failed — cadence retry pending\n");
+    }
+    c->store_failed = oc == exch::SnapshotOutcome::StoreFailed;
+}
 
 bool parse_u32(const char* s, uint32_t* out) {
     if (s == nullptr || *s == '\0' || *s == '-') return false;
@@ -138,6 +172,9 @@ int main(int argc, char** argv) {
     std::string poison_path = "poison_pill.log";
     int64_t idle_sleep_ns = 0;
     bool dev_all_accounts = false;
+    std::string snap_dir = "snapshots";
+    uint32_t snapshot_trades = 0;      // 0 -> SnapshotPolicy default
+    uint32_t snapshot_interval_s = 0;  // 0 -> SnapshotPolicy default
 
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "-shard") == 0) {
@@ -170,6 +207,22 @@ int main(int argc, char** argv) {
             }
         } else if (std::strcmp(argv[i], "-instrument-id") == 0) {
             if (++i >= argc || !parse_u32(argv[i], &instrument_id)) {
+                usage(argv[0]);
+                return 2;
+            }
+        } else if (std::strcmp(argv[i], "-snap-dir") == 0) {
+            if (++i >= argc) {
+                usage(argv[0]);
+                return 2;
+            }
+            snap_dir = argv[i];
+        } else if (std::strcmp(argv[i], "-snapshot-trades") == 0) {
+            if (++i >= argc || !parse_u32(argv[i], &snapshot_trades)) {
+                usage(argv[0]);
+                return 2;
+            }
+        } else if (std::strcmp(argv[i], "-snapshot-interval-s") == 0) {
+            if (++i >= argc || !parse_u32(argv[i], &snapshot_interval_s)) {
                 usage(argv[0]);
                 return 2;
             }
@@ -274,11 +327,30 @@ int main(int argc, char** argv) {
                                          engine.now_ns_ptr()};
     engine.set_risk_hook(&exch::engine_risk_check, &risk_binding);
 
+    // --- Snapshot sink + cadence (Task 2.3.4; Phase-02.5 finding) -----------
+    // Without periodic snapshots recovery replays the WHOLE journal —
+    // measured 65s at 3h/21GB on the soak bench, over the <10s AC. The
+    // FileSnapshotSink is the Phase-02 durable home (PostgreSQL
+    // book_snapshots sink is Phase-04 scope, same interface).
+    const auto snap_root =
+        std::filesystem::path(snap_dir) / std::to_string(shard);
+    exch::FileSnapshotSink snap_sink(snap_root.string(),
+                                     static_cast<uint16_t>(shard));
+    exch::SnapshotPolicy snap_policy{};
+    if (snapshot_trades != 0) snap_policy.trade_interval = snapshot_trades;
+    if (snapshot_interval_s != 0) {
+        snap_policy.interval_ns =
+            static_cast<uint64_t>(snapshot_interval_s) * 1'000'000'000ull;
+    }
+    exch::SnapshotStore snap_store(snap_sink, snap_policy);
+    SnapshotCtx snap_ctx{&snap_store, &book, &wal, instrument_id, 0};
+    engine.set_snapshot_hook(&on_snapshot_tick, &snap_ctx);
+
     // --- Boot recovery (Task 2.3.4 / Phase-02.5 failover benchmark) --------
     // Replay snapshot + WAL tail into the book BEFORE the pump opens the
     // ingress ring: a restarted shard resumes with the exact pre-crash state.
     // Fail-closed — an unverifiable journal halts the boot (spec §2.7/§3.5).
-    exch::RecoveryManager recovery(shard);
+    exch::RecoveryManager recovery(shard, snap_sink);
     {
         const exch::RecoveryResult rr =
             recovery.recover(shard_dir.string(),
@@ -338,6 +410,13 @@ int main(int argc, char** argv) {
     loop.run(&g_stop);  // matching thread = main thread; SIGTERM exits cleanly.
 
     loop.stop_watchdog();
+    // Drain snapshot: a graceful stop leaves a fresh base so the next boot
+    // replays only the post-snapshot tail instead of the whole journal.
+    if (snap_store.force_snapshot(book, instrument_id, wal.tail_seq()) ==
+        exch::SnapshotOutcome::Taken) {
+        std::fprintf(stderr, "snapshot stored at seq=%llu\n",
+                     (unsigned long long)wal.tail_seq());
+    }
     (void)wal.flush();
     wal.close();
     core_chan.close();

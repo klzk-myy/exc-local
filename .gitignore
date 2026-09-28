@@ -23,8 +23,9 @@ core/build*/
 **/build/
 ci/fault-injection/fault
 
-# Engine runtime artifacts (journal + poison log created in cwd)
+# Engine runtime artifacts (journal + poison log + snapshot dir in cwd)
 /wal/
+/snapshots/
 poison_pill.log
 *.wal
 
@@ -33,3 +34,5 @@ tests/soak/artifacts/
 # Built loadgen binary (rebuild: cd tests/soak && go build -o loadgen .)
 tests/soak/loadgen
 tests/soak/soak
+# loadgen default report path when run without -report
+tests/soak/*report*.json

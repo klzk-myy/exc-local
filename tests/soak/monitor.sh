@@ -74,6 +74,8 @@ SEED=1
 READY_TIMEOUT_S=120
 DEV_ACCOUNTS=1    # -dev-all-accounts on the engine; set 0 for prod wiring
 ARTIFACTS=""      # optional dir: run summary archived to DIR/<ts>/ + latest/
+SNAP_DIR=""       # default WORKDIR/snap — periodic book snapshots bound to
+SNAP_INTERVAL_S=60 # recovery (<10s AC at scale requires snapshot+tail replay)
 
 usage() {
     sed -n '2,45p' "$0"
@@ -101,6 +103,8 @@ while [ $# -gt 0 ]; do
         --accounts)        ACCOUNTS="$2"; shift 2;;
         --dev-accounts)    DEV_ACCOUNTS="$2"; shift 2;;
         --artifacts)       ARTIFACTS="$2"; shift 2;;
+        --snap-dir)        SNAP_DIR="$2"; shift 2;;
+        --snapshot-interval-s) SNAP_INTERVAL_S="$2"; shift 2;;
         --cross-pct)       CROSS_PCT="$2"; shift 2;;
         --seed)            SEED="$2"; shift 2;;
         --ready-timeout)   READY_TIMEOUT_S="$2"; shift 2;;
@@ -201,6 +205,8 @@ engine_start() {
     [ "$DEV_ACCOUNTS" != "0" ] && dev_flag="-dev-all-accounts"
     "$ENGINE" -shard "$SHARD" -ipc-base "$IPC_BASE" -wal-dir "$WORKDIR/wal" \
         -instrument-id "$INSTRUMENT" -idle-sleep-ns 0 $dev_flag \
+        -snap-dir "${SNAP_DIR:-$WORKDIR/snap}" \
+        -snapshot-interval-s "$SNAP_INTERVAL_S" \
         -poison-log "$WORKDIR/poison_pill.log" >> "$ENGINE_LOG" 2>&1 &
     ENGINE_PID=$!
     # New pid => /proc stat jiffy baseline resets (avoid negative cpu deltas).

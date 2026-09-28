@@ -123,6 +123,18 @@ public:
         risk_ctx_ = ctx;
     }
 
+    // Snapshot cadence seam (Task 2.3.4 / Phase-02.5 soak hardening): invoked
+    // at the tail of every on_time_tick on the matching thread — the book is
+    // quiescent between events so serialization is consistent. fn receives
+    // the logical clock and the cumulative trades-emitted count (the callee
+    // tracks its own delta). Cost when the cadence isn't met: two compares.
+    using snapshot_hook_fn = void (*)(void* ctx, uint64_t now_ns,
+                                      uint64_t trades_emitted) noexcept;
+    void set_snapshot_hook(snapshot_hook_fn fn, void* ctx) noexcept {
+        snapshot_fn_ = fn;
+        snapshot_ctx_ = ctx;
+    }
+
     // §6.6a surveillance seam (Task 2.3.15): MarketOrderProtectionTriggered
     // is emitted once per MARKET order converted to a synthetic limit;
     // clipped_qty_units > 0 identifies an actual SLIPPAGE_EXCEEDED remainder
@@ -481,6 +493,8 @@ private:
 
     risk_check_fn risk_fn_ = nullptr;
     void* risk_ctx_ = nullptr;
+    snapshot_hook_fn snapshot_fn_ = nullptr;
+    void* snapshot_ctx_ = nullptr;
     protection_event_fn protection_fn_ = nullptr;
     void* protection_ctx_ = nullptr;
 

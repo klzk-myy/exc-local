@@ -1762,6 +1762,9 @@ void MatchingEngine::on_time_tick(uint64_t now_ns) noexcept {
         refresh_protected_quote();  // §6.6b #6 — internal book is the quote
         if (publisher_ != nullptr) publish_depth();
     }
+    if (snapshot_fn_ != nullptr) {
+        snapshot_fn_(snapshot_ctx_, now_ns_, trades_emitted_);
+    }
 }
 
 // ---------------------------------------------------------------------------
