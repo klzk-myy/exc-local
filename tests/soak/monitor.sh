@@ -1,4 +1,14 @@
 #!/usr/bin/env bash
+# Self-freeze: bash lazy-reads script files, so editing monitor.sh mid-run
+# corrupts the running interpreter (observed 2026-09-28: exit path died with
+# "syntax error near unexpected token" after a mid-run edit — the archive
+# step never ran). Re-exec a private frozen copy once, at the very top.
+if [ -z "${MONITOR_FROZEN:-}" ]; then
+    _frz=$(mktemp /tmp/monitor-frozen.XXXXXX.sh 2>/dev/null) \
+        && cp "$0" "$_frz" \
+        && exec env MONITOR_FROZEN=1 bash "$_frz" "$@"
+    echo "warn: could not freeze script copy; running live file" >&2
+fi
 # PHASE-02.5 TASK-2.5.3 — 72h soak orchestrator for the matching engine.
 #
 # Drives the full soak profile end to end; EVERY duration is a flag so the
@@ -93,11 +103,11 @@ while [ $# -gt 0 ]; do
         --instrument)      INSTRUMENT="$2"; shift 2;;
         --rate)            RATE="$2"; shift 2;;
         --duration)        DURATION="$2"; shift 2;;
-        --crash-at)        CRASH_AT="$2"; shift 2;;
+        --crash-at)        CRASH_AT="${CRASH_AT:+$CRASH_AT }$2"; shift 2;;
         --audit-interval)  AUDIT_INTERVAL="$2"; shift 2;;
         --sample-interval) SAMPLE_INTERVAL="$2"; shift 2;;
         --metrics-port)    METRICS_PORT="$2"; shift 2;;
-        --burst-at)        BURST_AT="$2"; shift 2;;
+        --burst-at)        BURST_AT="${BURST_AT:+$BURST_AT }$2"; shift 2;;
         --burst-mult)      BURST_MULT="$2"; shift 2;;
         --burst-len)       BURST_LEN="$2"; shift 2;;
         --accounts)        ACCOUNTS="$2"; shift 2;;
@@ -304,8 +314,16 @@ sample_once() {
     if [ -d "$WALDIR" ]; then
         wal_bytes=$(du -sb "$WALDIR" 2>/dev/null | awk '{print $1}')
         [ -n "$wal_bytes" ] || wal_bytes=0
+        # Live progress per sample: numerically-newest segment's stem (seq
+        # base of the active segment — monotonic across rotations; lexical
+        # sort freezes past 1e8). Audits record the true wal_tail separately
+        # in audits.jsonl; mixing the two would regress the column.
+        local seg
+        seg=$(ls "$WALDIR"/*.wal 2>/dev/null | sed 's/.*\///;s/\.wal$//' \
+              | sort -n | tail -1)
+        [ -n "$seg" ] && LIVE_WAL_SEG=$seg
     fi
-    echo "${ts},${rss},${LAST_CPU_PCT},${alive},${wal_bytes},${LAST_WAL_TAIL}" >> "$SAMPLES_CSV"
+    echo "${ts},${rss},${LAST_CPU_PCT},${alive},${wal_bytes},${LIVE_WAL_SEG:-$LAST_WAL_TAIL}" >> "$SAMPLES_CSV"
     # Prometheus scrape — never fatal.
     { curl -fsS --max-time 2 "http://localhost:${METRICS_PORT}/metrics" \
         || echo "# scrape_failed $(date -Is)"; } > "$WORKDIR/metrics/prom-${ts}.txt" 2>/dev/null

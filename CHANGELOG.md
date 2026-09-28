@@ -355,3 +355,8 @@ Scope: 26 tasks (2.3.1–2.3.26), 67 AC rows. Critical spec correction noted at 
 - **Open:** post-restart ingest ~1.8k/s vs 15k/s pre-crash (dedup-ledger/book-size profiling needed); `CRITICAL_BACKPRESSURE` unthrottled per-cycle → engine.log 25.6GB (head/tail excerpts archived); monitor `wal_tail` freeze post-rotation; `--burst-at` non-repeatable (only the 21600s burst fired); mid-run monitor.sh edit corrupted bash lazy-read → exit-path syntax error, archive assembled manually.
 - **Honest gate:** 72h/50k-sustained ACs remain UNMET — checkpoints `P02.5-T2.5.3.1-C1`/`C2` stay skip; no checklist box marked on this evidence alone.
 - **Memory:** peak RSS ≈6.9GB < 12GB criterion.
+
+### [2026-09-28 10:58 UTC] — Phase-02.5: soak-surfaced hardening fixes
+- **EngineLoop:** `CRITICAL_BACKPRESSURE` report now edge-triggered + max 1/sec while halted (was count-stride 1024 — busy-spin emitted 25.6GB/8h). ctest 28/28.
+- **monitor.sh:** self-freeze re-exec at startup (bash lazy-read corrupted the running script after a mid-run edit → lost exit path); `--crash-at`/`--burst-at` now append (repeatable flags; quoted lists still work); samples emit the numerically-newest WAL segment stem per cycle (live progress between audits; true tail stays in audits.jsonl).
+- **Decision:** artifact archive for the 8h run was assembled manually (monitor's exit path never executed); full evidence under `tests/soak/artifacts/20260928T103724Z-shard0-8h/` (gitignored, on disk).

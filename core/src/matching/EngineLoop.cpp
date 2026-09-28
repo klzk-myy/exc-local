@@ -132,9 +132,14 @@ uint32_t EngineLoop::spin_once() noexcept {
             halted_ = true;
             const uint64_t ev =
                 stats_.critical_bp_events.fetch_add(1, std::memory_order_relaxed) + 1;
-            if (ev == 1 ||
-                (cfg_.critical_report_stride != 0 && ev % cfg_.critical_report_stride == 0))
-                report("CRITICAL_BACKPRESSURE", "inbound ring >95% — ingress halted this cycle");
+            // Edge (first event) + at most 1/sec while the halt persists —
+            // the count-stride alone let a busy-spin loop emit 25.6GB of
+            // log in the Phase-02.5 8h soak.
+            if (ev == 1 || t0 - last_crit_report_ns_ >= 1'000'000'000) {
+                last_crit_report_ns_ = t0;
+                report("CRITICAL_BACKPRESSURE",
+                       "inbound ring >95% — ingress halted this cycle");
+            }
             pump_->set_shed_new_orders(true);
         } else {
             halted_ = false;

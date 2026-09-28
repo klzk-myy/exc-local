@@ -187,6 +187,7 @@ class EngineLoop {
     std::atomic<bool> parked_{false};
 
     int64_t last_tick_mono_ = 0;
+    int64_t last_crit_report_ns_ = 0;  // rate-limit gate for CRITICAL_BACKPRESSURE
     bool halted_ = false;
     bool shedding_ = false;
 
