@@ -4,10 +4,10 @@
 // A daily 00:00 UTC job recomputes, per master account (spec §8.5: volume
 // scope includes all sub-accounts):
 //
-//	1. 30-day trailing notional trading volume in USD equivalent
-//	   (trades × instruments.quote_currency, converted via UsdConverter).
-//	2. 30-day average equity in USD equivalent (daily equity snapshots in
-//	   account_equity_snapshots, upserted by this job before averaging).
+//  1. 30-day trailing notional trading volume in USD equivalent
+//     (trades × instruments.quote_currency, converted via UsdConverter).
+//  2. 30-day average equity in USD equivalent (daily equity snapshots in
+//     account_equity_snapshots, upserted by this job before averaging).
 //
 // A family qualifies for the highest tier whose min_30d_volume_usd OR
 // min_30d_avg_equity_usd threshold is met. The result is persisted to
@@ -28,9 +28,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	excerrors "exchange/pkg/errors"
-	"exchange/pkg/decimal"
 	excredis "exchange/internal/redis"
+	"exchange/pkg/decimal"
+	excerrors "exchange/pkg/errors"
 )
 
 // CodeVipEngineInternal is a scaffold error code pending canonical
@@ -592,12 +592,12 @@ func (c *RedisVipCache) SetVipTier(ctx context.Context, accountID int64, rec Vip
 	pipe := c.rdb.TxPipeline()
 	pipe.Del(ctx, key)
 	pipe.HSet(ctx, key, map[string]any{
-		"tier":              rec.Tier,
-		"maker_bps":         rec.MakerBps.String(),
-		"taker_bps":         rec.TakerBps.String(),
-		"volume_30d_usd":    rec.Volume30dUSD.String(),
+		"tier":               rec.Tier,
+		"maker_bps":          rec.MakerBps.String(),
+		"taker_bps":          rec.TakerBps.String(),
+		"volume_30d_usd":     rec.Volume30dUSD.String(),
 		"avg_equity_30d_usd": rec.AvgEquity30dUSD.String(),
-		"calculated_at":     rec.CalculatedAt.UTC().Format(time.RFC3339Nano),
+		"calculated_at":      rec.CalculatedAt.UTC().Format(time.RFC3339Nano),
 	})
 	if _, err := pipe.Exec(ctx); err != nil {
 		return fmt.Errorf("redis set %s: %w", key, err)

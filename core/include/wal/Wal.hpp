@@ -114,6 +114,26 @@ public:
         return pending_archive_;
     }
 
+    // PHASE-04 TASK-4.3.1 — WAL trim gate. After the Go recovery service
+    // confirms a snapshot covering WAL cursor `snapshot_seq` is durably
+    // persisted in PostgreSQL book_snapshots, sealed segments whose last
+    // entry seq is strictly below it are redundant: the snapshot reflects
+    // every entry with seq < snapshot_seq and replay resumes at seq ==
+    // snapshot_seq, so a sealed segment containing seq == snapshot_seq is
+    // NOT covered and is kept (the strict bound is the fail-closed side —
+    // "trim entries ≤ snapshot_seq" under the last-covered-seq reading is
+    // identical for all legitimately sealed segments, since the boundary
+    // entry is always written after the snapshot's tail cursor).
+    //
+    // Each candidate is scanned with WalReader for its true last seq —
+    // filename stems are only seq bases, never trusted as coverage proof.
+    // Deleted files are removed from pending_archive_ so the S3 archiver
+    // never sees dangling paths. The ACTIVE segment (path_) is never a
+    // candidate — it is not in pending_archive_ and is guarded anyway.
+    // Cold path; call from the ack-drain (SnapshotManager::poll_acks).
+    // Returns the number of segment files deleted.
+    [[nodiscard]] uint64_t trim_sealed(uint64_t snapshot_seq) noexcept;
+
     // Byte accounting. In mmap mode logical == physical; in O_DIRECT mode the
     // physical offset additionally counts pad bytes — tracked independently.
     [[nodiscard]] uint64_t logical_offset() const noexcept { return logical_; }

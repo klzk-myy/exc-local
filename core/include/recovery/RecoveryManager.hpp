@@ -1,10 +1,12 @@
 #pragma once
 
 // PHASE-02 TASK-2.3.4 — boot recovery: snapshot load + WAL replay + the
-// fail-closed boot invariant (spec §3.5/§18.1). The graduated ladder
-// orchestration (rebase → recovery_reports → MarketDataOnly halt) is Phase-04
-// Task 4.3.9; this class supplies its step-1 primitive: detect + truncate a
-// torn tail via Wal::open() recovery, then replay to a verified tail.
+// fail-closed boot invariant (spec §3.5/§18.1). PHASE-04 TASKS 4.3.5/4.3.9
+// extend this class with THE graduated recovery ladder (recover_ladder):
+// level 1 torn-tail CRC repair (detect + truncate via Wal::open()) →
+// level 2 snapshot rebase (prior-generation fallback / genesis replay /
+// forward-divergence rebase marker) → level 3 fail-closed halt emitting a
+// recovery_reports JSONL row + ALERT_P1.
 //
 // Sequence model (documented choice — see SnapshotStore.hpp for the blob side):
 //   * `wal_tail`  — WAL cursor domain: seq of the last valid entry + 1
@@ -195,6 +197,10 @@ struct RecoveryResult {
     uint32_t segments_scanned = 0;
     bool tail_truncated = false;      // torn tail truncated at valid_end
     uint64_t truncate_offset = 0;     // byte offset of the truncation point
+    uint64_t last_valid_seq = 0;      // last CRC-valid entry seq (0 if empty)
+    uint64_t covered_gap_seqs = 0;    // seqs lost but fully covered by every
+                                      // bound snapshot (Task 4.3.5 rebase
+                                      // semantics — see header contract)
     uint64_t mutations_applied = 0;
     uint64_t entries_replayed = 0;    // entries >= their book's snapshot_seq
     uint64_t dedup_skips = 0;
@@ -208,23 +214,78 @@ struct RecoveryResult {
                                       // engine reseeds next_trade_id from it
                                       // so post-recovery fills can't collide
                                       // with replay-deduped ids
+    bool snapshot_fallback = false;   // level-2 rebase: prior-generation or
+                                      // genesis snapshot path was taken
     uint64_t first_divergent_seq = UINT64_MAX;  // recovery_reports field
     uint32_t detail_instrument = 0;
     char detail[96] = {};             // static context for ops/runbooks
     std::vector<PerBookRecovery> books;
 
     // Phase-04 ladder vocabulary (spec §3.5): CLEAN when fully verified,
-    // WAL_REPAIRED when a torn tail was truncated, else HALTED.
+    // WAL_REPAIRED when a torn tail was truncated or snapshot-covered seqs
+    // were lost, else HALTED.
     [[nodiscard]] RecoveryOutcome outcome() const noexcept {
         if (status == RecoveryStatus::Ok) {
-            return tail_truncated ? RecoveryOutcome::WAL_REPAIRED
-                                  : RecoveryOutcome::CLEAN;
+            return (tail_truncated || covered_gap_seqs > 0)
+                       ? RecoveryOutcome::WAL_REPAIRED
+                       : RecoveryOutcome::CLEAN;
         }
         return RecoveryOutcome::HALTED;
     }
     [[nodiscard]] bool ok() const noexcept {
         return status == RecoveryStatus::Ok;
     }
+};
+
+// Level-2 (snapshot rebase) knobs for recover(). Strict boot recovery uses
+// the defaults; recover_ladder() flips these on the second attempt.
+struct RecoverOptions {
+    // On a corrupt/unloadable latest snapshot: fall back to the previous
+    // retained generation (ISnapshotSink::load_prior), else rebase to
+    // genesis (snapshot-less replay — legal only when the WAL stream is
+    // complete from seq 0; the stream_base <= snapshot_seq invariant
+    // enforces that fail-closed).
+    bool snapshot_fallback = false;
+    // Level-2 only: a corrupt record inside a sealed (non-tail) segment is
+    // tolerated when the seqs it can cover are entirely below every bound
+    // book's snapshot_seq (the snapshot is provably authoritative through
+    // its cursor, so the damaged bytes carried only redundant journal).
+    // Strict level-1 always fails WalCorrupt on sealed-segment damage —
+    // immutable bytes changed is suspect media (spec §2.7).
+    bool tolerate_covered_damage = false;
+};
+
+// One row of the migration-065 recovery_reports contract, emitted as a
+// single JSON line by the ladder (and persisted to PostgreSQL by the Go
+// consumer — services/cmd/wal-recovery persist-reports; the C++ core never
+// speaks PG directly).
+struct RecoveryReport {
+    uint32_t shard_id = 0;
+    int64_t book_seq = -1;            // recomputed cursor; -1 = unknown
+    uint64_t wal_tail = 0;
+    int64_t last_valid_seq = -1;      // -1 = no valid entry
+    uint64_t snapshot_seq = 0;
+    int64_t first_divergent_seq = -1; // -1 = none
+    const char* stage = "boot_ladder";
+    const char* outcome = "CLEAN";    // CLEAN | WAL_REPAIRED |
+                                      // SNAPSHOT_REBASED | WAL_RECOVERY_HALT
+    std::string detail_json;          // pre-encoded JSON object fragment
+};
+
+// Result of the graduated ladder (spec §3.5/§18.1, Task 4.3.5/4.3.9 — this
+// class is THE single owner of that ladder).
+struct RecoveryLadderResult {
+    RecoveryOutcome outcome = RecoveryOutcome::CLEAN;
+    uint8_t level = 1;                // deepest level reached: 1 repair,
+                                      // 2 snapshot rebase, 3 fail-closed halt
+    bool books_dirty_on_fail = false; // level-1 mutated a bound book before
+                                      // failing → rebase skipped (needs
+                                      // empty books) → straight to halt
+    bool rebase_marker_written = false;  // {snapshot_seq}.wal marker segment
+    RecoveryResult result;            // the deciding attempt's result
+    RecoveryReport report;            // populated for every non-clean run
+    bool report_written = false;      // JSONL line appended to report_path
+    std::string report_path;          // echo of the sink used
 };
 
 class RecoveryManager {
@@ -238,9 +299,17 @@ public:
     // wal/{shard}/{seq_base}.wal layout). Each binding's book is loaded from
     // its latest snapshot then the WAL is replayed across all bindings.
     // noexcept: every failure is a typed RecoveryStatus in the result.
+    // `opts` defaults to the strict level-1 contract; recover_ladder()
+    // drives the level-2 rebase attempt with snapshot_fallback enabled.
     [[nodiscard]] RecoveryResult
     recover(std::string_view wal_dir,
-            std::span<const RecoveryBookBinding> bindings) noexcept;
+            std::span<const RecoveryBookBinding> bindings,
+            const RecoverOptions& opts) noexcept;
+    [[nodiscard]] RecoveryResult
+    recover(std::string_view wal_dir,
+            std::span<const RecoveryBookBinding> bindings) noexcept {
+        return recover(wal_dir, bindings, RecoverOptions{});
+    }
     [[nodiscard]] RecoveryResult
     recover(std::string_view wal_dir,
             std::initializer_list<RecoveryBookBinding> bindings) noexcept {
@@ -250,6 +319,37 @@ public:
     }
     [[nodiscard]] RecoveryResult recover(std::string_view wal_dir) noexcept {
         return recover(wal_dir, std::span<const RecoveryBookBinding>{});
+    }
+
+    // === Graduated recovery ladder (Phase-04 Task 4.3.5/4.3.9, spec §3.5) ===
+    // THE single owner of the ladder. Level 1 = recover() (torn-tail CRC
+    // repair + replay, snapshot-covered WAL gaps tolerated). Level 2 =
+    // snapshot rebase: for snapshot corruption it falls back to the prior
+    // retained generation (or genesis when the stream is complete); for
+    // forward divergence (snapshot_seq > wal_tail) it writes a
+    // {snapshot_seq}.wal rebase-marker segment so the WAL seq space resumes
+    // past snapshot coverage, then re-verifies. Level 3 = fail-closed halt:
+    // outcome WAL_RECOVERY_HALT, a recovery_reports JSON line appended to
+    // `report_log_path` (a Go consumer persists it — the core never speaks
+    // PG), an `ALERT_P1 WAL_RECOVERY_HALT` stderr line with the runbook
+    // link, and the caller enters MarketDataOnly (main.cpp).
+    //
+    // Bound books must be empty before the call; when level-1 fails AFTER
+    // mutating a book (mid-replay apply failure), rebase is unsafe in
+    // place — the ladder reports books_dirty_on_fail and halts: restart the
+    // process for fresh books (documented operational path).
+    [[nodiscard]] RecoveryLadderResult
+    recover_ladder(std::string_view wal_dir,
+                   std::span<const RecoveryBookBinding> bindings,
+                   std::string_view report_log_path) noexcept;
+    [[nodiscard]] RecoveryLadderResult
+    recover_ladder(std::string_view wal_dir,
+                   std::initializer_list<RecoveryBookBinding> bindings,
+                   std::string_view report_log_path) noexcept {
+        return recover_ladder(wal_dir,
+                              std::span<const RecoveryBookBinding>(
+                                  bindings.begin(), bindings.size()),
+                              report_log_path);
     }
 
     // Stub-compatible surface for the Phase-04 ladder driver: outcome of the
@@ -265,7 +365,11 @@ private:
     struct BookState;  // per-binding working set (pimpl to keep the header lean)
 
     // Returns false → res.status already set; caller aborts.
-    bool load_snapshot(RecoveryResult& res, BookState& bs) noexcept;
+    // read_snapshot verifies + parses only (no book mutation);
+    // restore_snapshot applies the verified image (first book mutation).
+    bool read_snapshot(RecoveryResult& res, BookState& bs,
+                       const RecoverOptions& opts) noexcept;
+    bool restore_snapshot(RecoveryResult& res, BookState& bs) noexcept;
     void set_fail(RecoveryResult& res, RecoveryStatus s, uint64_t seq,
                   uint32_t instrument, const char* why) noexcept;
 

@@ -1,0 +1,42 @@
+# clickhouse-backup configuration — Task 4.3.6 (spec §18.3)
+#
+# Used by deploy/clickhouse/backup.sh for the daily full / hourly incremental
+# S3 backups of all MergeTree tables. Deploy-time env substitution:
+# clickhouse-backup expands ${ENV_VAR} references below at startup — export
+# AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_ENDPOINT_URL / CH_PASSWORD
+# from the secrets store (Vault/KMS per Phase-13.5), never commit values.
+
+general:
+  remote_storage: s3
+  # keep 35 remote backups: ~30 daily fulls + recent incrementals
+  backups_to_keep_remote: 35
+  # do not let a backup starve ingest; spec §16.1 targets 50k inserts/s
+  max_concurrency: 4
+
+clickhouse:
+  host: ${CH_HOST:-127.0.0.1}
+  port: ${CH_PORT:-9000}
+  username: ${CH_USER:-default}
+  password: ${CH_PASSWORD:-}
+  secure: false
+  # skip system/internal tables; MergeTree data tables only
+  skip_tables:
+    - system.*
+    - INFORMATION_SCHEMA.*
+    - information_schema.*
+  timeout: 15m
+
+s3:
+  access_key: ${AWS_ACCESS_KEY_ID}
+  secret_key: ${AWS_SECRET_ACCESS_KEY}
+  bucket: exchange-ch-backup
+  # backups land at s3://exchange-ch-backup/{backup-name}/ — names are
+  # daily-YYYYMMDD / incr-YYYYMMDD-HHMMSS per backup.sh
+  endpoint: ${AWS_ENDPOINT_URL:-https://s3.eu-west-1.amazonaws.com}
+  region: ${AWS_REGION:-eu-west-1}
+  acl: private
+  force_path_style: true      # required for MinIO/R2/ceph S3-compatible
+  compression_format: zstd
+  # server-side encryption for data at rest
+  sse: AES256
+  part_size: 128MiB

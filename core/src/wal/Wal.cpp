@@ -509,6 +509,49 @@ WalStatus Wal::rotate() {
     return WalStatus::Ok;
 }
 
+uint64_t Wal::trim_sealed(uint64_t snapshot_seq) noexcept {
+    uint64_t removed = 0;
+    try {
+        std::vector<std::string> keep;
+        keep.reserve(pending_archive_.size());
+        for (const std::string& seg : pending_archive_) {
+            // The active segment is unreachable here (rotate() pushes the
+            // OLD path before moving path_), but keep the guard explicit —
+            // a trim must never unlink the file appends are landing in.
+            if (seg == path_) {
+                keep.push_back(seg);
+                continue;
+            }
+            bool covered = false;
+            {
+                WalReader r;
+                if (r.open(seg) == WalStatus::Ok) {
+                    WalEntryView ev{};
+                    while (r.next(ev) == WalScanStep::Entry) {
+                    }
+                    // entries_seen() > 0: an empty sealed segment has no
+                    // provable coverage window — keep it for the archiver.
+                    covered = r.entries_seen() > 0 &&
+                              r.last_seq() < snapshot_seq;
+                    r.close();
+                }
+            }
+            if (covered && ::unlink(seg.c_str()) == 0) {
+                ++removed;
+                continue;  // dropped from pending_archive_: nothing to archive
+            }
+            keep.push_back(seg);  // uncovered, unreadable, or unlink failed —
+                                  // retry on the next confirmed snapshot_seq
+        }
+        pending_archive_.swap(keep);
+    } catch (...) {
+        // noexcept contract — bad_alloc must not escape onto the matching
+        // thread; whatever was already unlinked stays unlinked (the files
+        // are gone), the pending list keeps its un-trimmed remainder.
+    }
+    return removed;
+}
+
 void Wal::fsync_dir(const std::string& dir) noexcept {
     const int d = ::open(dir.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
     if (d < 0) return;

@@ -1313,3 +1313,234 @@ TEST(RecoveryManager, PreventedMatchTruncatedPayloadFailsClosed) {
     EXPECT_EQ(res.status, RecoveryStatus::InvariantViolated);
     EXPECT_EQ(res.outcome(), RecoveryOutcome::HALTED);
 }
+
+// --- Graduated recovery ladder (Task 4.3.5/4.3.9) -----------------------------
+
+namespace {
+
+std::string read_all(const std::filesystem::path& p) {
+    std::ifstream ifs(p, std::ios::binary);
+    return std::string(std::istreambuf_iterator<char>(ifs),
+                       std::istreambuf_iterator<char>());
+}
+
+}  // namespace
+
+TEST(RecoveryLadder, CleanBootWritesNoReport) {
+    const auto dir = tmp_dir("ladder_clean");
+    const auto wpath = dir / "0.wal";
+    const Order o1 = mk_order(1, Side::BUY, 10000 * kTick, 50, 100, 0);
+    const WalOrderNewPayload n1 = p_new(o1);
+    write_wal(wpath.string(), kShard,
+              {{0, 100, WalEventType::ORDER_NEW, &n1, sizeof(n1)}});
+    const auto report_path = dir / "reports.jsonl";
+
+    Fixture f;
+    RecoveryManager rm(kShard);
+    const RecoveryLadderResult lad = rm.recover_ladder(
+        dir.string(), {{kIid, &f.book}}, report_path.string());
+    ASSERT_EQ(lad.outcome, RecoveryOutcome::CLEAN);
+    EXPECT_EQ(lad.level, 1u);
+    EXPECT_TRUE(lad.result.ok());
+    EXPECT_EQ(lad.result.wal_tail, 1u);
+    EXPECT_FALSE(lad.report_written);  // nothing to report on a clean boot
+    EXPECT_FALSE(std::filesystem::exists(report_path));
+    EXPECT_EQ(f.book.live_orders(), 1u);
+}
+
+TEST(RecoveryLadder, CorruptTailRepairsAtLevel1) {
+    const auto dir = tmp_dir("ladder_tail");
+    const auto wpath = dir / "0.wal";
+    const Order o1 = mk_order(1, Side::BUY, 10000 * kTick, 50, 100, 0);
+    const WalOrderNewPayload n1 = p_new(o1);
+    write_wal(wpath.string(), kShard,
+              {{0, 100, WalEventType::ORDER_NEW, &n1, sizeof(n1)}});
+    inject_torn_tail(wpath.string(), valid_end_of(wpath.string()));
+    const auto report_path = dir / "reports.jsonl";
+
+    Fixture f;
+    RecoveryManager rm(kShard);
+    const RecoveryLadderResult lad = rm.recover_ladder(
+        dir.string(), {{kIid, &f.book}}, report_path.string());
+    ASSERT_EQ(lad.outcome, RecoveryOutcome::WAL_REPAIRED) << lad.result.detail;
+    EXPECT_EQ(lad.level, 1u);
+    EXPECT_TRUE(lad.result.tail_truncated);
+    EXPECT_EQ(lad.result.wal_tail, 1u);
+    ASSERT_TRUE(lad.report_written);
+    const std::string line = read_all(report_path);
+    EXPECT_NE(line.find("\"outcome\":\"WAL_REPAIRED\""), std::string::npos);
+    EXPECT_NE(line.find("\"stage\":\"boot_ladder\""), std::string::npos);
+    EXPECT_NE(line.find("\"wal_tail\":1"), std::string::npos);
+    EXPECT_EQ(f.book.live_orders(), 1u);
+}
+
+TEST(RecoveryLadder, CorruptLatestSnapshotRebasesAtLevel2) {
+    const auto root = tmp_dir("ladder_snapcorrupt");
+    const auto wal_dir = root / "wal";
+    std::filesystem::create_directories(wal_dir);
+    const auto wpath = wal_dir / "0.wal";
+
+    const Order o1 = mk_order(1, Side::BUY, 10000 * kTick, 50, 100, 0);
+    const Order o2 = mk_order(2, Side::BUY, 9900 * kTick, 10, 101, 1);
+    const WalOrderNewPayload n1 = p_new(o1);
+    const WalOrderNewPayload n2 = p_new(o2);
+    write_wal(wpath.string(), kShard,
+              {
+                  {0, 100, WalEventType::ORDER_NEW, &n1, sizeof(n1)},
+                  {1, 101, WalEventType::ORDER_NEW, &n2, sizeof(n2)},
+              });
+
+    // Corrupt the only snapshot generation — level 2 must fall back to
+    // genesis replay (the stream is complete from seq 0, so it is legal).
+    const auto snap_dir = root / "i7";
+    std::filesystem::create_directories(snap_dir);
+    {
+        std::ofstream ofs(snap_dir / "snap_00000000000000000002.bin",
+                          std::ios::binary);
+        const std::string junk(64, '\xAB');
+        ofs.write(junk.data(), static_cast<std::streamsize>(junk.size()));
+    }
+    const auto report_path = root / "reports.jsonl";
+
+    Fixture f;
+    FileSnapshotSink sink(root.string(), kShard);
+    RecoveryManager rm(kShard, sink);
+    const RecoveryLadderResult lad = rm.recover_ladder(
+        wal_dir.string(), {{kIid, &f.book}}, report_path.string());
+    ASSERT_EQ(lad.outcome, RecoveryOutcome::SNAPSHOT_REBASED)
+        << lad.result.detail;
+    EXPECT_EQ(lad.level, 2u);
+    EXPECT_TRUE(lad.result.snapshot_fallback);
+    EXPECT_EQ(lad.result.wal_tail, 2u);
+    ASSERT_TRUE(lad.report_written);
+    EXPECT_NE(read_all(report_path).find("\"outcome\":\"SNAPSHOT_REBASED\""),
+              std::string::npos);
+    EXPECT_EQ(f.book.live_orders(), 2u);
+    EXPECT_NE(f.book.find_order(1), nullptr);
+    EXPECT_NE(f.book.find_order(2), nullptr);
+}
+
+TEST(RecoveryLadder, ForwardDivergenceRebasesViaMarkerSegment) {
+    const auto root = tmp_dir("ladder_fwd");
+    const auto wal_dir = root / "wal";
+    std::filesystem::create_directories(wal_dir);
+    const auto wpath = wal_dir / "0.wal";
+
+    const Order o1 = mk_order(1, Side::BUY, 10000 * kTick, 50, 100, 0);
+    const WalOrderNewPayload n1 = p_new(o1);
+    write_wal(wpath.string(), kShard,
+              {{0, 100, WalEventType::ORDER_NEW, &n1, sizeof(n1)}});
+    // WAL tail is 1 — the snapshot below claims coverage through seq 9
+    // (entries seqs 1..8 were already snapshot-covered when the log was
+    // trimmed: the rebase-marker segment resumes the seq space at 9).
+
+    Fixture src;
+    add(src.book, o1);
+    std::vector<uint8_t> blob;
+    WalBookSnapshotHeader hdr{};
+    ASSERT_TRUE(SnapshotStore::serialize_book(src.book, kIid, /*seq*/ 9,
+                                              blob, hdr));
+    FileSnapshotSink sink(root.string(), kShard);
+    ASSERT_TRUE(sink.store(kIid, 9, blob.data(), blob.size()));
+    const auto report_path = root / "reports.jsonl";
+
+    Fixture dst;
+    RecoveryManager rm(kShard, sink);
+    const RecoveryLadderResult lad = rm.recover_ladder(
+        wal_dir.string(), {{kIid, &dst.book}}, report_path.string());
+    ASSERT_EQ(lad.outcome, RecoveryOutcome::SNAPSHOT_REBASED)
+        << lad.result.detail;
+    EXPECT_EQ(lad.level, 2u);
+    EXPECT_TRUE(lad.rebase_marker_written);
+    // Marker segment anchors the seq space at snapshot_seq: tail = 9+1.
+    EXPECT_EQ(lad.result.wal_tail, 10u);
+    EXPECT_EQ(lad.result.covered_gap_seqs, 8u);  // seqs 1..8 snapshot-covered
+    ASSERT_TRUE(std::filesystem::exists(wal_dir / "9.wal"));
+    ASSERT_TRUE(lad.report_written);
+    EXPECT_NE(read_all(report_path).find("\"outcome\":\"SNAPSHOT_REBASED\""),
+              std::string::npos);
+    // The book is the snapshot image — the marker entry mutates nothing.
+    ASSERT_EQ(dst.book.live_orders(), 1u);
+    EXPECT_EQ(fingerprint(dst.book), fingerprint(src.book));
+}
+
+TEST(RecoveryLadder, CoveredSealedCorruptionRebasesAtLevel2) {
+    const auto root = tmp_dir("ladder_covered");
+    const auto wal_dir = root / "wal";
+    std::filesystem::create_directories(wal_dir);
+    const auto p0 = wal_dir / "0.wal";
+    const auto p3 = wal_dir / "3.wal";
+
+    const Order o1 = mk_order(1, Side::BUY, 10000 * kTick, 50, 100, 0);
+    const Order o5 = mk_order(5, Side::SELL, 10100 * kTick, 20, 103, 3);
+    const WalOrderNewPayload n1 = p_new(o1);
+    const WalOrderNewPayload n5 = p_new(o5);
+    write_wal(p0.string(), kShard,
+              {{0, 100, WalEventType::ORDER_NEW, &n1, sizeof(n1)}});
+    write_wal(p3.string(), kShard,
+              {{3, 104, WalEventType::ORDER_NEW, &n5, sizeof(n5)}});
+    // Sealed damage in 0.wal: seqs 1..2 are unverifiable — but the snapshot
+    // at seq 3 covers them, so level 2 tolerates the loss (strict level 1
+    // still fails: immutable bytes changed).
+    inject_torn_tail(p0.string(), valid_end_of(p0.string()));
+
+    Fixture src;
+    add(src.book, o1);  // snapshot covers through seq 3 (seqs 0..2 inside)
+    std::vector<uint8_t> blob;
+    WalBookSnapshotHeader hdr{};
+    ASSERT_TRUE(SnapshotStore::serialize_book(src.book, kIid, /*seq*/ 3,
+                                              blob, hdr));
+    FileSnapshotSink sink(root.string(), kShard);
+    ASSERT_TRUE(sink.store(kIid, 3, blob.data(), blob.size()));
+    const auto report_path = root / "reports.jsonl";
+
+    Fixture dst;
+    RecoveryManager rm(kShard, sink);
+    const RecoveryLadderResult lad = rm.recover_ladder(
+        wal_dir.string(), {{kIid, &dst.book}}, report_path.string());
+    ASSERT_EQ(lad.outcome, RecoveryOutcome::SNAPSHOT_REBASED)
+        << lad.result.detail;
+    EXPECT_EQ(lad.level, 2u);
+    EXPECT_EQ(lad.result.covered_gap_seqs, 2u);  // seqs 1..2 lost + covered
+    EXPECT_EQ(lad.result.wal_tail, 4u);
+    ASSERT_TRUE(lad.report_written);
+    // Snapshot order restored + seq-3 entry replayed.
+    EXPECT_EQ(dst.book.live_orders(), 2u);
+    EXPECT_NE(dst.book.find_order(1), nullptr);
+    EXPECT_NE(dst.book.find_order(5), nullptr);
+}
+
+TEST(RecoveryLadder, UncoveredSealedCorruptionHaltsAndReports) {
+    const auto dir = tmp_dir("ladder_halt");
+    const auto p0 = dir / "0.wal";
+    const auto p5 = dir / "5.wal";
+    const Order o1 = mk_order(1, Side::BUY, 10000 * kTick, 50, 100, 0);
+    const Order o5 = mk_order(5, Side::SELL, 10100 * kTick, 20, 103, 3);
+    const WalOrderNewPayload n1 = p_new(o1);
+    const WalOrderNewPayload n5 = p_new(o5);
+    write_wal(p0.string(), kShard,
+              {{0, 100, WalEventType::ORDER_NEW, &n1, sizeof(n1)}});
+    write_wal(p5.string(), kShard,
+              {{5, 104, WalEventType::ORDER_NEW, &n5, sizeof(n5)}});
+    // Sealed damage hiding the [1,5) range — no snapshot coverage (no sink),
+    // so neither repair nor rebase can prove the lost seqs. Fail closed.
+    inject_torn_tail(p0.string(), valid_end_of(p0.string()));
+    const auto report_path = dir / "reports.jsonl";
+
+    Fixture f;
+    RecoveryManager rm(kShard);  // no snapshot sink
+    const RecoveryLadderResult lad = rm.recover_ladder(
+        dir.string(), {{kIid, &f.book}}, report_path.string());
+    ASSERT_EQ(lad.outcome, RecoveryOutcome::HALTED);
+    EXPECT_EQ(lad.level, 3u);
+    EXPECT_EQ(lad.result.status, RecoveryStatus::WalCorrupt);
+    ASSERT_TRUE(lad.report_written);
+    const std::string line = read_all(report_path);
+    EXPECT_NE(line.find("\"outcome\":\"WAL_RECOVERY_HALT\""),
+              std::string::npos);
+    EXPECT_NE(line.find("\"stage\":\"boot_ladder\""), std::string::npos);
+    EXPECT_NE(line.find("\"shard_id\":3"), std::string::npos);
+    EXPECT_NE(line.find("\"first_divergent_seq\":5"), std::string::npos);
+    EXPECT_NE(line.find("runbook"), std::string::npos);
+    EXPECT_EQ(f.book.live_orders(), 0u);  // fail-closed — nothing applied
+}

@@ -89,6 +89,7 @@ add_library(exch_core STATIC
     src/matching/DiscretionaryExecutor.cpp
     src/marketdata/BookSerializer.cpp
     src/recovery/RecoveryManager.cpp
+    src/recovery/SnapshotManager.cpp
     src/recovery/SnapshotStore.cpp
     src/redis/RespClient.cpp
     src/risk/BilateralCreditMatrix.cpp
@@ -185,7 +186,8 @@ if(EXCH_BUILD_TESTS)
             test_book_protection
             test_trade_through
             test_discretionary
-            test_stp)
+            test_stp
+            test_snapshot_manager)
         add_executable(${t} tests/${t}.cpp)
         target_link_libraries(${t} PRIVATE exch_core gtest_main)
         add_test(NAME ${t} COMMAND ${t})

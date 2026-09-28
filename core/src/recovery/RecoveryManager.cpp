@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <cinttypes>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -14,7 +15,11 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include <fcntl.h>
+#include <unistd.h>
+
 #include "matching/MatchingEngine.hpp"
+#include "utils/TimeUtils.hpp"
 #include "wal/Wal.hpp"
 
 namespace exch {
@@ -41,6 +46,13 @@ struct RecoveryManager::BookState {
     uint64_t snapshot_seq = 0;      // covered cursor (0 = genesis/no snapshot)
     uint64_t snapshot_book_seq = 0; // WalBookSnapshotHeader.book_seq as stored
     bool snapshot_loaded = false;
+    // Parsed snapshot held between the read phase (Phase 2, no mutation) and
+    // the restore phase (Phase 4) — splitting them keeps bound books clean
+    // across every pre-replay failure so the ladder's level-2 rebase can run
+    // in place.
+    ParsedSnapshot parsed;
+    bool snapshot_have = false;     // a verified snapshot blob was read
+    uint8_t snapshot_gen = 0;       // 0 = latest, 1 = prior-generation fallback
     uint64_t orders_restored = 0;
     uint64_t entries_consumed = 0;  // seq >= snapshot_seq dispatched here
     uint64_t mutations_applied = 0;
@@ -153,37 +165,91 @@ void RecoveryManager::set_fail(RecoveryResult& res, RecoveryStatus s,
     }
 }
 
-bool RecoveryManager::load_snapshot(RecoveryResult& res,
-                                    BookState& bs) noexcept {
+// Snapshot read phase (Phase 2): fetch + integrity-verify + structurally
+// parse the snapshot blob. NO book mutation — bs.parsed carries the verified
+// image until restore_snapshot() applies it. With opts.snapshot_fallback
+// (ladder level 2), a corrupt/unloadable latest generation falls back to the
+// prior retained generation, then to genesis (snapshot-less replay — the
+// stream_base <= snapshot_seq invariant enforces the WAL must be complete).
+bool RecoveryManager::read_snapshot(RecoveryResult& res, BookState& bs,
+                                    const RecoverOptions& opts) noexcept {
     try {
         if (snapshots_ == nullptr) return true;  // WAL-only boot
 
-        uint64_t seq = 0;
-        bool has = false;
-        std::vector<uint8_t> blob;
-        if (!snapshots_->load_latest(bs.instrument_id, &seq, &blob, &has)) {
-            set_fail(res, RecoveryStatus::SnapshotLoadFailed, UINT64_MAX,
-                     bs.instrument_id, "snapshot sink load failed");
-            return false;
-        }
-        if (!has) return true;  // clean cold start — replay from genesis
+        // Generation chain: 0 = latest, 1 = prior (load_prior). The strict
+        // level-1 path tries only the latest; any failure there is typed and
+        // returned immediately.
+        for (uint8_t gen = 0; gen <= 1; ++gen) {
+            uint64_t seq = 0;
+            bool has = false;
+            std::vector<uint8_t> blob;
+            const bool loaded =
+                (gen == 0)
+                    ? snapshots_->load_latest(bs.instrument_id, &seq, &blob,
+                                              &has)
+                    : snapshots_->load_prior(bs.instrument_id, &seq, &blob,
+                                             &has);
+            if (!loaded) {
+                if (gen == 0 && opts.snapshot_fallback) continue;  // try prior
+                if (gen == 1) {
+                    // Prior generation also unusable — degrade to genesis
+                    // replay (the stream_base invariant still enforces that
+                    // the WAL must be complete from seq 0).
+                    res.snapshot_fallback = true;
+                    return true;
+                }
+                set_fail(res, RecoveryStatus::SnapshotLoadFailed, UINT64_MAX,
+                         bs.instrument_id, "snapshot sink load failed");
+                return false;
+            }
+            if (!has) {
+                // Clean cold start (gen 0) or no retained prior (gen 1 —
+                // genesis replay under the same completeness invariant).
+                if (gen == 1) res.snapshot_fallback = true;
+                return true;
+            }
 
-        ParsedSnapshot parsed;
-        if (!SnapshotStore::parse_book(blob.data(), blob.size(), parsed)) {
-            set_fail(res, RecoveryStatus::SnapshotCorrupt, seq,
-                     bs.instrument_id, "snapshot blob failed structural parse");
-            return false;
+            ParsedSnapshot parsed;
+            if (!SnapshotStore::parse_book(blob.data(), blob.size(), parsed) ||
+                parsed.header.instrument_id != bs.instrument_id ||
+                parsed.header.book_seq != seq) {
+                if (gen == 0 && opts.snapshot_fallback) continue;
+                if (gen == 1) {  // prior also corrupt → genesis replay
+                    res.snapshot_fallback = true;
+                    return true;
+                }
+                set_fail(res, RecoveryStatus::SnapshotCorrupt, seq,
+                         bs.instrument_id,
+                         "snapshot blob failed integrity/structural checks");
+                return false;
+            }
+            bs.parsed = std::move(parsed);
+            bs.snapshot_have = true;
+            bs.snapshot_seq = seq;
+            bs.snapshot_book_seq = bs.parsed.header.book_seq;
+            bs.snapshot_gen = gen;
+            if (gen != 0) res.snapshot_fallback = true;
+            return true;
         }
-        if (parsed.header.instrument_id != bs.instrument_id ||
-            parsed.header.book_seq != seq) {
-            set_fail(res, RecoveryStatus::SnapshotCorrupt, seq,
-                     bs.instrument_id,
-                     "snapshot header seq/instrument mismatches container");
-            return false;
-        }
+        return true;
+    } catch (...) {
+        set_fail(res, RecoveryStatus::Io, UINT64_MAX, bs.instrument_id,
+                 "unexpected allocation failure during snapshot read");
+        return false;
+    }
+}
+
+// Snapshot restore phase (Phase 4 — first book mutation): apply the verified
+// bs.parsed image by re-insertion. Never called unless every pre-replay
+// check has already passed, so bound books stay empty through all prescan
+// failures (the ladder's level-2 rebase requires empty books).
+bool RecoveryManager::restore_snapshot(RecoveryResult& res,
+                                       BookState& bs) noexcept {
+    try {
+        if (!bs.snapshot_have) return true;  // genesis replay
 
         if (bs.book->live_orders() != 0) {
-            set_fail(res, RecoveryStatus::InvariantViolated, seq,
+            set_fail(res, RecoveryStatus::InvariantViolated, bs.snapshot_seq,
                      bs.instrument_id,
                      "bound book not empty at recovery start");
             return false;
@@ -195,11 +261,11 @@ bool RecoveryManager::load_snapshot(RecoveryResult& res,
         // book_seq_ (pinned comment records the WAL cursor there instead), so
         // the recovered mutation counter starts at the restored order count —
         // the WAL-cursor invariant is tracked by this manager.
-        for (const auto& po : parsed.orders) {
+        for (const auto& po : bs.parsed.orders) {
             Order* out = nullptr;
             const BookError e = bs.book->add_order(po.tmpl, &out);
             if (e != BookError::OK || out == nullptr) {
-                set_fail(res, RecoveryStatus::SnapshotCorrupt, seq,
+                set_fail(res, RecoveryStatus::SnapshotCorrupt, bs.snapshot_seq,
                          bs.instrument_id,
                          "snapshot order rejected by book on restore");
                 return false;
@@ -208,20 +274,18 @@ bool RecoveryManager::load_snapshot(RecoveryResult& res,
         }
         const char* violation = nullptr;
         if (!bs.book->validate(&violation)) {
-            set_fail(res, RecoveryStatus::SnapshotCorrupt, seq,
+            set_fail(res, RecoveryStatus::SnapshotCorrupt, bs.snapshot_seq,
                      bs.instrument_id,
                      violation != nullptr ? violation
                                           : "restored book failed audit");
             return false;
         }
-        bs.snapshot_seq = seq;
-        bs.snapshot_book_seq = parsed.header.book_seq;
         bs.snapshot_loaded = true;
-        bs.cursor = seq;
+        bs.cursor = bs.snapshot_seq;
         return true;
     } catch (...) {
         set_fail(res, RecoveryStatus::Io, UINT64_MAX, bs.instrument_id,
-                 "unexpected allocation failure during snapshot load");
+                 "unexpected allocation failure during snapshot restore");
         return false;
     }
 }
@@ -230,7 +294,8 @@ bool RecoveryManager::load_snapshot(RecoveryResult& res,
 
 RecoveryResult RecoveryManager::recover(
     std::string_view wal_dir,
-    std::span<const RecoveryBookBinding> bindings) noexcept {
+    std::span<const RecoveryBookBinding> bindings,
+    const RecoverOptions& opts) noexcept {
     RecoveryResult res;
     try {
         std::vector<BookState> states(bindings.size());
@@ -281,9 +346,218 @@ RecoveryResult RecoveryManager::recover(
         uint64_t max_ts = 0;
         uint64_t max_seq = 0;
 
-        // --- Phase 1: snapshot restore (per bound book) ----------------------
+        // --- Phase 1: WAL prescan — enumerate, scan, order -------------------
+        // Runs BEFORE any book mutation so that every prescan/snapshot
+        // failure leaves the bound books clean — the recover_ladder level-2
+        // rebase can then re-run recover() in place.
+        std::vector<SegmentInfo> segs;
+        {
+            std::error_code ec;
+            const std::filesystem::path dir(wal_dir);
+            if (std::filesystem::exists(dir, ec) && !ec) {
+                for (const auto& de :
+                     std::filesystem::directory_iterator(dir, ec)) {
+                    if (ec) break;
+                    std::error_code tec;
+                    if (!de.is_regular_file(tec) || tec) continue;
+                    if (de.path().extension() != ".wal") continue;
+                    segs.push_back(SegmentInfo{});
+                    segs.back().path = de.path().string();
+                }
+            }
+        }
+        for (auto& si : segs) {
+            if (!scan_segment(si.path, static_cast<uint16_t>(shard_id_), si)) {
+                set_fail(res, RecoveryStatus::WalOpenFailed, UINT64_MAX, 0,
+                         "segment unreadable/bad header/foreign shard");
+                wal_tail_ = res.wal_tail;
+                last_outcome_ = res.outcome();
+                return res;
+            }
+        }
+        // Order segments by first entry seq (empties carry no seqs — sort last).
+        std::sort(segs.begin(), segs.end(), [](const SegmentInfo& a,
+                                               const SegmentInfo& b) {
+            if (a.has_entries != b.has_entries) return a.has_entries;
+            if (a.has_entries && b.has_entries && a.first_seq != b.first_seq)
+                return a.first_seq < b.first_seq;
+            return a.path < b.path;
+        });
+
+        // --- Phase 1b: torn-tail repair on the tail segment ------------------
+        // The tail = non-empty segment with the greatest seq span (last in the
+        // sorted order). wal_scan already detected Corrupt; Wal::open()
+        // performs the detect+truncate recovery (ladder step 1, spec §3.5) —
+        // mmap-mode recovery cuts the file exactly at valid_end. No appends
+        // are ever issued by this path.
+        std::size_t tail_idx = segs.size();
+        for (std::size_t i = segs.size(); i-- > 0;) {
+            if (segs[i].has_entries) { tail_idx = i; break; }
+        }
+        if (tail_idx < segs.size() && segs[tail_idx].corrupt) {
+            SegmentInfo& tail = segs[tail_idx];
+            Wal w(tail.path, static_cast<uint16_t>(shard_id_));
+            if (w.open() != WalStatus::Ok) {
+                set_fail(res, RecoveryStatus::WalOpenFailed, UINT64_MAX, 0,
+                         "tail segment recovery open failed");
+                wal_tail_ = res.wal_tail;
+                last_outcome_ = res.outcome();
+                return res;
+            }
+            res.tail_truncated = true;
+            res.truncate_offset = w.last_scan().valid_end;
+            tail.corrupt = false;
+            tail.entries = w.last_scan().entries;
+            if (w.last_scan().entries > 0) tail.last_seq = w.last_scan().last_seq;
+            tail.valid_end = w.last_scan().valid_end;
+            w.close();
+        }
+
+        // --- Phase 1c: stream accounting + lost ranges (still pre-mutation) --
+        // A lost range [begin, end) is a span of seqs no readable segment
+        // can provide: a plain gap (segment trimmed/missing) or the
+        // unreadable tail of a corrupt sealed segment. Coverage is decided
+        // in Phase 3 once snapshot_seq is known — a range is recoverable
+        // without operator action iff end <= every bound book's
+        // snapshot_seq (the snapshot is authoritative through its cursor).
+        struct LostRange { uint64_t begin, end; bool corrupt_caused; };
+        std::vector<LostRange> lost_ranges;
+        res.stream_base = 0;
+        bool prescan_started = false;
+        uint64_t prescan_tail = 0;
+        for (std::size_t i = 0; i < segs.size(); ++i) {
+            const SegmentInfo& si = segs[i];
+            if (!si.has_entries) continue;
+            if (!prescan_started) {
+                prescan_started = true;
+                res.stream_base = si.first_seq;
+                prescan_tail = si.first_seq;
+            }
+            if (si.first_seq > prescan_tail) {
+                // Plain gap OR the lost tail of a corrupt predecessor.
+                bool corrupt_caused = false;
+                // The previous readable segment is index-wise earlier; find
+                // whether damage at its end caused this gap.
+                for (std::size_t j = i; j-- > 0;) {
+                    if (segs[j].has_entries) {
+                        corrupt_caused = segs[j].corrupt;
+                        break;
+                    }
+                }
+                lost_ranges.push_back(
+                    LostRange{prescan_tail, si.first_seq, corrupt_caused});
+            } else if (si.first_seq < prescan_tail) {
+                // Overlapping/duplicate seq ranges across segments —
+                // divergent journal copies; never a legal shape.
+                set_fail(res, RecoveryStatus::SeqGap, si.first_seq, 0,
+                         "WAL seq regression — overlapping segments");
+                wal_tail_ = res.wal_tail;
+                last_outcome_ = res.outcome();
+                return res;
+            }
+            prescan_tail = si.last_seq + 1;
+            res.wal_entries += si.entries;
+        }
+        res.wal_tail = prescan_started ? prescan_tail : 0;
+        res.last_valid_seq = prescan_started ? prescan_tail - 1 : 0;
+
+        // Non-tail corruption (sealed segment damage): the entries between
+        // the corrupt record and that segment's end are unverifiable. The
+        // lost range above already records the seq span; sealed damage is
+        // additionally fail-closed in strict mode even when the range is
+        // empty — immutable bytes changed is suspect media (spec §2.7). The
+        // level-2 rebase (opts.tolerate_covered_damage) may tolerate it only
+        // when the lost range is fully snapshot-covered (Phase 3).
+        bool sealed_damage = false;
+        for (std::size_t i = 0; i < segs.size(); ++i) {
+            if (i != tail_idx && segs[i].corrupt) sealed_damage = true;
+        }
+
+        // --- Phase 2: snapshot read (verify + parse — NO book mutation) ------
         for (auto& bs : states) {
-            if (!load_snapshot(res, bs)) {
+            if (!read_snapshot(res, bs, opts)) {
+                res.books.push_back(bs.report);
+                wal_tail_ = res.wal_tail;
+                last_outcome_ = res.outcome();
+                return res;
+            }
+        }
+
+        // --- Phase 3: coverage + divergence verification (books still clean) -
+        // Smallest covered cursor across bound books — the bound every lost
+        // range must satisfy.
+        uint64_t min_snapshot = UINT64_MAX;
+        for (auto& bs : states) {
+            if (bs.snapshot_have && bs.snapshot_seq < min_snapshot) {
+                min_snapshot = bs.snapshot_seq;
+            }
+        }
+        if (min_snapshot == UINT64_MAX) min_snapshot = 0;  // no snapshots
+
+        for (const LostRange& lr : lost_ranges) {
+            if (lr.end <= min_snapshot) {
+                res.covered_gap_seqs += lr.end - lr.begin;
+                continue;  // snapshot-covered loss — replay skips it
+            }
+            set_fail(res,
+                     lr.corrupt_caused ? RecoveryStatus::WalCorrupt
+                                       : RecoveryStatus::SeqGap,
+                     lr.end, 0,
+                     lr.corrupt_caused
+                         ? "corrupt record inside a sealed segment"
+                         : "non-contiguous WAL seq — entries lost");
+            wal_tail_ = res.wal_tail;
+            last_outcome_ = res.outcome();
+            return res;
+        }
+        if (sealed_damage) {
+            // Strict mode never tolerates sealed-segment damage; the rebase
+            // pass may — but only when every corrupt segment's lost range
+            // was covered (checked above — an uncovered corrupt range already
+            // failed). An empty lost range means the damaged bytes never
+            // entered the committed seq chain (torn tail append before
+            // rotation); still fail-closed in strict mode.
+            if (!opts.tolerate_covered_damage) {
+                set_fail(res, RecoveryStatus::WalCorrupt, prescan_tail, 0,
+                         "corrupt record inside a sealed segment");
+                wal_tail_ = res.wal_tail;
+                last_outcome_ = res.outcome();
+                return res;
+            }
+        }
+
+        if (prescan_started) {
+            for (auto& bs : states) {
+                if (bs.snapshot_seq > prescan_tail) {
+                    // Forward divergence (spec §18.5): the snapshot claims
+                    // coverage beyond the surviving log — level-2 rebase
+                    // resolves it by writing a {snapshot_seq}.wal marker so
+                    // the seq space resumes past snapshot coverage. Fails
+                    // here, before any book mutation, so the ladder can
+                    // retry in place.
+                    set_fail(res, RecoveryStatus::InvariantViolated,
+                             bs.snapshot_seq, bs.instrument_id,
+                             "snapshot_seq ahead of WAL tail");
+                    wal_tail_ = res.wal_tail;
+                    last_outcome_ = res.outcome();
+                    return res;
+                }
+                if (res.stream_base > bs.snapshot_seq) {
+                    // WAL trimmed past this book's snapshot boundary —
+                    // entries it needed are unverifiably gone.
+                    set_fail(res, RecoveryStatus::InvariantViolated,
+                             res.stream_base, bs.instrument_id,
+                             "WAL trimmed beyond snapshot coverage");
+                    wal_tail_ = res.wal_tail;
+                    last_outcome_ = res.outcome();
+                    return res;
+                }
+            }
+        }
+
+        // --- Phase 4: snapshot restore (first book mutation) -----------------
+        for (auto& bs : states) {
+            if (!restore_snapshot(res, bs)) {
                 res.books.push_back(bs.report);
                 wal_tail_ = res.wal_tail;
                 last_outcome_ = res.outcome();
@@ -335,94 +609,15 @@ RecoveryResult RecoveryManager::recover(
                                                /*publisher*/ nullptr));
         }
 
-        // --- Phase 2: enumerate + pre-scan WAL segments ----------------------
-        std::vector<SegmentInfo> segs;
-        {
-            std::error_code ec;
-            const std::filesystem::path dir(wal_dir);
-            if (std::filesystem::exists(dir, ec) && !ec) {
-                for (const auto& de :
-                     std::filesystem::directory_iterator(dir, ec)) {
-                    if (ec) break;
-                    std::error_code tec;
-                    if (!de.is_regular_file(tec) || tec) continue;
-                    if (de.path().extension() != ".wal") continue;
-                    segs.push_back(SegmentInfo{});
-                    segs.back().path = de.path().string();
-                }
-            }
-        }
-        for (auto& si : segs) {
-            if (!scan_segment(si.path, static_cast<uint16_t>(shard_id_), si)) {
-                set_fail(res, RecoveryStatus::WalOpenFailed, UINT64_MAX, 0,
-                         "segment unreadable/bad header/foreign shard");
-                wal_tail_ = res.wal_tail;
-                last_outcome_ = res.outcome();
-                return res;
-            }
-        }
-        // Order segments by first entry seq (empties carry no seqs — sort last).
-        std::sort(segs.begin(), segs.end(), [](const SegmentInfo& a,
-                                               const SegmentInfo& b) {
-            if (a.has_entries != b.has_entries) return a.has_entries;
-            if (a.has_entries && b.has_entries && a.first_seq != b.first_seq)
-                return a.first_seq < b.first_seq;
-            return a.path < b.path;
-        });
-
-        // --- Phase 3: torn-tail repair on the tail segment -------------------
-        // The tail = non-empty segment with the greatest seq span (last in the
-        // sorted order). wal_scan already detected Corrupt; Wal::open()
-        // performs the detect+truncate recovery (ladder step 1, spec §3.5) —
-        // mmap-mode recovery cuts the file exactly at valid_end. No appends
-        // are ever issued by this path.
-        std::size_t tail_idx = segs.size();
-        for (std::size_t i = segs.size(); i-- > 0;) {
-            if (segs[i].has_entries) { tail_idx = i; break; }
-        }
-        if (tail_idx < segs.size() && segs[tail_idx].corrupt) {
-            SegmentInfo& tail = segs[tail_idx];
-            Wal w(tail.path, static_cast<uint16_t>(shard_id_));
-            if (w.open() != WalStatus::Ok) {
-                set_fail(res, RecoveryStatus::WalOpenFailed, UINT64_MAX, 0,
-                         "tail segment recovery open failed");
-                wal_tail_ = res.wal_tail;
-                last_outcome_ = res.outcome();
-                return res;
-            }
-            res.tail_truncated = true;
-            res.truncate_offset = w.last_scan().valid_end;
-            tail.corrupt = false;
-            tail.entries = w.last_scan().entries;
-            if (w.last_scan().entries > 0) tail.last_seq = w.last_scan().last_seq;
-            tail.valid_end = w.last_scan().valid_end;
-            w.close();
-        }
-
-        // Mid-stream (non-tail) corruption is a ladder step-2/3 case — entries
-        // after the corrupt record in that file are unreadable, so the seq
-        // chain is broken. Report it fail-closed rather than silently halting
-        // replay early.
-        for (std::size_t i = 0; i < segs.size(); ++i) {
-            if (i != tail_idx && segs[i].corrupt) {
-                set_fail(res, RecoveryStatus::WalCorrupt, segs[i].last_seq, 0,
-                         "corrupt record inside a sealed segment");
-                wal_tail_ = res.wal_tail;
-                last_outcome_ = res.outcome();
-                return res;
-            }
-        }
-
-        // --- Phase 4: replay --------------------------------------------------
+        // --- Phase 5: replay --------------------------------------------------
         // Deterministic re-derivation: every journaled ingress/mutation
         // event is driven through the per-book replay MatchingEngine
         // (wal/publisher nullptr). The engine re-executes sweeps, trigger
         // drains, expiry sweeps, STP and amend rules — direct book mutation
         // is used ONLY for journaled orphan fills (a TRADE whose aggressor
         // ORDER_NEW lies outside the scanned stream) and snapshot restore.
-        bool started = false;
         uint64_t expected = 0;
-        res.stream_base = 0;
+        bool replay_started = false;
 
         for (const auto& si : segs) {
             if (!si.has_entries) continue;
@@ -439,25 +634,38 @@ RecoveryResult RecoveryManager::recover(
                 if (s == WalScanStep::Pad) continue;
                 if (s == WalScanStep::End) break;
                 if (s == WalScanStep::Corrupt) {
-                    // Post-truncation a tail segment should scan clean; any
-                    // residual corruption is a hard fail.
+                    // Reachable only for damage the prescan tolerated
+                    // (level-2 covered sealed-segment corruption — the
+                    // segment's remaining bytes are snapshot-covered
+                    // journal). Post-truncation a tail scans clean.
+                    if (opts.tolerate_covered_damage) break;
                     set_fail(res, RecoveryStatus::WalCorrupt, expected, 0,
                              "corrupt record encountered during replay");
                     break;
                 }
                 // Entry.
-                if (!started) {
-                    started = true;
-                    res.stream_base = ev.seq;
+                if (!replay_started) {
+                    replay_started = true;
                     expected = ev.seq;
                 }
-                if (ev.seq != expected) {
+                if (ev.seq > expected) {
+                    // Snapshot-covered loss: the prescan verified every lost
+                    // range ends at/below min_snapshot, so the missing seqs
+                    // are provably inside snapshot state. Skip to the next
+                    // committed entry. Uncovered → SeqGap, fail closed.
+                    if (ev.seq <= min_snapshot) {
+                        expected = ev.seq;
+                    } else {
+                        set_fail(res, RecoveryStatus::SeqGap, ev.seq, 0,
+                                 "non-contiguous WAL seq — entries lost");
+                        break;
+                    }
+                } else if (ev.seq < expected) {
                     set_fail(res, RecoveryStatus::SeqGap, ev.seq, 0,
-                             "non-contiguous WAL seq — entries lost");
+                             "WAL seq regression — overlapping streams");
                     break;
                 }
                 ++expected;
-                ++res.wal_entries;
 
                 const uint32_t want = expected_payload_len(ev.type);
                 if (want != 0 && ev.payload_len != want) {
@@ -799,16 +1007,17 @@ RecoveryResult RecoveryManager::recover(
         }
 
         if (res.status == RecoveryStatus::Ok) {
-            res.wal_tail = started ? res.stream_base + res.wal_entries : 0;
-            if (started && expected != res.stream_base + res.wal_entries) {
-                // Defensive: contiguity loop already guarantees this.
+            // wal_tail/stream_base/wal_entries were established by the
+            // prescan (post-truncation). Replay cross-checks: `expected`
+            // tracks last_seq+1 across covered gaps and must land exactly on
+            // the prescanned tail.
+            if (replay_started && expected != res.wal_tail) {
                 set_fail(res, RecoveryStatus::SeqGap, expected, 0,
                          "seq accounting mismatch");
             }
 
-            // --- Phase 5: boot invariant (fail-closed) -------------------------
+            // --- Phase 6: boot invariant (fail-closed) -------------------------
             const bool stream_empty = res.wal_entries == 0;
-            uint64_t min_snapshot = UINT64_MAX;
             for (auto& bs : states) {
                 if (!stream_empty) {
                     if (bs.snapshot_seq > res.wal_tail) {
@@ -819,7 +1028,7 @@ RecoveryResult RecoveryManager::recover(
                                  "snapshot_seq ahead of WAL tail");
                         break;
                     }
-                    if (started && res.stream_base > bs.snapshot_seq) {
+                    if (replay_started && res.stream_base > bs.snapshot_seq) {
                         // WAL trimmed past this book's snapshot boundary —
                         // entries it needed are unverifiably gone.
                         set_fail(res, RecoveryStatus::InvariantViolated,
@@ -835,9 +1044,6 @@ RecoveryResult RecoveryManager::recover(
                              violation != nullptr ? violation
                                                   : "book audit failed");
                     break;
-                }
-                if (bs.snapshot_loaded && bs.snapshot_seq < min_snapshot) {
-                    min_snapshot = bs.snapshot_seq;
                 }
             }
             if (res.status == RecoveryStatus::Ok) {
@@ -894,6 +1100,333 @@ RecoveryResult RecoveryManager::recover(
         last_outcome_ = res.outcome();
         return res;
     }
+}
+
+// ==== Graduated recovery ladder (Phase-04 Task 4.3.5/4.3.9) ==================
+
+namespace {
+
+// Canonical runbook for the level-3 halt (the alert line and the
+// recovery_reports detail both carry it — Task 4.3.5 AC).
+constexpr const char* kHaltRunbook =
+    "docs/runbooks/wal-recovery-halt.md (exchange:replay-from-archive)";
+
+void json_escape_to(std::string& out, std::string_view s) {
+    for (const char c : s) {
+        switch (c) {
+            case '"':  out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\n': out += "\\n"; break;
+            case '\r': out += "\\r"; break;
+            case '\t': out += "\\t"; break;
+            default:
+                if (static_cast<unsigned char>(c) < 0x20) {
+                    char buf[8];
+                    std::snprintf(buf, sizeof(buf), "\\u%04x",
+                                  static_cast<unsigned>(c));
+                    out += buf;
+                } else {
+                    out += c;
+                }
+        }
+    }
+}
+
+// Serialize the migration-065 recovery_reports contract as one JSON line.
+// The Go consumer (services/cmd/wal-recovery persist-reports) inserts it
+// verbatim; detail_json is embedded pre-encoded (callers build the object).
+std::string recovery_report_json(const RecoveryReport& r,
+                                 uint64_t ts_unix_ns) {
+    std::string j;
+    j.reserve(256 + r.detail_json.size());
+    char num[32];
+    j += '{';
+    std::snprintf(num, sizeof(num), "%u", r.shard_id);
+    j += "\"shard_id\":"; j += num;
+    std::snprintf(num, sizeof(num), "%lld", (long long)r.book_seq);
+    j += ",\"book_seq\":"; j += num;
+    std::snprintf(num, sizeof(num), "%llu", (unsigned long long)r.wal_tail);
+    j += ",\"wal_tail\":"; j += num;
+    std::snprintf(num, sizeof(num), "%lld", (long long)r.last_valid_seq);
+    j += ",\"last_valid_seq\":"; j += num;
+    std::snprintf(num, sizeof(num), "%llu",
+                  (unsigned long long)r.snapshot_seq);
+    j += ",\"snapshot_seq\":"; j += num;
+    std::snprintf(num, sizeof(num), "%lld",
+                  (long long)r.first_divergent_seq);
+    j += ",\"first_divergent_seq\":"; j += num;
+    j += ",\"stage\":\""; json_escape_to(j, r.stage); j += '"';
+    j += ",\"outcome\":\""; json_escape_to(j, r.outcome); j += '"';
+    j += ",\"detail\":";
+    j += r.detail_json.empty() ? "{}" : r.detail_json;
+    std::snprintf(num, sizeof(num), "%llu", (unsigned long long)ts_unix_ns);
+    j += ",\"ts_unix_ns\":"; j += num;
+    j += '}';
+    return j;
+}
+
+void fsync_parent_dir(const std::string& path) noexcept {
+    const std::string dir =
+        std::filesystem::path(path).parent_path().string();
+    if (dir.empty()) return;
+    const int fd = ::open(dir.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (fd < 0) return;
+    ::fsync(fd);
+    ::close(fd);
+}
+
+// Append one JSON line to the report log (durable — fsync file + dir).
+bool append_jsonl(const std::string& path, const std::string& line) noexcept {
+    const int fd =
+        ::open(path.c_str(), O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0644);
+    if (fd < 0) return false;
+    const std::string buf = line + '\n';
+    uint64_t off = 0;
+    bool ok = true;
+    while (off < buf.size()) {
+        const ssize_t w =
+            ::write(fd, buf.data() + off, buf.size() - off);
+        if (w < 0) {
+            if (errno == EINTR) continue;
+            ok = false;
+            break;
+        }
+        off += static_cast<uint64_t>(w);
+    }
+    if (ok && ::fsync(fd) != 0) ok = false;
+    ::close(fd);
+    fsync_parent_dir(path);
+    return ok;
+}
+
+// Level-2 rebase primitive: write a fresh segment {marker_seq}.wal holding a
+// single BOOK_SNAPSHOT marker entry at seq=marker_seq. The segment's
+// filename stem is the seq floor Wal::open() resumes from, and the marker
+// entry itself anchors wal_tail = marker_seq + 1 — the WAL seq space is
+// thereby rebased past snapshot coverage (the lost range below marker_seq
+// is snapshot-covered by definition of the divergence being resolved).
+// Idempotent: an existing file is left untouched.
+bool write_rebase_marker(const std::string& dir, uint16_t shard,
+                         uint64_t marker_seq) noexcept {
+    const std::string path = dir + "/" + std::to_string(marker_seq) + ".wal";
+    std::error_code ec;
+    if (std::filesystem::exists(path, ec)) return !ec;
+
+    WalFileHeader fh{};
+    fh.magic = kWalMagic;
+    fh.version = kWalVersion;
+    fh.shard_id = shard;
+
+    WalBookSnapshotHeader pay{};
+    pay.instrument_id = 0;      // shard-level marker, no book payload
+    pay.level_count = 0;
+    pay.order_count = 0;
+    pay.book_seq = marker_seq;  // WAL cursor the snapshot covers
+
+    uint8_t entry[sizeof(WalEntryHeader) + sizeof(pay) + sizeof(uint32_t)];
+    const uint64_t n = wal_encode_entry(entry, marker_seq, now_ns(),
+                                        WalEventType::BOOK_SNAPSHOT,
+                                        &pay, sizeof(pay));
+
+    const int fd = ::open(path.c_str(),
+                          O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0644);
+    if (fd < 0) return errno == EEXIST;  // raced twin — already present
+    bool ok = true;
+    {
+        const uint8_t* p = reinterpret_cast<const uint8_t*>(&fh);
+        uint64_t off = 0;
+        while (off < sizeof(fh)) {
+            const ssize_t w = ::write(fd, p + off, sizeof(fh) - off);
+            if (w < 0) { if (errno == EINTR) continue; ok = false; break; }
+            off += static_cast<uint64_t>(w);
+        }
+    }
+    if (ok) {
+        uint64_t off = 0;
+        while (off < n) {
+            const ssize_t w = ::write(fd, entry + off, n - off);
+            if (w < 0) { if (errno == EINTR) continue; ok = false; break; }
+            off += static_cast<uint64_t>(w);
+        }
+    }
+    if (ok && ::fsync(fd) != 0) ok = false;
+    ::close(fd);
+    fsync_parent_dir(path);
+    if (!ok) {
+        std::error_code rec;
+        std::filesystem::remove(path, rec);
+    }
+    return ok;
+}
+
+}  // namespace
+
+RecoveryLadderResult RecoveryManager::recover_ladder(
+    std::string_view wal_dir,
+    std::span<const RecoveryBookBinding> bindings,
+    std::string_view report_log_path) noexcept {
+    RecoveryLadderResult out;
+    out.report_path = std::string(report_log_path);
+    const std::string dir_str(wal_dir);
+
+    // Build the detail fragment once per outcome — filled in below.
+    auto fill_report = [&](const RecoveryResult& r, const char* outcome,
+                           const char* extra) {
+        RecoveryReport& rep = out.report;
+        rep.shard_id = shard_id_;
+        rep.wal_tail = r.wal_tail;
+        rep.last_valid_seq = (r.wal_entries > 0)
+                                 ? static_cast<int64_t>(r.last_valid_seq)
+                                 : -1;
+        rep.snapshot_seq = snapshot_seq_;
+        rep.first_divergent_seq =
+            (r.first_divergent_seq == UINT64_MAX)
+                ? -1
+                : static_cast<int64_t>(r.first_divergent_seq);
+        rep.book_seq = -1;
+        for (const auto& b : r.books) {
+            if (b.book_seq_verified) {
+                rep.book_seq = static_cast<int64_t>(b.recomputed_book_seq);
+            }
+        }
+        rep.outcome = outcome;
+        std::string d;
+        d += "{\"status\":\""; json_escape_to(d, recovery_status_str(r.status));
+        d += "\",\"detail\":\"";
+        json_escape_to(d, r.detail);
+        d += "\",\"instrument\":";
+        char num[32];
+        std::snprintf(num, sizeof(num), "%u", r.detail_instrument);
+        d += num;
+        std::snprintf(num, sizeof(num), "%llu",
+                      (unsigned long long)r.covered_gap_seqs);
+        d += ",\"covered_gap_seqs\":"; d += num;
+        if (r.tail_truncated) {
+            std::snprintf(num, sizeof(num), "%llu",
+                          (unsigned long long)r.truncate_offset);
+            d += ",\"truncate_offset\":"; d += num;
+        }
+        if (r.snapshot_fallback) d += ",\"snapshot_fallback\":true";
+        if (out.rebase_marker_written) d += ",\"rebase_marker\":true";
+        d += ",\"runbook\":\""; json_escape_to(d, kHaltRunbook); d += "\"";
+        if (extra != nullptr) { d += ","; d += extra; }
+        d += '}';
+        rep.detail_json = std::move(d);
+    };
+    auto emit_report = [&]() {
+        const std::string line =
+            recovery_report_json(out.report, now_ns());
+        if (!out.report_path.empty()) {
+            out.report_written = append_jsonl(out.report_path, line);
+        }
+        // Alert path (spec §3.5 ladder): the fail-closed halt raises P1 —
+        // the structured stderr line is scraped by the supervisor/log
+        // pipeline (same convention as ENGINE_STALL in main.cpp) and the
+        // NATS ops channel consumes the JSONL row. Repaired/rebased
+        // recoveries still emit the row but at notice level — the service
+        // is healthy again after the probe gate.
+        const bool halted =
+            std::strcmp(out.report.outcome, "WAL_RECOVERY_HALT") == 0;
+        std::fprintf(stderr, "%s %s shard=%u wal_tail=%llu "
+                             "first_divergent_seq=%lld runbook=%s\n",
+                     halted ? "ALERT_P1" : "NOTICE",
+                     out.report.outcome, shard_id_,
+                     (unsigned long long)out.report.wal_tail,
+                     (long long)out.report.first_divergent_seq,
+                     kHaltRunbook);
+        // Mirror the JSONL row to stderr too — when no report file is
+        // configured this is the only structured copy.
+        std::fprintf(stderr, "recovery_report %s\n", line.c_str());
+    };
+
+    // ---- Level 1: CRC repair + replay (strict contract) --------------------
+    RecoveryResult r1 = recover(wal_dir, bindings, RecoverOptions{});
+    if (r1.ok()) {
+        out.result = std::move(r1);
+        out.level = 1;
+        out.outcome = out.result.outcome();  // CLEAN or WAL_REPAIRED
+        if (out.outcome != RecoveryOutcome::CLEAN) {
+            fill_report(out.result, "WAL_REPAIRED", nullptr);
+            emit_report();
+        }
+        return out;
+    }
+
+    // Level-2 rebase requires empty bound books — it re-runs recover() in
+    // place. Any level-1 failure AFTER Phase-4 (restore/replay) leaves a
+    // book populated: halting is the only fail-closed answer (restart with
+    // fresh books; the report records books_dirty_on_fail).
+    bool books_dirty = false;
+    for (const auto& b : bindings) {
+        if (b.book != nullptr && b.book->live_orders() != 0) {
+            books_dirty = true;
+            break;
+        }
+    }
+
+    RecoveryResult r2;
+    char l1_status[64];
+    std::snprintf(l1_status, sizeof(l1_status), "\"level1_status\":\"%s\"",
+                  recovery_status_str(r1.status));
+
+    if (!books_dirty) {
+        out.level = 2;
+        // Forward divergence (snapshot_seq > wal_tail): peek the latest
+        // verified snapshot cursor per binding — read-only, no book
+        // mutation — and write the rebase-marker segment when the snapshot
+        // genuinely covers past the surviving tail.
+        if (snapshots_ != nullptr) {
+            uint64_t max_ss = 0;
+            bool any = false;
+            for (const auto& b : bindings) {
+                uint64_t seq = 0;
+                bool has = false;
+                std::vector<uint8_t> blob;
+                if (!snapshots_->load_latest(b.instrument_id, &seq, &blob,
+                                             &has)) {
+                    continue;  // corrupt latest — fallback/genesis decides
+                }
+                if (has) { any = true; if (seq > max_ss) max_ss = seq; }
+            }
+            if (any && max_ss > r1.wal_tail) {
+                if (write_rebase_marker(dir_str,
+                                        static_cast<uint16_t>(shard_id_),
+                                        max_ss)) {
+                    out.rebase_marker_written = true;
+                }
+            }
+        }
+        RecoverOptions rebase_opts;
+        rebase_opts.snapshot_fallback = true;
+        rebase_opts.tolerate_covered_damage = true;
+        r2 = recover(wal_dir, bindings, rebase_opts);
+        if (r2.ok()) {
+            out.result = std::move(r2);
+            out.outcome = RecoveryOutcome::SNAPSHOT_REBASED;
+            fill_report(out.result, "SNAPSHOT_REBASED", l1_status);
+            emit_report();
+            return out;
+        }
+    } else {
+        out.books_dirty_on_fail = true;
+    }
+
+    // ---- Level 3: fail-closed halt (last resort) ----------------------------
+    out.level = 3;
+    out.outcome = RecoveryOutcome::HALTED;
+    // Report the most diagnostic attempt: the level-2 result when it ran
+    // (it reflects post-repair/post-rebase state), else level-1.
+    out.result = books_dirty ? r1 : r2;
+    std::string extra(l1_status);
+    if (!books_dirty && r2.status != RecoveryStatus::Ok) {
+        extra += ",\"level2_status\":\"";
+        json_escape_to(extra, recovery_status_str(r2.status));
+        extra += "\"";
+    }
+    if (books_dirty) extra += ",\"books_dirty_on_fail\":true";
+    fill_report(out.result, "WAL_RECOVERY_HALT", extra.c_str());
+    emit_report();
+    return out;
 }
 
 }  // namespace exch

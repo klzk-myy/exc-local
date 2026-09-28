@@ -171,9 +171,15 @@ bool FileSnapshotSink::store(uint32_t instrument_id, uint64_t seq,
     return true;
 }
 
-bool FileSnapshotSink::load_latest(uint32_t instrument_id, uint64_t* seq_out,
-                                   std::vector<uint8_t>* blob_out,
-                                   bool* has_snapshot) noexcept {
+// Shared loader: `rank` 0 = newest snapshot, 1 = previous generation
+// (Task 4.3.5 rebase fallback — keep_>=2 retains it). Same fail-closed
+// integrity discipline as load_latest: header cross-checks, exact size,
+// full-payload CRC32C (the payload checksum IS the divergence guard —
+// see the design note on load_latest).
+bool FileSnapshotSink::load_nth(uint32_t instrument_id, uint32_t rank,
+                                uint64_t* seq_out,
+                                std::vector<uint8_t>* blob_out,
+                                bool* has_snapshot) noexcept {
     last_errno_ = 0;
     *has_snapshot = false;
     *seq_out = 0;
@@ -185,11 +191,9 @@ bool FileSnapshotSink::load_latest(uint32_t instrument_id, uint64_t* seq_out,
         return !ec;  // no directory = clean cold start
     }
 
-    // Newest = max seq in a snap_*.bin name (the rename target — tmp files are
+    // Ranked by seq in the snap_*.bin name (the rename target — tmp files are
     // never candidates).
-    uint64_t best_seq = 0;
-    std::string best_path;
-    bool found = false;
+    std::vector<std::pair<uint64_t, std::string>> found;
     for (const auto& de : std::filesystem::directory_iterator(dir, ec)) {
         if (ec) return false;
         std::error_code tec;
@@ -197,13 +201,13 @@ bool FileSnapshotSink::load_latest(uint32_t instrument_id, uint64_t* seq_out,
         const std::string name = de.path().filename().string();
         uint64_t fseq = 0;
         if (!snap_file_seq(name, &fseq)) continue;
-        if (!found || fseq > best_seq) {
-            found = true;
-            best_seq = fseq;
-            best_path = de.path().string();
-        }
+        found.emplace_back(fseq, de.path().string());
     }
-    if (!found) return true;  // directory exists but empty — cold start
+    if (found.size() <= rank) return true;  // fewer generations than asked
+    std::sort(found.begin(), found.end(),
+              [](const auto& a, const auto& b) { return a.first > b.first; });
+    const uint64_t best_seq = found[rank].first;
+    const std::string best_path = found[rank].second;
 
     const int fd = ::open(best_path.c_str(), O_RDONLY | O_CLOEXEC);
     if (fd < 0) {
@@ -264,6 +268,18 @@ bool FileSnapshotSink::load_latest(uint32_t instrument_id, uint64_t* seq_out,
     *seq_out = fh.seq;
     *has_snapshot = true;
     return true;
+}
+
+bool FileSnapshotSink::load_latest(uint32_t instrument_id, uint64_t* seq_out,
+                                   std::vector<uint8_t>* blob_out,
+                                   bool* has_snapshot) noexcept {
+    return load_nth(instrument_id, 0, seq_out, blob_out, has_snapshot);
+}
+
+bool FileSnapshotSink::load_prior(uint32_t instrument_id, uint64_t* seq_out,
+                                  std::vector<uint8_t>* blob_out,
+                                  bool* has_prior) noexcept {
+    return load_nth(instrument_id, 1, seq_out, blob_out, has_prior);
 }
 
 // --- SnapshotStore: serialize ---------------------------------------------------

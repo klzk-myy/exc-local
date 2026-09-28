@@ -152,9 +152,9 @@ var testSchedule = []TierRule{
 func TestTierForBoundaries(t *testing.T) {
 	m := decimal.NewFromInt
 	cases := []struct {
-		name          string
-		vol, eq       decimal.Decimal
-		want          int
+		name    string
+		vol, eq decimal.Decimal
+		want    int
 	}{
 		{"zero activity → VIP0", m(0), m(0), 0},
 		{"volume just below VIP1 → VIP0", m(999_999), m(0), 0},

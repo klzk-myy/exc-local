@@ -101,6 +101,22 @@ public:
                                            uint64_t* seq_out,
                                            std::vector<uint8_t>* blob_out,
                                            bool* has_snapshot) noexcept = 0;
+
+    // Phase-04 Task 4.3.5 ladder level 2: load the NEWER-THAN-NOTHING
+    // previous generation — the second-newest retained snapshot. Used only
+    // by the snapshot-rebase path when the latest snapshot fails integrity
+    // (CRC/parse) so recovery can rebase onto the prior verified generation
+    // instead of halting. Default: sinks that retain a single generation
+    // report has_prior=false (a legal answer — never an error).
+    [[nodiscard]] virtual bool load_prior(uint32_t /*instrument_id*/,
+                                          uint64_t* seq_out,
+                                          std::vector<uint8_t>* blob_out,
+                                          bool* has_prior) noexcept {
+        *seq_out = 0;
+        blob_out->clear();
+        *has_prior = false;
+        return true;
+    }
 };
 
 // --- Phase-02 file sink ------------------------------------------------------
@@ -149,15 +165,39 @@ public:
     [[nodiscard]] bool load_latest(uint32_t instrument_id, uint64_t* seq_out,
                                    std::vector<uint8_t>* blob_out,
                                    bool* has_snapshot) noexcept override;
+    // Second-newest retained snap_*.bin (Task 4.3.5 rebase fallback). False
+    // on I/O/integrity failure exactly like load_latest.
+    [[nodiscard]] bool load_prior(uint32_t instrument_id, uint64_t* seq_out,
+                                  std::vector<uint8_t>* blob_out,
+                                  bool* has_prior) noexcept override;
 
     [[nodiscard]] const std::string& root() const noexcept { return root_; }
     [[nodiscard]] int last_errno() const noexcept { return last_errno_; }
+
+    // Phase-04 Task 4.3.1 — the snapshot-ready notification must name the
+    // file exactly the way store() wrote it; expose the paths rather than
+    // duplicating the {root}/i{iid}/snap_{seq:020}.bin formula.
+    [[nodiscard]] std::string snapshot_path(uint32_t instrument_id,
+                                            uint64_t seq) const {
+        return file_for(instrument_id, seq);
+    }
+    // Path relative to root() — the field carried in SnapReadyMsg
+    // ("i{iid}/snap_{seq:020}.bin").
+    [[nodiscard]] std::string snapshot_rel_path(uint32_t instrument_id,
+                                                uint64_t seq) const {
+        return file_for(instrument_id, seq).substr(root_.size() + 1);
+    }
 
 private:
     // {root}/i{instrument_id}/snap_{seq:020}.bin
     [[nodiscard]] std::string dir_for(uint32_t instrument_id) const;
     [[nodiscard]] std::string file_for(uint32_t instrument_id,
                                        uint64_t seq) const;
+    // Shared loader behind load_latest/load_prior: rank 0 = newest.
+    [[nodiscard]] bool load_nth(uint32_t instrument_id, uint32_t rank,
+                                uint64_t* seq_out,
+                                std::vector<uint8_t>* blob_out,
+                                bool* has_snapshot) noexcept;
 
     std::string root_;
     uint16_t shard_id_;

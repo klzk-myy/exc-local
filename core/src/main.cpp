@@ -29,6 +29,7 @@
 #include "matching/MatchingEngine.hpp"
 #include "matching/WalWriter.hpp"
 #include "recovery/RecoveryManager.hpp"
+#include "recovery/SnapshotManager.hpp"
 #include "recovery/SnapshotStore.hpp"
 #include "risk/EngineRiskAdapter.hpp"
 #include "risk/PreTradeChecker.hpp"
@@ -48,7 +49,8 @@ void usage(const char* argv0) {
                  "          [-poison-log <path>] [-idle-sleep-ns <ns>]\n"
                  "          [-instrument-id <n>] [-dev-all-accounts]\n"
                  "          [-snap-dir <dir>] [-snapshot-trades <n>]\n"
-                 "          [-snapshot-interval-s <s>]\n",
+                 "          [-snapshot-interval-s <s>] [-follower]\n"
+                 "          [-report-log <path>]\n",
                  argv0);
 }
 
@@ -95,6 +97,7 @@ struct SnapshotCtx {
     exch::SnapshotStore* store;
     exch::OrderBook* book;
     exch::Wal* wal;
+    exch::SnapshotManager* mgr;   // Task 4.3.1 — PG persist notify + WAL trim
     uint32_t instrument_id;
     uint64_t last_trades = 0;
     bool store_failed = false;
@@ -108,6 +111,18 @@ void on_snapshot_tick(void* raw, uint64_t now_ns,
     c->last_trades = trades_emitted;
     const exch::SnapshotOutcome oc = c->store->maybe_snapshot(
         *c->book, c->instrument_id, c->wal->tail_seq(), now_ns, delta);
+    // Task 4.3.1: a stored snapshot is handed to the Go recovery service
+    // (compact SnapReadyMsg on the shm ring — the file is the transport),
+    // and confirmed snapshots trim sealed WAL segments. Both are cold-path,
+    // non-blocking, and their failures degrade safely (dir scan catches
+    // missed notifies; un-acked WAL simply stays untrimmed).
+    if (oc == exch::SnapshotOutcome::Taken && c->mgr != nullptr) {
+        (void)c->mgr->notify_stored(c->instrument_id,
+                                    c->store->last_snapshot_seq());
+    }
+    if (c->mgr != nullptr) {
+        c->mgr->poll_acks(*c->wal);
+    }
     // Snapshot failure must not kill the matching loop (journaling is the
     // durability guarantee; the snapshot is a recovery accelerator) — but a
     // persistent failure MUST be observable: report on the transition only,
@@ -183,6 +198,10 @@ int main(int argc, char** argv) {
     std::string snap_dir = "snapshots";
     uint32_t snapshot_trades = 0;      // 0 -> SnapshotPolicy default
     uint32_t snapshot_interval_s = 0;  // 0 -> SnapshotPolicy default
+    bool follower = false;             // warm standby: skip snapshot/replay
+    // recovery_reports JSONL sink (migration 065; the Go wal-recovery CLI's
+    // persist-reports drains it into PostgreSQL — the core never speaks PG).
+    std::string report_log;
 
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "-shard") == 0) {
@@ -236,6 +255,14 @@ int main(int argc, char** argv) {
             }
         } else if (std::strcmp(argv[i], "-dev-all-accounts") == 0) {
             dev_all_accounts = true;
+        } else if (std::strcmp(argv[i], "-follower") == 0) {
+            follower = true;
+        } else if (std::strcmp(argv[i], "-report-log") == 0) {
+            if (++i >= argc) {
+                usage(argv[0]);
+                return 2;
+            }
+            report_log = argv[i];
         } else if (std::strcmp(argv[i], "-h") == 0 || std::strcmp(argv[i], "--help") == 0) {
             usage(argv[0]);
             return 0;
@@ -351,25 +378,113 @@ int main(int argc, char** argv) {
             static_cast<uint64_t>(snapshot_interval_s) * 1'000'000'000ull;
     }
     exch::SnapshotStore snap_store(snap_sink, snap_policy);
-    SnapshotCtx snap_ctx{&snap_store, &book, &wal, instrument_id, 0};
+
+    // Task 4.3.1 — PostgreSQL snapshot persistence seam. The snap files
+    // remain the bulk transport (shared dir); the ring pair carries only
+    // the compact ready/ack descriptors:
+    //   "{base}_{shard}_snap"      core -> Go   SnapReadyMsg
+    //   "{base}_{shard}_snap_ack"  Go -> core   SnapAckMsg (trim gate)
+    exch::SnapshotManager snap_mgr(static_cast<uint16_t>(shard), snap_sink);
+    snap_mgr.open(exch::snap_ready_name(ipc_base,
+                                        static_cast<uint16_t>(shard)),
+                  exch::snap_ack_name(ipc_base, static_cast<uint16_t>(shard)));
+    if (!snap_mgr.notify_open() || !snap_mgr.ack_open()) {
+        std::fprintf(stderr,
+                     "WARN: snapshot PG seam degraded (notify=%d ack=%d) — "
+                     "Go recovery dir-scan still persists snapshots; "
+                     "WAL trim idles until ack ring attaches\n",
+                     snap_mgr.notify_open() ? 1 : 0,
+                     snap_mgr.ack_open() ? 1 : 0);
+    }
+    SnapshotCtx snap_ctx{&snap_store, &book, &wal, &snap_mgr, instrument_id, 0};
     engine.set_snapshot_hook(&on_snapshot_tick, &snap_ctx);
 
     // --- Boot recovery (Task 2.3.4 / Phase-02.5 failover benchmark) --------
     // Replay snapshot + WAL tail into the book BEFORE the pump opens the
     // ingress ring: a restarted shard resumes with the exact pre-crash state.
     // Fail-closed — an unverifiable journal halts the boot (spec §2.7/§3.5).
-    exch::RecoveryManager recovery(shard, snap_sink);
-    {
-        const exch::RecoveryResult rr =
-            recovery.recover(shard_dir.string(),
-                             {{instrument_id, &book, &orders}});
-        if (!rr.ok()) {
+    // Task 4.3.5 graduated ladder: Level-1 torn-tail CRC repair + replay →
+    // Level-2 snapshot rebase → Level-3 fail-closed halt (recovery_reports
+    // JSONL row + ALERT_P1, MarketDataOnly pinned).
+    exch::ModeManager modes;
+    if (follower) {
+        // Warm-standby follower (Task 4.3.5): never treats its local WAL as
+        // authoritative — no snapshot load, no replay; book starts empty
+        // and leader output feeds it via the Phase-06 transport seam.
+        std::fprintf(stderr,
+                     "exchange_engine: follower mode — snapshot load and WAL "
+                     "replay skipped; book is empty until the leader-output "
+                     "seam binds (no trading traffic before promotion)\n");
+    } else {
+        exch::RecoveryManager recovery(shard, snap_sink);
+        const exch::RecoveryLadderResult lad = recovery.recover_ladder(
+            shard_dir.string(), {{instrument_id, &book, &orders}}, report_log);
+        const exch::RecoveryResult& rr = lad.result;
+        if (lad.outcome == exch::RecoveryOutcome::HALTED) {
+            // Level 3 — the ladder already appended the WAL_RECOVERY_HALT
+            // row and emitted ALERT_P1. Pin MarketDataOnly and stop before
+            // any traffic can reach the book (fail-closed, spec §2.7).
+            modes.set_mode(exch::DegradationMode::MarketDataOnly,
+                           "wal recovery halt — unrecoverable divergence");
             std::fprintf(stderr,
-                         "FATAL: wal recovery failed status=%d detail=%s\n",
-                         static_cast<int>(rr.status), rr.detail);
+                         "FATAL: WAL_RECOVERY_HALT status=%d "
+                         "first_divergent_seq=%llu instrument=%u "
+                         "detail=%s runbook=docs/runbooks/wal-recovery-halt.md\n",
+                         static_cast<int>(rr.status),
+                         (unsigned long long)rr.first_divergent_seq,
+                         rr.detail_instrument, rr.detail);
             wal.close();
             core_chan.close();
             return 1;
+        }
+        if (lad.outcome != exch::RecoveryOutcome::CLEAN) {
+            // Repaired or rebased — Maintenance-resume probe gate (spec §3.5
+            // step a): prove the recovered engine executes a full order
+            // lifecycle on a synthetic order before traffic may reopen.
+            modes.set_mode(exch::DegradationMode::Maintenance,
+                           "recovery repair — synthetic probe gate");
+            const uint64_t base_orders = book.live_orders();
+            const char* violation = nullptr;
+            bool probe_ok = book.validate(&violation);
+            if (probe_ok) {
+                exch::Order* p = orders.alloc();
+                if (p != nullptr) {
+                    *p = exch::Order{};
+                    p->id = 0xFFFFFFFFFFFFFE00ULL;  // probe sentinel id
+                    p->account_id = 1;
+                    p->side = exch::Side::BUY;
+                    p->type = exch::OrderType::LIMIT;
+                    p->tif = exch::TimeInForce::GTC;
+                    p->price_ticks = 1;  // far off any real touch
+                    p->qty_units = 1;
+                    p->timestamp_ns = exch::now_ns();
+                    exch::OrderAux aux{};
+                    engine.on_order_received(p, aux);
+                    engine.on_cancel_received(p->id, p->account_id);
+                    const char* v2 = nullptr;
+                    probe_ok = book.validate(&v2) &&
+                               book.live_orders() == base_orders;
+                    if (!probe_ok && v2 != nullptr) violation = v2;
+                } else {
+                    probe_ok = false;
+                }
+            }
+            if (!probe_ok) {
+                modes.set_mode(exch::DegradationMode::MarketDataOnly,
+                               "recovery probe failed");
+                std::fprintf(stderr,
+                             "ALERT_P1 WAL_RECOVERY_HALT shard=%" PRIu32
+                             " detail=\"post-repair probe failed: %s\" "
+                             "runbook=docs/runbooks/wal-recovery-halt.md\n",
+                             shard,
+                             violation != nullptr ? violation
+                                                  : "probe alloc/exhausted");
+                wal.close();
+                core_chan.close();
+                return 1;
+            }
+            modes.set_mode(exch::DegradationMode::Normal,
+                           "recovery probe passed — traffic reopened");
         }
         if (rr.max_trade_id > 0) {
             // Post-recovery fills must not reuse journaled trade ids — the
@@ -377,17 +492,20 @@ int main(int argc, char** argv) {
             engine.seed_trade_id(rr.max_trade_id + 1);
         }
         std::fprintf(stderr,
-                     "recovery: entries=%llu applied=%llu derived=%llu "
-                     "dedup=%llu tail=%llu%s\n",
+                     "recovery: level=%u entries=%llu applied=%llu "
+                     "derived=%llu dedup=%llu covered_gap_seqs=%llu "
+                     "tail=%llu%s%s\n",
+                     static_cast<unsigned>(lad.level),
                      (unsigned long long)rr.entries_replayed,
                      (unsigned long long)rr.mutations_applied,
                      (unsigned long long)rr.trades_derived,
                      (unsigned long long)rr.dedup_skips,
+                     (unsigned long long)rr.covered_gap_seqs,
                      (unsigned long long)rr.wal_tail,
-                     rr.tail_truncated ? " (torn tail truncated)" : "");
+                     rr.tail_truncated ? " (torn tail truncated)" : "",
+                     rr.snapshot_fallback ? " (snapshot fallback)" : "");
     }
 
-    exch::ModeManager modes;
     exch::HealthChecker health(modes);
     exch::LeaderElection election(shard);
     (void)health;
@@ -424,7 +542,13 @@ int main(int argc, char** argv) {
         exch::SnapshotOutcome::Taken) {
         std::fprintf(stderr, "snapshot stored at seq=%llu\n",
                      (unsigned long long)wal.tail_seq());
+        (void)snap_mgr.notify_stored(instrument_id,
+                                     snap_store.last_snapshot_seq());
     }
+    // Last ack drain before the WAL closes: a confirmation that arrived
+    // during the final snapshot still gets its trim.
+    (void)snap_mgr.poll_acks(wal);
+    snap_mgr.close();
     (void)wal.flush();
     wal.close();
     core_chan.close();
