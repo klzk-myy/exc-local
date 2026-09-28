@@ -66,22 +66,22 @@ Implement the C++ matching engine: order book data structure, price-time priorit
 7. Stop orders: enqueue in stop queue; trigger when market price crosses stop price.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Limit order matches correctly against opposite book (price-time priority)
-* [ ] Market order fills until exhausted or book empty
-* [ ] FOK fills fully or cancels with zero partial fill
-* [ ] IOC fills partially and cancels remainder
-* [ ] Self-trade prevention: no account trades against itself
-* [ ] ICEBERG: visible slice fills, hidden portion replenishes; total fill = order quantity
-* [ ] Stop order triggers when market price crosses stop price
-* [ ] Concurrent cancel requests for the same order resolve to a single cancel — locked balance released exactly once, no double-credit (spec §24 #10)
+* [x] Limit order matches correctly against opposite book (price-time priority)
+* [x] Market order fills until exhausted or book empty
+* [x] FOK fills fully or cancels with zero partial fill
+* [x] IOC fills partially and cancels remainder
+* [x] Self-trade prevention: no account trades against itself
+* [x] ICEBERG: visible slice fills, hidden portion replenishes; total fill = order quantity
+* [x] Stop order triggers when market price crosses stop price
+* [x] Concurrent cancel requests for the same order resolve to a single cancel — locked balance released exactly once, no double-credit (spec §24 #10)
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: price-time priority matching — defined first, validated against spec
-- [ ] Spec checkpoint: self-trade prevention — defined first, validated against spec
-- [ ] Spec checkpoint: FOK/IOC semantics — defined first, validated against spec
-- [ ] Spec checkpoint: ICEBERG visible/hidden slices — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: empty book, cross-trade, partial fill, self-trade, ICEBERG replenish race
+- [x] Spec checkpoint: price-time priority matching — defined first, validated against spec
+- [x] Spec checkpoint: self-trade prevention — defined first, validated against spec
+- [x] Spec checkpoint: FOK/IOC semantics — defined first, validated against spec
+- [x] Spec checkpoint: ICEBERG visible/hidden slices — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [x] Edge cases: empty book, cross-trade, partial fill, self-trade, ICEBERG replenish race
 
 ---
 
@@ -121,18 +121,18 @@ Implement the C++ matching engine: order book data structure, price-time priorit
 - **Throttled tiered priority** (AC #41): Rate limit tiers are Phase 5 (Task 5.3.2). During Phase 2, Throttled mode uses a simple rate cap; Phase 5 wires the tiered priority queue.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] All 14 checks execute in < 10µs total (supersedes prior "10 checks")
-* [ ] Rejected orders emit specific error code (INSUFFICIENT_BALANCE, PRICE_OUT_OF_BAND, MIN_NOTIONAL_VIOLATION, POST_ONLY_VIOLATION, REDUCE_ONLY_VIOLATION, etc.)
-* [ ] Checks run in order: cheapest first (account status) → most expensive last (margin)
-* [ ] No IPC for risk checks (all in-process)
-* [ ] Tick/lot violations rejected; min-notional violations rejected with `MIN_NOTIONAL_VIOLATION`
-* [ ] `post_only` marketable order rejected; `reduce_only` without position rejected (stub during Phase 2 per note above)
+* [x] All 14 checks execute in < 10µs total (supersedes prior "10 checks")
+* [x] Rejected orders emit specific error code (INSUFFICIENT_BALANCE, PRICE_OUT_OF_BAND, MIN_NOTIONAL_VIOLATION, POST_ONLY_VIOLATION, REDUCE_ONLY_VIOLATION, etc.)
+* [x] Checks run in order: cheapest first (account status) → most expensive last (margin)
+* [x] No IPC for risk checks (all in-process)
+* [x] Tick/lot violations rejected; min-notional violations rejected with `MIN_NOTIONAL_VIOLATION`
+* [x] `post_only` marketable order rejected; `reduce_only` without position rejected (stub during Phase 2 per note above)
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: 14 pre-trade risk checks in-process — defined first, validated against spec
-- [ ] Spec checkpoint: sub-10µs risk check latency — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: insufficient balance, suspended account, halted instrument, circuit breaker open
+- [x] Spec checkpoint: 14 pre-trade risk checks in-process — defined first, validated against spec
+- [x] Spec checkpoint: sub-10µs risk check latency — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [x] Edge cases: insufficient balance, suspended account, halted instrument, circuit breaker open
 
 ---
 
@@ -150,19 +150,19 @@ Implement the C++ matching engine: order book data structure, price-time priorit
 5. WAL trim: only after PostgreSQL persistence confirmed + S3 archive confirmed.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Every state change produces a WAL entry with correct seq and CRC32
-* [ ] fsync per batch (1ms or 100 events) verified via strace
-* [ ] Recovery: snapshot + WAL replay restores exact book state
-* [ ] Boot-time invariant: book_seq == WAL tail; fail-closed on mismatch
-* [ ] Zero duplicate trades on recovery (idempotent replay via seq)
-* [ ] Zero missing trades on recovery
+* [x] Every state change produces a WAL entry with correct seq and CRC32
+* [x] fsync per batch (1ms or 100 events) verified via strace
+* [x] Recovery: snapshot + WAL replay restores exact book state
+* [x] Boot-time invariant: book_seq == WAL tail; fail-closed on mismatch
+* [x] Zero duplicate trades on recovery (idempotent replay via seq)
+* [x] Zero missing trades on recovery
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: WAL entry per state change with CRC32 — defined first, validated against spec
-- [ ] Spec checkpoint: snapshot + WAL replay exact recovery — defined first, validated against spec
-- [ ] Spec checkpoint: zero dup/miss on recovery — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: partial write (crash mid-entry), WAL corruption, snapshot stale
+- [x] Spec checkpoint: WAL entry per state change with CRC32 — defined first, validated against spec
+- [x] Spec checkpoint: snapshot + WAL replay exact recovery — defined first, validated against spec
+- [x] Spec checkpoint: zero dup/miss on recovery — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [x] Edge cases: partial write (crash mid-entry), WAL corruption, snapshot stale
 
 ---
 
@@ -239,16 +239,16 @@ Implement the C++ matching engine: order book data structure, price-time priorit
 5. Metrics: queue depth, messages/sec, latency histogram.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Inbound: Go writes 50k orders/sec, C++ reads all with zero loss
-* [ ] Outbound: C++ writes 50k fills/sec, Go reads all with zero loss
-* [ ] Round-trip latency (Go → C++ → Go) < 10µs p99
-* [ ] Backpressure: queue full → ENGINE_OVERLOAD alert; Go retries
+* [x] Inbound: Go writes 50k orders/sec, C++ reads all with zero loss
+* [x] Outbound: C++ writes 50k fills/sec, Go reads all with zero loss
+* [x] Round-trip latency (Go → C++ → Go) < 10µs p99
+* [x] Backpressure: queue full → ENGINE_OVERLOAD alert; Go retries
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: Aeron/shared-memory IPC zero-loss — defined first, validated against spec
-- [ ] Spec checkpoint: sub-10µs IPC round-trip — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: queue full, consumer slow, producer crash
+- [x] Spec checkpoint: Aeron/shared-memory IPC zero-loss — defined first, validated against spec
+- [x] Spec checkpoint: sub-10µs IPC round-trip — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [x] Edge cases: queue full, consumer slow, producer crash
 
 ---
 
@@ -296,14 +296,14 @@ Implement the C++ matching engine: order book data structure, price-time priorit
 3. Check runs immediately AFTER the per-account collar.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Per-account collar: 51st order/sec rejected with `RATE_LIMIT_EXCEEDED`
-* [ ] Price band: price beyond band rejected with `PRICE_OUT_OF_BAND`
-* [ ] Band thresholds configurable per instrument
+* [x] Per-account collar: 51st order/sec rejected with `RATE_LIMIT_EXCEEDED`
+* [x] Price band: price beyond band rejected with `PRICE_OUT_OF_BAND`
+* [x] Band thresholds configurable per instrument
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: per-account collar + price band — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: first order (no last_price), collar burst, band edge
+- [x] Spec checkpoint: per-account collar + price band — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [x] Edge cases: first order (no last_price), collar burst, band edge
 
 ---
 
@@ -321,17 +321,17 @@ Implement the C++ matching engine: order book data structure, price-time priorit
 5. **Deterministic time injection (WAL TIME_TICK):** The matching thread MUST NOT call `clock_gettime()` or any system clock function for expiry evaluation. Instead, the gateway sends periodic `TIME_TICK` IPC commands (cadence: every 100ms) carrying a monotonic wall-clock timestamp; **the matching thread itself stamps and appends the WAL entry** — the gateway never writes the WAL (single-writer invariant, remediation #35 — supersedes the prior "the gateway injects periodic TIME_TICK WAL events" wording, which gave the gateway a write path into the engine-owned WAL). TIME_TICK is registered in the §3.4 event-type enum. The ExpiryScheduler evaluates the min-heap against the latest TIME_TICK timestamp only — ensuring 100% deterministic replay. On WAL recovery, time advances exactly as recorded. (Added 2026-09-15 — production-completeness audit remediation #4: fixes non-deterministic replay when system clock jitter causes expiry ordering divergence.)
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] GTD order expires at its timestamp → status EXPIRED, balance unlocked exactly once
-* [ ] DAY order expires at end of trading day; orders spanning weekend close expire Friday 22:00 UTC
-* [ ] Expired order emits WAL `ORDER_CANCEL` + `EXPIRED` status → `order_expired` event
-* [ ] TIME_TICK WAL events injected every 100ms; expiry scheduler uses only WAL timestamps, never system clock
-* [ ] WAL replay of GTD expiry produces identical cancellation sequence regardless of replay speed
+* [x] GTD order expires at its timestamp → status EXPIRED, balance unlocked exactly once
+* [x] DAY order expires at end of trading day; orders spanning weekend close expire Friday 22:00 UTC
+* [x] Expired order emits WAL `ORDER_CANCEL` + `EXPIRED` status → `order_expired` event
+* [x] TIME_TICK WAL events injected every 100ms; expiry scheduler uses only WAL timestamps, never system clock
+* [x] WAL replay of GTD expiry produces identical cancellation sequence regardless of replay speed
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: GTD/DAY time-in-force (spec §5.4/§6.1) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: expiry vs in-flight fill race, expiry during halted book, DAY across weekend boundary
-- [ ] Edge cases: TIME_TICK gap during leader failover (catchup from new leader's clock), replay at 100x speed produces identical sequence
+- [x] Spec checkpoint: GTD/DAY time-in-force (spec §5.4/§6.1) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [x] Edge cases: expiry vs in-flight fill race, expiry during halted book, DAY across weekend boundary
+- [x] Edge cases: TIME_TICK gap during leader failover (catchup from new leader's clock), replay at 100x speed produces identical sequence
 
 ---
 
@@ -500,13 +500,13 @@ STP mode `NONE` (disabled) — gated to `PROFESSIONAL` and `ELIGIBLE_COUNTERPART
 4. **In-Process Watchdog Thread & Systemd Heartbeat:** Implement dedicated `std::jthread WatchdogThread` sampled at 100µs intervals monitoring `matching_loop_last_tick_tsc`. If cycle duration exceeds 500µs, logs non-blocking telemetry warning; if cycle stalls beyond 2ms (L0 catastrophic threshold), triggers immediate dirty WAL flush, releases Redis shard leader lock, and halts matching core to enable instant hot-standby promotion. Pings host supervisor via `sd_notify(0, "WATCHDOG=1")` per spec §3.6 and §19.13.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Ring buffer backpressure triggers shedding at 80% and ingress halt at 95%
-* [ ] Poison-pill quarantine catches decoding errors without crashing matching thread
-* [ ] In-process watchdog thread monitors loop cycle with 100µs sampling, 500µs warning, 2ms L0 halt, and systemd watchdog heartbeat
+* [x] Ring buffer backpressure triggers shedding at 80% and ingress halt at 95%
+* [x] Poison-pill quarantine catches decoding errors without crashing matching thread
+* [x] In-process watchdog thread monitors loop cycle with 100µs sampling, 500µs warning, 2ms L0 halt, and systemd watchdog heartbeat
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: Matching engine backpressure, ring buffer watermarks, and poison-pill containment fail closed (§24 #299) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: Matching engine backpressure, ring buffer watermarks, and poison-pill containment fail closed (§24 #299) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 

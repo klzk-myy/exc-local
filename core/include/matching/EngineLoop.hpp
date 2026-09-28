@@ -40,25 +40,30 @@ namespace exch {
 // loop; reports level transitions through a function-pointer sink (no
 // std::function alloc, noexcept call sites).
 class Watchdog {
-public:
+   public:
     enum class Level : uint8_t { Ok = 0, Warn = 1, Stall = 2 };
 
     struct Thresholds {
-        int64_t sample_ns = 100'000;         // 100µs sampling cadence
-        int64_t warn_ns = 500'000;           // >500µs stale -> WARN
-        int64_t stall_ns = 2'000'000'000;    // >2s stale -> STALL (see header)
+        int64_t sample_ns = 100'000;       // 100µs sampling cadence
+        int64_t warn_ns = 500'000;         // >500µs stale -> WARN
+        int64_t stall_ns = 2'000'000'000;  // >2s stale -> STALL (see header)
     };
 
     // level, observed staleness ns, last beat value. Called from the watchdog
     // thread (or the test's thread) on every transition into Warn/Stall.
-    using report_fn = void (*)(void* ctx, Level level, int64_t stale_ns,
-                               uint64_t beat) noexcept;
+    // A throwing sink is swallowed at the call site.
+    using report_fn = void (*)(void* ctx, Level level, int64_t stale_ns, uint64_t beat);
 
     // beat/last_beat_ns must outlive the Watchdog (EngineLoop member layout
     // guarantees this — the atomics are declared before the watchdog member).
-    Watchdog(const std::atomic<uint64_t>* beat,
-             const std::atomic<int64_t>* last_beat_ns, Thresholds t,
-             report_fn fn = nullptr, void* ctx = nullptr) noexcept;
+    // `parked` (nullable) suppresses WARN while the loop is in a deliberate
+    // idle_sleep park — parked time is loop policy, not a slow cycle. STALL
+    // still fires: a park that never returns (hang inside sleep is
+    // impossible, so staleness then means the wake path wedged) is a real
+    // stall. Suppressed warns accumulate in warn_suppressed_.
+    Watchdog(const std::atomic<uint64_t>* beat, const std::atomic<int64_t>* last_beat_ns,
+             Thresholds t, report_fn fn = nullptr, void* ctx = nullptr,
+             const std::atomic<bool>* parked = nullptr) noexcept;
 
     // One staleness probe with an explicit monotonic clock reading — the
     // testable core. Returns the observed level; fires the sink on a
@@ -78,10 +83,12 @@ public:
     [[nodiscard]] uint64_t warn_samples() const noexcept { return warn_samples_; }
     [[nodiscard]] uint64_t stall_samples() const noexcept { return stall_samples_; }
     [[nodiscard]] uint64_t stall_reports() const noexcept { return stall_reports_; }
+    // WARNs suppressed because the loop was in a deliberate idle park.
+    [[nodiscard]] uint64_t warn_suppressed() const noexcept { return warn_suppressed_; }
 
     static const char* level_name(Level l) noexcept;
 
-private:
+   private:
     const std::atomic<uint64_t>* beat_;
     const std::atomic<int64_t>* last_beat_ns_;
     Thresholds t_;
@@ -89,9 +96,11 @@ private:
     void* ctx_ = nullptr;
 
     Level armed_ = Level::Ok;  // edge detection — re-arms on a fresh beat
+    const std::atomic<bool>* parked_ = nullptr;  // nullable — see ctor doc
     uint64_t warn_samples_ = 0;
     uint64_t stall_samples_ = 0;
     uint64_t stall_reports_ = 0;
+    uint64_t warn_suppressed_ = 0;
 
     std::jthread th_;
 };
@@ -99,15 +108,15 @@ private:
 // --- EngineLoop -----------------------------------------------------------------
 
 struct EngineLoopConfig {
-    uint32_t max_batch = 256;               // inbound frames drained per cycle
-    int64_t tick_interval_ns = 1'000'000;   // on_time_tick cadence (1ms)
+    uint32_t max_batch = 256;              // inbound frames drained per cycle
+    int64_t tick_interval_ns = 1'000'000;  // on_time_tick cadence (1ms)
     // Pause when a cycle drains nothing. 0 = hot spin (matching-core default).
     // Must stay << watchdog_warn_ns or an idle loop reads as a stalled one.
     int64_t idle_sleep_ns = 0;
     // §2.7.3 watermarks (percent of inbound ring capacity).
-    uint64_t shed_watermark_pct = 80;       // >80%: shed new orders
-    uint64_t halt_watermark_pct = 95;       // >95%: halt ingress this cycle
-    uint64_t critical_report_stride = 1024; // CRITICAL_BACKPRESSURE stride
+    uint64_t shed_watermark_pct = 80;        // >80%: shed new orders
+    uint64_t halt_watermark_pct = 95;        // >95%: halt ingress this cycle
+    uint64_t critical_report_stride = 1024;  // CRITICAL_BACKPRESSURE stride
     Watchdog::Thresholds watchdog{};
 };
 
@@ -115,16 +124,16 @@ struct EngineLoopConfig {
 // single writer is the loop thread running spin_once).
 struct EngineLoopStats {
     std::atomic<uint64_t> loop_iters{0};
-    std::atomic<uint64_t> queue_depth{0};        // last inbound occupancy sample
-    std::atomic<uint64_t> shed_cycles{0};        // cycles run under the shed wm
-    std::atomic<uint64_t> critical_bp_events{0}; // cycles under the halt wm
+    std::atomic<uint64_t> queue_depth{0};         // last inbound occupancy sample
+    std::atomic<uint64_t> shed_cycles{0};         // cycles run under the shed wm
+    std::atomic<uint64_t> critical_bp_events{0};  // cycles under the halt wm
     std::atomic<int64_t> last_cycle_ns{0};
     std::atomic<int64_t> max_cycle_ns{0};
-    LatencyHistogram cycle_hist;                 // per-cycle duration, ns
+    LatencyHistogram cycle_hist;  // per-cycle duration, ns
 };
 
 class EngineLoop {
-public:
+   public:
     // pump must outlive the loop. Watchdog thresholds come from cfg.
     EngineLoop(EnginePump* pump, EngineLoopConfig cfg = {}) noexcept;
     ~EngineLoop();
@@ -154,9 +163,7 @@ public:
     }
 
     // Liveness surface the Watchdog samples.
-    [[nodiscard]] const std::atomic<uint64_t>& loop_beat() const noexcept {
-        return loop_beat_;
-    }
+    [[nodiscard]] const std::atomic<uint64_t>& loop_beat() const noexcept { return loop_beat_; }
     [[nodiscard]] const std::atomic<int64_t>& last_beat_mono_ns() const noexcept {
         return last_beat_ns_;
     }
@@ -166,7 +173,7 @@ public:
     [[nodiscard]] bool ingress_halted() const noexcept { return halted_; }
     [[nodiscard]] bool shedding() const noexcept { return shedding_; }
 
-private:
+   private:
     void report(const char* code, const char* detail) noexcept;
 
     EnginePump* pump_;
@@ -175,6 +182,9 @@ private:
     // Written by the loop thread, read by the watchdog/monitor threads.
     std::atomic<uint64_t> loop_beat_{0};
     std::atomic<int64_t> last_beat_ns_{0};
+    // True while inside a deliberate idle_sleep park — the watchdog suppresses
+    // WARN (parked time is policy, not work) but never STALL.
+    std::atomic<bool> parked_{false};
 
     int64_t last_tick_mono_ = 0;
     bool halted_ = false;

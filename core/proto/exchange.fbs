@@ -14,11 +14,14 @@ namespace exc.wire;
 
 enum Side : ubyte { Buy = 0, Sell = 1 }
 
-enum OrderType : ubyte { Market = 0, Limit = 1, StopMarket = 2, StopLimit = 3 }
+enum OrderType : ubyte { Market = 0, Limit = 1, StopMarket = 2, StopLimit = 3,
+                         Iceberg = 4 }
 
 enum TimeInForce : ubyte { GTC = 0, IOC = 1, FOK = 2, GTD = 3, DAY = 4 }
 
 /// Inbound: order submission from the Go gateway to the matching core.
+/// Phase-02 extension fields are additive (FlatBuffers table append —
+/// old writers still decode, new fields default 0).
 table OrderNew {
     order_id: uint64;
     account_id: uint64;
@@ -29,12 +32,38 @@ table OrderNew {
     price: int64;          // scaled 1e8; ignored for Market
     tif: TimeInForce;
     client_order_id: string;
+    // --- Phase-02 additions (Task 2.3.2/2.3.10/2.3.11/2.3.18/2.3.26) --------
+    stp_mode: ubyte;              // StpMode; 0xFF = unset -> account default
+    flags: ubyte;                 // bit0 post_only, bit1 reduce_only
+    stop_price: int64;            // scaled 1e8; 0 unless STOP*/triggered types
+    gtd_expiry_ns: int64;         // absolute expiry for GTD; DAY resolves
+                                  // in-core via ExpiryScheduler when 0
+    display_qty: int64;           // ICEBERG visible slice; 0 = engine default
+    trade_group_id: uint32;       // accounts.trade_group_id (migration 072)
+    discretionary_offset_pips: int64;  // Task 2.3.26; 0 = none
 }
 
 /// Inbound: cancel request.
 table OrderCancel {
     order_id: uint64;
     account_id: uint64;
+}
+
+/// Inbound: deterministic clock tick (Task 2.3.10). The matching thread turns
+/// each tick into a WAL TIME_TICK entry — the gateway never writes the WAL.
+table TimeTick {
+    tick_ns: uint64;
+}
+
+/// Inbound: atomic amend/replace (Task 2.3.20). Single-thread total order —
+/// concurrent amends on the same order_seq resolve to exactly one winner.
+table OrderAmend {
+    order_id: uint64;
+    order_seq: uint64;          // expected engine seq — stale -> STALE_MODIFY
+    price: int64;               // 0 = unchanged
+    qty: int64;                 // 0 = unchanged
+    stop_price: int64;          // 0 = unchanged
+    gtd_expiry_ns: int64;       // 0 = unchanged
 }
 
 /// Outbound: execution report emitted by the matching core.
@@ -62,7 +91,10 @@ table BookSnapshot {
     asks: [PriceLevel];
 }
 
-union EventType { OrderNew, OrderCancel, TradeFill, BookSnapshot }
+// Union members are APPEND-ONLY: discriminants are wire-embedded ordinals —
+// inserting mid-union renumbers TradeFill/BookSnapshot and breaks compat.
+union EventType { OrderNew, OrderCancel, TradeFill, BookSnapshot, TimeTick,
+                  OrderAmend }
 
 /// Envelope for every IPC message. `type_type` carries the discriminator.
 table Event {

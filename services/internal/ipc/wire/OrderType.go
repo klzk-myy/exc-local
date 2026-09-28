@@ -11,6 +11,7 @@ const (
 	OrderTypeLimit      OrderType = 1
 	OrderTypeStopMarket OrderType = 2
 	OrderTypeStopLimit  OrderType = 3
+	OrderTypeIceberg    OrderType = 4
 )
 
 var EnumNamesOrderType = map[OrderType]string{
@@ -18,6 +19,7 @@ var EnumNamesOrderType = map[OrderType]string{
 	OrderTypeLimit:      "Limit",
 	OrderTypeStopMarket: "StopMarket",
 	OrderTypeStopLimit:  "StopLimit",
+	OrderTypeIceberg:    "Iceberg",
 }
 
 var EnumValuesOrderType = map[string]OrderType{
@@ -25,6 +27,7 @@ var EnumValuesOrderType = map[string]OrderType{
 	"Limit":      OrderTypeLimit,
 	"StopMarket": OrderTypeStopMarket,
 	"StopLimit":  OrderTypeStopLimit,
+	"Iceberg":    OrderTypeIceberg,
 }
 
 func (v OrderType) String() string {

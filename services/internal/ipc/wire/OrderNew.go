@@ -7,6 +7,8 @@ import (
 )
 
 /// Inbound: order submission from the Go gateway to the matching core.
+/// Phase-02 extension fields are additive (FlatBuffers table append —
+/// old writers still decode, new fields default 0).
 type OrderNew struct {
 	_tab flatbuffers.Table
 }
@@ -131,8 +133,92 @@ func (rcv *OrderNew) ClientOrderId() []byte {
 	return nil
 }
 
+func (rcv *OrderNew) StpMode() byte {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(22))
+	if o != 0 {
+		return rcv._tab.GetByte(o + rcv._tab.Pos)
+	}
+	return 0
+}
+
+func (rcv *OrderNew) MutateStpMode(n byte) bool {
+	return rcv._tab.MutateByteSlot(22, n)
+}
+
+func (rcv *OrderNew) Flags() byte {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(24))
+	if o != 0 {
+		return rcv._tab.GetByte(o + rcv._tab.Pos)
+	}
+	return 0
+}
+
+func (rcv *OrderNew) MutateFlags(n byte) bool {
+	return rcv._tab.MutateByteSlot(24, n)
+}
+
+func (rcv *OrderNew) StopPrice() int64 {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(26))
+	if o != 0 {
+		return rcv._tab.GetInt64(o + rcv._tab.Pos)
+	}
+	return 0
+}
+
+func (rcv *OrderNew) MutateStopPrice(n int64) bool {
+	return rcv._tab.MutateInt64Slot(26, n)
+}
+
+func (rcv *OrderNew) GtdExpiryNs() int64 {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(28))
+	if o != 0 {
+		return rcv._tab.GetInt64(o + rcv._tab.Pos)
+	}
+	return 0
+}
+
+func (rcv *OrderNew) MutateGtdExpiryNs(n int64) bool {
+	return rcv._tab.MutateInt64Slot(28, n)
+}
+
+func (rcv *OrderNew) DisplayQty() int64 {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(30))
+	if o != 0 {
+		return rcv._tab.GetInt64(o + rcv._tab.Pos)
+	}
+	return 0
+}
+
+func (rcv *OrderNew) MutateDisplayQty(n int64) bool {
+	return rcv._tab.MutateInt64Slot(30, n)
+}
+
+func (rcv *OrderNew) TradeGroupId() uint32 {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(32))
+	if o != 0 {
+		return rcv._tab.GetUint32(o + rcv._tab.Pos)
+	}
+	return 0
+}
+
+func (rcv *OrderNew) MutateTradeGroupId(n uint32) bool {
+	return rcv._tab.MutateUint32Slot(32, n)
+}
+
+func (rcv *OrderNew) DiscretionaryOffsetPips() int64 {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(34))
+	if o != 0 {
+		return rcv._tab.GetInt64(o + rcv._tab.Pos)
+	}
+	return 0
+}
+
+func (rcv *OrderNew) MutateDiscretionaryOffsetPips(n int64) bool {
+	return rcv._tab.MutateInt64Slot(34, n)
+}
+
 func OrderNewStart(builder *flatbuffers.Builder) {
-	builder.StartObject(9)
+	builder.StartObject(16)
 }
 func OrderNewAddOrderId(builder *flatbuffers.Builder, orderId uint64) {
 	builder.PrependUint64Slot(0, orderId, 0)
@@ -160,6 +246,27 @@ func OrderNewAddTif(builder *flatbuffers.Builder, tif TimeInForce) {
 }
 func OrderNewAddClientOrderId(builder *flatbuffers.Builder, clientOrderId flatbuffers.UOffsetT) {
 	builder.PrependUOffsetTSlot(8, flatbuffers.UOffsetT(clientOrderId), 0)
+}
+func OrderNewAddStpMode(builder *flatbuffers.Builder, stpMode byte) {
+	builder.PrependByteSlot(9, stpMode, 0)
+}
+func OrderNewAddFlags(builder *flatbuffers.Builder, flags byte) {
+	builder.PrependByteSlot(10, flags, 0)
+}
+func OrderNewAddStopPrice(builder *flatbuffers.Builder, stopPrice int64) {
+	builder.PrependInt64Slot(11, stopPrice, 0)
+}
+func OrderNewAddGtdExpiryNs(builder *flatbuffers.Builder, gtdExpiryNs int64) {
+	builder.PrependInt64Slot(12, gtdExpiryNs, 0)
+}
+func OrderNewAddDisplayQty(builder *flatbuffers.Builder, displayQty int64) {
+	builder.PrependInt64Slot(13, displayQty, 0)
+}
+func OrderNewAddTradeGroupId(builder *flatbuffers.Builder, tradeGroupId uint32) {
+	builder.PrependUint32Slot(14, tradeGroupId, 0)
+}
+func OrderNewAddDiscretionaryOffsetPips(builder *flatbuffers.Builder, discretionaryOffsetPips int64) {
+	builder.PrependInt64Slot(15, discretionaryOffsetPips, 0)
 }
 func OrderNewEnd(builder *flatbuffers.Builder) flatbuffers.UOffsetT {
 	return builder.EndObject()

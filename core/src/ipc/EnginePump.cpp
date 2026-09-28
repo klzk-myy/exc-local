@@ -3,10 +3,10 @@
 #include "ipc/EnginePump.hpp"
 
 #include <cstdio>
-#include <cstring>
 
 #include "ipc/IpcChannel.hpp"
 #include "ipc/SharedMemChannel.hpp"
+#include "matching/ExpiryScheduler.hpp"
 #include "matching/MatchingEngine.hpp"
 #include "utils/TimeUtils.hpp"
 #include "wal/Wal.hpp"
@@ -29,17 +29,15 @@ void stderr_report(void* /*ctx*/, const char* code, const char* detail) {
                  detail != nullptr ? detail : "");
 }
 
-void stderr_poison(void* /*ctx*/, const uint8_t* data, uint32_t len,
-                   const char* why) {
+void stderr_poison(void* /*ctx*/, const uint8_t* data, uint32_t len, const char* why) {
     // Bounded hex dump of the frame head — enough to identify the producer
     // bug without flooding the log under a garbage stream.
     char hex[2 * 32 + 1];
     const uint32_t n = len < 32 ? len : 32;
-    for (uint32_t i = 0; i < n; ++i)
-        std::snprintf(hex + 2 * i, 3, "%02x", data[i]);
+    for (uint32_t i = 0; i < n; ++i) std::snprintf(hex + 2 * i, 3, "%02x", data[i]);
     hex[2 * n] = '\0';
-    std::fprintf(stderr, "[P1] POISON_PILL quarantined len=%u why=%s head=%s\n",
-                 len, why != nullptr ? why : "?", hex);
+    std::fprintf(stderr, "[P1] POISON_PILL quarantined len=%u why=%s head=%s\n", len,
+                 why != nullptr ? why : "?", hex);
 }
 
 #if EXCH_PUMP_WIRE
@@ -48,33 +46,94 @@ void stderr_poison(void* /*ctx*/, const uint8_t* data, uint32_t len,
 // corrupt/out-of-range value must be rejected here rather than coerced.
 bool map_side(exc::wire::Side s, Side* out) noexcept {
     switch (s) {
-        case exc::wire::Side_Buy:  *out = Side::BUY;  return true;
-        case exc::wire::Side_Sell: *out = Side::SELL; return true;
-        default: return false;
+        case exc::wire::Side_Buy:
+            *out = Side::BUY;
+            return true;
+        case exc::wire::Side_Sell:
+            *out = Side::SELL;
+            return true;
+        default:
+            return false;
     }
 }
 
 bool map_order_type(exc::wire::OrderType t, OrderType* out) noexcept {
     switch (t) {
-        case exc::wire::OrderType_Market:    *out = OrderType::MARKET;     return true;
-        case exc::wire::OrderType_Limit:     *out = OrderType::LIMIT;      return true;
-        case exc::wire::OrderType_StopMarket: *out = OrderType::STOP;      return true;
-        case exc::wire::OrderType_StopLimit: *out = OrderType::STOP_LIMIT; return true;
-        default: return false;
+        case exc::wire::OrderType_Market:
+            *out = OrderType::MARKET;
+            return true;
+        case exc::wire::OrderType_Limit:
+            *out = OrderType::LIMIT;
+            return true;
+        case exc::wire::OrderType_StopMarket:
+            *out = OrderType::STOP;
+            return true;
+        case exc::wire::OrderType_StopLimit:
+            *out = OrderType::STOP_LIMIT;
+            return true;
+        default:
+            return false;
     }
 }
 
 bool map_tif(exc::wire::TimeInForce t, TimeInForce* out) noexcept {
     switch (t) {
-        case exc::wire::TimeInForce_GTC: *out = TimeInForce::GTC; return true;
-        case exc::wire::TimeInForce_IOC: *out = TimeInForce::IOC; return true;
-        case exc::wire::TimeInForce_FOK: *out = TimeInForce::FOK; return true;
-        case exc::wire::TimeInForce_GTD: *out = TimeInForce::GTD; return true;
-        case exc::wire::TimeInForce_DAY: *out = TimeInForce::DAY; return true;
-        default: return false;
+        case exc::wire::TimeInForce_GTC:
+            *out = TimeInForce::GTC;
+            return true;
+        case exc::wire::TimeInForce_IOC:
+            *out = TimeInForce::IOC;
+            return true;
+        case exc::wire::TimeInForce_FOK:
+            *out = TimeInForce::FOK;
+            return true;
+        case exc::wire::TimeInForce_GTD:
+            *out = TimeInForce::GTD;
+            return true;
+        case exc::wire::TimeInForce_DAY:
+            *out = TimeInForce::DAY;
+            return true;
+        default:
+            return false;
     }
 }
 #endif  // EXCH_PUMP_WIRE
+
+// B1 ingress-surface detection. Requires-expressions only yield false on
+// substitution failure — the engine type must be a dependent template
+// parameter, so the probes live here as concepts, not inline in the adapter.
+template <typename E>
+concept EngineCancelIngress =
+    requires(E* e, uint64_t a, uint64_t b) { e->on_cancel_received(a, b); };
+
+template <typename E>
+concept EngineTickIngress = requires(E* e, uint64_t t) { e->on_time_tick(t); };
+
+// if constexpr only discards in a template context — the calls route through
+// these dependent-type helpers so a missing member compiles to a counted
+// no-op today and binds automatically once B1's engine lands.
+template <typename E>
+void call_cancel(E* e, uint64_t order_id, uint64_t account_id, uint64_t* unrouted) noexcept {
+    if constexpr (EngineCancelIngress<E>) {
+        e->on_cancel_received(order_id, account_id);
+    } else {
+        (void)e;
+        (void)order_id;
+        (void)account_id;
+        ++*unrouted;
+    }
+}
+
+template <typename E>
+void call_tick(E* e, uint64_t now_ns, uint64_t* unrouted) noexcept {
+    if constexpr (EngineTickIngress<E>) {
+        e->on_time_tick(now_ns);
+    } else {
+        (void)e;
+        (void)now_ns;
+        ++*unrouted;
+    }
+}
 
 }  // namespace
 
@@ -84,29 +143,29 @@ void MatchingEngineIngress::on_order_received(Order* order) noexcept {
     if (engine_ != nullptr) engine_->on_order_received(order);
 }
 
-void MatchingEngineIngress::on_cancel_received(uint64_t order_id,
-                                               uint64_t account_id) noexcept {
-    if (engine_ == nullptr) return;
-    // B1 seam: on_cancel_received lands with Task 2.3.2. Until the member
-    // exists this compiles against the stub and counts the unrouted cancel.
-    if constexpr (requires(MatchingEngine* e, uint64_t a, uint64_t b) {
-                      e->on_cancel_received(a, b);
-                  }) {
-        engine_->on_cancel_received(order_id, account_id);
-    } else {
-        ++unrouted_cancels_;
-    }
+void MatchingEngineIngress::on_order_received_ex(Order* order,
+                                                 const OrderAux& aux) noexcept {
+    if (engine_ != nullptr) engine_->on_order_received(order, aux);
+}
+
+void MatchingEngineIngress::on_cancel_received(uint64_t order_id, uint64_t account_id) noexcept {
+    // B1 seam: on_cancel_received lands with Task 2.3.2.
+    if (engine_ != nullptr) call_cancel(engine_, order_id, account_id, &unrouted_cancels_);
 }
 
 void MatchingEngineIngress::on_time_tick(uint64_t now_ns) noexcept {
-    if (engine_ == nullptr) return;
     // B1 seam: engine clock tick for Task 2.3.10 expiry / stop-order sweeps.
-    if constexpr (requires(MatchingEngine* e, uint64_t t) {
-                      e->on_time_tick(t);
-                  }) {
-        engine_->on_time_tick(now_ns);
-    } else {
-        ++unrouted_ticks_;
+    if (engine_ != nullptr) call_tick(engine_, now_ns, &unrouted_ticks_);
+}
+
+void MatchingEngineIngress::on_amend_received(uint64_t order_id,
+                                              int64_t price_ticks,
+                                              int64_t qty_units,
+                                              int64_t stop_price_ticks,
+                                              uint64_t ingress_seq) noexcept {
+    if (engine_ != nullptr) {
+        engine_->on_amend_received(order_id, price_ticks, qty_units,
+                                   stop_price_ticks, ingress_seq);
     }
 }
 
@@ -114,15 +173,13 @@ void MatchingEngineIngress::on_time_tick(uint64_t now_ns) noexcept {
 
 void LatencyHistogram::record(uint64_t ns) noexcept {
     // floor(log2(ns)); ns==0 lands in bucket 0. clzll(0) is UB — the |1 guard.
-    const uint32_t b =
-        static_cast<uint32_t>(63 - __builtin_clzll(ns | 1));
+    const uint32_t b = static_cast<uint32_t>(63 - __builtin_clzll(ns | 1));
     buckets[b].fetch_add(1, std::memory_order_relaxed);
 }
 
 uint64_t LatencyHistogram::total() const noexcept {
     uint64_t t = 0;
-    for (uint32_t i = 0; i < kBuckets; ++i)
-        t += buckets[i].load(std::memory_order_relaxed);
+    for (uint32_t i = 0; i < kBuckets; ++i) t += buckets[i].load(std::memory_order_relaxed);
     return t;
 }
 
@@ -156,9 +213,8 @@ uint64_t LatencyHistogram::percentile_upper_ns(double q) const noexcept {
 
 // --- EnginePump ----------------------------------------------------------------
 
-EnginePump::EnginePump(IpcChannel* inbound, IpcChannel* outbound,
-                       IEngineIngress* engine, MemoryPool<Order>* orders,
-                       Wal* wal, Options opts) noexcept
+EnginePump::EnginePump(IpcChannel* inbound, IpcChannel* outbound, IEngineIngress* engine,
+                       MemoryPool<Order>* orders, Wal* wal, const Options& opts) noexcept
     : inbound_(inbound),
       outbound_(outbound),
       engine_(engine),
@@ -188,8 +244,7 @@ uint32_t EnginePump::run_once(uint32_t max_batch) noexcept {
             if (n <= 0) {
                 if (n < 0) {
                     poll_errors_.fetch_add(1, std::memory_order_relaxed);
-                    report("IPC_POLL_ERROR",
-                           "inbound poll() error or oversized frame");
+                    report("IPC_POLL_ERROR", "inbound poll() error or oversized frame");
                 }
                 break;
             }
@@ -205,8 +260,8 @@ void EnginePump::tick(uint64_t now_ns) noexcept {
     if (wal_ != nullptr && opts_.wal_log_ticks) {
         WalTimeTickPayload p{};
         p.tick_ns = now_ns;
-        if (wal_->append(WalEventType::TIME_TICK, &p,
-                         static_cast<uint32_t>(sizeof(p))) == WalStatus::Ok) {
+        if (wal_->append(WalEventType::TIME_TICK, &p, static_cast<uint32_t>(sizeof(p))) ==
+            WalStatus::Ok) {
             wal_appends_.fetch_add(1, std::memory_order_relaxed);
         } else {
             // Fail-closed: an unlogged tick must not advance the engine clock —
@@ -235,12 +290,10 @@ bool EnginePump::send_outbound(const void* data, uint32_t len) noexcept {
 }
 
 void EnginePump::note_outbound_drop() noexcept {
-    const uint64_t d =
-        overload_drops_.fetch_add(1, std::memory_order_relaxed) + 1;
+    const uint64_t d = overload_drops_.fetch_add(1, std::memory_order_relaxed) + 1;
     // Emit at the first drop then once per overload_report_every — sustained
     // saturation pages once per window, never spams.
-    const uint64_t stride =
-        opts_.overload_report_every == 0 ? 1 : opts_.overload_report_every;
+    const uint64_t stride = opts_.overload_report_every == 0 ? 1 : opts_.overload_report_every;
     if (d == 1 || d - last_overload_report_ >= stride) {
         last_overload_report_ = d;
         overload_reports_.fetch_add(1, std::memory_order_relaxed);
@@ -269,19 +322,24 @@ void EnginePump::set_report_sink(report_fn fn, void* ctx) noexcept {
 }
 
 void EnginePump::report(const char* code, const char* detail) noexcept {
-    if (report_sink_ != nullptr)
-        report_sink_(report_ctx_, code, detail);
-    else
-        stderr_report(nullptr, code, detail);
+    try {
+        if (report_sink_ != nullptr)
+            report_sink_(report_ctx_, code, detail);
+        else
+            stderr_report(nullptr, code, detail);
+    } catch (...) {
+    }  // alert path never propagates into the matching loop
 }
 
-void EnginePump::quarantine(const uint8_t* data, uint32_t len,
-                            const char* why) noexcept {
+void EnginePump::quarantine(const uint8_t* data, uint32_t len, const char* why) noexcept {
     poison_pills_.fetch_add(1, std::memory_order_relaxed);
-    if (poison_sink_ != nullptr)
-        poison_sink_(poison_ctx_, data, len, why);
-    else
-        stderr_poison(nullptr, data, len, why);
+    try {
+        if (poison_sink_ != nullptr)
+            poison_sink_(poison_ctx_, data, len, why);
+        else
+            stderr_poison(nullptr, data, len, why);
+    } catch (...) {
+    }
 }
 
 // Per-message boundary: verify -> decode -> dispatch, fully noexcept. Any
@@ -312,39 +370,35 @@ void EnginePump::dispatch(const uint8_t* data, uint32_t len) noexcept {
                     // >80% watermark (EngineLoop policy): consume-but-reject
                     // new orders — no side-effects, gateway retries by
                     // client_order_id (CAPACITY_EXCEEDED family, HTTP 503).
-                    shed_drops_.fetch_add(1, std::memory_order_relaxed);
-                    if (shed_drops_.load(std::memory_order_relaxed) %
-                            (opts_.overload_report_every == 0
-                                 ? 1
-                                 : opts_.overload_report_every) ==
-                        0)
-                        report("CAPACITY_EXCEEDED",
-                               "shedding inbound OrderNew (>80% watermark)");
+                    const uint64_t sd =
+                        shed_drops_.fetch_add(1, std::memory_order_relaxed) + 1;
+                    const uint64_t stride =
+                        opts_.overload_report_every == 0 ? 1 : opts_.overload_report_every;
+                    if (sd == 1 || sd - last_shed_report_ >= stride) {
+                        last_shed_report_ = sd;
+                        report("CAPACITY_EXCEEDED", "shedding inbound OrderNew (>80% watermark)");
+                    }
                     break;
                 }
                 Side side;
                 OrderType type;
                 TimeInForce tif;
-                if (!map_side(m->side(), &side) ||
-                    !map_order_type(m->type(), &type) ||
+                if (!map_side(m->side(), &side) || !map_order_type(m->type(), &type) ||
                     !map_tif(m->tif(), &tif) || m->qty() <= 0 ||
                     (type != OrderType::MARKET && m->price() <= 0)) {
                     decode_errors_.fetch_add(1, std::memory_order_relaxed);
-                    report("DECODE_ERROR",
-                           "OrderNew field validation failed; frame rejected");
+                    report("DECODE_ERROR", "OrderNew field validation failed; frame rejected");
                     break;
                 }
                 if (engine_ == nullptr || orders_ == nullptr) {
                     unrouted_drops_.fetch_add(1, std::memory_order_relaxed);
-                    report("ENGINE_UNWIRED",
-                           "no ingress/pool bound; OrderNew dropped");
+                    report("ENGINE_UNWIRED", "no ingress/pool bound; OrderNew dropped");
                     break;
                 }
                 Order* o = orders_->alloc();
                 if (o == nullptr) {
                     // L2 capacity boundary (spec §3.6.1): atomic reject.
-                    order_alloc_failures_.fetch_add(1,
-                                                    std::memory_order_relaxed);
+                    order_alloc_failures_.fetch_add(1, std::memory_order_relaxed);
                     report("ORDER_BOOK_CAPACITY_EXCEEDED",
                            "order pool exhausted; OrderNew rejected");
                     break;
@@ -354,14 +408,14 @@ void EnginePump::dispatch(const uint8_t* data, uint32_t len) noexcept {
                 o->side = side;
                 o->type = type;
                 o->tif = tif;
-                // Wire carries no stp_mode — stamped CANCEL_NEWEST here; the
-                // account-default resolution lands in the engine (2.3.21).
-                o->stp_mode = StpMode::CANCEL_NEWEST;
-                o->flags = 0;
+                // stp_mode: 0xFF wire sentinel = unset -> resolve order ->
+                // account default -> CANCEL_NEWEST in pre-trade (2.3.21).
+                o->stp_mode = static_cast<StpMode>(m->stp_mode());
+                o->flags = m->flags();  // bit0 post_only, bit1 reduce_only
                 o->price_ticks = m->price();
                 o->qty_units = m->qty();
                 o->filled_qty_units = 0;
-                o->display_qty_units = 0;
+                o->display_qty_units = m->display_qty();  // 0 = engine default
                 o->quantity = Decimal::from_mantissa(m->qty());  // compat mirror
                 // Fairness stamps: ingress wall ts + per-shard wire seq —
                 // the deterministic (price, ts, ingress_seq) tie-break
@@ -370,6 +424,21 @@ void EnginePump::dispatch(const uint8_t* data, uint32_t len) noexcept {
                 o->timestamp_ns = ev->ts();
                 o->ingress_seq = ev->seq();
                 o->next = o->prev = o->hash_next = nullptr;
+
+                // OrderAux — wire fields with no slot on the POD Order node.
+                // DAY expiry resolves in-core from the canonical 24/5 session
+                // calendar when the gateway sends gtd_expiry_ns == 0.
+                OrderAux aux{};
+                aux.stop_price_ticks = m->stop_price();
+                aux.gtd_expiry_ns = m->gtd_expiry_ns();
+                if (tif == TimeInForce::DAY && aux.gtd_expiry_ns == 0) {
+                    aux.gtd_expiry_ns = static_cast<int64_t>(
+                        ExpiryScheduler::day_expiry_ns(ev->ts()));
+                }
+                aux.trade_group_id = m->trade_group_id();
+                aux.instrument_id = m->instrument_id();
+                // discretionary_offset_pips is engine-consumed in Task 2.3.26;
+                // rides the wire now so that task adds no schema churn.
 
                 if (wal_ != nullptr && opts_.wal_log_commands) {
                     WalOrderNewPayload p{};
@@ -383,17 +452,15 @@ void EnginePump::dispatch(const uint8_t* data, uint32_t len) noexcept {
                     p.qty_units = m->qty();
                     p.visible_qty_units = m->qty();
                     if (wal_->append(WalEventType::ORDER_NEW, &p,
-                                     static_cast<uint32_t>(sizeof(p))) !=
-                        WalStatus::Ok) {
+                                     static_cast<uint32_t>(sizeof(p))) != WalStatus::Ok) {
                         wal_failures_.fetch_add(1, std::memory_order_relaxed);
                         orders_->free(o);
-                        report("WAL_APPEND_FAILED",
-                               "ORDER_NEW append failed; command not applied");
+                        report("WAL_APPEND_FAILED", "ORDER_NEW append failed; command not applied");
                         break;
                     }
                     wal_appends_.fetch_add(1, std::memory_order_relaxed);
                 }
-                engine_->on_order_received(o);
+                engine_->on_order_received_ex(o, aux);
                 msgs_dispatched_.fetch_add(1, std::memory_order_relaxed);
                 break;
             }
@@ -410,8 +477,7 @@ void EnginePump::dispatch(const uint8_t* data, uint32_t len) noexcept {
                     p.account_id = m->account_id();
                     p.reason = 0;  // user-initiated
                     if (wal_->append(WalEventType::ORDER_CANCEL, &p,
-                                     static_cast<uint32_t>(sizeof(p))) !=
-                        WalStatus::Ok) {
+                                     static_cast<uint32_t>(sizeof(p))) != WalStatus::Ok) {
                         wal_failures_.fetch_add(1, std::memory_order_relaxed);
                         report("WAL_APPEND_FAILED",
                                "ORDER_CANCEL append failed; command not applied");
@@ -421,11 +487,40 @@ void EnginePump::dispatch(const uint8_t* data, uint32_t len) noexcept {
                 }
                 if (engine_ == nullptr) {
                     unrouted_drops_.fetch_add(1, std::memory_order_relaxed);
-                    report("ENGINE_UNWIRED",
-                           "no ingress bound; OrderCancel dropped");
+                    report("ENGINE_UNWIRED", "no ingress bound; OrderCancel dropped");
                     break;
                 }
                 engine_->on_cancel_received(m->order_id(), m->account_id());
+                msgs_dispatched_.fetch_add(1, std::memory_order_relaxed);
+                break;
+            }
+            case exc::wire::EventType_TimeTick: {
+                const exc::wire::TimeTick* m = ev->type_as_TimeTick();
+                if (m == nullptr) {
+                    quarantine(data, len, "timetick_payload_missing");
+                    break;
+                }
+                if (engine_ == nullptr) {
+                    unrouted_drops_.fetch_add(1, std::memory_order_relaxed);
+                    break;
+                }
+                engine_->on_time_tick(m->tick_ns());
+                msgs_dispatched_.fetch_add(1, std::memory_order_relaxed);
+                break;
+            }
+            case exc::wire::EventType_OrderAmend: {
+                const exc::wire::OrderAmend* m = ev->type_as_OrderAmend();
+                if (m == nullptr) {
+                    quarantine(data, len, "orderamend_payload_missing");
+                    break;
+                }
+                if (engine_ == nullptr) {
+                    unrouted_drops_.fetch_add(1, std::memory_order_relaxed);
+                    report("ENGINE_UNWIRED", "no ingress bound; OrderAmend dropped");
+                    break;
+                }
+                engine_->on_amend_received(m->order_id(), m->price(), m->qty(),
+                                           m->stop_price(), ev->seq());
                 msgs_dispatched_.fetch_add(1, std::memory_order_relaxed);
                 break;
             }

@@ -31,10 +31,11 @@
 //     seam) — the ENGINE_OVERLOAD alert exists so a sustained gap pages P1
 //     instead of silently desynchronizing the gateway's order state.
 //
-// Durability: when a Wal is bound, tick() stamps+appends a TIME_TICK entry
-// BEFORE driving the engine clock — the matching thread (this pump) owns WAL
-// writes, never the gateway (Task 2.3.10, remediation #4 — deterministic
-// replay: on recovery, time advances exactly as recorded).
+// Durability: when a Wal is bound and Options::wal_log_ticks is set, tick()
+// stamps+appends a TIME_TICK entry BEFORE driving the engine clock (Task
+// 2.3.10, remediation #4 — deterministic replay: on recovery, time advances
+// exactly as recorded). Default OFF because B1's engine-side WalWriter owns
+// the journal; see Options.
 //
 // INTEGRATION NOTE (B1 / Task 2.3.2): MatchingEngine MUST inherit
 // IEngineIngress — on_order_received is the pinned signature;
@@ -43,11 +44,17 @@
 // concrete MatchingEngine* and keeps compiling before B1 lands (member
 // detection -> counted no-ops), so the pump is testable standalone with any
 // recording fake implementing IEngineIngress.
+// B1's WalWriter.hpp additionally defines OrderAux (stop_price, gtd_expiry,
+// trade_group_id, instrument_id) marked "populated by ingress": the OrderNew
+// wire fields that have no slot on the POD Order node. When B1 extends the
+// ingress signature to carry it, OrderNew::instrument_id is decoded in
+// dispatch() ready to forward.
 
 #include <atomic>
 #include <cstdint>
 
 #include "book/Order.hpp"
+#include "matching/WalWriter.hpp"  // OrderAux — wire-absent order fields
 #include "utils/MemoryPool.hpp"
 
 namespace exch {
@@ -60,42 +67,54 @@ class MatchingEngine;
 // --- Pump -> engine seam ----------------------------------------------------
 
 class IEngineIngress {
-public:
+   public:
     virtual ~IEngineIngress() = default;
 
     // Order* is pool-owned; the engine/book owns its lifecycle from here.
     virtual void on_order_received(Order* order) noexcept = 0;
-    virtual void on_cancel_received(uint64_t order_id,
-                                    uint64_t account_id) noexcept = 0;
+    // Rich form: aux carries the wire-absent fields (stop_price, gtd_expiry,
+    // trade_group, instrument_id). Default forwards to the plain form so
+    // test fakes stay minimal; MatchingEngine overrides.
+    virtual void on_order_received_ex(Order* order, const OrderAux& aux) noexcept {
+        (void)aux;
+        on_order_received(order);
+    }
+    virtual void on_cancel_received(uint64_t order_id, uint64_t account_id) noexcept = 0;
     // Deterministic engine clock for GTD/DAY expiry + stop-order sweeps.
     virtual void on_time_tick(uint64_t now_ns) noexcept = 0;
+    // Atomic amend/replace (Task 2.3.20). order_seq is the expected engine
+    // seq for STALE_MODIFY races — unused until that task wires it.
+    virtual void on_amend_received(uint64_t order_id, int64_t price_ticks,
+                                   int64_t qty_units, int64_t stop_price_ticks,
+                                   uint64_t ingress_seq) noexcept {
+        (void)order_id; (void)price_ticks; (void)qty_units;
+        (void)stop_price_ticks; (void)ingress_seq;
+    }
 };
 
 // Adapter binding the concrete Task 2.3.2 MatchingEngine to IEngineIngress.
 // Until B1 lands the full ingress surface, C++20 member detection degrades
 // missing entry points to counted no-ops — never an implicit drop.
 class MatchingEngineIngress final : public IEngineIngress {
-public:
+   public:
     MatchingEngineIngress() = default;
-    explicit MatchingEngineIngress(MatchingEngine* engine) noexcept
-        : engine_(engine) {}
+    explicit MatchingEngineIngress(MatchingEngine* engine) noexcept : engine_(engine) {}
 
     void bind(MatchingEngine* engine) noexcept { engine_ = engine; }
 
     void on_order_received(Order* order) noexcept override;
-    void on_cancel_received(uint64_t order_id,
-                            uint64_t account_id) noexcept override;
+    void on_order_received_ex(Order* order, const OrderAux& aux) noexcept override;
+    void on_cancel_received(uint64_t order_id, uint64_t account_id) noexcept override;
     void on_time_tick(uint64_t now_ns) noexcept override;
+    void on_amend_received(uint64_t order_id, int64_t price_ticks,
+                           int64_t qty_units, int64_t stop_price_ticks,
+                           uint64_t ingress_seq) noexcept override;
 
     // Ingress calls that had nowhere to go (pre-B1 stub engine).
-    [[nodiscard]] uint64_t unrouted_cancels() const noexcept {
-        return unrouted_cancels_;
-    }
-    [[nodiscard]] uint64_t unrouted_ticks() const noexcept {
-        return unrouted_ticks_;
-    }
+    [[nodiscard]] uint64_t unrouted_cancels() const noexcept { return unrouted_cancels_; }
+    [[nodiscard]] uint64_t unrouted_ticks() const noexcept { return unrouted_ticks_; }
 
-private:
+   private:
     MatchingEngine* engine_ = nullptr;
     uint64_t unrouted_cancels_ = 0;
     uint64_t unrouted_ticks_ = 0;
@@ -123,15 +142,19 @@ struct LatencyHistogram {
 // --- EnginePump ---------------------------------------------------------------
 
 class EnginePump {
-public:
+   public:
     // Inbound frames larger than this are rejected by poll() (ShmRing leaves
     // an oversized slot pending — fail closed rather than truncate a command).
     static constexpr uint32_t kMaxInboundBytes = 64 * 1024;
 
     struct Options {
         // Stamp+append TIME_TICK to the WAL on every tick() before driving
-        // engine->on_time_tick (Task 2.3.10 deterministic replay clock).
-        bool wal_log_ticks = true;
+        // engine->on_time_tick. DEFAULT OFF — B1's engine-side
+        // WalWriter::write_time_tick is the authoritative stamp site (Task
+        // 2.3.10: the matching thread stamps+appends); enabling both
+        // double-logs ticks. Enable only when the bound engine does not
+        // journal TIME_TICK itself (standalone pump, stub engine, tests).
+        bool wal_log_ticks = false;
         // Append ORDER_NEW/ORDER_CANCEL command records before dispatch.
         // DEFAULT OFF — B1's WalWriter owns the durable state-change journal
         // (Task 2.3.2); enabling both double-logs commands which would apply
@@ -146,9 +169,11 @@ public:
     // All pointers are borrowed and must outlive the pump; inbound/engine are
     // required for useful work but nullptr is tolerated (fail-closed: nothing
     // is dispatched, counters show where the traffic went). wal is optional.
-    EnginePump(IpcChannel* inbound, IpcChannel* outbound,
-               IEngineIngress* engine, MemoryPool<Order>* orders,
-               Wal* wal = nullptr, Options opts = {}) noexcept;
+    EnginePump(IpcChannel* inbound, IpcChannel* outbound, IEngineIngress* engine,
+               MemoryPool<Order>* orders, Wal* wal = nullptr) noexcept
+        : EnginePump(inbound, outbound, engine, orders, wal, Options{}) {}
+    EnginePump(IpcChannel* inbound, IpcChannel* outbound, IEngineIngress* engine,
+               MemoryPool<Order>* orders, Wal* wal, const Options& opts) noexcept;
 
     EnginePump(const EnginePump&) = delete;
     EnginePump& operator=(const EnginePump&) = delete;
@@ -181,36 +206,61 @@ public:
     // Quarantine sink: invoked per poisoned frame (verify failure, decode
     // exception) with the raw bytes — wire a file logger in main.cpp
     // (/var/log/exchange/poison_pill.log per Task 2.3.19). Default: stderr.
-    using poison_sink_fn = void (*)(void* ctx, const uint8_t* data,
-                                    uint32_t len, const char* why);
+    // A throwing sink is swallowed at the call site (noexcept pump).
+    using poison_sink_fn = void (*)(void* ctx, const uint8_t* data, uint32_t len, const char* why);
     void set_poison_sink(poison_sink_fn fn, void* ctx) noexcept;
 
     // Alert sink for ENGINE_OVERLOAD / CAPACITY_EXCEEDED / WAL_APPEND_FAILED /
     // ORDER_BOOK_CAPACITY_EXCEEDED reports. Default: P1-style stderr line.
-    using report_fn = void (*)(void* ctx, const char* code,
-                               const char* detail) noexcept;
+    using report_fn = void (*)(void* ctx, const char* code, const char* detail);
     void set_report_sink(report_fn fn, void* ctx) noexcept;
 
     // --- Metrics (single writer = matching thread; relaxed readers OK) ------
-    [[nodiscard]] uint64_t msgs_in() const noexcept { return msgs_in_.load(std::memory_order_relaxed); }
-    [[nodiscard]] uint64_t msgs_dispatched() const noexcept { return msgs_dispatched_.load(std::memory_order_relaxed); }
-    [[nodiscard]] uint64_t msgs_out() const noexcept { return msgs_out_.load(std::memory_order_relaxed); }
-    [[nodiscard]] uint64_t overload_drops() const noexcept { return overload_drops_.load(std::memory_order_relaxed); }
-    [[nodiscard]] uint64_t overload_reports() const noexcept { return overload_reports_.load(std::memory_order_relaxed); }
-    [[nodiscard]] uint64_t shed_drops() const noexcept { return shed_drops_.load(std::memory_order_relaxed); }
-    [[nodiscard]] uint64_t poison_pills() const noexcept { return poison_pills_.load(std::memory_order_relaxed); }
-    [[nodiscard]] uint64_t decode_errors() const noexcept { return decode_errors_.load(std::memory_order_relaxed); }
-    [[nodiscard]] uint64_t order_alloc_failures() const noexcept { return order_alloc_failures_.load(std::memory_order_relaxed); }
-    [[nodiscard]] uint64_t unrouted_drops() const noexcept { return unrouted_drops_.load(std::memory_order_relaxed); }
-    [[nodiscard]] uint64_t poll_errors() const noexcept { return poll_errors_.load(std::memory_order_relaxed); }
-    [[nodiscard]] uint64_t wal_appends() const noexcept { return wal_appends_.load(std::memory_order_relaxed); }
-    [[nodiscard]] uint64_t wal_failures() const noexcept { return wal_failures_.load(std::memory_order_relaxed); }
+    [[nodiscard]] uint64_t msgs_in() const noexcept {
+        return msgs_in_.load(std::memory_order_relaxed);
+    }
+    [[nodiscard]] uint64_t msgs_dispatched() const noexcept {
+        return msgs_dispatched_.load(std::memory_order_relaxed);
+    }
+    [[nodiscard]] uint64_t msgs_out() const noexcept {
+        return msgs_out_.load(std::memory_order_relaxed);
+    }
+    [[nodiscard]] uint64_t overload_drops() const noexcept {
+        return overload_drops_.load(std::memory_order_relaxed);
+    }
+    [[nodiscard]] uint64_t overload_reports() const noexcept {
+        return overload_reports_.load(std::memory_order_relaxed);
+    }
+    [[nodiscard]] uint64_t shed_drops() const noexcept {
+        return shed_drops_.load(std::memory_order_relaxed);
+    }
+    [[nodiscard]] uint64_t poison_pills() const noexcept {
+        return poison_pills_.load(std::memory_order_relaxed);
+    }
+    [[nodiscard]] uint64_t decode_errors() const noexcept {
+        return decode_errors_.load(std::memory_order_relaxed);
+    }
+    [[nodiscard]] uint64_t order_alloc_failures() const noexcept {
+        return order_alloc_failures_.load(std::memory_order_relaxed);
+    }
+    [[nodiscard]] uint64_t unrouted_drops() const noexcept {
+        return unrouted_drops_.load(std::memory_order_relaxed);
+    }
+    [[nodiscard]] uint64_t poll_errors() const noexcept {
+        return poll_errors_.load(std::memory_order_relaxed);
+    }
+    [[nodiscard]] uint64_t wal_appends() const noexcept {
+        return wal_appends_.load(std::memory_order_relaxed);
+    }
+    [[nodiscard]] uint64_t wal_failures() const noexcept {
+        return wal_failures_.load(std::memory_order_relaxed);
+    }
     [[nodiscard]] uint64_t ticks() const noexcept { return ticks_.load(std::memory_order_relaxed); }
     [[nodiscard]] const LatencyHistogram& dispatch_latency() const noexcept {
         return dispatch_latency_;
     }
 
-private:
+   private:
     void dispatch(const uint8_t* data, uint32_t len) noexcept;
     void quarantine(const uint8_t* data, uint32_t len, const char* why) noexcept;
     void report(const char* code, const char* detail) noexcept;
@@ -225,6 +275,7 @@ private:
 
     bool shed_new_orders_ = false;
     uint64_t last_overload_report_ = 0;
+    uint64_t last_shed_report_ = 0;
 
     poison_sink_fn poison_sink_ = nullptr;
     void* poison_ctx_ = nullptr;

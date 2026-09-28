@@ -94,8 +94,8 @@ Never start phase N+1 while phase N has any unchecked box (see §5.4 gate).
   and explicit stub/forward-reference notes. Two tasks are parallelizable only if their
   write scopes are disjoint AND neither consumes the other's output.
 
-### 5.2 Dispatch — 3 sub-agents concurrently
-- Launch up to **3 `subagent_general` sub-agents in parallel** (background), each owning
+### 5.2 Dispatch — 5 sub-agents concurrently
+- Launch up to **5 `subagent_general` sub-agents in parallel** (background), each owning
   one task — or a small chain of tightly-coupled tasks sharing the same files.
 - Each sub-agent prompt MUST contain:
   - The verbatim task block: Objective, File Locations, Implementation steps, Definition
