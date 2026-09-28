@@ -777,7 +777,7 @@ TEST(RecoveryManager, FullStateByteIdenticalToLiveBook) {
 
     Fixture got;
     RecoveryManager rm(kShard);
-    const RecoveryResult res = rm.recover(dir.string(), {{kIid, &got.book}});
+    const RecoveryResult res = rm.recover(dir.string(), {{kIid, &got.book, &got.pool}});
     ASSERT_EQ(res.status, RecoveryStatus::Ok) << res.detail;
     EXPECT_TRUE(got.book.validate(&v)) << (v ? v : "");
 
@@ -813,8 +813,8 @@ TEST(RecoveryManager, DoubleReplayIsByteIdentical) {
 
     Fixture a, b;
     RecoveryManager rm1(kShard), rm2(kShard);
-    const RecoveryResult r1 = rm1.recover(dir.string(), {{kIid, &a.book}});
-    const RecoveryResult r2 = rm2.recover(dir.string(), {{kIid, &b.book}});
+    const RecoveryResult r1 = rm1.recover(dir.string(), {{kIid, &a.book, &a.pool}});
+    const RecoveryResult r2 = rm2.recover(dir.string(), {{kIid, &b.book, &b.pool}});
     ASSERT_TRUE(r1.ok() && r2.ok());
     // Replaying the identical WAL twice must produce byte-identical state.
     EXPECT_EQ(fingerprint(a.book), fingerprint(b.book));
@@ -923,7 +923,7 @@ TEST(RecoveryManager, LiveWalWithMarketableTakersReplays) {
 
     Fixture got;
     RecoveryManager rm(kShard);
-    const RecoveryResult res = rm.recover(dir.string(), {{kIid, &got.book}});
+    const RecoveryResult res = rm.recover(dir.string(), {{kIid, &got.book, &got.pool}});
     ASSERT_EQ(res.status, RecoveryStatus::Ok) << res.detail;
     EXPECT_TRUE(got.book.validate(&v)) << (v ? v : "");
 
@@ -979,7 +979,7 @@ TEST(RecoveryManager, DeferredTakerRestingAcrossMidStream) {
 
     Fixture got;
     RecoveryManager rm(kShard);
-    const RecoveryResult res = rm.recover(dir.string(), {{kIid, &got.book}});
+    const RecoveryResult res = rm.recover(dir.string(), {{kIid, &got.book, &got.pool}});
     ASSERT_EQ(res.status, RecoveryStatus::Ok) << res.detail;
     EXPECT_EQ(book_state(got.book), book_state(live_book));
 
@@ -988,4 +988,328 @@ TEST(RecoveryManager, DeferredTakerRestingAcrossMidStream) {
     ASSERT_NE(lvl->head, nullptr);
     EXPECT_EQ(lvl->head->id, 2u);               // deferred taker keeps head
     EXPECT_EQ(lvl->head->next->id, 3u);
+}
+
+TEST(RecoveryManager, LiveWalFullFlowReplaysByteIdentical) {
+    // Engine-driven replay end-to-end: a live MatchingEngine journals a
+    // WAL containing real trades, a partial-fill-then-rest taker, IOC and
+    // MARKET remainders, a pending stop whose amended trigger drains on a
+    // tick, a GTD expiry, an iceberg slice refresh, a user cancel and an
+    // amend. Recovery into a fresh book re-derives all of it through a
+    // journal-free MatchingEngine and must reproduce the live resting
+    // state byte-for-byte — replay feeds the same (ts, seq) stamps the
+    // journal envelope records.
+    const auto dir = tmp_dir("live_full_flow");
+    const auto wpath = dir / "0.wal";
+
+    MemoryPool<Order> live_pool{1024};
+    OrderBook live_book{live_pool};
+    Instrument instr{};
+    instr.instrument_id = kIid;
+    instr.pip_factor = 10;
+    instr.pip_size_ticks = 10'000;
+    instr.tick_size_ticks = 1;
+    instr.lot_size_units = 1;
+    live_book.set_instrument(instr);
+    Wal wal(wpath.string(), kShard);
+    ASSERT_EQ(wal.open(), WalStatus::Ok);
+    WalWriter ww(&wal);
+    MatchingEngine eng(kShard, live_book, live_pool, &ww, nullptr);
+
+    // Ingress stamps replay can reproduce exactly: the ORDER_NEW journal
+    // entry records (seq = tail_seq, ts = engine now_ns_) at append time.
+    auto send = [&](uint64_t id, Side side, OrderType type, int64_t px,
+                    int64_t qty, uint64_t acct,
+                    TimeInForce tif = TimeInForce::GTC, int64_t stop = 0,
+                    int64_t gtd = 0, int64_t disp = 0) {
+        Order* o = live_pool.alloc();
+        ASSERT_NE(o, nullptr);
+        *o = Order{};
+        o->id = id;
+        o->account_id = acct;
+        o->side = side;
+        o->type = type;
+        o->tif = tif;
+        o->stp_mode = StpMode::CANCEL_NEWEST;
+        o->flags = 0;
+        o->price_ticks = px;
+        o->qty_units = qty;
+        o->display_qty_units = disp;
+        o->quantity = Decimal::from_mantissa(qty);
+        o->timestamp_ns = eng.now_ns();
+        o->ingress_seq = wal.tail_seq();
+        OrderAux aux{};
+        aux.stop_price_ticks = stop;
+        aux.gtd_expiry_ns = gtd;
+        aux.instrument_id = kIid;
+        eng.on_order_received_ex(o, aux);
+    };
+
+    eng.on_time_tick(1'000);
+    send(1, Side::SELL, OrderType::LIMIT, 10100, 40, 7);
+    send(2, Side::SELL, OrderType::LIMIT, 10200, 30, 7);
+    send(3, Side::BUY,  OrderType::LIMIT, 9900,  15, 8);
+    eng.on_time_tick(1'100);
+    // Marketable taker: consumes the 10100 maker fully + 10 @10200, dies.
+    send(4, Side::BUY, OrderType::LIMIT, 10200, 50, 8);
+    // Partial-fill-then-rest taker: fills the 10200 remainder, rests 15.
+    send(5, Side::BUY, OrderType::LIMIT, 10200, 35, 8);
+    // IOC taker: sweeps both bids, cancels the unfilled remainder.
+    send(6, Side::SELL, OrderType::LIMIT, 10000, 55, 9, TimeInForce::IOC);
+    // Fresh ask + MARKET taker (no slippage protection configured).
+    send(7, Side::SELL, OrderType::LIMIT, 10350, 25, 7);
+    send(8, Side::BUY, OrderType::MARKET, 0, 10, 8);
+    // Pending stop: amended trigger, then drained by the next tick.
+    send(9, Side::BUY, OrderType::STOP_LIMIT, 10500, 5, 8,
+         TimeInForce::GTC, /*stop*/ 10400);
+    eng.on_amend_received(9, /*px*/ 0, /*qty*/ 0,
+                          /*stop*/ 10350, wal.tail_seq());
+    eng.on_time_tick(2'200);   // drains due stop -> limit buy fills @10350
+    // GTD expiry through a real TIME_TICK.
+    send(10, Side::SELL, OrderType::LIMIT, 10400, 10, 7,
+         TimeInForce::GTD, 0, /*gtd*/ 2'500);
+    eng.on_time_tick(3'000);   // expires id10 -> journaled cancel
+    // Iceberg + slice refresh under a crossing taker.
+    send(11, Side::SELL, OrderType::ICEBERG, 10500, 100, 7,
+         TimeInForce::GTC, 0, 0, /*disp*/ 25);
+    send(12, Side::BUY, OrderType::LIMIT, 10500, 40, 8);  // 25 + 15 vs slices
+    // User cancel kills the live slice + hidden iceberg record.
+    eng.on_cancel_received(11, 7);
+    // Amend a resting order (qty-down keeps priority + stamps).
+    send(13, Side::BUY, OrderType::LIMIT, 9800, 30, 8);
+    eng.on_amend_received(13, /*px*/ 0, /*qty*/ 20,
+                          /*stop*/ 0, wal.tail_seq());
+    wal.close();
+
+    const char* v = nullptr;
+    ASSERT_TRUE(live_book.validate(&v)) << (v ? v : "");
+
+    Fixture got;
+    got.book.set_instrument(instr);
+    RecoveryManager rm(kShard);
+    const RecoveryResult res = rm.recover(dir.string(), {{kIid, &got.book, &got.pool}});
+    ASSERT_EQ(res.status, RecoveryStatus::Ok) << res.detail;
+    ASSERT_EQ(res.books.size(), 1u);
+    EXPECT_TRUE(res.books[0].book_seq_verified);
+    EXPECT_TRUE(got.book.validate(&v)) << (v ? v : "");
+
+    // Byte-identical resting state: ids, prices, quantities, filled
+    // quantities, display slices, (ts, seq) stamps and FIFO order.
+    EXPECT_EQ(fingerprint(got.book), fingerprint(live_book));
+
+    // Trade invariants: every emitted fill was journaled, every journaled
+    // fill was re-derived — zero duplicates and zero missing.
+    EXPECT_EQ(res.trades_applied, 0u);
+    EXPECT_EQ(res.trades_derived, eng.trades_emitted());
+    EXPECT_EQ(res.books[0].trades_derived, eng.trades_emitted());
+    EXPECT_EQ(res.books[0].engine_trades_emitted, eng.trades_emitted());
+}
+
+TEST(RecoveryManager, SnapshotPlusLiveWalTailReplaysThroughEngine) {
+    // Snapshot mid-run, then continue trading: tail entries replay through
+    // the engine on top of the restored image — trades and partial rests
+    // after the boundary are re-derived, covered entries are skipped.
+    const auto root = tmp_dir("snap_live_tail");
+    const auto wal_dir = root / "wal";
+    std::filesystem::create_directories(wal_dir);
+    const auto wpath = wal_dir / "0.wal";
+
+    MemoryPool<Order> live_pool{1024};
+    OrderBook live_book{live_pool};
+    Wal wal(wpath.string(), kShard);
+    ASSERT_EQ(wal.open(), WalStatus::Ok);
+    WalWriter ww(&wal);
+    MatchingEngine eng(kShard, live_book, live_pool, &ww, nullptr);
+    OrderAux aux{};
+    aux.instrument_id = kIid;
+
+    auto send = [&](uint64_t id, Side side, int64_t px, int64_t qty,
+                    uint64_t acct) {
+        Order* o = live_pool.alloc();
+        ASSERT_NE(o, nullptr);
+        *o = mk_order(id, side, px, qty, eng.now_ns(), wal.tail_seq(), acct);
+        eng.on_order_received(o, aux);
+    };
+
+    send(1, Side::SELL, 10100, 40, 7);
+    send(2, Side::BUY, 10000, 30, 8);
+    const uint64_t snap_seq = wal.tail_seq();  // snapshot covers seqs 0,1
+    {
+        std::vector<uint8_t> blob;
+        WalBookSnapshotHeader hdr{};
+        ASSERT_TRUE(SnapshotStore::serialize_book(live_book, kIid, snap_seq,
+                                                blob, hdr));
+        FileSnapshotSink sink(root.string(), kShard);
+        ASSERT_TRUE(sink.store(kIid, snap_seq, blob.data(), blob.size()));
+    }
+    // Post-boundary flow the engine must re-derive rather than re-apply.
+    send(3, Side::BUY, 10100, 50, 8);   // fills 40 @10100, rests 10
+    send(4, Side::SELL, 10000, 20, 7);  // fills 10 @10100 + 10 @10000
+    send(5, Side::BUY, 9900, 10, 8);    // plain rest
+    send(6, Side::BUY, 9850, 7, 8);     // plain rest
+    eng.on_amend_received(5, /*px*/ 0, /*qty*/ 5,
+                          /*stop*/ 0, wal.tail_seq());
+    eng.on_cancel_received(2, 8);
+    wal.close();
+
+    Fixture dst;
+    FileSnapshotSink sink(root.string(), kShard);
+    RecoveryManager rm(kShard, sink);
+    const RecoveryResult res = rm.recover(wal_dir.string(),
+                                          {{kIid, &dst.book, &dst.pool}});
+    ASSERT_EQ(res.status, RecoveryStatus::Ok) << res.detail;
+    ASSERT_EQ(res.books.size(), 1u);
+    EXPECT_TRUE(res.books[0].snapshot_loaded);
+    EXPECT_EQ(res.books[0].snapshot_seq, snap_seq);
+    EXPECT_EQ(res.books[0].covered_skips, snap_seq);
+    EXPECT_TRUE(res.books[0].book_seq_verified);
+    EXPECT_EQ(res.trades_derived, eng.trades_emitted());
+    EXPECT_EQ(res.trades_applied, 0u);
+    EXPECT_EQ(fingerprint(dst.book), fingerprint(live_book));
+}
+
+TEST(RecoveryManager, DerivedAndOrphanTradesCoexist) {
+    // A journaled fill the replay engine re-derives (the aggressor's
+    // ORDER_NEW is in the stream) and an orphan fill (the aggressor's NEW
+    // is outside the scanned stream) must each land exactly once.
+    const auto dir = tmp_dir("mixed_trades");
+    const auto wpath = dir / "0.wal";
+
+    const Order o1 = mk_order(1, Side::BUY, 10000 * kTick, 50, 100, 0);
+    Order oioc = mk_order(2, Side::SELL, 9990 * kTick, 20, 101, 1, 8);
+    oioc.tif = TimeInForce::IOC;
+    const WalOrderNewPayload n1 = p_new(o1);
+    const WalOrderNewPayload n2 = p_new(oioc);
+    const WalTradePayload t1 = p_trade(500, /*buy*/ 1, /*sell*/ 2,
+                                     10000 * kTick, 20);
+    const WalTradePayload t2 = p_trade(501, /*buy*/ 1, /*sell*/ 999,
+                                     10000 * kTick, 10);
+    write_wal(wpath.string(), kShard,
+              {
+                  {0, 100, WalEventType::ORDER_NEW, &n1, sizeof(n1)},
+                  {1, 101, WalEventType::ORDER_NEW, &n2, sizeof(n2)},
+                  {2, 102, WalEventType::TRADE, &t1, sizeof(t1)},
+                  {3, 103, WalEventType::TRADE, &t2, sizeof(t2)},
+              });
+
+    Fixture f;
+    RecoveryManager rm(kShard);
+    const RecoveryResult res =
+        rm.recover(dir.string(), {{kIid, &f.book, &f.pool}});
+    ASSERT_EQ(res.status, RecoveryStatus::Ok) << res.detail;
+    EXPECT_EQ(res.trades_derived, 1u);   // t1 re-derived by order 2's walk
+    EXPECT_EQ(res.trades_applied, 1u);   // t2 orphan-applied to the maker
+    const Order* r = f.book.find_order(1);
+    ASSERT_NE(r, nullptr);
+    EXPECT_EQ(r->filled_qty_units, 30);  // 20 derived + 10 orphan, once each
+    EXPECT_EQ(remaining_qty_units(*r), 20);
+}
+
+TEST(RecoveryManager, RecoveredNodesStayUsableAfterRecoverReturns) {
+    // Ownership contract: every resting node in the recovered book is a
+    // book-pool clone (engine insert paths copy the template), so the book
+    // must remain fully mutable AFTER recover() returns — the replay
+    // engine and its scratch pool may already be gone. Verify by mutating
+    // the recovered book: cancel a replayed resting order (writes to its
+    // node + pushes it onto the bound pool's freelist) and reuse the slot
+    // via a fresh add_order.
+    const auto dir = tmp_dir("pool_lifetime");
+    const auto wpath = dir / "0.wal";
+
+    const Order o1 = mk_order(1, Side::SELL, 10100 * kTick, 40, 100, 0, 7);
+    const Order o2 = mk_order(2, Side::BUY, 10100 * kTick, 60, 101, 1, 8);
+    const WalOrderNewPayload n1 = p_new(o1);
+    const WalOrderNewPayload n2 = p_new(o2);
+    const WalTradePayload t1 = p_trade(700, /*buy*/ 2, /*sell*/ 1,
+                                     10100 * kTick, 40);
+    write_wal(wpath.string(), kShard,
+              {
+                  {0, 100, WalEventType::ORDER_NEW, &n1, sizeof(n1)},
+                  {1, 101, WalEventType::ORDER_NEW, &n2, sizeof(n2)},
+                  {2, 102, WalEventType::TRADE, &t1, sizeof(t1)},
+              });
+
+    Fixture f;
+    // No orders in the binding → the adopted-arena path: the manager must
+    // retain the arena for as long as the recovered book is used.
+    RecoveryManager rm(kShard);
+    const RecoveryResult res = rm.recover(dir.string(), {{kIid, &f.book}});
+    ASSERT_EQ(res.status, RecoveryStatus::Ok) << res.detail;
+
+    // Order 2 is a replayed engine-adopted node resting at 10100 with 20
+    // left. Post-recovery mutation must touch valid memory.
+    const Order* r = f.book.find_order(2);
+    ASSERT_NE(r, nullptr);
+    EXPECT_EQ(remaining_qty_units(*r), 20);
+    EXPECT_EQ(f.book.cancel_order(2), BookError::OK);
+    EXPECT_EQ(f.book.find_order(2), nullptr);
+
+    // Reuse the freed slot through the book's bound pool: a new resting
+    // order at the same level must link and validate cleanly.
+    Order t = mk_order(9, Side::BUY, 10000 * kTick, 5, 200, 3, 8);
+    Order* out = nullptr;
+    EXPECT_EQ(f.book.add_order(t, &out), BookError::OK);
+    EXPECT_NE(out, nullptr);
+    const char* v = nullptr;
+    EXPECT_TRUE(f.book.validate(&v)) << (v ? v : "");
+    EXPECT_NE(f.book.find_order(9), nullptr);
+}
+
+TEST(RecoveryManager, PreventedMatchRecordIsAuditNoop) {
+    const auto dir = tmp_dir("prevented_match");
+    const auto wpath = dir / "0.wal";
+    const Order o1 = mk_order(1, Side::BUY, 10000 * kTick, 50, 100, 0);
+    const Order o4 = mk_order(4, Side::SELL, 10100 * kTick, 20, 103, 3);
+    const WalOrderNewPayload n1 = p_new(o1);
+    const WalOrderNewPayload n4 = p_new(o4);
+    WalPreventedMatchPayload pm{};
+    pm.maker_order_id = 1;
+    pm.taker_order_id = 55;         // never journaled — synthetic audit row
+    pm.maker_account_id = 42;
+    pm.taker_account_id = 42;
+    pm.price_ticks = 10000 * kTick;
+    pm.maker_prevented_qty_units = 10;
+    pm.taker_prevented_qty_units = 10;
+    pm.prevented_notional_units = 1000;
+    pm.trade_group_id = 77;
+    pm.mode = 5;                    // TRANSFER
+    pm.ts_ns = 102;
+    write_wal(wpath.string(), kShard,
+              {
+                  {0, 100, WalEventType::ORDER_NEW, &n1, sizeof(n1)},
+                  {1, 102, WalEventType::PREVENTED_MATCH, &pm, sizeof(pm)},
+                  {2, 103, WalEventType::ORDER_NEW, &n4, sizeof(n4)},
+              });
+
+    Fixture f;
+    RecoveryManager rm(kShard);
+    const RecoveryResult res = rm.recover(dir.string(), {{kIid, &f.book}});
+    ASSERT_EQ(res.status, RecoveryStatus::Ok) << res.detail;
+    EXPECT_EQ(res.audit_events, 1u);    // explicitly classified, no book op
+    EXPECT_EQ(res.shard_events, 0u);
+    EXPECT_EQ(res.mutations_applied, 2u);
+    ASSERT_EQ(f.book.live_orders(), 2u);
+    EXPECT_NE(f.book.find_order(1), nullptr);
+    EXPECT_NE(f.book.find_order(4), nullptr);
+}
+
+TEST(RecoveryManager, PreventedMatchTruncatedPayloadFailsClosed) {
+    const auto dir = tmp_dir("pm_badsize");
+    const auto wpath = dir / "0.wal";
+    const Order o1 = mk_order(1, Side::BUY, 10000 * kTick, 50, 100, 0);
+    const WalOrderNewPayload n1 = p_new(o1);
+    WalPreventedMatchPayload pm{};
+    write_wal(wpath.string(), kShard,
+              {
+                  {0, 100, WalEventType::ORDER_NEW, &n1, sizeof(n1)},
+                  // Truncated payload — the pinned size contract must
+                  // reject the entry before any dispatch touches it.
+                  {1, 101, WalEventType::PREVENTED_MATCH, &pm,
+                   static_cast<uint32_t>(sizeof(pm) - 8)},
+              });
+    Fixture f;
+    RecoveryManager rm(kShard);
+    const RecoveryResult res = rm.recover(dir.string(), {{kIid, &f.book}});
+    EXPECT_EQ(res.status, RecoveryStatus::InvariantViolated);
+    EXPECT_EQ(res.outcome(), RecoveryOutcome::HALTED);
 }

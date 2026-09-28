@@ -98,6 +98,7 @@ void watchdog_report(void* /*ctx*/, exch::Watchdog::Level level, int64_t stale_n
 
 int main(int argc, char** argv) {
     uint32_t shard = 0;
+    uint32_t instrument_id = 7;  // served book instrument (dev soak default)
     std::string ipc_base{exch::SharedMemChannel::kDefaultBase};
     std::string wal_dir = "wal";
     std::string poison_path = "poison_pill.log";
@@ -129,6 +130,11 @@ int main(int argc, char** argv) {
             poison_path = argv[i];
         } else if (std::strcmp(argv[i], "-idle-sleep-ns") == 0) {
             if (++i >= argc || !parse_i64(argv[i], &idle_sleep_ns)) {
+                usage(argv[0]);
+                return 2;
+            }
+        } else if (std::strcmp(argv[i], "-instrument-id") == 0) {
+            if (++i >= argc || !parse_u32(argv[i], &instrument_id)) {
                 usage(argv[0]);
                 return 2;
             }
@@ -170,6 +176,17 @@ int main(int argc, char** argv) {
     // --- Pre-allocated state: no heap traffic past this point (spec §3.6) ----
     exch::MemoryPool<exch::Order> orders(exch::kOrderPoolCapacity);
     exch::OrderBook book(orders);
+    // The shard's served instrument binds the book before any ingress —
+    // recovery routes journaled rows through instrument_id, so the binding
+    // must precede recover() or every row reads as foreign.
+    exch::Instrument served{};
+    served.instrument_id = instrument_id;
+    served.pip_factor = 10;
+    served.pip_size_ticks = 10'000;
+    served.tick_size_ticks = 1'000;
+    served.lot_size_units = 1;
+    served.settlement_cycle = 1;  // T+1 major
+    book.set_instrument(served);
 
     // ==== ENGINE WIRING (Tasks 2.3.2/2.3.3/2.3.4) ====
     // Sinks outlive the engine (declaration order = reverse destruction).
@@ -188,13 +205,44 @@ int main(int argc, char** argv) {
                                          engine.now_ns_ptr()};
     engine.set_risk_hook(&exch::engine_risk_check, &risk_binding);
 
+    // --- Boot recovery (Task 2.3.4 / Phase-02.5 failover benchmark) --------
+    // Replay snapshot + WAL tail into the book BEFORE the pump opens the
+    // ingress ring: a restarted shard resumes with the exact pre-crash state.
+    // Fail-closed — an unverifiable journal halts the boot (spec §2.7/§3.5).
+    exch::RecoveryManager recovery(shard);
+    {
+        const exch::RecoveryResult rr =
+            recovery.recover(shard_dir.string(),
+                             {{instrument_id, &book, &orders}});
+        if (!rr.ok()) {
+            std::fprintf(stderr,
+                         "FATAL: wal recovery failed status=%d detail=%s\n",
+                         static_cast<int>(rr.status), rr.detail);
+            wal.close();
+            core_chan.close();
+            return 1;
+        }
+        if (rr.max_trade_id > 0) {
+            // Post-recovery fills must not reuse journaled trade ids — the
+            // dedup ledger would silently drop them on the next restart.
+            engine.seed_trade_id(rr.max_trade_id + 1);
+        }
+        std::fprintf(stderr,
+                     "recovery: entries=%llu applied=%llu derived=%llu "
+                     "dedup=%llu tail=%llu%s\n",
+                     (unsigned long long)rr.entries_replayed,
+                     (unsigned long long)rr.mutations_applied,
+                     (unsigned long long)rr.trades_derived,
+                     (unsigned long long)rr.dedup_skips,
+                     (unsigned long long)rr.wal_tail,
+                     rr.tail_truncated ? " (torn tail truncated)" : "");
+    }
+
     exch::ModeManager modes;
     exch::HealthChecker health(modes);
     exch::LeaderElection election(shard);
-    exch::RecoveryManager recovery(shard);
     (void)health;
     (void)election;
-    (void)recovery;
 
     // --- Pump + loop ---------------------------------------------------------
     exch::MatchingEngineIngress ingress(&engine);

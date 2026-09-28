@@ -22,3 +22,8 @@ node_modules/
 core/build*/
 **/build/
 ci/fault-injection/fault
+
+# Engine runtime artifacts (journal + poison log created in cwd)
+wal/
+poison_pill.log
+*.wal

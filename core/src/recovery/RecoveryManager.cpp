@@ -52,10 +52,14 @@ struct RecoveryManager::BookState {
     PerBookRecovery report;
 
     // Replay machinery (journal-free engine: wal/publisher both nullptr).
-    // Pool precedes engine so teardown frees the engine first; the pool
-    // holds ingress scratch + pending-stop nodes — the book's own pool
-    // keeps owning resting nodes.
-    std::unique_ptr<MemoryPool<Order>> replay_pool;
+    // replay_pool is BORROWED — it is either the binding's own order pool
+    // (RecoveryBookBinding::orders — one capacity domain shared with the
+    // book, identical to live wiring) or an arena owned by
+    // RecoveryManager::adopted_pools_ that outlives this BookState. Book
+    // insertions clone into the book's own pool, so recovered books never
+    // reference this arena; retention is insurance for engine-private
+    // adoption (the pending-stop queue holds ingress nodes).
+    MemoryPool<Order>* replay_pool = nullptr;
     std::unique_ptr<MatchingEngine> engine;
     // Cumulative journaled fill qty per order id — the derived-vs-orphan
     // ledger for TRADE replay (seeded with filled_qty_units of
@@ -237,6 +241,7 @@ RecoveryResult RecoveryManager::recover(
         for (std::size_t i = 0; i < bindings.size(); ++i) {
             states[i].instrument_id = bindings[i].instrument_id;
             states[i].book = bindings[i].book;
+            states[i].replay_pool = bindings[i].orders;
             states[i].report.instrument_id = bindings[i].instrument_id;
             if (bindings[i].book == nullptr) {
                 set_fail(res, RecoveryStatus::InvariantViolated, UINT64_MAX,
@@ -309,10 +314,21 @@ RecoveryResult RecoveryManager::recover(
         // dereference inside the engine is null-guarded, so the replayed
         // stream is re-derived but never re-journaled or re-published.
         for (auto& bs : states) {
-            std::size_t cap = bs.book->max_orders();
-            if (cap == 0) cap = 1024;              // detached book floor
-            if (cap > kOrderPoolCapacity) cap = kOrderPoolCapacity;
-            bs.replay_pool.reset(new MemoryPool<Order>(cap));
+            if (bs.replay_pool == nullptr) {
+                // Binding omitted its order pool — adopt an internal arena.
+                // It lands in adopted_pools_ BEFORE use so every early
+                // return keeps it alive: engine-private structures (the
+                // pending-stop queue) retain ingress nodes, and retaining
+                // the arena keeps the contract safe even if a future
+                // engine path adopts nodes into longer-lived structures.
+                std::size_t cap = bs.book->max_orders();
+                if (cap == 0) cap = 1024;          // detached book floor
+                if (cap > kOrderPoolCapacity) cap = kOrderPoolCapacity;
+                adopted_pools_.push_back(
+                    std::unique_ptr<MemoryPool<Order>>(
+                        new MemoryPool<Order>(cap)));
+                bs.replay_pool = adopted_pools_.back().get();
+            }
             bs.engine.reset(new MatchingEngine(shard_id_, *bs.book,
                                                *bs.replay_pool,
                                                /*wal*/ nullptr,
@@ -606,8 +622,10 @@ RecoveryResult RecoveryManager::recover(
                         aux.trade_group_id = p.trade_group_id;
                         aux.instrument_id = p.instrument_id;
                         // The engine owns the node from here: terminal paths
-                        // free it to the replay pool; pending stops and
-                        // resting remainders are adopted.
+                        // free it to the replay pool, pending stops adopt it
+                        // (dies with the replay engine's stop queue), and
+                        // resting remainders are cloned into the book's own
+                        // pool before the scratch node is freed.
                         bs.engine->on_order_received_ex(o, aux);
                         order_owner[p.order_id] = &bs;
                         if (bs.book->book_seq() != seq_before ||
@@ -667,6 +685,9 @@ RecoveryResult RecoveryManager::recover(
                     case WalEventType::TRADE: {
                         WalTradePayload p;
                         std::memcpy(&p, ev.payload, sizeof(p));
+                        if (p.trade_id > res.max_trade_id) {
+                            res.max_trade_id = p.trade_id;
+                        }
                         if (applied_trades.count(p.trade_id) != 0) {
                             ++res.dedup_skips;
                             ++bs.dedup_skips;

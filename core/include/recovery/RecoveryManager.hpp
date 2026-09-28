@@ -74,14 +74,42 @@
 // CANCEL/MODIFY carry no instrument_id — dispatch resolves order_id → book via
 // the live order map built during snapshot restore + ORDER_NEW replay.
 //
-// Replay capacity: each bound book gets an internal order pool sized to the
-// book's max_orders() bound (pending stops + in-flight takers live there —
-// the book's own pool keeps holding resting nodes). Bound books must be
-// empty at recovery start (fail-closed InvariantViolated) — replaying onto a
-// populated book would double-apply the journal.
+// Snapshot coverage note (documented boundary): the pinned snapshot format
+// restores book-visible state only — levels, resting orders, FIFO
+// (timestamp_ns, ingress_seq) keys, filled/remaining quantities, tif,
+// stp_mode, type, flags. Engine-private meta is NOT serialised and cannot
+// be re-seeded through the public MatchingEngine API: the pending-stop
+// queue, the GTD/DAY expiry heap, per-order STP trade_group_id, iceberg
+// slice records, §6.9 amend fences, and cumulative prevented_qty all live
+// in the engine's OrderMeta/stop/iceberg side tables and are populated
+// only at live admission. Journaled EFFECTS of that meta still re-derive
+// faithfully from the tail — expiry cancels, triggered-stop outcomes, and
+// STP suppression cancels/modifies arrive as ordinary tail entries — so
+// the book-visible end state converges whenever the tail's decisions do
+// not themselves depend on lost meta. The residual divergence window is a
+// snapshot that covers aux-bearing live orders followed by a tail whose
+// decisions need that meta (e.g., same-group STP against a restored
+// maker, or a pending stop whose trigger decision the tail expects to
+// re-derive). WAL-only recovery is unaffected: every replayed ORDER_NEW
+// re-registers its aux at admission. Closing the gap requires extending
+// the snapshot contract (an aux side-block beside WalSnapshotOrderExt)
+// plus an engine meta-restore path — outside this component's ownership.
+//
+// Replay capacity: ingress nodes are allocated from the binding's order
+// pool (RecoveryBookBinding::orders — the pool the book itself allocates
+// from when supplied) or, when omitted, a manager-retained arena sized to
+// the book's max_orders() bound. Resting recovered orders are always
+// book-pool clones (every engine insert path copies the template), so
+// recovered books never reference replay scratch. The arena is retained
+// anyway — engine-private queues (pending stops) adopt ingress nodes —
+// keeping the contract safe under any present or future adoption path.
+// Bound books must be empty at recovery start (fail-closed
+// InvariantViolated) — replaying onto a populated book would
+// double-apply the journal.
 
 #include <cstdint>
 #include <initializer_list>
+#include <memory>
 #include <span>
 #include <string>
 #include <string_view>
@@ -119,6 +147,21 @@ enum class RecoveryStatus : uint8_t {
 struct RecoveryBookBinding {
     uint32_t instrument_id;
     OrderBook* book;   // caller-owned; recovered in place
+    // The order pool the book is bound to (the one its OrderBook allocates
+    // Order nodes from). Passing it makes the replay engine's scratch and
+    // the book's node draws share one capacity domain — identical to live
+    // wiring, so pool-exhaustion thresholds reproduce 1:1. Ownership note:
+    // every book insertion path clones the template into the book pool
+    // (resting recovered orders are always book-pool owned); the replay
+    // pool only hosts engine scratch — terminal paths free to it and the
+    // pending-stop queue adopts nodes that die with the replay engine.
+    // Sharing the book pool is therefore safe, not required — but when
+    // nullptr the manager allocates an internal arena sized to
+    // book->max_orders() and RETAINS it for the manager's lifetime
+    // (adopted_pools_) as belt-and-suspenders insurance against any
+    // engine adoption path: keep the RecoveryManager alive at least as
+    // long as the recovered book is in use.
+    MemoryPool<Order>* orders = nullptr;
 };
 
 struct PerBookRecovery {
@@ -161,6 +204,10 @@ struct RecoveryResult {
     uint64_t foreign_entries = 0;     // targeting instruments not bound
     uint64_t trades_derived = 0;      // engine re-derived fills (all books)
     uint64_t trades_applied = 0;      // orphan fills applied to makers
+    uint64_t max_trade_id = 0;        // largest journaled trade_id seen —
+                                      // engine reseeds next_trade_id from it
+                                      // so post-recovery fills can't collide
+                                      // with replay-deduped ids
     uint64_t first_divergent_seq = UINT64_MAX;  // recovery_reports field
     uint32_t detail_instrument = 0;
     char detail[96] = {};             // static context for ops/runbooks
@@ -227,6 +274,14 @@ private:
     uint64_t snapshot_seq_ = 0;
     uint64_t wal_tail_ = 0;
     RecoveryOutcome last_outcome_ = RecoveryOutcome::CLEAN;
+    // Replay arenas adopted when a binding omits its order pool — see
+    // RecoveryBookBinding::orders. No recovered state strictly requires
+    // them (book inserts clone into the book pool; engine-private queues
+    // die with the replay engine), but retaining them for the manager's
+    // lifetime keeps the ownership contract safe under any adoption path.
+    // Arenas accumulate across recover() calls: freeing one early could
+    // still dangle books recovered in earlier calls.
+    std::vector<std::unique_ptr<MemoryPool<Order>>> adopted_pools_;
 };
 
 }  // namespace exch

@@ -141,6 +141,10 @@ endif()
 add_executable(matching_engine src/main.cpp)
 target_link_libraries(matching_engine PRIVATE exch_core)
 
+# Phase-02.5 soak tooling: WAL integrity audit + book fingerprint.
+add_executable(wal_audit src/tools/wal_audit.cpp)
+target_link_libraries(wal_audit PRIVATE exch_core)
+
 # --- Tests ------------------------------------------------------------------
 if(EXCH_BUILD_TESTS)
     enable_testing()
