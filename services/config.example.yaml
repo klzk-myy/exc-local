@@ -49,3 +49,29 @@ redis:                     # coordination instance (noeviction); cache Redis is 
 
 nats:                      # JetStream cluster seeds, comma-separated
   urls: nats://127.0.0.1:4222,nats://127.0.0.1:4223,nats://127.0.0.1:4224
+
+# Bridge Service (cmd/bridge, Task 3.3.10, spec §2.3.1) — Aeron-to-NATS
+# fan-out. Run ONE instance per matching-engine shard, NUMA-colocated with
+# the engine; give each its own shard_id and metrics_addr port.
+bridge:
+  shard_id: 0              # matching-engine shard this instance fans out
+  # Engine outbound Aeron channel. A single "%d" in aeron_uri is formatted
+  # with shard_id (multi-shard alias scheme, e.g. orders_out_%d).
+  aeron_dir: ""            # media driver dir; "" = $AERON_DIR / /dev/shm/aeron-<user>
+  aeron_uri: "aeron:ipc?alias=orders_out"
+  aeron_stream_id: 1002
+  aeron_driver_timeout: 5s # media-driver attach timeout
+  aeron_poll_idle_wait: 100us  # idle sleep when the subscription is empty
+  buffer_size: 100000      # bounded NATS-outage ring (spec §2.3.1: 100k)
+  publish_timeout: 2s      # per-publish JetStream ack deadline
+  reconnect_wait: 250ms    # backoff between head-of-line retries
+  heartbeat_interval: 5s   # bridge.health.<shard_id> cadence (P1 on absence)
+  metrics_addr: 127.0.0.1:9100  # /metrics + /healthz; "" disables
+  nats_urls: ""            # optional override of global nats.urls
+  order_index_size: 1000000   # bound on the order_id -> symbol index
+  # Wire instrument_id -> symbol token used in "{stream}.{shard}.{symbol}"
+  # subjects. Unmapped ids fall back to "instr-<id>".
+  instruments:
+    "1": EUR-USD
+    "2": GBP-USD
+    "3": USD-JPY

@@ -552,7 +552,7 @@
       "text": "2-phase commit with compensation",
       "file": "Phase-02-Matching-Engine.md",
       "line": 280,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -563,7 +563,7 @@
       "text": "operation_id dedup",
       "file": "Phase-02-Matching-Engine.md",
       "line": 281,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -596,7 +596,7 @@
       "text": "configurable STP modes per spec §6.5 / §24 #154",
       "file": "Phase-02-Matching-Engine.md",
       "line": 355,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -618,7 +618,7 @@
       "text": "sparse order book protection and level serialization (§6.6, §24 #188)",
       "file": "Phase-02-Matching-Engine.md",
       "line": 403,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -629,7 +629,7 @@
       "text": "market order protection",
       "file": "Phase-02-Matching-Engine.md",
       "line": 443,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -640,7 +640,7 @@
       "text": "per-instrument slippage bands",
       "file": "Phase-02-Matching-Engine.md",
       "line": 444,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -651,7 +651,7 @@
       "text": "STP NONE is category-gated and surveillance-visible (§24 #274)",
       "file": "Phase-02-Matching-Engine.md",
       "line": 455,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -662,7 +662,7 @@
       "text": "reference-price execution limits are fixed for the taker phase and emit an expiry reason (§24 #277)",
       "file": "Phase-02-Matching-Engine.md",
       "line": 471,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -673,7 +673,7 @@
       "text": "trade-group STP, TRANSFER, and prevented-match accounting replay deterministically (§24 #279–280)",
       "file": "Phase-02-Matching-Engine.md",
       "line": 487,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -695,7 +695,7 @@
       "text": "atomic cancel-replace, amend priority per field class, auction-state amend gate and deterministic fairness timestamping (§24 #336)",
       "file": "Phase-02-Matching-Engine.md",
       "line": 532,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -706,7 +706,7 @@
       "text": "account-default STP with category gating and per-fill persistence (§24 #368)",
       "file": "Phase-02-Matching-Engine.md",
       "line": 553,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -717,7 +717,7 @@
       "text": "trade-through prevention and price-improvement recording (§24 #400)",
       "file": "Phase-02-Matching-Engine.md",
       "line": 580,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -750,7 +750,7 @@
       "text": "optimistic cross-shard routing with 500µs timeout and compensating unwinds (§24 #404)",
       "file": "Phase-02-Matching-Engine.md",
       "line": 650,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -761,7 +761,7 @@
       "text": "discretionary offset order execution with hidden price band and passive public display (§24 #405)",
       "file": "Phase-02-Matching-Engine.md",
       "line": 675,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -769,10 +769,10 @@
       "phase": "02.5",
       "task": "2.5.3.1",
       "index": 1,
-      "text": "50k orders/sec sustained for 72h",
+      "text": "50k orders/sec sustained for 72h — defined first, validated against spec (registered; skips honestly until a qualifying 72h artifact lands)",
       "file": "Phase-02.5-Engine-Soak-Benchmark.md",
       "line": 46,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -780,10 +780,10 @@
       "phase": "02.5",
       "task": "2.5.3.2",
       "index": 1,
-      "text": "72h soak 50k/sec p99 ≤ 50µs (supersedes prior ≤ 1ms)",
+      "text": "72h soak 50k/sec p99 ≤ 50µs (supersedes prior ≤ 1ms) — defined first, validated against spec (registered; evidence-gated skip)",
       "file": "Phase-02.5-Engine-Soak-Benchmark.md",
       "line": 71,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -791,10 +791,10 @@
       "phase": "02.5",
       "task": "2.5.3.2",
       "index": 2,
-      "text": "recovery \u003c 10s zero dup/miss",
+      "text": "recovery \u003c 10s zero dup/miss — defined first, validated against spec (PASS: failover-report.json 116ms max, dup=0)",
       "file": "Phase-02.5-Engine-Soak-Benchmark.md",
       "line": 72,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -802,10 +802,10 @@
       "phase": "02.5",
       "task": "2.5.3.3",
       "index": 1,
-      "text": "Matching engine soak fault injection and backpressure recovery validated (§24 #300)",
+      "text": "Matching engine soak fault injection and backpressure recovery validated (§24 #300) — defined first, validated against spec (PASS: crash+recovery+burst events recorded)",
       "file": "Phase-02.5-Engine-Soak-Benchmark.md",
       "line": 92,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -816,7 +816,7 @@
       "text": "SERIALIZABLE for balance mutations",
       "file": "Phase-03-Risk-Settlement.md",
       "line": 47,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -827,7 +827,7 @@
       "text": "account mutex via Redis SETNX",
       "file": "Phase-03-Risk-Settlement.md",
       "line": 48,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -838,7 +838,7 @@
       "text": "idempotent trade processing",
       "file": "Phase-03-Risk-Settlement.md",
       "line": 49,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -849,7 +849,7 @@
       "text": "position tracking with unrealized/realized P\u0026L",
       "file": "Phase-03-Risk-Settlement.md",
       "line": 75,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -860,7 +860,7 @@
       "text": "T+1/T+2 settlement per FX standard",
       "file": "Phase-03-Risk-Settlement.md",
       "line": 110,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -871,7 +871,7 @@
       "text": "same-day for USD/CAD/USD/MXN",
       "file": "Phase-03-Risk-Settlement.md",
       "line": 111,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -882,7 +882,7 @@
       "text": "SWIFT MT202/pacs.009 message generation",
       "file": "Phase-03-Risk-Settlement.md",
       "line": 112,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -893,7 +893,7 @@
       "text": "maker/taker fee tiers",
       "file": "Phase-03-Risk-Settlement.md",
       "line": 138,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -904,7 +904,7 @@
       "text": "promo rate windows",
       "file": "Phase-03-Risk-Settlement.md",
       "line": 139,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -915,7 +915,7 @@
       "text": "per-account + per-symbol risk limits",
       "file": "Phase-03-Risk-Settlement.md",
       "line": 167,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -926,7 +926,7 @@
       "text": "double-entry ledger invariant SUM(debit)==SUM(credit)",
       "file": "Phase-03-Risk-Settlement.md",
       "line": 206,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -937,7 +937,7 @@
       "text": "automated EOD spot rollover with Wednesday triple roll",
       "file": "Phase-03-Risk-Settlement.md",
       "line": 232,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -948,7 +948,7 @@
       "text": "multi-currency holiday calendar engine",
       "file": "Phase-03-Risk-Settlement.md",
       "line": 254,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -959,7 +959,7 @@
       "text": "multi-currency P\u0026L base conversion (§13.1, §24 #180)",
       "file": "Phase-03-Risk-Settlement.md",
       "line": 277,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -970,7 +970,7 @@
       "text": "overnight swap/rollover",
       "file": "Phase-03-Risk-Settlement.md",
       "line": 322,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -981,7 +981,7 @@
       "text": "triple-swap Wednesday",
       "file": "Phase-03-Risk-Settlement.md",
       "line": 323,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -992,7 +992,7 @@
       "text": "pip value calculation",
       "file": "Phase-03-Risk-Settlement.md",
       "line": 351,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -1003,7 +1003,7 @@
       "text": "dual fee model",
       "file": "Phase-03-Risk-Settlement.md",
       "line": 380,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -1011,10 +1011,10 @@
       "phase": "03",
       "task": "3.3.14",
       "index": 1,
-      "text": "multi-asset auto-exchange deficit settlement with GL journal posting (§13.6, §24 #284)",
+      "text": "multi-asset auto-exchange deficit settlement with GL journal posting (§13.6, §24 #415)",
       "file": "Phase-03-Risk-Settlement.md",
       "line": 405,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -1022,10 +1022,10 @@
       "phase": "03",
       "task": "3.3.15",
       "index": 1,
-      "text": "carry trade swap yield tracking and daily rollover settlement (§15.3, §24 #288)",
+      "text": "carry trade swap yield tracking and daily rollover settlement (§15.3, §24 #416)",
       "file": "Phase-03-Risk-Settlement.md",
       "line": 428,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -1033,10 +1033,10 @@
       "phase": "03",
       "task": "3.3.16",
       "index": 1,
-      "text": "VIP 0-9 tier calculation engine with daily 00:00 UTC volume/equity aggregation (migration 086, §8.5, §24 #290)",
+      "text": "VIP 0-9 tier calculation engine with daily 00:00 UTC volume/equity aggregation (migration 086, §8.5, §24 #417)",
       "file": "Phase-03-Risk-Settlement.md",
       "line": 452,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -1044,10 +1044,10 @@
       "phase": "03",
       "task": "3.3.17",
       "index": 1,
-      "text": "negative maker fee rebate GL accounting with liquidity expense debit (§8.5, §24 #291)",
+      "text": "negative maker fee rebate GL accounting with liquidity expense debit (§8.5, §24 #418)",
       "file": "Phase-03-Risk-Settlement.md",
       "line": 475,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -1058,7 +1058,7 @@
       "text": "Balance invariant verification, serialization retries, and settlement compensation fail closed (§24 #301)",
       "file": "Phase-03-Risk-Settlement.md",
       "line": 495,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -1069,7 +1069,7 @@
       "text": "full chart of accounts, swap markup with per-currency day-count, negative-rate and swap-free rules, non-trading fee schedule with VAT flags (§24 #337)",
       "file": "Phase-03-Risk-Settlement.md",
       "line": 518,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -1080,7 +1080,7 @@
       "text": "dust eligibility, disclosed-spread conversion and balanced GL posting (§24 #364)",
       "file": "Phase-03-Risk-Settlement.md",
       "line": 539,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -1091,7 +1091,7 @@
       "text": "minor-unit posting, zero-balance switching and single-helper reads (§24 #370)",
       "file": "Phase-03-Risk-Settlement.md",
       "line": 560,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -1102,7 +1102,7 @@
       "text": "physical delivery vs rolling spot ledger partitioning (§24 #406)",
       "file": "Phase-03-Risk-Settlement.md",
       "line": 582,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -1113,7 +1113,7 @@
       "text": "swap-free administrative holding fee engine (§24 #407)",
       "file": "Phase-03-Risk-Settlement.md",
       "line": 606,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -2309,7 +2309,7 @@
       "phase": "08",
       "task": "8.3.1",
       "index": 1,
-      "text": "**414** §24 criteria mapped to test contracts; Phase 1–7 subset executable in Phase 8; all executable post-Phase-24 (supersedes prior 401, 398, 397, 334, 333, 256 — the count lagged remediations #13–#18 — and earlier 252, 237, 219, 206, 201, 192, 174, 164)",
+      "text": "**418** §24 criteria mapped to test contracts; Phase 1–7 subset executable in Phase 8; all executable post-Phase-24 (supersedes prior 414, 401, 398, 397, 334, 333, 256 — the count lagged remediations #13–#18 — and earlier 252, 237, 219, 206, 201, 192, 174, 164)",
       "file": "Phase-08-Integration-Testing.md",
       "line": 42,
       "checked": false,

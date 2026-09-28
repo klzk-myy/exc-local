@@ -12,52 +12,6 @@ r.Register("P05-T5.3.1-C1", func(ctx context.Context, env *spec.Env) spec.Result
 
 | Checkpoint | Task | Status | Text |
 |---|---|---|---|
-| `P02-T2.3.8-C1` | 2.3.8 (Phase-02-Matching-Engine.md:280) | [ ] | 2-phase commit with compensation |
-| `P02-T2.3.8-C2` | 2.3.8 (Phase-02-Matching-Engine.md:281) | [ ] | operation_id dedup |
-| `P02-T2.3.11-C1` | 2.3.11 (Phase-02-Matching-Engine.md:355) | [ ] | configurable STP modes per spec §6.5 / §24 #154 |
-| `P02-T2.3.13-C1` | 2.3.13 (Phase-02-Matching-Engine.md:403) | [ ] | sparse order book protection and level serialization (§6.6, §24 #188) |
-| `P02-T2.3.15-C1` | 2.3.15 (Phase-02-Matching-Engine.md:443) | [ ] | market order protection |
-| `P02-T2.3.15-C2` | 2.3.15 (Phase-02-Matching-Engine.md:444) | [ ] | per-instrument slippage bands |
-| `P02-T2.3.16-C1` | 2.3.16 (Phase-02-Matching-Engine.md:455) | [ ] | STP NONE is category-gated and surveillance-visible (§24 #274) |
-| `P02-T2.3.17-C1` | 2.3.17 (Phase-02-Matching-Engine.md:471) | [ ] | reference-price execution limits are fixed for the taker phase and emit an expiry reason (§24 #277) |
-| `P02-T2.3.18-C1` | 2.3.18 (Phase-02-Matching-Engine.md:487) | [ ] | trade-group STP, TRANSFER, and prevented-match accounting replay deterministically (§24 #279–280) |
-| `P02-T2.3.20-C1` | 2.3.20 (Phase-02-Matching-Engine.md:532) | [ ] | atomic cancel-replace, amend priority per field class, auction-state amend gate and deterministic f… |
-| `P02-T2.3.21-C1` | 2.3.21 (Phase-02-Matching-Engine.md:553) | [ ] | account-default STP with category gating and per-fill persistence (§24 #368) |
-| `P02-T2.3.22-C1` | 2.3.22 (Phase-02-Matching-Engine.md:580) | [ ] | trade-through prevention and price-improvement recording (§24 #400) |
-| `P02-T2.3.25-C1` | 2.3.25 (Phase-02-Matching-Engine.md:650) | [ ] | optimistic cross-shard routing with 500µs timeout and compensating unwinds (§24 #404) |
-| `P02-T2.3.26-C1` | 2.3.26 (Phase-02-Matching-Engine.md:675) | [ ] | discretionary offset order execution with hidden price band and passive public display (§24 #405) |
-| `P02.5-T2.5.3.1-C1` | 2.5.3.1 (Phase-02.5-Engine-Soak-Benchmark.md:46) | [ ] | 50k orders/sec sustained for 72h |
-| `P02.5-T2.5.3.2-C1` | 2.5.3.2 (Phase-02.5-Engine-Soak-Benchmark.md:71) | [ ] | 72h soak 50k/sec p99 ≤ 50µs (supersedes prior ≤ 1ms) |
-| `P02.5-T2.5.3.2-C2` | 2.5.3.2 (Phase-02.5-Engine-Soak-Benchmark.md:72) | [ ] | recovery < 10s zero dup/miss |
-| `P02.5-T2.5.3.3-C1` | 2.5.3.3 (Phase-02.5-Engine-Soak-Benchmark.md:92) | [ ] | Matching engine soak fault injection and backpressure recovery validated (§24 #300) |
-| `P03-T3.3.1-C1` | 3.3.1 (Phase-03-Risk-Settlement.md:47) | [ ] | SERIALIZABLE for balance mutations |
-| `P03-T3.3.1-C2` | 3.3.1 (Phase-03-Risk-Settlement.md:48) | [ ] | account mutex via Redis SETNX |
-| `P03-T3.3.1-C3` | 3.3.1 (Phase-03-Risk-Settlement.md:49) | [ ] | idempotent trade processing |
-| `P03-T3.3.2-C1` | 3.3.2 (Phase-03-Risk-Settlement.md:75) | [ ] | position tracking with unrealized/realized P&L |
-| `P03-T3.3.3-C1` | 3.3.3 (Phase-03-Risk-Settlement.md:110) | [ ] | T+1/T+2 settlement per FX standard |
-| `P03-T3.3.3-C2` | 3.3.3 (Phase-03-Risk-Settlement.md:111) | [ ] | same-day for USD/CAD/USD/MXN |
-| `P03-T3.3.3-C3` | 3.3.3 (Phase-03-Risk-Settlement.md:112) | [ ] | SWIFT MT202/pacs.009 message generation |
-| `P03-T3.3.4-C1` | 3.3.4 (Phase-03-Risk-Settlement.md:138) | [ ] | maker/taker fee tiers |
-| `P03-T3.3.4-C2` | 3.3.4 (Phase-03-Risk-Settlement.md:139) | [ ] | promo rate windows |
-| `P03-T3.3.5-C1` | 3.3.5 (Phase-03-Risk-Settlement.md:167) | [ ] | per-account + per-symbol risk limits |
-| `P03-T3.3.6-C1` | 3.3.6 (Phase-03-Risk-Settlement.md:206) | [ ] | double-entry ledger invariant SUM(debit)==SUM(credit) |
-| `P03-T3.3.7-C1` | 3.3.7 (Phase-03-Risk-Settlement.md:232) | [ ] | automated EOD spot rollover with Wednesday triple roll |
-| `P03-T3.3.8-C1` | 3.3.8 (Phase-03-Risk-Settlement.md:254) | [ ] | multi-currency holiday calendar engine |
-| `P03-T3.3.9-C1` | 3.3.9 (Phase-03-Risk-Settlement.md:277) | [ ] | multi-currency P&L base conversion (§13.1, §24 #180) |
-| `P03-T3.3.11-C1` | 3.3.11 (Phase-03-Risk-Settlement.md:322) | [ ] | overnight swap/rollover |
-| `P03-T3.3.11-C2` | 3.3.11 (Phase-03-Risk-Settlement.md:323) | [ ] | triple-swap Wednesday |
-| `P03-T3.3.12-C1` | 3.3.12 (Phase-03-Risk-Settlement.md:351) | [ ] | pip value calculation |
-| `P03-T3.3.13-C1` | 3.3.13 (Phase-03-Risk-Settlement.md:380) | [ ] | dual fee model |
-| `P03-T3.3.14-C1` | 3.3.14 (Phase-03-Risk-Settlement.md:405) | [ ] | multi-asset auto-exchange deficit settlement with GL journal posting (§13.6, §24 #284) |
-| `P03-T3.3.15-C1` | 3.3.15 (Phase-03-Risk-Settlement.md:428) | [ ] | carry trade swap yield tracking and daily rollover settlement (§15.3, §24 #288) |
-| `P03-T3.3.16-C1` | 3.3.16 (Phase-03-Risk-Settlement.md:452) | [ ] | VIP 0-9 tier calculation engine with daily 00:00 UTC volume/equity aggregation (migration 086, §8.5… |
-| `P03-T3.3.17-C1` | 3.3.17 (Phase-03-Risk-Settlement.md:475) | [ ] | negative maker fee rebate GL accounting with liquidity expense debit (§8.5, §24 #291) |
-| `P03-T3.3.18-C1` | 3.3.18 (Phase-03-Risk-Settlement.md:495) | [ ] | Balance invariant verification, serialization retries, and settlement compensation fail closed (§24… |
-| `P03-T3.3.19-C1` | 3.3.19 (Phase-03-Risk-Settlement.md:518) | [ ] | full chart of accounts, swap markup with per-currency day-count, negative-rate and swap-free rules,… |
-| `P03-T3.3.20-C1` | 3.3.20 (Phase-03-Risk-Settlement.md:539) | [ ] | dust eligibility, disclosed-spread conversion and balanced GL posting (§24 #364) |
-| `P03-T3.3.21-C1` | 3.3.21 (Phase-03-Risk-Settlement.md:560) | [ ] | minor-unit posting, zero-balance switching and single-helper reads (§24 #370) |
-| `P03-T3.3.22-C1` | 3.3.22 (Phase-03-Risk-Settlement.md:582) | [ ] | physical delivery vs rolling spot ledger partitioning (§24 #406) |
-| `P03-T3.3.23-C1` | 3.3.23 (Phase-03-Risk-Settlement.md:606) | [ ] | swap-free administrative holding fee engine (§24 #407) |
 | `P04-T4.3.1-C1` | 4.3.1 (Phase-04-Persistence-Recovery.md:48) | [ ] | snapshot cadence 100k trades / 5 min |
 | `P04-T4.3.1-C2` | 4.3.1 (Phase-04-Persistence-Recovery.md:49) | [ ] | WAL trim after snapshot confirmed |
 | `P04-T4.3.2-C1` | 4.3.2 (Phase-04-Persistence-Recovery.md:77) | [ ] | WAL S3 archive before trim (zero-loss guard) |
@@ -166,7 +120,7 @@ r.Register("P05-T5.3.1-C1", func(ctx context.Context, env *spec.Env) spec.Result
 | `P07-T7.3.12-C1` | 7.3.12 (Phase-07-Admin-Monitoring.md:295) | [ ] | binding expiry with session kill, quarterly recertification, and bounded break-glass with mandatory… |
 | `P07-T7.3.13-C1` | 7.3.13 (Phase-07-Admin-Monitoring.md:316) | [ ] | daily executive roll-up with hash-retained packs (§24 #378) |
 | `P07-T7.3.14-C1` | 7.3.14 (Phase-07-Admin-Monitoring.md:338) | [ ] | dual-controlled immutable quarterly board packs (§24 #379) |
-| `P08-T8.3.1-C1` | 8.3.1 (Phase-08-Integration-Testing.md:42) | [ ] | **414** §24 criteria mapped to test contracts; Phase 1–7 subset executable in Phase 8; all executab… |
+| `P08-T8.3.1-C1` | 8.3.1 (Phase-08-Integration-Testing.md:42) | [ ] | **418** §24 criteria mapped to test contracts; Phase 1–7 subset executable in Phase 8; all executab… |
 | `P08-T8.3.2-C1` | 8.3.2 (Phase-08-Integration-Testing.md:68) | [ ] | 50k/sec sustained p99 ≤ 50µs (supersedes prior ≤ 1ms) |
 | `P08-T8.3.3-C1` | 8.3.3 (Phase-08-Integration-Testing.md:92) | [ ] | performance tuning to hit targets |
 | `P08-T8.3.4-C1` | 8.3.4 (Phase-08-Integration-Testing.md:114) | [ ] | §24 traceability matrix CI-gated |
