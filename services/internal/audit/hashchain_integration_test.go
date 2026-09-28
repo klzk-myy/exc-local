@@ -38,9 +38,13 @@ func TestAuditChainIntegration(t *testing.T) {
 		t.Skipf("postgres unreachable (%v) — skipping integration test", err)
 	}
 
-	// Pre-clean any leftovers from a previous failed run, and require the
-	// chain to be otherwise empty so our rows are seq 1..n at the tail.
-	if _, err := pool.Exec(ctx, `DELETE FROM audit_hash_chain WHERE table_name = $1`, itestTable); err != nil {
+	// Pre-clean the whole chain: leftover rows from earlier suite packages
+	// (e.g. manual_liquidations appended with opaque position payloads by
+	// internal/api integration tests) cannot be re-fingerprinted without a
+	// PayloadProvider, so the fresh-chain verify below would report them as
+	// violations. The scratch DB is disposable and this test requires a
+	// genesis-aligned chain, so wipe rather than scope.
+	if _, err := pool.Exec(ctx, `DELETE FROM audit_hash_chain`); err != nil {
 		t.Fatalf("pre-clean: %v", err)
 	}
 	var preCount int64

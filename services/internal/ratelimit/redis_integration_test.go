@@ -23,7 +23,10 @@ func redisTestClient(t *testing.T) *goredis.Client {
 	if addr == "" {
 		addr = "127.0.0.1:16379"
 	}
-	rdb := goredis.NewClient(&goredis.Options{Addr: addr})
+	rdb := goredis.NewClient(&goredis.Options{
+		Addr:     addr,
+		Password: os.Getenv("EXC_REDIS_TEST_PASSWORD"),
+	})
 	if err := rdb.Ping(context.Background()).Err(); err != nil {
 		t.Skipf("redis unreachable at %s: %v", addr, err)
 	}

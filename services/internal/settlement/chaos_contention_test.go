@@ -175,9 +175,9 @@ func chaosRMFill(tradeID uint64, buyer, seller int64) ResolvedTrade {
 
 func TestChaosSerializationContentionZeroLoss(t *testing.T) {
 	pool := chaosPool(t, 32)
-	rdb := excredis.New(defaultTestRedis, "", 0)
+	rdb := excredis.New(defaultTestRedis, os.Getenv("EXC_REDIS_TEST_PASSWORD"), 0)
 	if addr := os.Getenv("EXC_REDIS_TEST_ADDR"); addr != "" {
-		rdb = excredis.New(addr, "", 0)
+		rdb = excredis.New(addr, os.Getenv("EXC_REDIS_TEST_PASSWORD"), 0)
 	}
 	ctx := context.Background()
 	if err := rdb.Ping(ctx); err != nil {

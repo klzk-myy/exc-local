@@ -83,7 +83,7 @@ func TestDegradationHeader_LiveRedis(t *testing.T) {
 	if addr == "" {
 		addr = "127.0.0.1:16379"
 	}
-	c := exchredis.New(addr, "", 0)
+	c := exchredis.New(addr, os.Getenv("EXC_REDIS_TEST_PASSWORD"), 0)
 	t.Cleanup(func() { _ = c.Close() })
 	ctx := context.Background()
 	if err := c.Ping(ctx); err != nil {

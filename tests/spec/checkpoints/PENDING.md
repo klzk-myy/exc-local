@@ -12,59 +12,6 @@ r.Register("P05-T5.3.1-C1", func(ctx context.Context, env *spec.Env) spec.Result
 
 | Checkpoint | Task | Status | Text |
 |---|---|---|---|
-| `P04.5-T4.5.3.1-C1` | 4.5.3.1 (Phase-04.5-Recovery-Chaos-Validation.md:45) | [ ] | 6 chaos scenarios pass 3x each |
-| `P04.5-T4.5.3.1-C2` | 4.5.3.1 (Phase-04.5-Recovery-Chaos-Validation.md:46) | [ ] | zero dup/miss on every recovery |
-| `P04.5-T4.5.3.2-C1` | 4.5.3.2 (Phase-04.5-Recovery-Chaos-Validation.md:66) | [ ] | Chaos validation verifies database serialization retries and split-brain fencing (§24 #303) |
-| `P05-T5.3.1-C1` | 5.3.1 (Phase-05-Order-Gateway-API.md:45) | [ ] | JWT 15min access / 7d refresh |
-| `P05-T5.3.1-C2` | 5.3.1 (Phase-05-Order-Gateway-API.md:46) | [ ] | OAuth2 client credentials |
-| `P05-T5.3.2-C1` | 5.3.2 (Phase-05-Order-Gateway-API.md:71) | [ ] | 5 rate limit tiers |
-| `P05-T5.3.3-C1` | 5.3.3 (Phase-05-Order-Gateway-API.md:106) | [ ] | order submission via Aeron to C++ core |
-| `P05-T5.3.4-C1` | 5.3.4 (Phase-05-Order-Gateway-API.md:128) | [ ] | account/balance/position endpoints |
-| `P05-T5.3.5-C1` | 5.3.5 (Phase-05-Order-Gateway-API.md:156) | [ ] | market data REST with caching |
-| `P05-T5.3.6-C1` | 5.3.6 (Phase-05-Order-Gateway-API.md:180) | [ ] | deposit instructions per currency |
-| `P05-T5.3.6-C2` | 5.3.6 (Phase-05-Order-Gateway-API.md:181) | [ ] | 15min withdrawal confirmation window |
-| `P05-T5.3.7-C1` | 5.3.7 (Phase-05-Order-Gateway-API.md:209) | [ ] | central route registry for all endpoints |
-| `P05-T5.3.8-C1` | 5.3.8 (Phase-05-Order-Gateway-API.md:233) | [ ] | OpenAPI docs at /developer |
-| `P05-T5.3.9-C1` | 5.3.9 (Phase-05-Order-Gateway-API.md:256) | [ ] | API token IP allowlist |
-| `P05-T5.3.10-C1` | 5.3.10 (Phase-05-Order-Gateway-API.md:279) | [ ] | concurrent session limits |
-| `P05-T5.3.11-C1` | 5.3.11 (Phase-05-Order-Gateway-API.md:307) | [ ] | sub-account max 20 per master (tiered up to 1,000 for institutional) |
-| `P05-T5.3.12-C1` | 5.3.12 (Phase-05-Order-Gateway-API.md:333) | [ ] | FROZEN legal-hold state |
-| `P05-T5.3.13-C1` | 5.3.13 (Phase-05-Order-Gateway-API.md:355) | [ ] | test environment with reset |
-| `P05-T5.3.14-C1` | 5.3.14 (Phase-05-Order-Gateway-API.md:378) | [ ] | announcements + maintenance calendar |
-| `P05-T5.3.15-C1` | 5.3.15 (Phase-05-Order-Gateway-API.md:401) | [ ] | fee promo windows |
-| `P05-T5.3.16-C1` | 5.3.16 (Phase-05-Order-Gateway-API.md:426) | [ ] | developer portal with API keys |
-| `P05-T5.3.17-C1` | 5.3.17 (Phase-05-Order-Gateway-API.md:451) | [ ] | signed webhooks with retry |
-| `P05-T5.3.18-C1` | 5.3.18 (Phase-05-Order-Gateway-API.md:474) | [ ] | chargeback dispute workflow |
-| `P05-T5.3.19-C1` | 5.3.19 (Phase-05-Order-Gateway-API.md:497) | [ ] | tax reporting with FIFO lot tracking |
-| `P05-T5.3.20-C1` | 5.3.20 (Phase-05-Order-Gateway-API.md:520) | [ ] | 6-month deprecation notice |
-| `P05-T5.3.21-C1` | 5.3.21 (Phase-05-Order-Gateway-API.md:545) | [ ] | central error code registry |
-| `P05-T5.3.22-C1` | 5.3.22 (Phase-05-Order-Gateway-API.md:574) | [ ] | order-modify audit trail with old/new fields in order_audit table |
-| `P05-T5.3.22-C2` | 5.3.22 (Phase-05-Order-Gateway-API.md:575) | [ ] | STALE_MODIFY rejects stale order_seq on modify |
-| `P05-T5.3.23-C1` | 5.3.23 (Phase-05-Order-Gateway-API.md:600) | [ ] | internal transfer endpoint with GL posting (§8.4, §24 #144) |
-| `P05-T5.3.24-C1` | 5.3.24 (Phase-05-Order-Gateway-API.md:632) | [ ] | HMAC request signing + 30s replay window (§8.1, §24 #147) |
-| `P05-T5.3.24-C2` | 5.3.24 (Phase-05-Order-Gateway-API.md:633) | [ ] | idempotent order submission on client_order_id (§8.4, §24 #148) |
-| `P05-T5.3.25-C1` | 5.3.25 (Phase-05-Order-Gateway-API.md:660) | [ ] | per-instrument mass cancellation (§8.4, §24 #153) |
-| `P05-T5.3.26-C1` | 5.3.26 (Phase-05-Order-Gateway-API.md:688) | [ ] | WebSocket authentication upgrade and renewal (§10.5, §24 #187) |
-| `P05-T5.3.27-C1` | 5.3.27 (Phase-05-Order-Gateway-API.md:718) | [ ] | Standard HTTP rate-limit headers (§8.3, §24 #192) |
-| `P05-T5.3.29-C1` | 5.3.29 (Phase-05-Order-Gateway-API.md:762) | [ ] | API gateway architecture |
-| `P05-T5.3.30-C1` | 5.3.30 (Phase-05-Order-Gateway-API.md:790) | [ ] | manual liquidation admin endpoint |
-| `P05-T5.3.31-C1` | 5.3.31 (Phase-05-Order-Gateway-API.md:823) | [ ] | Interactive WebSocket Trading API with correlated request-response framing |
-| `P05-T5.3.32-C1` | 5.3.32 (Phase-05-Order-Gateway-API.md:855) | [ ] | REST batch orders submit and cancel endpoints |
-| `P05-T5.3.33-C1` | 5.3.33 (Phase-05-Order-Gateway-API.md:866) | [ ] | dead-man switch is shared across REST/WS/FIX and cancels atomically (§24 #257) |
-| `P05-T5.3.34-C1` | 5.3.34 (Phase-05-Order-Gateway-API.md:875) | [ ] | repeated post-429 abuse escalates to auditable timed HTTP 418 bans (§24 #258) |
-| `P05-T5.3.35-C1` | 5.3.35 (Phase-05-Order-Gateway-API.md:884) | [ ] | instrument responses expose all effective structured validation filters (§24 #259) |
-| `P05-T5.3.36-C1` | 5.3.36 (Phase-05-Order-Gateway-API.md:893) | [ ] | close-all uses reduce-only protected closes and reports partial failure (§24 #260) |
-| `P05-T5.3.37-C1` | 5.3.37 (Phase-05-Order-Gateway-API.md:909) | [ ] | atomic cancel-replace and quantity-down keep-priority operations expose complete outcome/history se… |
-| `P05-T5.3.38-C1` | 5.3.38 (Phase-05-Order-Gateway-API.md:925) | [ ] | Ed25519/RSA authentication works across REST/WS and private keys never enter the platform (§24 #283) |
-| `P05-T5.3.39-C1` | 5.3.39 (Phase-05-Order-Gateway-API.md:941) | [ ] | quote-denominated market orders and side-effect-free order preview are deterministic and filter-com… |
-| `P05-T5.3.40-C1` | 5.3.40 (Phase-05-Order-Gateway-API.md:957) | [ ] | clients can query weighted request/order usage and effective account filters/fees/history (§24 #288) |
-| `P05-T5.3.41-C1` | 5.3.41 (Phase-05-Order-Gateway-API.md:977) | [ ] | RFC 7807 error envelope, circuit breaker, and engine timeout fallbacks (§24 #304) |
-| `P05-T5.3.42-C1` | 5.3.42 (Phase-05-Order-Gateway-API.md:1002) | [ ] | unified list envelope, cross-endpoint idempotency, auth lifecycle, and tabulated rate weights with … |
-| `P05-T5.3.43-C1` | 5.3.43 (Phase-05-Order-Gateway-API.md:1022) | [ ] | public PTP-sourced server-time endpoint for HMAC clock sync (§24 #355) |
-| `P05-T5.3.44-C1` | 5.3.44 (Phase-05-Order-Gateway-API.md:1042) | [ ] | unified venue-info document with ETag and change signaling (§24 #356) |
-| `P05-T5.3.45-C1` | 5.3.45 (Phase-05-Order-Gateway-API.md:1062) | [ ] | paginated transfer history with GL linkage (§24 #363) |
-| `P05-T5.3.46-C1` | 5.3.46 (Phase-05-Order-Gateway-API.md:1121) | [ ] | centralized OpenAPI-schema request validation + route-registry completeness |
-| `P05-T5.3.46-C2` | 5.3.46 (Phase-05-Order-Gateway-API.md:1122) | [ ] | route registration for ALL endpoints (spec §8.4 conventions) |
 | `P06-T6.3.1-C1` | 6.3.1 (Phase-06-Market-Data-Distribution.md:44) | [ ] | goroutine-per-connection WS |
 | `P06-T6.3.1-C2` | 6.3.1 (Phase-06-Market-Data-Distribution.md:45) | [ ] | 20 L2 / 5 L3 subscription limits |
 | `P06-T6.3.2-C1` | 6.3.2 (Phase-06-Market-Data-Distribution.md:72) | [ ] | 100ms conflation or 100 events |

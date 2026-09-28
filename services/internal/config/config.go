@@ -14,6 +14,8 @@
 package config
 
 import (
+	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
@@ -40,6 +42,32 @@ type Config struct {
 	Postgres    PostgresConfig `mapstructure:"postgres"`
 	Redis       RedisConfig    `mapstructure:"redis"`
 	NATS        NATSConfig     `mapstructure:"nats"`
+	Secrets     SecretsConfig  `mapstructure:"secrets"`
+}
+
+// SecretsConfig holds locally-loadable key material. The production
+// source of truth is Vault/KMS (Phase-13.5 Task 13.5.3.5); the data_key
+// file/env fallback exists so the platform surfaces (API-key HMAC
+// secrets, webhook signing secrets — both AES-256-GCM secret_enc
+// columns) can seal/unseal during development and disaster recovery.
+// Production boots WITHOUT a data key fail closed (Validate).
+type SecretsConfig struct {
+	// DataKey is the 32-byte AES-256-GCM data key for auth.SecretBox,
+	// given as base64 (preferred) or hex. EXC_SECRETS_DATA_KEY.
+	DataKey string `mapstructure:"data_key"`
+}
+
+// IsProduction reports whether the environment label names a production
+// deployment — every non-production keyword shares test-environment
+// semantics (testenv reset gate, dev secret fallbacks). An empty or
+// unrecognized label fails closed to production behaviour.
+func (c *Config) IsProduction() bool {
+	switch strings.ToLower(strings.TrimSpace(c.Environment)) {
+	case "development", "dev", "staging", "stage", "test", "testing",
+		"sandbox", "local", "ci":
+		return false
+	}
+	return true
 }
 
 // ServiceConfig is the uniform per-service section. Only the gateway binds
@@ -218,5 +246,32 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("config: nats.urls entry %q is not a valid nats:// URL", u)
 		}
 	}
+
+	// Secret material: a set data_key must decode to exactly 32 bytes
+	// (AES-256-GCM); in production it must exist — a gateway that cannot
+	// unseal api_keys.secret_enc / webhook secrets cannot verify
+	// signatures, and a silently-keyless boot is a §2.7 violation.
+	if k := strings.TrimSpace(c.Secrets.DataKey); k != "" {
+		if _, err := DecodeDataKey(k); err != nil {
+			return fmt.Errorf("config: secrets.data_key: %w", err)
+		}
+	} else if c.IsProduction() {
+		return errors.New("config: secrets.data_key is required in production " +
+			"(EXC_SECRETS_DATA_KEY, base64 or hex, 32 bytes)")
+	}
 	return nil
+}
+
+// DecodeDataKey decodes a base64- or hex-encoded 32-byte data key.
+func DecodeDataKey(s string) ([]byte, error) {
+	if b, err := base64.StdEncoding.DecodeString(s); err == nil && len(b) == 32 {
+		return b, nil
+	}
+	if b, err := base64.RawURLEncoding.DecodeString(s); err == nil && len(b) == 32 {
+		return b, nil
+	}
+	if b, err := hex.DecodeString(s); err == nil && len(b) == 32 {
+		return b, nil
+	}
+	return nil, fmt.Errorf("must be base64 or hex encoding of exactly 32 bytes")
 }

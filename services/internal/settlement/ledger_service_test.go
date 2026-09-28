@@ -241,9 +241,9 @@ func itestLedger(t *testing.T) (*LedgerService, *pgxpool.Pool, *fakePub, string)
 		}
 	}
 
-	rdb := excredis.New(defaultTestRedis, "", 0)
+	rdb := excredis.New(defaultTestRedis, os.Getenv("EXC_REDIS_TEST_PASSWORD"), 0)
 	if addr := os.Getenv("EXC_REDIS_TEST_ADDR"); addr != "" {
-		rdb = excredis.New(addr, "", 0)
+		rdb = excredis.New(addr, os.Getenv("EXC_REDIS_TEST_PASSWORD"), 0)
 	}
 	if err := rdb.Ping(ctx); err != nil {
 		t.Skipf("redis unreachable (%v)", err)

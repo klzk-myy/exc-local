@@ -23,6 +23,15 @@ import (
 // AccessTokenTTL is the spec §8.1 access-token lifetime.
 const AccessTokenTTL = 15 * time.Minute
 
+// NumericDate claims marshal with TimePrecision (library default:
+// seconds). Second-truncation would silently extend every token's
+// effective lifetime by up to 999ms — and makes sub-second session
+// expiry (WS AUTH_EXPIRED contract, spec §10.5 item 5) unrepresentable.
+// Millisecond precision removes both defects for all issuers.
+func init() {
+	jwt.TimePrecision = time.Millisecond
+}
+
 // TokenTypeAccess marks JWTs usable on REST/WS authentication surfaces.
 const TokenTypeAccess = "access"
 

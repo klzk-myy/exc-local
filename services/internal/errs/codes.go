@@ -73,13 +73,14 @@ func specRow(code string, httpStatus int, desc string) CodeDef {
 
 // localRow builds a CodeDef for a code emitted by the gateway but not (yet)
 // carrying a spec §23 row. Spec=false flags it for the docs-drift check: the
-// long-term fix is a §23 row, not deletion.
+// long-term fix is a §23 row, not deletion. Currently unused — remediation #44
+// registered all emitted codes into §23 — but retained for future emissions.
 func localRow(code string, httpStatus int, owner, desc string) CodeDef {
 	return CodeDef{Code: code, HTTPStatus: httpStatus, Description: desc,
 		Owner: owner, Spec: false}
 }
 
-// specCodes is the verbatim spec §23 table (149 rows).
+// specCodes is the verbatim spec §23 table (170 rows).
 var specCodes = []CodeDef{
 	specRow("INVALID_REQUEST", 400, "Malformed request body (Phase-05 Task 5.3.29 API Gateway & Load Balancer — centralized OpenAPI-schema request validation; remediation #19)"),
 	specRow("UNAUTHORIZED", 401, "Missing or invalid auth token (Phase-05 Task 5.3.26 WebSocket Authentication Upgrade & In-Flight Token Renewal; REST JWT/OAuth per spec §8.4; remediation #19)"),
@@ -230,26 +231,30 @@ var specCodes = []CodeDef{
 	specRow("BILATERAL_CREDIT_EXHAUSTED", 409, "Matching loop found no executable contra liquidity within bilateral credit screening limits (Phase-02 Task 2.3.24; remediation #37 — registered)"),
 	specRow("DISCRETIONARY_OFFSET_INVALID", 400, "Discretionary price offset negative, exceeds maximum spread band, or attached to non-LIMIT/TIF order (Phase-02 Task 2.3.26; remediation #37 — registered)"),
 	specRow("ISOLATED_MARGIN_DEFICIT", 409, "Position-level isolated margin deficit cannot be satisfied and auto-replenish is disabled (Phase-19 Task 19.3.27; remediation #37 — registered)"),
+	specRow("ACCOUNT_NOT_FOUND", 404, "Account identifier does not resolve (Phase-05 Task 5.3.5 Internal Transfers; emitted by gateway funding paths — registered 2026-10-05, remediation #44)"),
+	specRow("API_KEY_NOT_FOUND", 401, "API key identifier does not resolve during mass-cancel/session validation (Phase-05 Task 5.3.24 Scoped Mass Cancel; remediation #44)"),
+	specRow("AUTH_INTERNAL", 500, "Authentication subsystem internal failure (Phase-05 Task 5.3.24; remediation #44)"),
+	specRow("BALANCE_EVENT_DISPATCH_FAILED", 500, "Balance-change NATS dispatch failed after commit (Phase-03 Task 3.3.6 GL posting seam; remediation #44)"),
+	specRow("DUAL_CONTROL_REQUIRED", 400, "Operation requires a second-authorizer approval (Phase-05 Task 5.3.12 FROZEN legal-hold; remediation #44)"),
+	specRow("DUAL_CONTROL_VIOLATION", 400, "Dual-control approval attempt by the initiating principal (Phase-05 Task 5.3.12; remediation #44)"),
+	specRow("ENDPOINT_GONE", 410, "Endpoint removed per deprecation schedule (Phase-05 Task 5.3.20 API Deprecation Policy; remediation #44)"),
+	specRow("FEE_INVALID_INPUT", 400, "Fee-schedule input failed validation (Phase-03 Task 3.3.4 Fee Engine; remediation #44)"),
+	specRow("FEE_TIER_NOT_FOUND", 404, "Referenced fee tier does not exist (Phase-05 Task 5.3.15 Fee Schedule Surface; remediation #44)"),
+	specRow("INSTRUMENT_RESTRICTED", 409, "Instrument in RESTRICTED lifecycle grace state; new orders blocked, cancels allowed (Phase-05 Task 5.3.3 order ingress; remediation #44)"),
+	specRow("INTERNAL_ERROR", 500, "Unmapped internal failure; RFC-7807 envelope generic surface (Phase-05 Task 5.3.41 Error Envelope; remediation #44)"),
+	specRow("LEDGER_INVALID_JOURNAL", 500, "Journal entry failed double-entry validation at posting (Phase-03 Task 3.3.6; remediation #44)"),
+	specRow("LEDGER_LOCK_UNAVAILABLE", 503, "Account ledger mutex unavailable within deadline (Phase-03 Task 3.3.6; remediation #44)"),
+	specRow("LEDGER_UNKNOWN_ACCOUNT", 500, "Journal references a GL account absent from the chart (Phase-03 Task 3.3.6; remediation #44)"),
+	specRow("NOT_IMPLEMENTED", 501, "Route registered but handler not yet implemented (Phase-05 Task 5.3.7 Route Registration; remediation #44)"),
+	specRow("OPS_ALERT_DISPATCH_FAILED", 500, "Operational alert dispatch to the alert taxonomy failed (Phase-03 Task 3.3.6; remediation #44)"),
+	specRow("RISK_LIMITS_INTERNAL", 500, "Risk-limit store internal failure (Phase-05 Task 5.3.4 Risk-Limit Administration; remediation #44)"),
+	specRow("TWO_FACTOR_REQUIRED", 403, "TOTP step-up required for the privileged operation (Phase-05 Task 5.3.36 Close-All Positions; remediation #44)"),
+	specRow("UNAUTHORIZED_ROLE", 403, "Caller role lacks the required authorization for the operation (Phase-05 Task 5.3.12; remediation #44)"),
+	specRow("WEBHOOK_DELIVERY_FAILED", 500, "Webhook delivery permanently failed after retry budget (Phase-05 Task 5.3.17 Webhooks; remediation #44)"),
+	specRow("WITHDRAWAL_CONFIRM_EXPIRED", 409, "Withdrawal confirmation window elapsed; request must be re-initiated (Phase-05 Task 5.3.6 Withdrawal Flow; remediation #44)"),
 }
 
 // localCodes are emitted by the gateway but carry no spec §23 row yet.
 // Spec=false marks them for the docs-drift check — each needs a §23 row.
-var localCodes = []CodeDef{
-	// INTERNAL_ERROR is emitted by pkg/errors.ProblemFor for every
-	// unclassified failure; Task 5.3.41's envelope emits it for panics.
-	localRow("INTERNAL_ERROR", 500, "Phase-05 Task 5.3.41",
-		"Unclassified internal failure; fail-closed generic envelope leaks no internals (spec §2.7.1). Emitted by pkg/errors.ProblemFor since Task 1.3.12; §23 row pending."),
-	// NOT_IMPLEMENTED is emitted by the Task 5.3.7 stub handler for every
-	// route registered ahead of its owning phase.
-	localRow("NOT_IMPLEMENTED", 501, "Phase-05 Task 5.3.7",
-		"Route registered in the Task 5.3.7 registry but not yet implemented by its owning phase; stubbed per the registration-completeness invariant (spec §8.4 item 4). §23 row pending."),
-	// Phase-05 account-state cluster emissions (internal/accounts). All
-	// three carry spec provenance via §24 traceability rows rather than a
-	// §23 table line, so they register as local until §23 is amended.
-	localRow("TWO_FACTOR_REQUIRED", 403, "Phase-05 Task 5.3.36",
-		"Sensitive operation requires a fresh TOTP step-up: X-2FA-Token header or an amr-elevated session (spec §24 User Authentication row, 403/L3; Phase-12 Task 12.3.x owns the ceremony). §23 row pending."),
-	localRow("DUAL_CONTROL_REQUIRED", 400, "Phase-05 Task 5.3.12",
-		"Privileged transition requires a second approver (maker-checker / four-eyes, spec §24 Maker-Checker Admin row, 400/L2; Phase-07 Task 7.3.1 owns full enforcement). §23 row pending."),
-	localRow("UNAUTHORIZED_ROLE", 403, "Phase-05 Task 5.3.12",
-		"Caller lacks the RBAC role required for the admin action (spec §24 Maker-Checker Admin row; aligned with UNAUTHORIZED_ADMIN_ACTION 403/L3). §23 row pending."),
-}
+// As of remediation #44 the slice is empty: all emitted codes are §23 rows.
+var localCodes = []CodeDef{}

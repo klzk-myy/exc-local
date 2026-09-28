@@ -1289,7 +1289,7 @@
       "text": "6 chaos scenarios pass 3x each",
       "file": "Phase-04.5-Recovery-Chaos-Validation.md",
       "line": 45,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -1300,7 +1300,7 @@
       "text": "zero dup/miss on every recovery",
       "file": "Phase-04.5-Recovery-Chaos-Validation.md",
       "line": 46,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -1311,7 +1311,7 @@
       "text": "Chaos validation verifies database serialization retries and split-brain fencing (§24 #303)",
       "file": "Phase-04.5-Recovery-Chaos-Validation.md",
       "line": 66,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -1322,7 +1322,7 @@
       "text": "JWT 15min access / 7d refresh",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 45,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -1333,7 +1333,7 @@
       "text": "OAuth2 client credentials",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 46,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -1344,7 +1344,7 @@
       "text": "5 rate limit tiers",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 71,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -1355,7 +1355,7 @@
       "text": "order submission via Aeron to C++ core",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 106,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -1366,7 +1366,7 @@
       "text": "account/balance/position endpoints",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 128,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -1377,7 +1377,7 @@
       "text": "market data REST with caching",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 156,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -1388,7 +1388,7 @@
       "text": "deposit instructions per currency",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 180,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -1399,7 +1399,7 @@
       "text": "15min withdrawal confirmation window",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 181,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -1410,7 +1410,7 @@
       "text": "central route registry for all endpoints",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 209,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -1421,7 +1421,7 @@
       "text": "OpenAPI docs at /developer",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 233,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -1432,7 +1432,7 @@
       "text": "API token IP allowlist",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 256,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -1443,7 +1443,7 @@
       "text": "concurrent session limits",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 279,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -1454,7 +1454,7 @@
       "text": "sub-account max 20 per master (tiered up to 1,000 for institutional)",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 307,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -1465,7 +1465,7 @@
       "text": "FROZEN legal-hold state",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 333,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -1476,7 +1476,7 @@
       "text": "test environment with reset",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 355,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -1487,7 +1487,7 @@
       "text": "announcements + maintenance calendar",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 378,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -1498,7 +1498,7 @@
       "text": "fee promo windows",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 401,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -1509,7 +1509,7 @@
       "text": "developer portal with API keys",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 426,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -1520,7 +1520,7 @@
       "text": "signed webhooks with retry",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 451,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -1531,7 +1531,7 @@
       "text": "chargeback dispute workflow",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 474,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -1542,7 +1542,7 @@
       "text": "tax reporting with FIFO lot tracking",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 497,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -1553,7 +1553,7 @@
       "text": "6-month deprecation notice",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 520,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -1564,7 +1564,7 @@
       "text": "central error code registry",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 545,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -1575,7 +1575,7 @@
       "text": "order-modify audit trail with old/new fields in order_audit table",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 574,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -1586,7 +1586,7 @@
       "text": "STALE_MODIFY rejects stale order_seq on modify",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 575,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -1597,7 +1597,7 @@
       "text": "internal transfer endpoint with GL posting (§8.4, §24 #144)",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 600,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -1608,7 +1608,7 @@
       "text": "HMAC request signing + 30s replay window (§8.1, §24 #147)",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 632,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -1619,7 +1619,7 @@
       "text": "idempotent order submission on client_order_id (§8.4, §24 #148)",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 633,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -1630,7 +1630,7 @@
       "text": "per-instrument mass cancellation (§8.4, §24 #153)",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 660,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -1641,7 +1641,7 @@
       "text": "WebSocket authentication upgrade and renewal (§10.5, §24 #187)",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 688,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -1652,7 +1652,7 @@
       "text": "Standard HTTP rate-limit headers (§8.3, §24 #192)",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 718,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -1663,7 +1663,7 @@
       "text": "API gateway architecture",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 762,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -1674,7 +1674,7 @@
       "text": "manual liquidation admin endpoint",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 790,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -1685,7 +1685,7 @@
       "text": "Interactive WebSocket Trading API with correlated request-response framing",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 823,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -1696,7 +1696,7 @@
       "text": "REST batch orders submit and cancel endpoints",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 855,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -1707,7 +1707,7 @@
       "text": "dead-man switch is shared across REST/WS/FIX and cancels atomically (§24 #257)",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 866,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -1718,7 +1718,7 @@
       "text": "repeated post-429 abuse escalates to auditable timed HTTP 418 bans (§24 #258)",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 875,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -1729,7 +1729,7 @@
       "text": "instrument responses expose all effective structured validation filters (§24 #259)",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 884,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -1740,7 +1740,7 @@
       "text": "close-all uses reduce-only protected closes and reports partial failure (§24 #260)",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 893,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -1751,7 +1751,7 @@
       "text": "atomic cancel-replace and quantity-down keep-priority operations expose complete outcome/history semantics (§24 #281–282)",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 909,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -1762,7 +1762,7 @@
       "text": "Ed25519/RSA authentication works across REST/WS and private keys never enter the platform (§24 #283)",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 925,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -1773,7 +1773,7 @@
       "text": "quote-denominated market orders and side-effect-free order preview are deterministic and filter-compliant (§24 #286)",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 941,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -1784,7 +1784,7 @@
       "text": "clients can query weighted request/order usage and effective account filters/fees/history (§24 #288)",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 957,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -1795,7 +1795,7 @@
       "text": "RFC 7807 error envelope, circuit breaker, and engine timeout fallbacks (§24 #304)",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 977,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -1806,7 +1806,7 @@
       "text": "unified list envelope, cross-endpoint idempotency, auth lifecycle, and tabulated rate weights with two new §23 codes (§24 #338)",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 1002,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -1817,7 +1817,7 @@
       "text": "public PTP-sourced server-time endpoint for HMAC clock sync (§24 #355)",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 1022,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -1828,7 +1828,7 @@
       "text": "unified venue-info document with ETag and change signaling (§24 #356)",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 1042,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -1839,7 +1839,7 @@
       "text": "paginated transfer history with GL linkage (§24 #363)",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 1062,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -1850,7 +1850,7 @@
       "text": "centralized OpenAPI-schema request validation + route-registry completeness",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 1121,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -1861,7 +1861,7 @@
       "text": "route registration for ALL endpoints (spec §8.4 conventions)",
       "file": "Phase-05-Order-Gateway-API.md",
       "line": 1122,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {

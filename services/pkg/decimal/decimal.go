@@ -31,6 +31,11 @@ func NewFromString(s string) (Decimal, error) { return decimal.NewFromString(s) 
 // MustFromString parses s and panics on failure — for tests and constants only.
 func MustFromString(s string) Decimal { return decimal.RequireFromString(s) }
 
+// RequireFromString is the shopspring passthrough — identical semantics to
+// MustFromString (panics on malformed input); exists so callers written
+// against the shopspring surface compile against the facade unchanged.
+func RequireFromString(s string) Decimal { return decimal.RequireFromString(s) }
+
 // NewFromInt returns v as a Decimal.
 func NewFromInt(v int64) Decimal { return decimal.NewFromInt(v) }
 

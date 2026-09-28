@@ -42,9 +42,9 @@ func TestIngestBenchSustainedRate(t *testing.T) {
 		t.Skip("set EXC_BENCH_INGEST=1 (plus EXC_PG_TEST=1/EXC_PG_DSN) to run the ingest benchmark")
 	}
 	pool := testPool(t)
-	rdb := excredis.New(defaultTestRedis, "", 0)
+	rdb := excredis.New(defaultTestRedis, os.Getenv("EXC_REDIS_TEST_PASSWORD"), 0)
 	if addr := os.Getenv("EXC_REDIS_TEST_ADDR"); addr != "" {
-		rdb = excredis.New(addr, "", 0)
+		rdb = excredis.New(addr, os.Getenv("EXC_REDIS_TEST_PASSWORD"), 0)
 	}
 	ctx := context.Background()
 	if err := rdb.Ping(ctx); err != nil {

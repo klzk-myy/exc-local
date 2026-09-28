@@ -32,7 +32,7 @@ func TestSeedMountsAndDumps(t *testing.T) {
 	}
 	// Spot-check key routes exist with expected metadata.
 	rt, ok := r.RouteFor("POST", "/api/v1/orders")
-	if !ok || rt.Status != StatusStub || !contains(rt.Auth.Scopes, ScopeTrade) {
+	if !ok || rt.Status != StatusLive || !contains(rt.Auth.Scopes, ScopeTrade) {
 		t.Fatalf("POST /api/v1/orders metadata wrong: %+v ok=%v", rt, ok)
 	}
 	rt, ok = r.RouteFor("POST", "/api/v1/admin/liquidation/manual")
@@ -44,7 +44,9 @@ func TestSeedMountsAndDumps(t *testing.T) {
 func TestStubServes501Envelope(t *testing.T) {
 	r := newTestRouter(t)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/orders", strings.NewReader(`{}`))
+	// /orders/countdown-cancel-all remains a stub (Task 5.3.33 lands the
+	// dead-man REST surface); /orders itself is now live.
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/orders/countdown-cancel-all", strings.NewReader(`{}`))
 	r.Mux().ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotImplemented {
 		t.Fatalf("stub status %d, want 501", rec.Code)
@@ -209,9 +211,11 @@ func TestBodySchemaValidation(t *testing.T) {
 func TestWSRouteMountsAsGET(t *testing.T) {
 	r := newTestRouter(t)
 	rec := httptest.NewRecorder()
+	// /ws/v1 is StatusLive (Task 5.3.26/31): with no handler injected into
+	// MountSeed the fail-closed unwired shim answers 503 SERVICE_DEGRADED.
 	r.Mux().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/ws/v1", nil))
-	if rec.Code != http.StatusNotImplemented {
-		t.Fatalf("WS stub status %d, want 501", rec.Code)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("WS unwired status %d, want 503", rec.Code)
 	}
 	rt, ok := r.RouteFor("WS", "/ws/v1")
 	if !ok || rt.Method != "WS" {

@@ -86,6 +86,14 @@ func RunGoTest(ctx context.Context, env *Env, pkg, runRegex string, extra ...str
 		"EXC_SENTINEL_ADDRS="+env.Sentinels,
 		"EXC_TEST_DSN="+env.PostgresDSN,
 	)
+	// PG-gated tests self-skip unless EXC_PG_TEST=1 — enable live verification
+	// only when the operator explicitly pointed the harness at a DSN (an
+	// explicitly-provided unreachable DSN failing is correct; silently
+	// skipping it would be a false pass).
+	if os.Getenv("EXC_TEST_DSN") != "" {
+		c.Env = append(c.Env, "EXC_PG_TEST=1",
+			"EXC_PG_DSN="+env.PostgresDSN)
+	}
 	out, err := c.CombinedOutput()
 	s := string(out)
 	if err != nil {
