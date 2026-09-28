@@ -84,6 +84,9 @@ add_library(exch_core STATIC
     src/matching/EngineLoop.cpp
     src/matching/CrossShardCoordinator.cpp
     src/matching/OptimisticShardCoordinator.cpp
+    src/matching/TradeThroughGuard.cpp
+    src/matching/PriceImprovementRecorder.cpp
+    src/matching/DiscretionaryExecutor.cpp
     src/marketdata/BookSerializer.cpp
     src/recovery/RecoveryManager.cpp
     src/recovery/SnapshotStore.cpp
@@ -175,7 +178,9 @@ if(EXCH_BUILD_TESTS)
             test_expiry
             test_cross_shard
             test_amend
-            test_book_protection)
+            test_book_protection
+            test_trade_through
+            test_discretionary)
         add_executable(${t} tests/${t}.cpp)
         target_link_libraries(${t} PRIVATE exch_core gtest_main)
         add_test(NAME ${t} COMMAND ${t})
