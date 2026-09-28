@@ -28,8 +28,8 @@ All counts are verified mechanically across the corpus:
 - **Phase Tasks:** **479** tasks across 30 phase plans
 - **Checklist Spec Checkpoints:** **543** checklist checkpoints across all phase tasks
 - **Acceptance Criteria Rows:** **1,079** rows (976 core + 103 buffer phase rows)
-- **Spec §23 Error Codes:** **149** codes (100% owner-resolvable against phase tasks)
-- **Database Migrations:** **49** `.up.sql` files on disk (sparse task-numbered prefixes 001–150, collision-free, each paired `.down.sql`; supersedes prior "108 contiguous" prose — planned corpus allocated 001–108 by task number, implementation allocates beyond it, e.g. 109–119/150 in Phase-03, 023/065/092/120 in Phase-04)
+- **Spec §23 Error Codes:** **170** codes (100% owner-resolvable against phase tasks; supersedes 149 — remediation #44 registered the 21 gateway `localRow` emissions as §23 rows)
+- **Database Migrations:** **68** `.up.sql` files on disk (sparse task-numbered prefixes 001–190, collision-free, each paired `.down.sql`; supersedes prior "49 files" and "108 contiguous" prose — planned corpus allocated 001–108 by task number, implementation allocates beyond it, e.g. 109–119/150 in Phase-03, 023/065/092/120 in Phase-04, 151–155/160–162/170–173/180–182/190 in Phase-05)
 - **Phase Plans:** **30 phases** (24 core + 6 mandatory buffer phases: 01.5, 02.5, 04.5, 08.5, 13.5, 19.5)
 - **Financial Correctness Categories:** **9** categories (including double-entry GL zero-sum conservation)
 - **Degradation Modes:** **6** exact-cased modes (`Normal · ReadOnly · MarketDataOnly · SpotOnly · Throttled · Maintenance`)
@@ -86,7 +86,7 @@ All counts are verified mechanically across the corpus:
 ## 6. Key Mechanism Ownership Map
 
 - **API Route Registry (all endpoints):** Phase 5 (Task 5.3.7 / 5.3.46)
-- **Error Code Registry & Enforcement:** Phase 5 (Task 5.3.21) — 149 codes, zero ownerless codes
+- **Error Code Registry & Enforcement:** Phase 5 (Task 5.3.21) — 170 codes, zero ownerless codes
 - **Matching Core & Degradation Modes (6):** Phase 2 (ModeManager)
 - **Circuit Breaker (5-Tier):** Phase 13
 - **Double-Entry General Ledger & Tom-Next Rollover:** Phase 3 (Tasks 3.3.6, 3.3.7)

@@ -36,15 +36,15 @@ Implement the Go REST API gateway: authentication (JWT/OAuth2), rate limiting (5
 5. Middleware: `AuthMiddleware` validates JWT on every request.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] JWT access token valid for 15min; refresh produces new access token
-* [ ] OAuth2 client credentials grant works
-* [ ] TOTP 2FA required for withdrawals, balance adjustments
-* [ ] Session stored in Redis with correct TTL
+* [x] JWT access token valid for 15min; refresh produces new access token
+* [x] OAuth2 client credentials grant works
+* [x] TOTP 2FA required for withdrawals, balance adjustments
+* [x] Session stored in Redis with correct TTL
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: JWT 15min access / 7d refresh — defined first, validated against spec
-- [ ] Spec checkpoint: OAuth2 client credentials — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: JWT 15min access / 7d refresh — defined first, validated against spec
+- [x] Spec checkpoint: OAuth2 client credentials — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -62,14 +62,14 @@ Implement the Go REST API gateway: authentication (JWT/OAuth2), rate limiting (5
 5. Headers: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] 5 tiers with correct limits and burst
-* [ ] Redis token bucket enforces limits
-* [ ] Throttled mode reduces lower tiers first
-* [ ] Rate limit headers present on all responses
+* [x] 5 tiers with correct limits and burst
+* [x] Redis token bucket enforces limits
+* [x] Throttled mode reduces lower tiers first
+* [x] Rate limit headers present on all responses
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: 5 rate limit tiers — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: 5 rate limit tiers — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -96,15 +96,15 @@ Implement the Go REST API gateway: authentication (JWT/OAuth2), rate limiting (5
 5. Response: order with status, filled_qty, avg_fill_price.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Order submission reaches C++ core via Aeron
-* [ ] Cancel reaches C++ core; confirmation returned
-* [ ] Modify via `PUT` reaches C++ core; queue-priority rules applied (price/qty up = new timestamp)
-* [ ] Order history paginated correctly
-* [ ] Order detail returns correct state
+* [x] Order submission reaches C++ core via Aeron
+* [x] Cancel reaches C++ core; confirmation returned
+* [x] Modify via `PUT` reaches C++ core; queue-priority rules applied (price/qty up = new timestamp)
+* [x] Order history paginated correctly
+* [x] Order detail returns correct state
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: order submission via Aeron to C++ core — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: order submission via Aeron to C++ core — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -120,13 +120,13 @@ Implement the Go REST API gateway: authentication (JWT/OAuth2), rate limiting (5
 - `GET /api/v1/account/risk-limits` — current limits + utilization
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Balances endpoint returns all currencies with available/locked/total
-* [ ] Positions endpoint returns open positions with unrealized P&L
-* [ ] Risk limits endpoint returns limits + utilization
+* [x] Balances endpoint returns all currencies with available/locked/total
+* [x] Positions endpoint returns open positions with unrealized P&L
+* [x] Risk limits endpoint returns limits + utilization
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: account/balance/position endpoints — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: account/balance/position endpoints — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -146,15 +146,15 @@ Implement the Go REST API gateway: authentication (JWT/OAuth2), rate limiting (5
 **Boundary note (Phase 5 vs Phase 6):** Phase 5 implements the **REST endpoints** with simple time-based caching (100ms/1s). Phase 6 (Task 6.3.2) implements the **WebSocket L2 distribution** with 100ms/100-event conflation and `last_seq` replay. The REST cache is independent of the WS conflation engine; both read from the C++ core's book state via Aeron.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] L2 snapshot returns top N levels with seq
-* [ ] Recent trades paginated
-* [ ] Ticker returns 24h OHLCV
-* [ ] Klines returns OHLCV candles
-* [ ] Instruments endpoint returns full tradable universe with tick/lot/min-notional/status/hours
+* [x] L2 snapshot returns top N levels with seq
+* [x] Recent trades paginated
+* [x] Ticker returns 24h OHLCV
+* [x] Klines returns OHLCV candles
+* [x] Instruments endpoint returns full tradable universe with tick/lot/min-notional/status/hours
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: market data REST with caching — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: market data REST with caching — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -171,15 +171,15 @@ Implement the Go REST API gateway: authentication (JWT/OAuth2), rate limiting (5
 - `GET /api/v1/funding` — funding history
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Deposit instructions return correct bank details per currency
-* [ ] Withdrawal creates with 15min confirmation window
-* [ ] Withdrawal confirm validates token within window
-* [ ] Funding history paginated
+* [x] Deposit instructions return correct bank details per currency
+* [x] Withdrawal creates with 15min confirmation window
+* [x] Withdrawal confirm validates token within window
+* [x] Funding history paginated
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: deposit instructions per currency — defined first, validated against spec
-- [ ] Spec checkpoint: 15min withdrawal confirmation window — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: deposit instructions per currency — defined first, validated against spec
+- [x] Spec checkpoint: 15min withdrawal confirmation window — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -199,15 +199,15 @@ Implement the Go REST API gateway: authentication (JWT/OAuth2), rate limiting (5
 7. **Fleet/ops-console/auditor routes (amended 2026-09-27, remediation #26):** registry carries the Task 9.3.30 fleet endpoints (`GET /api/v1/admin/fleet/environments`, `GET /api/v1/admin/fleet/hosts`, `POST /api/v1/admin/fleet/hosts/{id}/drain|cordon|decommission`, `GET /api/v1/admin/fleet/topology?env=`, `GET/POST /api/v1/admin/releases`, `POST /api/v1/admin/releases/{id}/promote`, each with required role + `env` scope + dual-control flag), the Task 15.3.12 console endpoints (`GET/POST /api/v1/admin/listing-proposals`, `POST /api/v1/admin/listing-proposals/{id}/review`, `GET /api/v1/admin/ops-board`), and the read-only auditor endpoints (`GET /api/v1/admin/archive/status` per Task 4.3.2, `GET /api/v1/admin/audit/verify` per Task 7.3.3).
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] All Phase 5 routes registered
-* [ ] Future phase routes stubbed (501 Not Implemented)
-* [ ] All registered routes enforce centralized schema validation; no inline per-handler structural validation (remediation #10)
-* [ ] `GET /api/v1/routes` returns full route list
-* [ ] OpenAPI spec generated from registry
+* [x] All Phase 5 routes registered
+* [x] Future phase routes stubbed (501 Not Implemented)
+* [x] All registered routes enforce centralized schema validation; no inline per-handler structural validation (remediation #10)
+* [x] `GET /api/v1/routes` returns full route list
+* [x] OpenAPI spec generated from registry
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: central route registry for all endpoints — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: central route registry for all endpoints — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -224,14 +224,14 @@ Implement the Go REST API gateway: authentication (JWT/OAuth2), rate limiting (5
 4. Error codes documented.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] OpenAPI 3.1 spec generated
-* [ ] Swagger UI accessible at `/developer`
-* [ ] All schemas documented
-* [ ] Error codes documented
+* [x] OpenAPI 3.1 spec generated
+* [x] Swagger UI accessible at `/developer`
+* [x] All schemas documented
+* [x] Error codes documented
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: OpenAPI docs at /developer — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: OpenAPI docs at /developer — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -248,13 +248,13 @@ Implement the Go REST API gateway: authentication (JWT/OAuth2), rate limiting (5
 4. CIDR notation supported (e.g., `192.168.0.0/24`).
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] API token with IP allowlist rejects non-matching IP
-* [ ] CIDR notation works
-* [ ] IPv4 and IPv6 supported
+* [x] API token with IP allowlist rejects non-matching IP
+* [x] CIDR notation works
+* [x] IPv4 and IPv6 supported
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: API token IP allowlist — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: API token IP allowlist — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -271,13 +271,13 @@ Implement the Go REST API gateway: authentication (JWT/OAuth2), rate limiting (5
 4. Revoke session: `DELETE /api/v1/account/sessions/{id}`.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Concurrent session limits enforced
-* [ ] Session list returns active sessions
-* [ ] Session revocation works
+* [x] Concurrent session limits enforced
+* [x] Session list returns active sessions
+* [x] Session revocation works
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: concurrent session limits — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: concurrent session limits — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -297,15 +297,15 @@ Implement the Go REST API gateway: authentication (JWT/OAuth2), rate limiting (5
 7. `POST /api/v1/account/sub-accounts/{id}/api-keys` allows master accounts to programmatically generate API keys restricted to a specific sub-account with scoped permissions (`read`, `trade`, no `transfer` — the §8.8 money-moving scope; remediation #35 supersedes the prior "no `withdraw`" wording, which named a scope that does not exist).
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Sub-account creation enforces tiered `max_sub_accounts` limit (default 20, corporate 100, institutional up to 1,000)
-* [ ] Sub-accounts trade independently
-* [ ] Master sees aggregated balances/positions
-* [ ] Sub-account list, creation, and admin limit adjustment endpoints work
-* [ ] Master account can programmatically provision and revoke API keys scoped to individual sub-accounts
+* [x] Sub-account creation enforces tiered `max_sub_accounts` limit (default 20, corporate 100, institutional up to 1,000)
+* [x] Sub-accounts trade independently
+* [x] Master sees aggregated balances/positions
+* [x] Sub-account list, creation, and admin limit adjustment endpoints work
+* [x] Master account can programmatically provision and revoke API keys scoped to individual sub-accounts
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: sub-account max 20 per master (tiered up to 1,000 for institutional) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: sub-account max 20 per master (tiered up to 1,000 for institutional) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -325,13 +325,13 @@ Implement the Go REST API gateway: authentication (JWT/OAuth2), rate limiting (5
 **RBAC/dual-control dependency note:** RBAC role enforcement (Task 7.3.1) and dual-control middleware (Task 7.3.2) are implemented in Phase 7, which runs after Phase 5. During Phase 5, implement the FROZEN state logic and endpoints with **stub RBAC checks** (hardcoded role check placeholder) and **stub dual-control** (single-approver placeholder). Phase 7 replaces these stubs with the real RBAC middleware and four-eyes verification when it wires the admin endpoints to the full role/permission system.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] FROZEN account cannot trade or withdraw
-* [ ] Freeze/unfreeze requires dual control
-* [ ] Freeze reason in audit log
+* [x] FROZEN account cannot trade or withdraw
+* [x] Freeze/unfreeze requires dual control
+* [x] Freeze reason in audit log
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: FROZEN legal-hold state — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: FROZEN legal-hold state — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -347,13 +347,13 @@ Implement the Go REST API gateway: authentication (JWT/OAuth2), rate limiting (5
 3. Rate limited (1 reset per 5 min per account).
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Test reset clears balances, orders, positions
-* [ ] Only available in non-production
-* [ ] Rate limited
+* [x] Test reset clears balances, orders, positions
+* [x] Only available in non-production
+* [x] Rate limited
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: test environment with reset — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: test environment with reset — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -370,13 +370,13 @@ Implement the Go REST API gateway: authentication (JWT/OAuth2), rate limiting (5
 4. User dashboard shows active announcements.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Announcements list and creation work
-* [ ] Maintenance schedule visible
-* [ ] User dashboard shows announcements
+* [x] Announcements list and creation work
+* [x] Maintenance schedule visible
+* [x] User dashboard shows announcements
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: announcements + maintenance calendar — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: announcements + maintenance calendar — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -393,13 +393,13 @@ Implement the Go REST API gateway: authentication (JWT/OAuth2), rate limiting (5
 4. Admin: `POST /api/v1/admin/fees/promo` creates promo window.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Promo rates applied while promo_until > now()
-* [ ] Fee endpoint returns current rates with promo
-* [ ] Admin can create promo windows
+* [x] Promo rates applied while promo_until > now()
+* [x] Fee endpoint returns current rates with promo
+* [x] Admin can create promo windows
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: fee promo windows — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: fee promo windows — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -418,13 +418,13 @@ Implement the Go REST API gateway: authentication (JWT/OAuth2), rate limiting (5
 6. **Migration note:** `migrations/025_create_api_keys.up.sql` — `api_keys` table (id, account_id, key_hash, label, rate_limit_tier, ip_allowlist CIDR[], status, created_at, revoked_at).
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Developer portal with Swagger UI
-* [ ] API key CRUD (persisted in `api_keys`, migration 025)
-* [ ] Rate limit tier per key
+* [x] Developer portal with Swagger UI
+* [x] API key CRUD (persisted in `api_keys`, migration 025)
+* [x] Rate limit tier per key
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: developer portal with API keys — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: developer portal with API keys — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -442,14 +442,14 @@ Implement the Go REST API gateway: authentication (JWT/OAuth2), rate limiting (5
 5. Dead letter queue for failed webhooks.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Webhook registration works
-* [ ] Events delivered with HMAC-SHA256 signature
-* [ ] Retry with backoff on failure
-* [ ] Dead letter queue for permanent failures
+* [x] Webhook registration works
+* [x] Events delivered with HMAC-SHA256 signature
+* [x] Retry with backoff on failure
+* [x] Dead letter queue for permanent failures
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: signed webhooks with retry — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: signed webhooks with retry — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -466,13 +466,13 @@ Implement the Go REST API gateway: authentication (JWT/OAuth2), rate limiting (5
 4. Evidence: trade records, communications, timestamps.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Chargeback creation and workflow work
-* [ ] Account can be frozen during dispute
-* [ ] Evidence collection automated
+* [x] Chargeback creation and workflow work
+* [x] Account can be frozen during dispute
+* [x] Evidence collection automated
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: chargeback dispute workflow — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: chargeback dispute workflow — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -489,13 +489,13 @@ Implement the Go REST API gateway: authentication (JWT/OAuth2), rate limiting (5
 4. CSV and PDF export.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Tax report with gain/loss by lot (FIFO)
-* [ ] Summary with totals
-* [ ] CSV and PDF export
+* [x] Tax report with gain/loss by lot (FIFO)
+* [x] Summary with totals
+* [x] CSV and PDF export
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: tax reporting with FIFO lot tracking — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: tax reporting with FIFO lot tracking — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -512,13 +512,13 @@ Implement the Go REST API gateway: authentication (JWT/OAuth2), rate limiting (5
 4. Migration guide published at `/developer/migration`.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Sunset and Deprecation headers on deprecated endpoints
-* [ ] 6-month notice enforced
-* [ ] Migration guide published
+* [x] Sunset and Deprecation headers on deprecated endpoints
+* [x] 6-month notice enforced
+* [x] Migration guide published
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: 6-month deprecation notice — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: 6-month deprecation notice — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -536,14 +536,14 @@ Implement the Go REST API gateway: authentication (JWT/OAuth2), rate limiting (5
 5. **Owner-discoverability invariant (added 2026-09-25, remediation #19):** every code in spec §23 must name the task that emits it. CI asserts that each §23 row is *resolvable* — either the code token appears in at least one phase plan, **or** the §23 description cites an owning `Phase-NN Task N.N.N` (or carries an explicit `reserved, never emitted` marker). 24 of 124 codes had neither a phase reference nor an owner citation; remediation #19 added the citations. `CORPORATE_ACTION_SCHEDULED` is marked `reserved, never emitted` — no corporate actions exist in fiat spot FX (spec §1 fiat-only scope), so it must never be raised.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] All error codes from spec §23 registered
-* [ ] Error response includes code, HTTP status, description
-* [ ] `GET /api/v1/errors` returns full registry
-* [ ] Every §23 code is owner-resolvable (referenced by a phase plan **or** cited with an owning `Phase-NN Task` / `reserved` marker in §23) — zero ownerless codes
+* [x] All error codes from spec §23 registered
+* [x] Error response includes code, HTTP status, description
+* [x] `GET /api/v1/errors` returns full registry
+* [x] Every §23 code is owner-resolvable (referenced by a phase plan **or** cited with an owning `Phase-NN Task` / `reserved` marker in §23) — zero ownerless codes
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: central error code registry — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: central error code registry — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -563,17 +563,17 @@ Implement the Go REST API gateway: authentication (JWT/OAuth2), rate limiting (5
 **Migration note:** Create migration `024_create_order_audit.up.sql` with the `order_audit` table schema listed above. This table was missing from the original Phase 1 migration list (001–020).
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] `order_audit` table created with old/new field values
-* [ ] Every order modify writes audit entry with old and new values
-* [ ] Audited fields: price, quantity, time_in_force, stop_price, iceberg_visible_qty
-* [ ] STALE_MODIFY: stale `order_seq` on modify rejected with HTTP 409
-* [ ] Audit trail queryable via admin endpoint (Compliance Officer+)
-* [ ] Audit entries include modified_by, modified_at, ip_address
+* [x] `order_audit` table created with old/new field values
+* [x] Every order modify writes audit entry with old and new values
+* [x] Audited fields: price, quantity, time_in_force, stop_price, iceberg_visible_qty
+* [x] STALE_MODIFY: stale `order_seq` on modify rejected with HTTP 409
+* [x] Audit trail queryable via admin endpoint (Compliance Officer+)
+* [x] Audit entries include modified_by, modified_at, ip_address
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: order-modify audit trail with old/new fields in order_audit table — defined first, validated against spec
-- [ ] Spec checkpoint: STALE_MODIFY rejects stale order_seq on modify — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: order-modify audit trail with old/new fields in order_audit table — defined first, validated against spec
+- [x] Spec checkpoint: STALE_MODIFY rejects stale order_seq on modify — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -591,15 +591,15 @@ Implement the Go REST API gateway: authentication (JWT/OAuth2), rate limiting (5
 4. Rejects: insufficient balance, cross-user transfer, FROZEN/SUSPENDED account on either side.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Master↔sub and same-user account↔account transfers succeed atomically
-* [ ] GL journal entry posted per transfer (debit/credit balanced)
-* [ ] Cross-user and FROZEN/SUSPENDED transfers rejected with specific error codes
-* [ ] Transfers appear in funding history and audit log
+* [x] Master↔sub and same-user account↔account transfers succeed atomically
+* [x] GL journal entry posted per transfer (debit/credit balanced)
+* [x] Cross-user and FROZEN/SUSPENDED transfers rejected with specific error codes
+* [x] Transfers appear in funding history and audit log
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: internal transfer endpoint with GL posting (§8.4, §24 #144) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: concurrent transfers draining same balance, transfer into account under margin call
+- [x] Spec checkpoint: internal transfer endpoint with GL posting (§8.4, §24 #144) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [x] Edge cases: concurrent transfers draining same balance, transfer into account under margin call
 
 ---
 
@@ -623,16 +623,16 @@ Implement the Go REST API gateway: authentication (JWT/OAuth2), rate limiting (5
 7. Admin mass cancel: Risk Manager role can mass-cancel across accounts (with audit log).
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] HMAC-signed request authenticates; bad signature → INVALID_SIGNATURE
-* [ ] Timestamp > 30s skew → TIMESTAMP_OUT_OF_WINDOW; replayed signature rejected
-* [ ] Duplicate `client_order_id` returns original ack (no duplicate order, no duplicate fills)
-* [ ] API key scopes enforced (read-only key cannot submit orders)
+* [x] HMAC-signed request authenticates; bad signature → INVALID_SIGNATURE
+* [x] Timestamp > 30s skew → TIMESTAMP_OUT_OF_WINDOW; replayed signature rejected
+* [x] Duplicate `client_order_id` returns original ack (no duplicate order, no duplicate fills)
+* [x] API key scopes enforced (read-only key cannot submit orders)
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: HMAC request signing + 30s replay window (§8.1, §24 #147) — defined first, validated against spec
-- [ ] Spec checkpoint: idempotent order submission on client_order_id (§8.4, §24 #148) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: clock skew boundary, concurrent duplicate submits, revoked key mid-session
+- [x] Spec checkpoint: HMAC request signing + 30s replay window (§8.1, §24 #147) — defined first, validated against spec
+- [x] Spec checkpoint: idempotent order submission on client_order_id (§8.4, §24 #148) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [x] Edge cases: clock skew boundary, concurrent duplicate submits, revoked key mid-session
 
 ---
 
@@ -650,16 +650,16 @@ Implement the Go REST API gateway: authentication (JWT/OAuth2), rate limiting (5
 5. Market-maker MMP mass-cancel (spec §9.6) reuses this path scoped by `mm_programs.id` — wired in Phase-18 Task 18.3.10.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Per-instrument mass cancel cancels only that symbol's orders for the account
-* [ ] Cancel-all returns per-symbol breakdown; all shards confirm before 200
-* [ ] WAL events emitted per cancelled order; recovery reproduces final state
-* [ ] Mass cancel during HALT/SUSPEND still cancels resting orders
-* [ ] REST/WS `cancel_on_disconnect` flag mass-cancels session's orders on disconnect (§24 #153)
+* [x] Per-instrument mass cancel cancels only that symbol's orders for the account
+* [x] Cancel-all returns per-symbol breakdown; all shards confirm before 200
+* [x] WAL events emitted per cancelled order; recovery reproduces final state
+* [x] Mass cancel during HALT/SUSPEND still cancels resting orders
+* [x] REST/WS `cancel_on_disconnect` flag mass-cancels session's orders on disconnect (§24 #153)
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: per-instrument mass cancellation (§8.4, §24 #153) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: mass cancel racing in-flight fills, cancel-all across shards, idempotent retry of the DELETE
+- [x] Spec checkpoint: per-instrument mass cancellation (§8.4, §24 #153) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [x] Edge cases: mass cancel racing in-flight fills, cancel-all across shards, idempotent retry of the DELETE
 
 ---
 
@@ -679,15 +679,15 @@ Implement the Go REST API gateway: authentication (JWT/OAuth2), rate limiting (5
 5. Expiry handling: if current token reaches expiration timestamp without renewal, immediately unsubscribe private channels and emit `{"type": "error", "error": "AUTH_EXPIRED", "code": 4019}` (code registered in §23; 4019 = registered RFC 6455 private close code, not a magic number), falling back to unauthenticated state or terminating if only private channels active.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Unauthenticated WS connection elevates to authenticated state via `{"action": "authenticate", "token": "..."}` frame (§24 #187)
-* [ ] Token renewal frame extends connection auth expiration seamlessly with zero message drops
-* [ ] Private subscriptions fail prior to authentication and succeed immediately after upgrade
-* [ ] Expired tokens without renewal trigger graceful private channel teardown with registered WS close code 4019 (§23)
+* [x] Unauthenticated WS connection elevates to authenticated state via `{"action": "authenticate", "token": "..."}` frame (§24 #187)
+* [x] Token renewal frame extends connection auth expiration seamlessly with zero message drops
+* [x] Private subscriptions fail prior to authentication and succeed immediately after upgrade
+* [x] Expired tokens without renewal trigger graceful private channel teardown with registered WS close code 4019 (§23)
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: WebSocket authentication upgrade and renewal (§10.5, §24 #187) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: invalid JWT token format, expired renewal token, renewal race with channel message delivery
+- [x] Spec checkpoint: WebSocket authentication upgrade and renewal (§10.5, §24 #187) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [x] Edge cases: invalid JWT token format, expired renewal token, renewal race with channel message delivery
 
 ---
 
@@ -709,15 +709,15 @@ Implement the Go REST API gateway: authentication (JWT/OAuth2), rate limiting (5
 4. Redis token bucket integration: sync header counters from Redis cluster/Sentinel rate-limiting keys with minimal latency overhead (<50µs).
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] All REST endpoints return `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-RateLimit-Reset` headers (§24 #192)
-* [ ] HTTP 429 responses include RFC 6585 `Retry-After` header with seconds until reset
-* [ ] Rate limit counters accurately reflect tier allocations and decrement per request
-* [ ] Degraded `Throttled` mode lowers limits and updates headers dynamically
+* [x] All REST endpoints return `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-RateLimit-Reset` headers (§24 #192)
+* [x] HTTP 429 responses include RFC 6585 `Retry-After` header with seconds until reset
+* [x] Rate limit counters accurately reflect tier allocations and decrement per request
+* [x] Degraded `Throttled` mode lowers limits and updates headers dynamically
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: Standard HTTP rate-limit headers (§8.3, §24 #192) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: clock skew between client and server, burst traffic exhaustion, multi-node rate sync
+- [x] Spec checkpoint: Standard HTTP rate-limit headers (§8.3, §24 #192) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [x] Edge cases: clock skew between client and server, burst traffic exhaustion, multi-node rate sync
 
 ---
 
@@ -750,18 +750,18 @@ Implement the API versioning strategy (spec §8.6, §24 #208):
 9. **(amended 2026-09-25 — governance remediation #17, claims the previously unassigned API-gateway CORS/CSP emission):** the gateway is the authoritative emitter of `Access-Control-Allow-Origin`/`-Methods`/`-Headers`/`-Max-Age` (allowlist from config, never `*` on authenticated paths), `Content-Security-Policy` for any gateway-served asset, and `Strict-Transport-Security`/`X-Content-Type-Options`/`X-Frame-Options`/`Referrer-Policy`/`Permissions-Policy` on every response. The SPA-served header set is Phase-10 Task 10.3.1's responsibility; this is the gateway layer. CI asserts every route registered in Task 5.3.7 returns a complete hardening-header set — a route that omits one fails the build.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] HAProxy routes traffic to Go services with health-check failover
-* [ ] TLS termination with certificate rotation support
-* [ ] Authentication middleware validates JWT/HMAC before routing
-* [ ] Health endpoints return correct status per dependency checks
-* [ ] Blue-green deploy switches traffic with zero dropped requests
-* [ ] Circuit breaker trips on sustained backend errors
-* [ ] Gateway emits the full hardening-header set (CORS allowlist, CSP, HSTS, X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy) on every response — owned by this task; the SPA-served set is Phase-10 Task 10.3.1
+* [ ] HAProxy routes traffic to Go services with health-check failover — *configured: `/health/ready` L7 checks gate be_gateway/be_ws backends with fall/inter retries; live failover unverified — no `haproxy` binary on this host (deploy-time check)*
+* [x] TLS termination with certificate rotation support
+* [x] Authentication middleware validates JWT/HMAC before routing
+* [x] Health endpoints return correct status per dependency checks
+* [ ] Blue-green deploy switches traffic with zero dropped requests — *configured: active_color.map + stats-socket `set map` flip; zero-drop live flip unverified — no `haproxy` binary on this host (deploy-time check)*
+* [x] Circuit breaker trips on sustained backend errors
+* [x] Gateway emits the full hardening-header set (CORS allowlist, CSP, HSTS, X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy) on every response — owned by this task; the SPA-served set is Phase-10 Task 10.3.1
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: API gateway architecture — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: all backends down, TLS cert expiry, WebSocket upgrade through proxy
+- [x] Spec checkpoint: API gateway architecture — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [ ] Edge cases: all backends down, TLS cert expiry, WebSocket upgrade through proxy — *config-covered: all-backends-down → L7 check fail → 503; TLS expiry is operational (crt dir + `-sf` reload); WS upgrade through proxy configured (timeout tunnel + Upgrade ACL); live paths unverified — env-blocked*
 
 ---
 
@@ -780,16 +780,16 @@ Implement the API versioning strategy (spec §8.6, §24 #208):
 6. All manual liquidation events are logged in the audit hash chain with both approver IDs.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] `POST /api/v1/admin/liquidation/manual` endpoint functional with Risk Manager+ RBAC
-* [ ] Dual control approval required before execution
-* [ ] WAL event MANUAL_LIQUIDATION generated with source: MANUAL
-* [ ] Override-auction mode bypasses CALL phase with explicit reason
-* [ ] Audit trail includes both approver IDs and full request payload
+* [x] `POST /api/v1/admin/liquidation/manual` endpoint functional with Risk Manager+ RBAC
+* [x] Dual control approval required before execution
+* [x] WAL event MANUAL_LIQUIDATION generated with source: MANUAL
+* [x] Override-auction mode bypasses CALL phase with explicit reason
+* [x] Audit trail includes both approver IDs and full request payload
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: manual liquidation admin endpoint — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: account with no positions, concurrent automated + manual liquidation, override during active auction
+- [x] Spec checkpoint: manual liquidation admin endpoint — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [x] Edge cases: account with no positions, concurrent automated + manual liquidation, override during active auction
 
 ---
 
@@ -814,15 +814,15 @@ Implement the API versioning strategy (spec §8.6, §24 #208):
 6. Execution reports continue to stream asynchronously over the client's subscribed private user channel (`private:orders`).
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Persistent WebSocket session accepts `order.place`, `order.cancel`, `order.modify`, `order.batch`, `order.status` actions
-* [ ] Every response frame preserves client `request_id` with sub-millisecond gateway processing overhead
-* [ ] Rejected requests return canonical error envelope with mapped spec §23 error codes
-* [ ] Concurrent order actions do not interfere with or delay market data streaming on the same socket
+* [x] Persistent WebSocket session accepts `order.place`, `order.cancel`, `order.modify`, `order.batch`, `order.status` actions
+* [x] Every response frame preserves client `request_id` with sub-millisecond gateway processing overhead
+* [x] Rejected requests return canonical error envelope with mapped spec §23 error codes
+* [x] Concurrent order actions do not interfere with or delay market data streaming on the same socket
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: Interactive WebSocket Trading API with correlated request-response framing — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: unauthenticated trade frame (rejected 4019), duplicate request_id, socket disconnect during pending order ACK
+- [x] Spec checkpoint: Interactive WebSocket Trading API with correlated request-response framing — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [x] Edge cases: unauthenticated trade frame (rejected 4019), duplicate request_id, socket disconnect during pending order ACK
 
 ---
 
@@ -846,15 +846,15 @@ Implement the API versioning strategy (spec §8.6, §24 #208):
 3. Full audit logging for batch operations in `order_audit`.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] `POST /api/v1/orders/batch` accepts up to 10 orders and returns index-mapped results
-* [ ] `DELETE /api/v1/orders/batch` cancels up to 20 orders in one call
-* [ ] Batch payload > 10 orders rejected with `BATCH_SIZE_EXCEEDED` (HTTP 400)
-* [ ] Redis rate limit `rl:batch:{accountId}:{second}` enforced
+* [x] `POST /api/v1/orders/batch` accepts up to 10 orders and returns index-mapped results
+* [x] `DELETE /api/v1/orders/batch` cancels up to 20 orders in one call
+* [x] Batch payload > 10 orders rejected with `BATCH_SIZE_EXCEEDED` (HTTP 400)
+* [x] Redis rate limit `rl:batch:{accountId}:{second}` enforced
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: REST batch orders submit and cancel endpoints — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: mixed valid and invalid orders in single batch, duplicate client_order_id within same batch, batch cancel on non-existent orders
+- [x] Spec checkpoint: REST batch orders submit and cancel endpoints — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [x] Edge cases: mixed valid and invalid orders in single batch, duplicate client_order_id within same batch, batch cancel on non-existent orders
 
 ---
 
@@ -863,7 +863,7 @@ Implement the API versioning strategy (spec §8.6, §24 #208):
 Dead-man switch / countdown cancel-all — `POST /api/v1/orders/countdown-cancel-all` with `countdown_ms` parameter (min 1000, max 300000 — range aligned with the Phase-10 UI's 30s–300s configurable timeout, remediation #35; supersedes the prior max 60000, which forced the server to reject valid UI values). Server maintains per-account timer; if not renewed before expiry, atomically cancels all resting orders for that account. `countdown_ms=0` disables. Response includes `server_time` and `countdown_expiry`. Timer state stored in Redis `countdown:{account_id}` with TTL. Also exposed via WS trading API action `order.countdown_cancel_all`. Register error codes: `COUNTDOWN_INVALID_DURATION`, `COUNTDOWN_ALREADY_ACTIVE`.
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: dead-man switch is shared across REST/WS/FIX and cancels atomically (§24 #257) — defined first, validated against spec
+- [x] Spec checkpoint: dead-man switch is shared across REST/WS/FIX and cancels atomically (§24 #257) — defined first, validated against spec
 
 ---
 
@@ -872,7 +872,7 @@ Dead-man switch / countdown cancel-all — `POST /api/v1/orders/countdown-cancel
 Progressive IP ban escalation — extend API gateway rate limiting (Task 5.3.29 HAProxy) with ban escalation for clients that continue sending requests after receiving HTTP 429. Tiers: 1st offense within 1min of 429 = 2min ban, 2nd offense = 30min ban, 3rd offense = 24h ban. Return HTTP 418 with `X-Ban-Expires` and `Retry-After` headers. Ban state tracked in Redis `ip_ban:{ip}` with TTL. Admin dashboard for ban review/override. Register error code: `IP_BANNED`.
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: repeated post-429 abuse escalates to auditable timed HTTP 418 bans (§24 #258) — defined first, validated against spec
+- [x] Spec checkpoint: repeated post-429 abuse escalates to auditable timed HTTP 418 bans (§24 #258) — defined first, validated against spec
 
 ---
 
@@ -881,7 +881,7 @@ Progressive IP ban escalation — extend API gateway rate limiting (Task 5.3.29 
 Structured instrument filter objects — extend `GET /api/v1/instruments` response (Task 5.3.25) to include a `filters` array per instrument surfacing all validation rules: `PRICE_FILTER` (min_price, max_price, tick_size), `LOT_SIZE` (min_qty, max_qty, step_size), `MIN_NOTIONAL` (min_notional), `PRICE_BAND` (price_band_pct_up, price_band_pct_down), `MAX_ORDERS` (max_open_orders, max_algo_orders), `SPREAD_PROTECTION` (max_spread_pips). Enables client-side pre-validation.
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: instrument responses expose all effective structured validation filters (§24 #259) — defined first, validated against spec
+- [x] Spec checkpoint: instrument responses expose all effective structured validation filters (§24 #259) — defined first, validated against spec
 
 ---
 
@@ -890,8 +890,8 @@ Structured instrument filter objects — extend `GET /api/v1/instruments` respon
 Close-all positions convenience endpoint — `POST /api/v1/positions/close-all` accepting optional filters `symbol`, `side`. Internally dispatches scoped mass cancel of working orders followed by batch market close orders for each open position with `reduce_only=true` and slippage protection. Returns array of order acknowledgments. Requires 2FA confirmation header `X-2FA-Token`. Register error code: `CLOSE_ALL_PARTIAL_FAILURE` (if some closes succeed but others fail).
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: close-all uses reduce-only protected closes and reports partial failure (§24 #260) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: close-all uses reduce-only protected closes and reports partial failure (§24 #260) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -906,8 +906,8 @@ Close-all positions convenience endpoint — `POST /api/v1/positions/close-all` 
 4. Map both operations to FIX cancel/new and keep-priority messages in Phase-18; idempotency and stale-sequence checks remain mandatory.
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: atomic cancel-replace and quantity-down keep-priority operations expose complete outcome/history semantics (§24 #281–282) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: atomic cancel-replace and quantity-down keep-priority operations expose complete outcome/history semantics (§24 #281–282) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -922,8 +922,8 @@ Close-all positions convenience endpoint — `POST /api/v1/positions/close-all` 
 4. Developer portal publishes generation, rotation, overlap, and migration workflows without ever receiving private keys.
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: Ed25519/RSA authentication works across REST/WS and private keys never enter the platform (§24 #283) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: Ed25519/RSA authentication works across REST/WS and private keys never enter the platform (§24 #283) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -938,8 +938,8 @@ Close-all positions convenience endpoint — `POST /api/v1/positions/close-all` 
 4. Expose equivalent `order.test` WS action and Lite-UI preview.
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: quote-denominated market orders and side-effect-free order preview are deterministic and filter-compliant (§24 #286) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: quote-denominated market orders and side-effect-free order preview are deterministic and filter-compliant (§24 #286) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -954,8 +954,8 @@ Close-all positions convenience endpoint — `POST /api/v1/positions/close-all` 
 4. Register every route and emitted error in Tasks 5.3.7/5.3.21.
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: clients can query weighted request/order usage and effective account filters/fees/history (§24 #288) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: clients can query weighted request/order usage and effective account filters/fees/history (§24 #288) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -969,13 +969,13 @@ Close-all positions convenience endpoint — `POST /api/v1/positions/close-all` 
 3. **Gateway Circuit Breaker:** Implement error-rate trip monitor in Go middleware. If upstream matching engine or persistence layer error rate exceeds 15% over 10 seconds, transition gateway to open circuit breaker state returning `SERVICE_DEGRADED` (HTTP 503) with 5-second backoff probe.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] All gateway error responses conform to RFC 7807 schema with request_id
-* [ ] Engine unacknowledged timeouts return HTTP 504 within 500ms
-* [ ] Gateway circuit breaker opens at >15% error rate and probes recovery
+* [x] All gateway error responses conform to RFC 7807 schema with request_id
+* [x] Engine unacknowledged timeouts return HTTP 504 within 500ms
+* [x] Gateway circuit breaker opens at >15% error rate and probes recovery
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: RFC 7807 error envelope, circuit breaker, and engine timeout fallbacks (§24 #304) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: RFC 7807 error envelope, circuit breaker, and engine timeout fallbacks (§24 #304) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -993,14 +993,14 @@ Close-all positions convenience endpoint — `POST /api/v1/positions/close-all` 
 5. **Registry:** the 2 new codes above are registered through the Task 5.3.21 procedure (HTTP status + owner citation in §23).
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] All list endpoints share the envelope; OpenAPI tabulates limits/filters/sorts
-* [ ] Safe retry on all money-moving POSTs and WS order actions; mismatch rejected with code
-* [ ] Auth lifecycle enforced on REST/WS/FIX; rotation and eviction verified
-* [ ] Weight table published; over-weight rejected with REQUEST_WEIGHT_EXCEEDED
+* [x] All list endpoints share the envelope; OpenAPI tabulates limits/filters/sorts
+* [x] Safe retry on all money-moving POSTs and WS order actions; mismatch rejected with code
+* [x] Auth lifecycle enforced on REST/WS/FIX; rotation and eviction verified
+* [x] Weight table published; over-weight rejected with REQUEST_WEIGHT_EXCEEDED
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: unified list envelope, cross-endpoint idempotency, auth lifecycle, and tabulated rate weights with two new §23 codes (§24 #338) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: unified list envelope, cross-endpoint idempotency, auth lifecycle, and tabulated rate weights with two new §23 codes (§24 #338) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -1015,12 +1015,12 @@ Close-all positions convenience endpoint — `POST /api/v1/positions/close-all` 
 2. Documented skew guidance: clients syncing beyond ±5s SHOULD re-sync before signing; the 30s acceptance window itself is unchanged.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Endpoint returns PTP-sourced UTC millis with sub-second accuracy
-* [ ] Tier-exempt and present in OpenAPI + route registry
+* [x] Endpoint returns PTP-sourced UTC millis with sub-second accuracy
+* [x] Tier-exempt and present in OpenAPI + route registry
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: public PTP-sourced server-time endpoint for HMAC clock sync (§24 #355) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: public PTP-sourced server-time endpoint for HMAC clock sync (§24 #355) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -1035,12 +1035,12 @@ Close-all positions convenience endpoint — `POST /api/v1/positions/close-all` 
 2. ETag + `If-None-Match` support; change events emitted on WS `system.status` so clients refresh on instrument updates (Task 15.3.8).
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Single response carries symbols, filters, permissions and rate limits
-* [ ] ETag caching works; instrument changes emit refresh signals
+* [x] Single response carries symbols, filters, permissions and rate limits
+* [x] ETag caching works; instrument changes emit refresh signals
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: unified venue-info document with ETag and change signaling (§24 #356) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: unified venue-info document with ETag and change signaling (§24 #356) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -1055,12 +1055,12 @@ Close-all positions convenience endpoint — `POST /api/v1/positions/close-all` 
 2. Each entry carries source/destination, amount, GL reference, status and actor (self vs admin vs system sweep).
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] History paginates with filters; every transfer from Task 5.3.23 appears
-* [ ] Entries link to GL references and actor identity
+* [x] History paginates with filters; every transfer from Task 5.3.23 appears
+* [x] Entries link to GL references and actor identity
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: paginated transfer history with GL linkage (§24 #363) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: paginated transfer history with GL linkage (§24 #363) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -1113,14 +1113,14 @@ Close-all positions convenience endpoint — `POST /api/v1/positions/close-all` 
 5. Validation: a CI cross-check compares the registry against every `POST/GET/PUT/DELETE` path declared in any phase plan and fails on unregistered endpoints (extends Task 5.3.7 step 6).
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] All §12/§21 client endpoints registered with stub/live status
-* [ ] Registry-vs-plan path cross-check passes in CI
-* [ ] `admin/withdrawals/{id}/approve|reject` registered with dual-control metadata
+* [x] All §12/§21 client endpoints registered with stub/live status
+* [x] Registry-vs-plan path cross-check passes in CI
+* [x] `admin/withdrawals/{id}/approve|reject` registered with dual-control metadata
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: centralized OpenAPI-schema request validation + route-registry completeness — defined first, validated against spec
-- [ ] Spec checkpoint: route registration for ALL endpoints (spec §8.4 conventions) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: centralized OpenAPI-schema request validation + route-registry completeness — defined first, validated against spec
+- [x] Spec checkpoint: route registration for ALL endpoints (spec §8.4 conventions) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
