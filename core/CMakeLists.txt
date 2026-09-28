@@ -180,7 +180,8 @@ if(EXCH_BUILD_TESTS)
             test_amend
             test_book_protection
             test_trade_through
-            test_discretionary)
+            test_discretionary
+            test_stp)
         add_executable(${t} tests/${t}.cpp)
         target_link_libraries(${t} PRIVATE exch_core gtest_main)
         add_test(NAME ${t} COMMAND ${t})
