@@ -112,11 +112,14 @@ func ckDecimalFixedPoint(ctx context.Context, env *spec.Env) spec.Result {
 			`shopspring/decimal`, `ScaleFactor`),
 		// No float/double may appear in the financial C++ paths.
 		func(context.Context, *spec.Env) spec.Result {
-			n, err := grepTree(env, "core/src/book", `\b(float|double)\b`)
+			// Type-context regex: `float`/`double` only count when used as a
+			// type (followed by an identifier) — plain-word matches in prose
+			// comments (e.g. "double-apply") must not fire.
+			n, err := grepTree(env, "core/src/book", `\b(float|double)\s+[A-Za-z_]`)
 			if err != nil {
 				return spec.Failf("scan core/src/book: %v", err)
 			}
-			m, err := grepTree(env, "core/src/matching", `\b(float|double)\b`)
+			m, err := grepTree(env, "core/src/matching", `\b(float|double)\s+[A-Za-z_]`)
 			if err != nil {
 				return spec.Failf("scan core/src/matching: %v", err)
 			}

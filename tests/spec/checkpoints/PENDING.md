@@ -12,47 +12,18 @@ r.Register("P05-T5.3.1-C1", func(ctx context.Context, env *spec.Env) spec.Result
 
 | Checkpoint | Task | Status | Text |
 |---|---|---|---|
-| `P01.5-T1.5.3.1-C1` | 1.5.3.1 (Phase-01.5-CI-CD-Validation-Harness.md:48) | [ ] | CI runs on every PR |
-| `P01.5-T1.5.3.1-C2` | 1.5.3.1 (Phase-01.5-CI-CD-Validation-Harness.md:49) | [ ] | ephemeral PostgreSQL 16 + Redis 7 + ClickHouse |
-| `P01.5-T1.5.3.3-C1` | 1.5.3.3 (Phase-01.5-CI-CD-Validation-Harness.md:101) | [ ] | every §24 criterion mapped to ≥1 test |
-| `P01.5-T1.5.3.4-C1` | 1.5.3.4 (Phase-01.5-CI-CD-Validation-Harness.md:127) | [ ] | SAST + dependency audit gates PRs (§24 #161) |
-| `P01.5-T1.5.3.5-C1` | 1.5.3.5 (Phase-01.5-CI-CD-Validation-Harness.md:147) | [ ] | CI negative test suite injects faults and validates deterministic fail-closed behavior (§24 #298) |
-| `P02-T2.3.1-C1` | 2.3.1 (Phase-02-Matching-Engine.md:45) | [ ] | flat array price levels + intrusive linked-list orders |
-| `P02-T2.3.1-C2` | 2.3.1 (Phase-02-Matching-Engine.md:46) | [ ] | zero allocations in hot path |
-| `P02-T2.3.1-C3` | 2.3.1 (Phase-02-Matching-Engine.md:47) | [ ] | price-time priority (FIFO at each level) |
-| `P02-T2.3.2-C1` | 2.3.2 (Phase-02-Matching-Engine.md:79) | [ ] | price-time priority matching |
-| `P02-T2.3.2-C2` | 2.3.2 (Phase-02-Matching-Engine.md:80) | [ ] | self-trade prevention |
-| `P02-T2.3.2-C3` | 2.3.2 (Phase-02-Matching-Engine.md:81) | [ ] | FOK/IOC semantics |
-| `P02-T2.3.2-C4` | 2.3.2 (Phase-02-Matching-Engine.md:82) | [ ] | ICEBERG visible/hidden slices |
-| `P02-T2.3.3-C1` | 2.3.3 (Phase-02-Matching-Engine.md:132) | [ ] | 14 pre-trade risk checks in-process |
-| `P02-T2.3.3-C2` | 2.3.3 (Phase-02-Matching-Engine.md:133) | [ ] | sub-10µs risk check latency |
-| `P02-T2.3.4-C1` | 2.3.4 (Phase-02-Matching-Engine.md:161) | [ ] | WAL entry per state change with CRC32 |
-| `P02-T2.3.4-C2` | 2.3.4 (Phase-02-Matching-Engine.md:162) | [ ] | snapshot + WAL replay exact recovery |
-| `P02-T2.3.4-C3` | 2.3.4 (Phase-02-Matching-Engine.md:163) | [ ] | zero dup/miss on recovery |
-| `P02-T2.3.5-C1` | 2.3.5 (Phase-02-Matching-Engine.md:190) | [ ] | Redis SETNX leader election with 10s TTL |
-| `P02-T2.3.5-C2` | 2.3.5 (Phase-02-Matching-Engine.md:191) | [ ] | split-brain detection fail-closed |
-| `P02-T2.3.6-C1` | 2.3.6 (Phase-02-Matching-Engine.md:221) | [ ] | 6 degradation modes with correct triggers/recovery |
-| `P02-T2.3.6-C2` | 2.3.6 (Phase-02-Matching-Engine.md:222) | [ ] | HealthChecker auto-transition with cooldown |
-| `P02-T2.3.7-C1` | 2.3.7 (Phase-02-Matching-Engine.md:248) | [ ] | Aeron/shared-memory IPC zero-loss |
-| `P02-T2.3.7-C2` | 2.3.7 (Phase-02-Matching-Engine.md:249) | [ ] | sub-10µs IPC round-trip |
 | `P02-T2.3.8-C1` | 2.3.8 (Phase-02-Matching-Engine.md:280) | [ ] | 2-phase commit with compensation |
 | `P02-T2.3.8-C2` | 2.3.8 (Phase-02-Matching-Engine.md:281) | [ ] | operation_id dedup |
-| `P02-T2.3.9-C1` | 2.3.9 (Phase-02-Matching-Engine.md:304) | [ ] | per-account collar + price band |
-| `P02-T2.3.10-C1` | 2.3.10 (Phase-02-Matching-Engine.md:331) | [ ] | GTD/DAY time-in-force (spec §5.4/§6.1) |
 | `P02-T2.3.11-C1` | 2.3.11 (Phase-02-Matching-Engine.md:355) | [ ] | configurable STP modes per spec §6.5 / §24 #154 |
-| `P02-T2.3.12-C1` | 2.3.12 (Phase-02-Matching-Engine.md:379) | [ ] | cross-shard margin coordination interface (§13.1, §24 #176) |
 | `P02-T2.3.13-C1` | 2.3.13 (Phase-02-Matching-Engine.md:403) | [ ] | sparse order book protection and level serialization (§6.6, §24 #188) |
 | `P02-T2.3.15-C1` | 2.3.15 (Phase-02-Matching-Engine.md:443) | [ ] | market order protection |
 | `P02-T2.3.15-C2` | 2.3.15 (Phase-02-Matching-Engine.md:444) | [ ] | per-instrument slippage bands |
 | `P02-T2.3.16-C1` | 2.3.16 (Phase-02-Matching-Engine.md:455) | [ ] | STP NONE is category-gated and surveillance-visible (§24 #274) |
 | `P02-T2.3.17-C1` | 2.3.17 (Phase-02-Matching-Engine.md:471) | [ ] | reference-price execution limits are fixed for the taker phase and emit an expiry reason (§24 #277) |
 | `P02-T2.3.18-C1` | 2.3.18 (Phase-02-Matching-Engine.md:487) | [ ] | trade-group STP, TRANSFER, and prevented-match accounting replay deterministically (§24 #279–280) |
-| `P02-T2.3.19-C1` | 2.3.19 (Phase-02-Matching-Engine.md:508) | [ ] | Matching engine backpressure, ring buffer watermarks, and poison-pill containment fail closed (§24 … |
 | `P02-T2.3.20-C1` | 2.3.20 (Phase-02-Matching-Engine.md:532) | [ ] | atomic cancel-replace, amend priority per field class, auction-state amend gate and deterministic f… |
 | `P02-T2.3.21-C1` | 2.3.21 (Phase-02-Matching-Engine.md:553) | [ ] | account-default STP with category gating and per-fill persistence (§24 #368) |
 | `P02-T2.3.22-C1` | 2.3.22 (Phase-02-Matching-Engine.md:580) | [ ] | trade-through prevention and price-improvement recording (§24 #400) |
-| `P02-T2.3.23-C1` | 2.3.23 (Phase-02-Matching-Engine.md:604) | [ ] | pipette fixed-point integer scaling ($10^8$ ticks) and zero float math in hot path (§24 #402) |
-| `P02-T2.3.24-C1` | 2.3.24 (Phase-02-Matching-Engine.md:627) | [ ] | in-memory bilateral credit matrix counterparty screening in matching loop (§24 #403) |
 | `P02-T2.3.25-C1` | 2.3.25 (Phase-02-Matching-Engine.md:650) | [ ] | optimistic cross-shard routing with 500µs timeout and compensating unwinds (§24 #404) |
 | `P02-T2.3.26-C1` | 2.3.26 (Phase-02-Matching-Engine.md:675) | [ ] | discretionary offset order execution with hidden price band and passive public display (§24 #405) |
 | `P02.5-T2.5.3.1-C1` | 2.5.3.1 (Phase-02.5-Engine-Soak-Benchmark.md:46) | [ ] | 50k orders/sec sustained for 72h |

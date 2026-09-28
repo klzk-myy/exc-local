@@ -266,7 +266,7 @@
       "text": "CI runs on every PR",
       "file": "Phase-01.5-CI-CD-Validation-Harness.md",
       "line": 48,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -277,7 +277,7 @@
       "text": "ephemeral PostgreSQL 16 + Redis 7 + ClickHouse",
       "file": "Phase-01.5-CI-CD-Validation-Harness.md",
       "line": 49,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -288,7 +288,7 @@
       "text": "400+ per-task spec validation checks (actual 543 across 479 tasks; supersedes 530/466, 527/463, 523/461, 467/405, 466/404, 422/360 and prior 350+/377/316)",
       "file": "Phase-01.5-CI-CD-Validation-Harness.md",
       "line": 76,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -299,7 +299,7 @@
       "text": "4 parallel shards \u003c 20 min",
       "file": "Phase-01.5-CI-CD-Validation-Harness.md",
       "line": 77,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -310,7 +310,7 @@
       "text": "golden corpus 20+ spec-derived cases",
       "file": "Phase-01.5-CI-CD-Validation-Harness.md",
       "line": 78,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -321,7 +321,7 @@
       "text": "every §24 criterion mapped to ≥1 test",
       "file": "Phase-01.5-CI-CD-Validation-Harness.md",
       "line": 101,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -332,7 +332,7 @@
       "text": "SAST + dependency audit gates PRs (§24 #161)",
       "file": "Phase-01.5-CI-CD-Validation-Harness.md",
       "line": 127,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -343,7 +343,7 @@
       "text": "CI negative test suite injects faults and validates deterministic fail-closed behavior (§24 #298)",
       "file": "Phase-01.5-CI-CD-Validation-Harness.md",
       "line": 147,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -354,7 +354,7 @@
       "text": "flat array price levels + intrusive linked-list orders",
       "file": "Phase-02-Matching-Engine.md",
       "line": 45,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -365,7 +365,7 @@
       "text": "zero allocations in hot path",
       "file": "Phase-02-Matching-Engine.md",
       "line": 46,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -376,7 +376,7 @@
       "text": "price-time priority (FIFO at each level)",
       "file": "Phase-02-Matching-Engine.md",
       "line": 47,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -387,7 +387,7 @@
       "text": "price-time priority matching",
       "file": "Phase-02-Matching-Engine.md",
       "line": 79,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -398,7 +398,7 @@
       "text": "self-trade prevention",
       "file": "Phase-02-Matching-Engine.md",
       "line": 80,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -409,7 +409,7 @@
       "text": "FOK/IOC semantics",
       "file": "Phase-02-Matching-Engine.md",
       "line": 81,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -420,7 +420,7 @@
       "text": "ICEBERG visible/hidden slices",
       "file": "Phase-02-Matching-Engine.md",
       "line": 82,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -431,7 +431,7 @@
       "text": "14 pre-trade risk checks in-process",
       "file": "Phase-02-Matching-Engine.md",
       "line": 132,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -442,7 +442,7 @@
       "text": "sub-10µs risk check latency",
       "file": "Phase-02-Matching-Engine.md",
       "line": 133,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -453,7 +453,7 @@
       "text": "WAL entry per state change with CRC32",
       "file": "Phase-02-Matching-Engine.md",
       "line": 161,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -464,7 +464,7 @@
       "text": "snapshot + WAL replay exact recovery",
       "file": "Phase-02-Matching-Engine.md",
       "line": 162,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -475,7 +475,7 @@
       "text": "zero dup/miss on recovery",
       "file": "Phase-02-Matching-Engine.md",
       "line": 163,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -486,7 +486,7 @@
       "text": "Redis SETNX leader election with 10s TTL",
       "file": "Phase-02-Matching-Engine.md",
       "line": 190,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -497,7 +497,7 @@
       "text": "split-brain detection fail-closed",
       "file": "Phase-02-Matching-Engine.md",
       "line": 191,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -508,7 +508,7 @@
       "text": "6 degradation modes with correct triggers/recovery",
       "file": "Phase-02-Matching-Engine.md",
       "line": 221,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -519,7 +519,7 @@
       "text": "HealthChecker auto-transition with cooldown",
       "file": "Phase-02-Matching-Engine.md",
       "line": 222,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -530,7 +530,7 @@
       "text": "Aeron/shared-memory IPC zero-loss",
       "file": "Phase-02-Matching-Engine.md",
       "line": 248,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -541,7 +541,7 @@
       "text": "sub-10µs IPC round-trip",
       "file": "Phase-02-Matching-Engine.md",
       "line": 249,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -574,7 +574,7 @@
       "text": "per-account collar + price band",
       "file": "Phase-02-Matching-Engine.md",
       "line": 304,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -585,7 +585,7 @@
       "text": "GTD/DAY time-in-force (spec §5.4/§6.1)",
       "file": "Phase-02-Matching-Engine.md",
       "line": 331,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -607,7 +607,7 @@
       "text": "cross-shard margin coordination interface (§13.1, §24 #176)",
       "file": "Phase-02-Matching-Engine.md",
       "line": 379,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -684,7 +684,7 @@
       "text": "Matching engine backpressure, ring buffer watermarks, and poison-pill containment fail closed (§24 #299)",
       "file": "Phase-02-Matching-Engine.md",
       "line": 508,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -728,7 +728,7 @@
       "text": "pipette fixed-point integer scaling ($10^8$ ticks) and zero float math in hot path (§24 #402)",
       "file": "Phase-02-Matching-Engine.md",
       "line": 604,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -739,7 +739,7 @@
       "text": "in-memory bilateral credit matrix counterparty screening in matching loop (§24 #403)",
       "file": "Phase-02-Matching-Engine.md",
       "line": 627,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
