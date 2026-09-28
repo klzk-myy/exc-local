@@ -192,7 +192,7 @@ func (s *SwapFreeFeeService) AssessAndPost(ctx context.Context, pos RolloverPosi
 		INSERT INTO swap_free_admin_fee_assessments
 		    (account_id, position_id, holding_days, admin_fee_amount, currency,
 		     roll_date, journal_entry_id, status)
-		VALUES ($1,$2,$3,$4,'USD',$5,NULLIF($6,0),'COLLECTED')
+		VALUES ($1,$2,$3,$4,'USD',$5,NULLIF($6::bigint,0),'COLLECTED')
 		ON CONFLICT (position_id, roll_date) DO UPDATE SET
 		    journal_entry_id = EXCLUDED.journal_entry_id,
 		    status = 'COLLECTED'`,

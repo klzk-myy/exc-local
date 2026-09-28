@@ -242,7 +242,7 @@ func postJournalTx(ctx context.Context, tx pgx.Tx, j ledger.Journal) (ledger.Pos
 	err := tx.QueryRow(ctx, `
 		INSERT INTO journal_entries
 		    (entry_type, reference_id, description, posted_by, idempotency_key, payload_sha256)
-		VALUES ($1, NULLIF($2,0), $3, $4, NULLIF($5,''), $6)
+		VALUES ($1, NULLIF($2::bigint,0), $3, $4, NULLIF($5,''), $6)
 		RETURNING id`,
 		string(j.EntryType), j.ReferenceID, j.Description, j.PostedBy, j.IdempotencyKey, hash,
 	).Scan(&journalID)
@@ -419,7 +419,7 @@ func applyEffect(ctx context.Context, tx pgx.Tx, journalID int64, j ledger.Journ
 		INSERT INTO ledger_entries
 		    (entry_type, reference_id, account_id, currency, direction, amount,
 		     running_balance, description, posted_by, journal_entry_id)
-		VALUES ($1, NULLIF($2,0), $3, $4, $5, $6, $7, $8, $9, $10)
+		VALUES ($1, NULLIF($2::bigint,0), $3, $4, $5, $6, $7, $8, $9, $10)
 		RETURNING id`,
 		j.EntryType.LedgerEntryType(), j.ReferenceID, e.AccountID, e.Currency,
 		direction, net.Abs().String(), newTotal.String(), j.Description, j.PostedBy, journalID,

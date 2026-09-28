@@ -38,7 +38,7 @@ Implement the Go-based risk and settlement services: post-trade balance updates,
 **Migration note:** Create migration `022_create_processed_trades.up.sql` with columns: `trade_id` (PK), `processed_at`, `shard_id`. This table was missing from the original Phase 1 migration list (001–020).
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Trade fills consumed from Aeron with zero loss at 50k/sec <!-- evidence-gap: Aeron/SHM fill consumer + 100-fill/10ms batch flush implemented and unit-tested (TestConsumerDecodesAndFlushes); sustained 50k/sec fill-rate benchmark not yet run -->
+* [ ] Trade fills consumed from Aeron with zero loss at 50k/sec <!-- blocked: measured on this host — set-based batch commit (balance_batch.go) sustains 8,068 fills/s SERIALIZABLE, zero loss (200k/200k committed, processed_trades-verified; balance_ingest_bench_test.go, EXC_BENCH_INGEST=1). Ceiling is the PG row-write floor (~9µs/row × ~10 audit rows/fill); 50k/s needs production hardware or a spec-level isolation design change — SERIALIZABLE parallel partitions were tried and removed (SSI abort churn: 5.7k/s) and READ COMMITTED (11.5k/s probe) is not an unilateral deviation we will take from §5.3 -->
 * [x] Balance updates atomic (SERIALIZABLE + account mutex)
 * [x] Idempotent: duplicate trade_id skipped
 * [x] Batch writes reduce PostgreSQL round-trips by 10x vs single-row

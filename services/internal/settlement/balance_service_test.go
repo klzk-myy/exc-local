@@ -739,9 +739,9 @@ func TestConsumerMalformedFrameCounted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("consumer: %v", err)
 	}
-	// Deliver directly through the handler path.
-	if _, ok, err := c.handleFragment(context.Background(), []byte{0xde, 0xad}); ok || err != nil {
-		t.Fatalf("malformed should be skipped, not fatal (ok=%v err=%v)", ok, err)
+	// Deliver directly through the decode path.
+	if _, ok := c.decodeFragment([]byte{0xde, 0xad}); ok {
+		t.Fatalf("malformed should be skipped, not fatal")
 	}
 	if c.Metrics().Malformed != 1 {
 		t.Fatalf("malformed=%d", c.Metrics().Malformed)

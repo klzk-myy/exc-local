@@ -110,7 +110,7 @@ INSERT INTO swap_accrual_records
     (account_id, position_id, instrument_id, symbol, side, currency,
      days, day_count, interbank_amount, markup_amount, client_delta,
      markup_bps, swap_free, foregone_amount, narrative, journal_entry_id)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NULLIF($16,0))
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NULLIF($16::bigint,0))
 RETURNING id`
 
 // SwapAccrual is the computed accrual: the balanced journal (nil when

@@ -196,29 +196,26 @@ func (c *FillConsumer) Run(ctx context.Context) error {
 		if capHint <= 0 {
 			capHint = 1
 		}
-		var pumpErr error
+		fills := make([]EngineFill, 0, capHint)
 		n := c.source.Pump(capHint, func(payload []byte) {
-			if pumpErr != nil {
-				return // first failure wins; remaining fragments stay pending
-			}
-			rt, ok, err := c.handleFragment(ctx, payload)
-			if err != nil {
-				pumpErr = err // resolution failure is fail-closed
-				return
-			}
+			f, ok := c.decodeFragment(payload)
 			if !ok {
 				return
 			}
-			if len(pending) == 0 {
-				oldest = time.Now()
-			}
-			pending = append(pending, rt)
+			fills = append(fills, f)
 		})
 		if n < 0 {
 			return fmt.Errorf("fill consumer: transport pump error")
 		}
-		if pumpErr != nil {
-			return pumpErr
+		if len(fills) > 0 {
+			rts, err := c.resolveFills(ctx, fills)
+			if err != nil {
+				return err // resolution failure is fail-closed
+			}
+			if len(pending) == 0 && len(rts) > 0 {
+				oldest = time.Now()
+			}
+			pending = append(pending, rts...)
 		}
 		switch {
 		case len(pending) >= c.batchMax:
@@ -253,34 +250,32 @@ func (c *FillConsumer) Run(ctx context.Context) error {
 	}
 }
 
-// handleFragment decodes one Event frame; TradeFills are converted to
-// EngineFill (1e8-scaled wire ints → decimal) and resolved. ok=false marks
-// malformed frames and non-fill events (counted, non-fatal). A resolution
-// error is fail-closed: returning it aborts the consume loop — an
-// unresolvable fill must never be silently dropped (its balances would
-// never settle).
-func (c *FillConsumer) handleFragment(ctx context.Context, payload []byte) (rt ResolvedTrade, ok bool, err error) {
+// decodeFragment decodes one Event frame into an EngineFill (1e8-scaled
+// wire ints → decimal). ok=false marks malformed frames and non-fill
+// events (counted, non-fatal). Decode never touches I/O — resolution is
+// deferred to resolveFills so a pump window resolves in one shot.
+func (c *FillConsumer) decodeFragment(payload []byte) (fill EngineFill, ok bool) {
 	defer func() {
 		if r := recover(); r != nil {
 			c.malformed.Add(1)
-			rt, ok, err = ResolvedTrade{}, false, nil
+			fill, ok = EngineFill{}, false
 		}
 	}()
 	if len(payload) < 8 {
 		c.malformed.Add(1)
-		return ResolvedTrade{}, false, nil
+		return EngineFill{}, false
 	}
 	ev := ipc.DecodeEvent(payload)
 	if ev.TypeType() != wire.EventTypeTradeFill {
 		c.nonFill.Add(1)
-		return ResolvedTrade{}, false, nil
+		return EngineFill{}, false
 	}
 	tf := ipc.EventTradeFill(ev)
 	if tf == nil || tf.TradeId() > math.MaxInt64 {
 		c.malformed.Add(1)
-		return ResolvedTrade{}, false, nil
+		return EngineFill{}, false
 	}
-	fill := EngineFill{
+	return EngineFill{
 		TradeID:     tf.TradeId(),
 		BuyOrderID:  tf.BuyOrderId(),
 		SellOrderID: tf.SellOrderId(),
@@ -288,11 +283,31 @@ func (c *FillConsumer) handleFragment(ctx context.Context, payload []byte) (rt R
 		Qty:         decimal.NewFromScaled(tf.Qty()),
 		EngineSeq:   tf.Seq(),
 		ShardID:     c.shardID,
+	}, true
+}
+
+// resolveFills resolves one pump window. A BatchTradeResolver answers the
+// whole window in two queries; anything else falls back to per-fill
+// Resolve with identical fail-closed semantics — an unresolvable fill is
+// never silently dropped.
+func (c *FillConsumer) resolveFills(ctx context.Context, fills []EngineFill) ([]ResolvedTrade, error) {
+	var rts []ResolvedTrade
+	if br, ok := c.resolver.(BatchTradeResolver); ok {
+		var err error
+		rts, err = br.ResolveBatch(ctx, fills)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		rts = make([]ResolvedTrade, 0, len(fills))
+		for _, f := range fills {
+			rt, err := c.resolver.Resolve(ctx, f)
+			if err != nil {
+				return nil, err
+			}
+			rts = append(rts, rt)
+		}
 	}
-	rt, err = c.resolver.Resolve(ctx, fill)
-	if err != nil {
-		return ResolvedTrade{}, false, err
-	}
-	c.resolved.Add(1)
-	return rt, true, nil
+	c.resolved.Add(uint64(len(rts)))
+	return rts, nil
 }

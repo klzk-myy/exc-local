@@ -481,7 +481,7 @@ func (s *PgCarryStore) RecordCarryYield(ctx context.Context, rec CarryYieldRecor
 		INSERT INTO carry_yield_records
 		    (allocation_id, journal_entry_id, accrual_date, currency, days,
 		     gross_credit, gross_debit, net_yield, cumulative_yield, leg_detail)
-		VALUES ($1, NULLIF($2,0), $3, $4, $5, $6::numeric, $7::numeric, $8::numeric, 0, $9::jsonb)
+		VALUES ($1, NULLIF($2::bigint,0), $3, $4, $5, $6::numeric, $7::numeric, $8::numeric, 0, $9::jsonb)
 		ON CONFLICT (allocation_id, accrual_date, currency) DO NOTHING
 		RETURNING id`,
 		rec.AllocationID, rec.JournalEntryID, rec.AccrualDate, rec.Currency,
