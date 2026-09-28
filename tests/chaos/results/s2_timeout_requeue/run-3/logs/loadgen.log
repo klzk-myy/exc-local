@@ -1,0 +1,1 @@
+stopped (engine_dead): sent=9751 fills=2618 cancels=203 dup_trade_ids=0 report=/www/wwwroot/exc.local/tests/chaos/results/s2_timeout_requeue/run-3/loadgen-1.json

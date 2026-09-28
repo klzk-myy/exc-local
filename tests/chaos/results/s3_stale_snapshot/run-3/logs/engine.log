@@ -1,0 +1,71 @@
+WARN: -dev-all-accounts active — account checks permissive (soak/dev only)
+recovery: level=1 entries=0 applied=0 derived=0 dedup=0 covered_gap_seqs=0 tail=0
+shard 0 ready at 1790602717976853258 ns (ipc=chaos-s3r3x9 wal=/www/wwwroot/exc.local/tests/chaos/results/s3_stale_snapshot/run-3/wal/0/0.wal)
+[P1] ENGINE_WARN stale_ns=564577 beat=876435
+[P1] ENGINE_WARN stale_ns=636692 beat=941795
+[P1] ENGINE_WARN stale_ns=586536 beat=1614679
+[P1] ENGINE_WARN stale_ns=598595 beat=3803277
+[P1] ENGINE_WARN stale_ns=507808 beat=4788088
+[P1] ENGINE_WARN stale_ns=578826 beat=4857250
+[P1] ENGINE_WARN stale_ns=609400 beat=7521483
+[P1] ENGINE_WARN stale_ns=617041 beat=7605586
+[P1] ENGINE_WARN stale_ns=534278 beat=10330502
+[P1] ENGINE_WARN stale_ns=648201 beat=15609439
+[P1] ENGINE_WARN stale_ns=541026 beat=19231517
+[P1] ENGINE_WARN stale_ns=546352 beat=22200927
+[P1] ENGINE_WARN stale_ns=501036 beat=25924562
+[P1] ENGINE_WARN stale_ns=529189 beat=26030686
+[P1] ENGINE_WARN stale_ns=624174 beat=26682212
+[P1] ENGINE_WARN stale_ns=600142 beat=27693961
+[P1] ENGINE_WARN stale_ns=627669 beat=30802183
+[P1] ENGINE_WARN stale_ns=555419 beat=31065649
+[P1] ENGINE_WARN stale_ns=605173 beat=31228262
+[P1] ENGINE_WARN stale_ns=632700 beat=31726899
+[P1] ENGINE_WARN stale_ns=558999 beat=32929757
+[P1] ENGINE_WARN stale_ns=534286 beat=34861931
+[P1] ENGINE_WARN stale_ns=629240 beat=37951239
+[P1] ENGINE_WARN stale_ns=547021 beat=38129805
+[P1] ENGINE_WARN stale_ns=504793 beat=38327541
+[P1] ENGINE_WARN stale_ns=569640 beat=39074369
+[P1] ENGINE_WARN stale_ns=524496 beat=39140557
+[P1] ENGINE_WARN stale_ns=628748 beat=39140558
+[P1] ENGINE_WARN stale_ns=606996 beat=40250140
+[P1] ENGINE_WARN stale_ns=501839 beat=40308082
+[P1] ENGINE_WARN stale_ns=519545 beat=41261992
+[P1] ENGINE_WARN stale_ns=522257 beat=41261993
+[P1] ENGINE_WARN stale_ns=577261 beat=43730876
+[P1] ENGINE_WARN stale_ns=537636 beat=48782284
+[P1] ENGINE_WARN stale_ns=647325 beat=50519968
+[P1] ENGINE_WARN stale_ns=631642 beat=50572240
+[P1] ENGINE_WARN stale_ns=565394 beat=54248329
+[P1] ENGINE_WARN stale_ns=544325 beat=58679371
+[P1] ENGINE_WARN stale_ns=535592 beat=62474498
+[P1] ENGINE_WARN stale_ns=517367 beat=64465367
+[P1] ENGINE_WARN stale_ns=569818 beat=68699916
+[P1] ENGINE_WARN stale_ns=629885 beat=79409674
+snapshot stored at seq=11693
+shard 0 stopped
+WARN: -dev-all-accounts active — account checks permissive (soak/dev only)
+NOTICE SNAPSHOT_REBASED shard=0 wal_tail=11693 first_divergent_seq=-1 runbook=docs/runbooks/wal-recovery-halt.md (exchange:replay-from-archive)
+recovery_report {"shard_id":0,"book_seq":11693,"wal_tail":11693,"last_valid_seq":11692,"snapshot_seq":11046,"first_divergent_seq":-1,"stage":"boot_ladder","outcome":"SNAPSHOT_REBASED","detail":{"status":"Ok","detail":"","instrument":0,"covered_gap_seqs":0,"snapshot_fallback":true,"runbook":"docs/runbooks/wal-recovery-halt.md (exchange:replay-from-archive)","level1_status":"SnapshotLoadFailed"},"ts_unix_ns":1790602722762299042}
+recovery: level=2 entries=73 applied=50 derived=19 dedup=87 covered_gap_seqs=0 tail=11693 (snapshot fallback)
+shard 0 ready at 1790602722763143526 ns (ipc=chaos-s3r3x9 wal=/www/wwwroot/exc.local/tests/chaos/results/s3_stale_snapshot/run-3/wal/0/0.wal)
+[P1] ENGINE_WARN stale_ns=505518 beat=829306
+snapshot stored at seq=11737
+shard 0 stopped
+WARN: -dev-all-accounts active — account checks permissive (soak/dev only)
+NOTICE SNAPSHOT_REBASED shard=0 wal_tail=11738 first_divergent_seq=-1 runbook=docs/runbooks/wal-recovery-halt.md (exchange:replay-from-archive)
+recovery_report {"shard_id":0,"book_seq":11738,"wal_tail":11738,"last_valid_seq":11737,"snapshot_seq":11737,"first_divergent_seq":-1,"stage":"boot_ladder","outcome":"SNAPSHOT_REBASED","detail":{"status":"Ok","detail":"","instrument":0,"covered_gap_seqs":11731,"rebase_marker":true,"runbook":"docs/runbooks/wal-recovery-halt.md (exchange:replay-from-archive)","level1_status":"InvariantViolated"},"ts_unix_ns":1790602723005003892}
+recovery: level=2 entries=0 applied=0 derived=0 dedup=0 covered_gap_seqs=11731 tail=11738
+shard 0 ready at 1790602723005475568 ns (ipc=chaos-s3r3x9 wal=/www/wwwroot/exc.local/tests/chaos/results/s3_stale_snapshot/run-3/wal/0/5.wal)
+[P1] ENGINE_WARN stale_ns=560091 beat=750365
+[P1] ENGINE_WARN stale_ns=509102 beat=945525
+snapshot stored at seq=59
+shard 0 stopped
+WARN: -dev-all-accounts active — account checks permissive (soak/dev only)
+NOTICE SNAPSHOT_REBASED shard=0 wal_tail=11738 first_divergent_seq=-1 runbook=docs/runbooks/wal-recovery-halt.md (exchange:replay-from-archive)
+recovery_report {"shard_id":0,"book_seq":11738,"wal_tail":11738,"last_valid_seq":11737,"snapshot_seq":11737,"first_divergent_seq":-1,"stage":"boot_ladder","outcome":"SNAPSHOT_REBASED","detail":{"status":"Ok","detail":"","instrument":0,"covered_gap_seqs":0,"rebase_marker":true,"runbook":"docs/runbooks/wal-recovery-halt.md (exchange:replay-from-archive)","level1_status":"InvariantViolated"},"ts_unix_ns":1790602723244641483}
+recovery: level=2 entries=0 applied=0 derived=0 dedup=0 covered_gap_seqs=0 tail=11738
+shard 0 ready at 1790602723245318481 ns (ipc=chaos-s3r3x9 wal=/www/wwwroot/exc.local/tests/chaos/results/s3_stale_snapshot/run-3/wal/0/0.wal)
+snapshot stored at seq=40
+shard 0 stopped

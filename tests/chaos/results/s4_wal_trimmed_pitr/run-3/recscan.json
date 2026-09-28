@@ -1,0 +1,48 @@
+{
+  "dir": "/www/wwwroot/exc.local/tests/chaos/results/s4_wal_trimmed_pitr/run-3/fixture/wal/0",
+  "segments": [
+    {
+      "path": "/www/wwwroot/exc.local/tests/chaos/results/s4_wal_trimmed_pitr/run-3/fixture/wal/0/0.wal",
+      "base": 0,
+      "shard": 0,
+      "header_ok": true,
+      "has_entries": true,
+      "entries": 14610,
+      "first_seq": 0,
+      "last_seq": 14609,
+      "valid_end": 1174202,
+      "corrupt": false,
+      "corrupt_offset": 0,
+      "size": 16777216
+    },
+    {
+      "path": "/www/wwwroot/exc.local/tests/chaos/results/s4_wal_trimmed_pitr/run-3/fixture/wal/0/15110.wal",
+      "base": 15110,
+      "shard": 0,
+      "header_ok": true,
+      "has_entries": true,
+      "entries": 1,
+      "first_seq": 15110,
+      "last_seq": 15110,
+      "valid_end": 57,
+      "corrupt": false,
+      "corrupt_offset": 0,
+      "size": 57
+    }
+  ],
+  "has_entries": true,
+  "stream_base": 0,
+  "wal_tail": 15111,
+  "wal_entries": 14611,
+  "last_valid_seq": 15110,
+  "tail_corrupt": false,
+  "sealed_damage": false,
+  "lost_ranges": [
+    {
+      "begin": 14610,
+      "end": 15110,
+      "corrupt_caused": false
+    }
+  ],
+  "divergence": "seq_gap"
+}

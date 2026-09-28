@@ -1,0 +1,5 @@
+restore_pitr: staged /www/wwwroot/exc.local/tests/chaos/results/s4_wal_trimmed_pitr/run-2/fixture/pitr-data
+  target time : 2026-09-28 13:38:53+00
+  archive     : /www/wwwroot/exc.local/tests/chaos/results/s4_wal_trimmed_pitr/run-2/fixture/pitr-archive
+Start with:   pg_ctl -D /www/wwwroot/exc.local/tests/chaos/results/s4_wal_trimmed_pitr/run-2/fixture/pitr-data -l /www/wwwroot/exc.local/tests/chaos/results/s4_wal_trimmed_pitr/run-2/fixture/pitr-data.recovery.log -w start
+Then check:   tail -f /www/wwwroot/exc.local/tests/chaos/results/s4_wal_trimmed_pitr/run-2/fixture/pitr-data.recovery.log  # "recovery stopping before commit of ..."

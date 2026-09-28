@@ -1,0 +1,9 @@
+boot_ready	PASS	ready
+client_timeout_detection	PASS	loadgen exited after engine death
+stop_reason	PASS	stop_reason=engine_dead
+client_dup_fills	PASS	0
+recovery_lt_10s	PASS	640ms
+wal_clean	PASS	dups=0 gaps=0
+acked_orders_journaled	PASS	trades_journaled=2617 >= fills_observed=2617
+probe_ack_accounting	PASS	sent=40 acked=40 unacked=0 dup_fills=0
+final_scan_clean	PASS	ok

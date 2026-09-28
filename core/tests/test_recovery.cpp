@@ -344,17 +344,41 @@ TEST(RecoveryManager, SnapshotOnlyBootRestoresBook) {
     FileSnapshotSink sink(root.string(), kShard);
     ASSERT_TRUE(sink.store(kIid, 10, blob.data(), blob.size()));
 
+    // Snapshot-only boot is forward divergence (snapshot_seq=10 > wal_tail=0
+    // on the empty stream): strict recover() must fail closed at Phase-3
+    // before any book mutation — silently booting at tail 0 under a seq-10
+    // snapshot would let post-boot journaling collide with the covered seq
+    // domain (latent zero-loss).
+    {
+        Fixture strict_f;
+        RecoveryManager strict_rm(kShard, sink);
+        const RecoveryResult sres = strict_rm.recover(
+            wal_dir.string(), {{kIid, &strict_f.book}});
+        ASSERT_EQ(sres.status, RecoveryStatus::InvariantViolated);
+        EXPECT_NE(std::string(sres.detail).find("ahead of WAL tail"),
+                  std::string::npos);
+        EXPECT_EQ(strict_f.book.live_orders(), 0u);  // no book mutation
+    }
+
+    // The graduated ladder resolves it: writes the {10}.wal rebase-marker
+    // segment (anchors the seq domain at the snapshot cursor) and rebases
+    // in place at level 2 — no halt needed.
     Fixture dst;
     RecoveryManager rm(kShard, sink);
-    const RecoveryResult res = rm.recover(wal_dir.string(),
-                                          {{kIid, &dst.book}});
-    ASSERT_EQ(res.status, RecoveryStatus::Ok) << res.detail;
-    EXPECT_EQ(res.wal_tail, 0u);
-    ASSERT_EQ(res.books.size(), 1u);
-    EXPECT_TRUE(res.books[0].snapshot_loaded);
-    EXPECT_EQ(res.books[0].snapshot_seq, 10u);
-    EXPECT_EQ(res.books[0].orders_restored, 3u);
-    EXPECT_TRUE(res.books[0].book_seq_verified);
+    const auto report_path = root / "reports.jsonl";
+    const RecoveryLadderResult lad = rm.recover_ladder(
+        wal_dir.string(), {{kIid, &dst.book}}, report_path.string());
+    ASSERT_EQ(lad.outcome, RecoveryOutcome::SNAPSHOT_REBASED)
+        << lad.result.detail;
+    EXPECT_EQ(lad.level, 2u);
+    EXPECT_TRUE(lad.rebase_marker_written);
+    EXPECT_TRUE(std::filesystem::exists(wal_dir / "10.wal"));
+    EXPECT_TRUE(lad.report_written);
+    ASSERT_EQ(lad.result.books.size(), 1u);
+    EXPECT_TRUE(lad.result.books[0].snapshot_loaded);
+    EXPECT_EQ(lad.result.books[0].snapshot_seq, 10u);
+    EXPECT_EQ(lad.result.books[0].orders_restored, 3u);
+    EXPECT_TRUE(lad.result.books[0].book_seq_verified);
     EXPECT_EQ(dst.book.live_orders(), 3u);
     EXPECT_EQ(fingerprint(dst.book), fingerprint(src.book));
     const Order* o1 = dst.book.find_order(1);

@@ -1,0 +1,4 @@
+{"scenario":"s1_crash_mid_batch","run":2,"pass":true,
+ "recovery_ms":751,"dup_trade_ids":0,"missing_trades":0,
+ "orders_sent":22531,"fills_observed":9301,"trades_journaled":9301,
+ "fp_pre":"1cadb64769aefbff","fp_post":"1cadb64769aefbff"}

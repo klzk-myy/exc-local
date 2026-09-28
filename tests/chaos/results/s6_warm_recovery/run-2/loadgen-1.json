@@ -1,0 +1,49 @@
+{
+  "started": "2026-09-28T13:39:19.357377191Z",
+  "ended": "2026-09-28T13:39:23.859551153Z",
+  "duration_s": 4.502173955,
+  "orders_sent": 8025,
+  "fills": 1943,
+  "cancels": 147,
+  "book_snapshots": 35,
+  "time_ticks": 0,
+  "other_events": 0,
+  "decode_errors": 0,
+  "duplicate_trade_ids": 0,
+  "my_orders_filled": 1943,
+  "my_distinct_orders_in_fills": 1978,
+  "foreign_fills": 0,
+  "send_drops": 0,
+  "ring_drops": 0,
+  "latency_ns": {
+    "p50": 8999,
+    "p99": 169560857,
+    "p999": 169560857,
+    "max": 169560857,
+    "mean": 3603701,
+    "count": 1150
+  },
+  "cancel_latency_ns": {
+    "p50": 9999,
+    "p99": 140067136,
+    "p999": 140067136,
+    "max": 140067136,
+    "mean": 5013289,
+    "count": 145
+  },
+  "throughput": {
+    "min_1s": 24,
+    "mean_1s": 1605,
+    "max_1s": 2001
+  },
+  "target_rate": 2000,
+  "stop_reason": "signal:terminated",
+  "engine_died": false,
+  "shard": 0,
+  "instrument_id": 7,
+  "dup_trade_ids": 0,
+  "achieved_rate": 1782.4722190237983,
+  "p50_us": 8.999,
+  "p99_us": 169560.857,
+  "p999_us": 169560.857
+}

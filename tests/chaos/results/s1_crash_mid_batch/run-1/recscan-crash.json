@@ -1,0 +1,27 @@
+{
+  "dir": "/www/wwwroot/exc.local/tests/chaos/results/s1_crash_mid_batch/run-1/wal/0",
+  "segments": [
+    {
+      "path": "/www/wwwroot/exc.local/tests/chaos/results/s1_crash_mid_batch/run-1/wal/0/0.wal",
+      "base": 0,
+      "shard": 0,
+      "header_ok": true,
+      "has_entries": true,
+      "entries": 17985,
+      "first_seq": 0,
+      "last_seq": 17984,
+      "valid_end": 1538081,
+      "corrupt": false,
+      "corrupt_offset": 0,
+      "size": 16777216
+    }
+  ],
+  "has_entries": true,
+  "stream_base": 0,
+  "wal_tail": 17985,
+  "wal_entries": 17985,
+  "last_valid_seq": 17984,
+  "tail_corrupt": false,
+  "sealed_damage": false,
+  "divergence": ""
+}

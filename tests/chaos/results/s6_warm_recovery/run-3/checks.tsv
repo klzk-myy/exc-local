@@ -1,0 +1,6 @@
+standby_running	PASS	follower pid=3591623 (isolated wal dir)
+recovery_lt_10s	PASS	695ms
+ladder_evidence	PASS	recovery: level=1 entries=1079 applied=695 derived=333 dedup=172 covered_gap_seqs=0 tail=14039
+fp_parity	PASS	639d14cc904517d7
+wal_clean	PASS	dups=0 gaps=0
+journaled_covers_fills	PASS	trades=3156 fills=3156

@@ -1,0 +1,41 @@
+{
+  "dir": "/www/wwwroot/exc.local/tests/chaos/results/s1_crash_mid_batch/run-1/wal/0",
+  "segments": [
+    {
+      "path": "/www/wwwroot/exc.local/tests/chaos/results/s1_crash_mid_batch/run-1/wal/0/0.wal",
+      "base": 0,
+      "shard": 0,
+      "header_ok": true,
+      "has_entries": true,
+      "entries": 17985,
+      "first_seq": 0,
+      "last_seq": 17984,
+      "valid_end": 1538081,
+      "corrupt": true,
+      "corrupt_offset": 1538081,
+      "size": 16777216
+    },
+    {
+      "path": "/www/wwwroot/exc.local/tests/chaos/results/s1_crash_mid_batch/run-1/wal/0/17985.wal",
+      "base": 17985,
+      "shard": 0,
+      "header_ok": true,
+      "has_entries": true,
+      "entries": 1,
+      "first_seq": 17985,
+      "last_seq": 17985,
+      "valid_end": 57,
+      "corrupt": false,
+      "corrupt_offset": 0,
+      "size": 57
+    }
+  ],
+  "has_entries": true,
+  "stream_base": 0,
+  "wal_tail": 17986,
+  "wal_entries": 17986,
+  "last_valid_seq": 17985,
+  "tail_corrupt": false,
+  "sealed_damage": true,
+  "divergence": ""
+}

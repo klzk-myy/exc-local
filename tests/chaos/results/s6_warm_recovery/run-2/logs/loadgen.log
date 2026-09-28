@@ -1,0 +1,10 @@
+SLOWFILL oid=201000000007105 d=169ms sendNs=3553415690 nowNs=3722976727 tid=1562
+SLOWFILL oid=201000000007118 d=163ms sendNs=3559917753 nowNs=3723386919 tid=1572
+SLOWFILL oid=201000000007129 d=158ms sendNs=3565414531 nowNs=3723522116 tid=1575
+SLOWFILL oid=201000000007143 d=151ms sendNs=3572415740 nowNs=3723707295 tid=1578
+SLOWFILL oid=201000000007156 d=144ms sendNs=3578916246 nowNs=3723861226 tid=1579
+SLOWFILL oid=201000000007157 d=144ms sendNs=3579415464 nowNs=3723872832 tid=1580
+SLOWFILL oid=201000000007171 d=137ms sendNs=3586414715 nowNs=3724318047 tid=1581
+SLOWFILL oid=201000000007173 d=136ms sendNs=3587415968 nowNs=3724343687 tid=1582
+stopped (signal:terminated): sent=8025 fills=1943 cancels=147 dup_trade_ids=0 report=/www/wwwroot/exc.local/tests/chaos/results/s6_warm_recovery/run-2/loadgen-1.json
+stopped (duration): sent=5999 fills=1213 cancels=95 dup_trade_ids=0 report=/www/wwwroot/exc.local/tests/chaos/results/s6_warm_recovery/run-2/loadgen-2.json

@@ -1,0 +1,5 @@
+WARN: -dev-all-accounts active — account checks permissive (soak/dev only)
+NOTICE SNAPSHOT_REBASED shard=0 wal_tail=11738 first_divergent_seq=-1 runbook=docs/runbooks/wal-recovery-halt.md (exchange:replay-from-archive)
+recovery_report {"shard_id":0,"book_seq":11738,"wal_tail":11738,"last_valid_seq":11737,"snapshot_seq":11737,"first_divergent_seq":-1,"stage":"boot_ladder","outcome":"SNAPSHOT_REBASED","detail":{"status":"Ok","detail":"","instrument":0,"covered_gap_seqs":0,"rebase_marker":true,"runbook":"docs/runbooks/wal-recovery-halt.md (exchange:replay-from-archive)","level1_status":"InvariantViolated"},"ts_unix_ns":1790602723244641483}
+recovery: level=2 entries=0 applied=0 derived=0 dedup=0 covered_gap_seqs=0 tail=11738
+shard 0 ready at 1790602723245318481 ns (ipc=chaos-s3r3x9 wal=/www/wwwroot/exc.local/tests/chaos/results/s3_stale_snapshot/run-3/wal/0/0.wal)

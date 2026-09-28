@@ -1,0 +1,39 @@
+WARN: -dev-all-accounts active — account checks permissive (soak/dev only)
+recovery: level=1 entries=0 applied=0 derived=0 dedup=0 covered_gap_seqs=0 tail=0
+shard 0 ready at 1790602746671096728 ns (ipc=chaos-s5r3x15 wal=/www/wwwroot/exc.local/tests/chaos/results/s5_pid_conflict/run-3/wal/0/0.wal)
+[P1] ENGINE_WARN stale_ns=526241 beat=896335
+[P1] ENGINE_WARN stale_ns=542338 beat=3254752
+[P1] ENGINE_WARN stale_ns=608632 beat=6259160
+[P1] ENGINE_WARN stale_ns=639482 beat=17858977
+[P1] ENGINE_WARN stale_ns=591381 beat=19686413
+[P1] ENGINE_WARN stale_ns=584972 beat=20823260
+[P1] ENGINE_WARN stale_ns=563057 beat=20900739
+[P1] ENGINE_WARN stale_ns=569562 beat=21500912
+[P1] ENGINE_WARN stale_ns=573822 beat=22713636
+[P1] ENGINE_WARN stale_ns=504474 beat=25916258
+[P1] ENGINE_WARN stale_ns=558878 beat=26232622
+[P1] ENGINE_WARN stale_ns=620633 beat=30186145
+[P1] ENGINE_WARN stale_ns=508262 beat=31722874
+[P1] ENGINE_WARN stale_ns=614359 beat=41347841
+[P1] ENGINE_WARN stale_ns=525688 beat=44215811
+[P1] ENGINE_WARN stale_ns=563633 beat=45402394
+[P1] ENGINE_WARN stale_ns=521248 beat=46077763
+[P1] ENGINE_WARN stale_ns=548716 beat=46805317
+[P1] ENGINE_WARN stale_ns=573419 beat=48521844
+[P1] ENGINE_WARN stale_ns=543490 beat=52208784
+[P1] ENGINE_WARN stale_ns=604930 beat=52869049
+[P1] ENGINE_WARN stale_ns=571356 beat=52903708
+[P1] ENGINE_WARN stale_ns=519102 beat=54757522
+[P1] ENGINE_WARN stale_ns=534225 beat=61929161
+snapshot stored at seq=10815
+shard 0 stopped
+WARN: -dev-all-accounts active — account checks permissive (soak/dev only)
+recovery: level=1 entries=0 applied=0 derived=0 dedup=87 covered_gap_seqs=0 tail=10815
+shard 0 ready at 1790602750411695553 ns (ipc=chaos-s5r3x15 wal=/www/wwwroot/exc.local/tests/chaos/results/s5_pid_conflict/run-3/wal/0/0.wal)
+[P1] ENGINE_WARN stale_ns=587704 beat=239460
+[P1] ENGINE_WARN stale_ns=633986 beat=239461
+[P1] ENGINE_WARN stale_ns=646210 beat=285585
+[P1] ENGINE_WARN stale_ns=567221 beat=285586
+[P1] ENGINE_WARN stale_ns=542244 beat=285587
+snapshot stored at seq=10834
+shard 0 stopped

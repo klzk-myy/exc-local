@@ -1,0 +1,54 @@
+WARN: -dev-all-accounts active — account checks permissive (soak/dev only)
+recovery: level=1 entries=0 applied=0 derived=0 dedup=0 covered_gap_seqs=0 tail=0
+shard 0 ready at 1790602712396148948 ns (ipc=chaos-s3r2x8 wal=/www/wwwroot/exc.local/tests/chaos/results/s3_stale_snapshot/run-2/wal/0/0.wal)
+[P1] ENGINE_WARN stale_ns=637800 beat=923240
+[P1] ENGINE_WARN stale_ns=572342 beat=3674368
+[P1] ENGINE_WARN stale_ns=566853 beat=4055102
+[P1] ENGINE_WARN stale_ns=508218 beat=5991176
+[P1] ENGINE_WARN stale_ns=635850 beat=10160978
+[P1] ENGINE_WARN stale_ns=504593 beat=20825538
+[P1] ENGINE_WARN stale_ns=576308 beat=22816716
+[P1] ENGINE_WARN stale_ns=536221 beat=35427093
+[P1] ENGINE_WARN stale_ns=504750 beat=37840794
+[P1] ENGINE_WARN stale_ns=541760 beat=38000294
+[P1] ENGINE_WARN stale_ns=522280 beat=38064526
+[P1] ENGINE_WARN stale_ns=515612 beat=41228469
+[P1] ENGINE_WARN stale_ns=601066 beat=42607775
+[P1] ENGINE_WARN stale_ns=505926 beat=45826544
+[P1] ENGINE_WARN stale_ns=542665 beat=50757070
+[P1] ENGINE_WARN stale_ns=607095 beat=50757071
+[P1] ENGINE_WARN stale_ns=522076 beat=58972696
+[P1] ENGINE_WARN stale_ns=515615 beat=61623664
+[P1] ENGINE_WARN stale_ns=566523 beat=71601060
+[P1] ENGINE_WARN stale_ns=503171 beat=78524987
+[P1] ENGINE_WARN stale_ns=603508 beat=80381018
+[P1] ENGINE_WARN stale_ns=541662 beat=80445829
+[P1] ENGINE_WARN stale_ns=538260 beat=81002894
+[P1] ENGINE_WARN stale_ns=627775 beat=82524767
+[P1] ENGINE_WARN stale_ns=501586 beat=82835009
+[P1] ENGINE_WARN stale_ns=527300 beat=85439604
+snapshot stored at seq=11748
+shard 0 stopped
+WARN: -dev-all-accounts active — account checks permissive (soak/dev only)
+NOTICE SNAPSHOT_REBASED shard=0 wal_tail=11748 first_divergent_seq=-1 runbook=docs/runbooks/wal-recovery-halt.md (exchange:replay-from-archive)
+recovery_report {"shard_id":0,"book_seq":11748,"wal_tail":11748,"last_valid_seq":11747,"snapshot_seq":11085,"first_divergent_seq":-1,"stage":"boot_ladder","outcome":"SNAPSHOT_REBASED","detail":{"status":"Ok","detail":"","instrument":0,"covered_gap_seqs":0,"snapshot_fallback":true,"runbook":"docs/runbooks/wal-recovery-halt.md (exchange:replay-from-archive)","level1_status":"SnapshotLoadFailed"},"ts_unix_ns":1790602717174953590}
+recovery: level=2 entries=86 applied=61 derived=21 dedup=87 covered_gap_seqs=0 tail=11748 (snapshot fallback)
+shard 0 ready at 1790602717175495970 ns (ipc=chaos-s3r2x8 wal=/www/wwwroot/exc.local/tests/chaos/results/s3_stale_snapshot/run-2/wal/0/0.wal)
+[P1] ENGINE_WARN stale_ns=593039 beat=851947
+snapshot stored at seq=11794
+shard 0 stopped
+WARN: -dev-all-accounts active — account checks permissive (soak/dev only)
+NOTICE SNAPSHOT_REBASED shard=0 wal_tail=11795 first_divergent_seq=-1 runbook=docs/runbooks/wal-recovery-halt.md (exchange:replay-from-archive)
+recovery_report {"shard_id":0,"book_seq":11795,"wal_tail":11795,"last_valid_seq":11794,"snapshot_seq":11794,"first_divergent_seq":-1,"stage":"boot_ladder","outcome":"SNAPSHOT_REBASED","detail":{"status":"Ok","detail":"","instrument":0,"covered_gap_seqs":11788,"rebase_marker":true,"runbook":"docs/runbooks/wal-recovery-halt.md (exchange:replay-from-archive)","level1_status":"InvariantViolated"},"ts_unix_ns":1790602717423158388}
+recovery: level=2 entries=0 applied=0 derived=0 dedup=0 covered_gap_seqs=11788 tail=11795
+shard 0 ready at 1790602717423846602 ns (ipc=chaos-s3r2x8 wal=/www/wwwroot/exc.local/tests/chaos/results/s3_stale_snapshot/run-2/wal/0/5.wal)
+snapshot stored at seq=61
+shard 0 stopped
+WARN: -dev-all-accounts active — account checks permissive (soak/dev only)
+NOTICE SNAPSHOT_REBASED shard=0 wal_tail=11795 first_divergent_seq=-1 runbook=docs/runbooks/wal-recovery-halt.md (exchange:replay-from-archive)
+recovery_report {"shard_id":0,"book_seq":11795,"wal_tail":11795,"last_valid_seq":11794,"snapshot_seq":11794,"first_divergent_seq":-1,"stage":"boot_ladder","outcome":"SNAPSHOT_REBASED","detail":{"status":"Ok","detail":"","instrument":0,"covered_gap_seqs":0,"rebase_marker":true,"runbook":"docs/runbooks/wal-recovery-halt.md (exchange:replay-from-archive)","level1_status":"InvariantViolated"},"ts_unix_ns":1790602717669992075}
+recovery: level=2 entries=0 applied=0 derived=0 dedup=0 covered_gap_seqs=0 tail=11795
+shard 0 ready at 1790602717670516138 ns (ipc=chaos-s3r2x8 wal=/www/wwwroot/exc.local/tests/chaos/results/s3_stale_snapshot/run-2/wal/0/0.wal)
+[P1] ENGINE_WARN stale_ns=540571 beat=68671
+snapshot stored at seq=37
+shard 0 stopped

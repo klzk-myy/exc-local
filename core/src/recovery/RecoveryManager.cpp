@@ -526,22 +526,26 @@ RecoveryResult RecoveryManager::recover(
             }
         }
 
+        // Forward divergence (spec §18.5): the snapshot claims coverage
+        // beyond the surviving log — level-2 rebase resolves it by writing
+        // a {snapshot_seq}.wal marker so the seq space resumes past snapshot
+        // coverage. Runs whenever a snapshot was read — even when the stream
+        // is EMPTY (prescan_tail stays 0): every covered entry is gone and
+        // resuming journaling below the cursor would collide with the
+        // snapshot-covered seq domain (latent zero-loss + trade-id reseed).
+        // Fails before any book mutation so the ladder can retry in place.
+        for (auto& bs : states) {
+            if (bs.snapshot_have && bs.snapshot_seq > prescan_tail) {
+                set_fail(res, RecoveryStatus::InvariantViolated,
+                         bs.snapshot_seq, bs.instrument_id,
+                         "snapshot_seq ahead of WAL tail");
+                wal_tail_ = res.wal_tail;
+                last_outcome_ = res.outcome();
+                return res;
+            }
+        }
         if (prescan_started) {
             for (auto& bs : states) {
-                if (bs.snapshot_seq > prescan_tail) {
-                    // Forward divergence (spec §18.5): the snapshot claims
-                    // coverage beyond the surviving log — level-2 rebase
-                    // resolves it by writing a {snapshot_seq}.wal marker so
-                    // the seq space resumes past snapshot coverage. Fails
-                    // here, before any book mutation, so the ladder can
-                    // retry in place.
-                    set_fail(res, RecoveryStatus::InvariantViolated,
-                             bs.snapshot_seq, bs.instrument_id,
-                             "snapshot_seq ahead of WAL tail");
-                    wal_tail_ = res.wal_tail;
-                    last_outcome_ = res.outcome();
-                    return res;
-                }
                 if (res.stream_base > bs.snapshot_seq) {
                     // WAL trimmed past this book's snapshot boundary —
                     // entries it needed are unverifiably gone.
@@ -1019,23 +1023,26 @@ RecoveryResult RecoveryManager::recover(
             // --- Phase 6: boot invariant (fail-closed) -------------------------
             const bool stream_empty = res.wal_entries == 0;
             for (auto& bs : states) {
-                if (!stream_empty) {
-                    if (bs.snapshot_seq > res.wal_tail) {
-                        // Snapshot claims coverage beyond the log — spec §18.5
-                        // forward divergence; never start with suspect state.
-                        set_fail(res, RecoveryStatus::InvariantViolated,
-                                 bs.snapshot_seq, bs.instrument_id,
-                                 "snapshot_seq ahead of WAL tail");
-                        break;
-                    }
-                    if (replay_started && res.stream_base > bs.snapshot_seq) {
-                        // WAL trimmed past this book's snapshot boundary —
-                        // entries it needed are unverifiably gone.
-                        set_fail(res, RecoveryStatus::InvariantViolated,
-                                 res.stream_base, bs.instrument_id,
-                                 "WAL trimmed beyond snapshot coverage");
-                        break;
-                    }
+                // Snapshot claims coverage beyond the surviving log — spec
+                // §18.5 forward divergence; never start with suspect state.
+                // Fires even on an EMPTY stream: wal_tail=0 below a nonzero
+                // snapshot cursor means every covered entry is gone, and
+                // resuming journaling below the cursor would collide with
+                // the snapshot-covered seq domain (latent zero-loss).
+                if (bs.snapshot_seq > res.wal_tail) {
+                    set_fail(res, RecoveryStatus::InvariantViolated,
+                             bs.snapshot_seq, bs.instrument_id,
+                             "snapshot_seq ahead of WAL tail");
+                    break;
+                }
+                if (!stream_empty && replay_started &&
+                    res.stream_base > bs.snapshot_seq) {
+                    // WAL trimmed past this book's snapshot boundary —
+                    // entries it needed are unverifiably gone.
+                    set_fail(res, RecoveryStatus::InvariantViolated,
+                             res.stream_base, bs.instrument_id,
+                             "WAL trimmed beyond snapshot coverage");
+                    break;
                 }
                 const char* violation = nullptr;
                 if (!bs.book->validate(&violation)) {
@@ -1369,33 +1376,37 @@ RecoveryLadderResult RecoveryManager::recover_ladder(
     std::snprintf(l1_status, sizeof(l1_status), "\"level1_status\":\"%s\"",
                   recovery_status_str(r1.status));
 
-    if (!books_dirty) {
-        out.level = 2;
-        // Forward divergence (snapshot_seq > wal_tail): peek the latest
-        // verified snapshot cursor per binding — read-only, no book
-        // mutation — and write the rebase-marker segment when the snapshot
-        // genuinely covers past the surviving tail.
-        if (snapshots_ != nullptr) {
-            uint64_t max_ss = 0;
-            bool any = false;
-            for (const auto& b : bindings) {
-                uint64_t seq = 0;
-                bool has = false;
-                std::vector<uint8_t> blob;
-                if (!snapshots_->load_latest(b.instrument_id, &seq, &blob,
-                                             &has)) {
-                    continue;  // corrupt latest — fallback/genesis decides
-                }
-                if (has) { any = true; if (seq > max_ss) max_ss = seq; }
+    // Forward divergence (snapshot_seq > wal_tail): peek the latest verified
+    // snapshot cursor per binding — read-only, no book mutation — and write
+    // the rebase-marker segment when the snapshot genuinely covers past the
+    // surviving tail. This runs on EVERY level-1 failure, before the
+    // dirty-book gate: the marker is directory-level and anchors the seq
+    // domain so a level-3 halt's next boot never journals below the covered
+    // cursor (e.g. empty-WAL + ahead-snapshot divergence).
+    if (snapshots_ != nullptr) {
+        uint64_t max_ss = 0;
+        bool any = false;
+        for (const auto& b : bindings) {
+            uint64_t seq = 0;
+            bool has = false;
+            std::vector<uint8_t> blob;
+            if (!snapshots_->load_latest(b.instrument_id, &seq, &blob,
+                                         &has)) {
+                continue;  // corrupt latest — fallback/genesis decides
             }
-            if (any && max_ss > r1.wal_tail) {
-                if (write_rebase_marker(dir_str,
-                                        static_cast<uint16_t>(shard_id_),
-                                        max_ss)) {
-                    out.rebase_marker_written = true;
-                }
+            if (has) { any = true; if (seq > max_ss) max_ss = seq; }
+        }
+        if (any && max_ss > r1.wal_tail) {
+            if (write_rebase_marker(dir_str,
+                                    static_cast<uint16_t>(shard_id_),
+                                    max_ss)) {
+                out.rebase_marker_written = true;
             }
         }
+    }
+
+    if (!books_dirty) {
+        out.level = 2;
         RecoverOptions rebase_opts;
         rebase_opts.snapshot_fallback = true;
         rebase_opts.tolerate_covered_damage = true;

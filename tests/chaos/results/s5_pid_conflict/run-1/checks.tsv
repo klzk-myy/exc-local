@@ -1,0 +1,7 @@
+contender_fail_closed	PASS	exit=1
+contender_reason	PASS	shard lock refused
+contender_no_ready	PASS	never reached ingress
+leader_alive	PASS	pid=3590071
+wal_clean_during_contention	PASS	dups=0
+reacquire_after_stop	PASS	109ms
+final_scan_clean	PASS	dups=0 gaps=0

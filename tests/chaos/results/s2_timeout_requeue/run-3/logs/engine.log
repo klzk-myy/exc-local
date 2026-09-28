@@ -1,0 +1,60 @@
+WARN: -dev-all-accounts active — account checks permissive (soak/dev only)
+recovery: level=1 entries=0 applied=0 derived=0 dedup=0 covered_gap_seqs=0 tail=0
+shard 0 ready at 1790602699862458977 ns (ipc=chaos-s2r3x6 wal=/www/wwwroot/exc.local/tests/chaos/results/s2_timeout_requeue/run-3/wal/0/0.wal)
+[P1] ENGINE_WARN stale_ns=544392 beat=860622
+[P1] ENGINE_WARN stale_ns=633571 beat=9219073
+[P1] ENGINE_WARN stale_ns=512800 beat=13240364
+[P1] ENGINE_WARN stale_ns=581383 beat=15956433
+[P1] ENGINE_WARN stale_ns=604687 beat=16480845
+[P1] ENGINE_WARN stale_ns=524857 beat=16500838
+[P1] ENGINE_WARN stale_ns=572621 beat=16542536
+[P1] ENGINE_WARN stale_ns=551544 beat=19429733
+[P1] ENGINE_WARN stale_ns=592710 beat=20474099
+[P1] ENGINE_WARN stale_ns=547087 beat=37736223
+[P1] ENGINE_WARN stale_ns=600835 beat=37809218
+[P1] ENGINE_WARN stale_ns=564618 beat=37851765
+[P1] ENGINE_WARN stale_ns=643506 beat=37898645
+[P1] ENGINE_WARN stale_ns=551102 beat=37983602
+[P1] ENGINE_WARN stale_ns=613626 beat=37999995
+[P1] ENGINE_WARN stale_ns=531426 beat=48199630
+[P1] ENGINE_WARN stale_ns=570573 beat=54195646
+[P1] ENGINE_WARN stale_ns=529555 beat=54888016
+[P1] ENGINE_WARN stale_ns=640394 beat=56025632
+[P1] ENGINE_WARN stale_ns=566661 beat=58684160
+[P1] ENGINE_WARN stale_ns=545321 beat=58737197
+[P1] ENGINE_WARN stale_ns=557880 beat=58785317
+[P1] ENGINE_WARN stale_ns=516143 beat=58801651
+[P1] ENGINE_WARN stale_ns=608847 beat=58851168
+[P1] ENGINE_WARN stale_ns=642670 beat=58897527
+[P1] ENGINE_WARN stale_ns=521134 beat=60686113
+WARN: -dev-all-accounts active — account checks permissive (soak/dev only)
+recovery: level=1 entries=288 applied=149 derived=115 dedup=215 covered_gap_seqs=0 tail=14826
+shard 0 ready at 1790602703506852669 ns (ipc=chaos-s2r3x6 wal=/www/wwwroot/exc.local/tests/chaos/results/s2_timeout_requeue/run-3/wal/0/0.wal)
+[P1] ENGINE_WARN stale_ns=613649 beat=904820
+[P1] ENGINE_WARN stale_ns=520437 beat=3127479
+[P1] ENGINE_WARN stale_ns=589201 beat=13490945
+[P1] ENGINE_WARN stale_ns=567179 beat=15673897
+[P1] ENGINE_WARN stale_ns=635684 beat=15716024
+[P1] ENGINE_WARN stale_ns=529377 beat=15795976
+[P1] ENGINE_WARN stale_ns=584948 beat=15861439
+[P1] ENGINE_WARN stale_ns=504393 beat=15865961
+[P1] ENGINE_WARN stale_ns=570708 beat=16592013
+[P1] ENGINE_WARN stale_ns=579814 beat=22040896
+[P1] ENGINE_WARN stale_ns=506125 beat=38826633
+[P1] ENGINE_WARN stale_ns=584902 beat=38869565
+[P1] ENGINE_WARN stale_ns=525883 beat=38966939
+[P1] ENGINE_WARN stale_ns=582223 beat=38995864
+[P1] ENGINE_WARN stale_ns=618287 beat=44412214
+[P1] ENGINE_WARN stale_ns=632613 beat=58196025
+[P1] ENGINE_WARN stale_ns=654597 beat=61760244
+[P1] ENGINE_WARN stale_ns=624751 beat=61776840
+[P1] ENGINE_WARN stale_ns=589945 beat=61815180
+[P1] ENGINE_WARN stale_ns=559685 beat=61860211
+[P1] ENGINE_WARN stale_ns=552893 beat=61907212
+[P1] ENGINE_WARN stale_ns=513413 beat=61956162
+[P1] ENGINE_WARN stale_ns=629475 beat=62185027
+[P1] ENGINE_WARN stale_ns=540868 beat=62842176
+[P1] ENGINE_WARN stale_ns=558478 beat=63729832
+[P1] ENGINE_WARN stale_ns=570654 beat=66491384
+snapshot stored at seq=17963
+shard 0 stopped

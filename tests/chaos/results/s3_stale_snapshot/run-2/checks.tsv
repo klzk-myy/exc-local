@@ -1,0 +1,11 @@
+snapshot_present	PASS	/www/wwwroot/exc.local/tests/chaos/results/s3_stale_snapshot/run-2/snap/0/i7/snap_00000000000000011748.bin
+A_recovery_lt_10s	PASS	109ms
+A_guard_fires_rebase	PASS	NOTICE SNAPSHOT_REBASED
+A_book_parity	PASS	payload identical modulo book_seq
+B_recovery_lt_10s	PASS	108ms
+B_rebase_outcome	PASS	SNAPSHOT_REBASED
+B_rebase_marker	PASS	/www/wwwroot/exc.local/tests/chaos/results/s3_stale_snapshot/run-2/wal/0/11794.wal
+B_seq_domain_resumed	PASS	wal_tail=11795 >= snap=11794
+dup_trade_ids	PASS	0
+C_emptywal_failclosed	PASS	rebased (tail=11795)
+B_book_parity	PASS	payload identical modulo replay stamps

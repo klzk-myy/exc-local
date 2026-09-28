@@ -1,0 +1,10 @@
+boot_ready	PASS	ready
+recovery_lt_10s	PASS	746ms
+injection_sealed_damage	PASS	prescan flags sealed_damage
+ladder_repair_exercised	PASS	recovery: level=2 + NOTICE row
+journal_restored_pristine	PASS	scan clean after restore
+fp_parity_pre_post	PASS	b68dd4f40b8ec1ed
+replay_deterministic	PASS	b68dd4f40b8ec1ed
+wal_clean	PASS	dups=0 gaps=0
+client_dup_fills	PASS	0
+journaled_covers_fills	PASS	trades=9300 fills=9300

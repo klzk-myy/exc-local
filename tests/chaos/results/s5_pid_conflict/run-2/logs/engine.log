@@ -1,0 +1,35 @@
+WARN: -dev-all-accounts active — account checks permissive (soak/dev only)
+recovery: level=1 entries=0 applied=0 derived=0 dedup=0 covered_gap_seqs=0 tail=0
+shard 0 ready at 1790602742637316835 ns (ipc=chaos-s5r2x14 wal=/www/wwwroot/exc.local/tests/chaos/results/s5_pid_conflict/run-2/wal/0/0.wal)
+[P1] ENGINE_WARN stale_ns=647483 beat=938881
+[P1] ENGINE_WARN stale_ns=532769 beat=3599560
+[P1] ENGINE_WARN stale_ns=539753 beat=3616544
+[P1] ENGINE_WARN stale_ns=614115 beat=3617284
+[P1] ENGINE_WARN stale_ns=588595 beat=3719659
+[P1] ENGINE_WARN stale_ns=543928 beat=5091468
+[P1] ENGINE_WARN stale_ns=509709 beat=14230101
+[P1] ENGINE_WARN stale_ns=509943 beat=16961690
+[P1] ENGINE_WARN stale_ns=570702 beat=20543917
+[P1] ENGINE_WARN stale_ns=518756 beat=25590553
+[P1] ENGINE_WARN stale_ns=573052 beat=31370564
+[P1] ENGINE_WARN stale_ns=519130 beat=34072061
+[P1] ENGINE_WARN stale_ns=529741 beat=35574311
+[P1] ENGINE_WARN stale_ns=600023 beat=36231200
+[P1] ENGINE_WARN stale_ns=534340 beat=40192528
+[P1] ENGINE_WARN stale_ns=520377 beat=44764912
+[P1] ENGINE_WARN stale_ns=557295 beat=47423064
+[P1] ENGINE_WARN stale_ns=504094 beat=47634616
+[P1] ENGINE_WARN stale_ns=583604 beat=55760043
+[P1] ENGINE_WARN stale_ns=597778 beat=58514707
+[P1] ENGINE_WARN stale_ns=512960 beat=58522745
+[P1] ENGINE_WARN stale_ns=580547 beat=58530844
+[P1] ENGINE_WARN stale_ns=548815 beat=59188920
+[P1] ENGINE_WARN stale_ns=539039 beat=60304408
+[P1] ENGINE_WARN stale_ns=522595 beat=61026242
+snapshot stored at seq=10781
+shard 0 stopped
+WARN: -dev-all-accounts active — account checks permissive (soak/dev only)
+recovery: level=1 entries=0 applied=0 derived=0 dedup=87 covered_gap_seqs=0 tail=10781
+shard 0 ready at 1790602746377655267 ns (ipc=chaos-s5r2x14 wal=/www/wwwroot/exc.local/tests/chaos/results/s5_pid_conflict/run-2/wal/0/0.wal)
+snapshot stored at seq=10819
+shard 0 stopped

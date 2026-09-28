@@ -1,0 +1,12 @@
+[13:39:19] engine start pid=3591225 ipc=chaos-s6r2x17 args=
+[13:39:19] loadgen start pid=3591238 rate=2000 dur=12 obase=201000000000001 report=/www/wwwroot/exc.local/tests/chaos/results/s6_warm_recovery/run-2/loadgen-1.json
+[13:39:20] check[1] standby_running = PASS (follower pid=3591248 (isolated wal dir))
+[13:39:23] leader SIGKILLed; promoting standby path
+[13:39:23] engine start pid=3591374 ipc=chaos-s6r2x17 args=
+[13:39:24] check[2] recovery_lt_10s = PASS (697ms)
+[13:39:24] check[3] ladder_evidence = PASS (recovery: level=1 entries=835 applied=528 derived=264 dedup=168 covered_gap_seqs=0 tail=13819)
+[13:39:24] check[4] fp_parity = PASS (94f9e0e6f4f5e809)
+[13:39:24] loadgen start pid=3591404 rate=2000 dur=3 obase=202000000000001 report=/www/wwwroot/exc.local/tests/chaos/results/s6_warm_recovery/run-2/loadgen-2.json
+[13:39:27] engine stopped
+[13:39:27] check[5] wal_clean = PASS (dups=0 gaps=0)
+[13:39:27] check[6] journaled_covers_fills = PASS (trades=3156 fills=3156)

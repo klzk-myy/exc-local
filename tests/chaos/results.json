@@ -1,0 +1,188 @@
+{
+  "suite": "phase-04.5-task-4.5.3.1",
+  "generated_at": "2026-09-28T13:39:43Z",
+  "runs": [
+    {
+      "scenario": "s1_crash_mid_batch",
+      "run": 1,
+      "pass": true,
+      "recovery_ms": 746,
+      "dup_trade_ids": 0,
+      "missing_trades": 0,
+      "wall_ms": 9306,
+      "evidence": "/www/wwwroot/exc.local/tests/chaos/results/s1_crash_mid_batch/run-1"
+    },
+    {
+      "scenario": "s1_crash_mid_batch",
+      "run": 2,
+      "pass": true,
+      "recovery_ms": 751,
+      "dup_trade_ids": 0,
+      "missing_trades": 0,
+      "wall_ms": 9316,
+      "evidence": "/www/wwwroot/exc.local/tests/chaos/results/s1_crash_mid_batch/run-2"
+    },
+    {
+      "scenario": "s1_crash_mid_batch",
+      "run": 3,
+      "pass": true,
+      "recovery_ms": 741,
+      "dup_trade_ids": 0,
+      "missing_trades": 0,
+      "wall_ms": 9280,
+      "evidence": "/www/wwwroot/exc.local/tests/chaos/results/s1_crash_mid_batch/run-3"
+    },
+    {
+      "scenario": "s2_timeout_requeue",
+      "run": 1,
+      "pass": true,
+      "recovery_ms": 641,
+      "dup_trade_ids": 0,
+      "missing_trades": 0,
+      "wall_ms": 6900,
+      "evidence": "/www/wwwroot/exc.local/tests/chaos/results/s2_timeout_requeue/run-1"
+    },
+    {
+      "scenario": "s2_timeout_requeue",
+      "run": 2,
+      "pass": true,
+      "recovery_ms": 640,
+      "dup_trade_ids": 0,
+      "missing_trades": 0,
+      "wall_ms": 6898,
+      "evidence": "/www/wwwroot/exc.local/tests/chaos/results/s2_timeout_requeue/run-2"
+    },
+    {
+      "scenario": "s2_timeout_requeue",
+      "run": 3,
+      "pass": true,
+      "recovery_ms": 641,
+      "dup_trade_ids": 0,
+      "missing_trades": 0,
+      "wall_ms": 6899,
+      "evidence": "/www/wwwroot/exc.local/tests/chaos/results/s2_timeout_requeue/run-3"
+    },
+    {
+      "scenario": "s3_stale_snapshot",
+      "run": 1,
+      "pass": true,
+      "recovery_ms": 109,
+      "dup_trade_ids": 0,
+      "missing_trades": 0,
+      "wall_ms": 5502,
+      "evidence": "/www/wwwroot/exc.local/tests/chaos/results/s3_stale_snapshot/run-1"
+    },
+    {
+      "scenario": "s3_stale_snapshot",
+      "run": 2,
+      "pass": true,
+      "recovery_ms": 109,
+      "dup_trade_ids": 0,
+      "missing_trades": 0,
+      "wall_ms": 5511,
+      "evidence": "/www/wwwroot/exc.local/tests/chaos/results/s3_stale_snapshot/run-2"
+    },
+    {
+      "scenario": "s3_stale_snapshot",
+      "run": 3,
+      "pass": true,
+      "recovery_ms": 109,
+      "dup_trade_ids": 0,
+      "missing_trades": 0,
+      "wall_ms": 5506,
+      "evidence": "/www/wwwroot/exc.local/tests/chaos/results/s3_stale_snapshot/run-3"
+    },
+    {
+      "scenario": "s4_wal_trimmed_pitr",
+      "run": 1,
+      "pass": true,
+      "recovery_ms": 16,
+      "dup_trade_ids": 0,
+      "missing_trades": 0,
+      "wall_ms": 4908,
+      "evidence": "/www/wwwroot/exc.local/tests/chaos/results/s4_wal_trimmed_pitr/run-1"
+    },
+    {
+      "scenario": "s4_wal_trimmed_pitr",
+      "run": 2,
+      "pass": true,
+      "recovery_ms": 17,
+      "dup_trade_ids": 0,
+      "missing_trades": 0,
+      "wall_ms": 5003,
+      "evidence": "/www/wwwroot/exc.local/tests/chaos/results/s4_wal_trimmed_pitr/run-2"
+    },
+    {
+      "scenario": "s4_wal_trimmed_pitr",
+      "run": 3,
+      "pass": true,
+      "recovery_ms": 17,
+      "dup_trade_ids": 0,
+      "missing_trades": 0,
+      "wall_ms": 4915,
+      "evidence": "/www/wwwroot/exc.local/tests/chaos/results/s4_wal_trimmed_pitr/run-3"
+    },
+    {
+      "scenario": "s5_pid_conflict",
+      "run": 1,
+      "pass": true,
+      "recovery_ms": 109,
+      "dup_trade_ids": 0,
+      "missing_trades": 0,
+      "wall_ms": 3969,
+      "evidence": "/www/wwwroot/exc.local/tests/chaos/results/s5_pid_conflict/run-1"
+    },
+    {
+      "scenario": "s5_pid_conflict",
+      "run": 2,
+      "pass": true,
+      "recovery_ms": 109,
+      "dup_trade_ids": 0,
+      "missing_trades": 0,
+      "wall_ms": 3963,
+      "evidence": "/www/wwwroot/exc.local/tests/chaos/results/s5_pid_conflict/run-2"
+    },
+    {
+      "scenario": "s5_pid_conflict",
+      "run": 3,
+      "pass": true,
+      "recovery_ms": 109,
+      "dup_trade_ids": 0,
+      "missing_trades": 0,
+      "wall_ms": 3965,
+      "evidence": "/www/wwwroot/exc.local/tests/chaos/results/s5_pid_conflict/run-3"
+    },
+    {
+      "scenario": "s6_warm_recovery",
+      "run": 1,
+      "pass": true,
+      "recovery_ms": 688,
+      "dup_trade_ids": 0,
+      "missing_trades": 0,
+      "wall_ms": 8534,
+      "evidence": "/www/wwwroot/exc.local/tests/chaos/results/s6_warm_recovery/run-1"
+    },
+    {
+      "scenario": "s6_warm_recovery",
+      "run": 2,
+      "pass": true,
+      "recovery_ms": 697,
+      "dup_trade_ids": 0,
+      "missing_trades": 0,
+      "wall_ms": 8543,
+      "evidence": "/www/wwwroot/exc.local/tests/chaos/results/s6_warm_recovery/run-2"
+    },
+    {
+      "scenario": "s6_warm_recovery",
+      "run": 3,
+      "pass": true,
+      "recovery_ms": 695,
+      "dup_trade_ids": 0,
+      "missing_trades": 0,
+      "wall_ms": 8540,
+      "evidence": "/www/wwwroot/exc.local/tests/chaos/results/s6_warm_recovery/run-3"
+    }
+  ],
+  "total": 18,
+  "passed": 18
+}

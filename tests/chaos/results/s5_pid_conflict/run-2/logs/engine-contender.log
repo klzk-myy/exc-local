@@ -1,0 +1,1 @@
+FATAL: shard lock unavailable path=/www/wwwroot/exc.local/tests/chaos/results/s5_pid_conflict/run-2/wal/0/engine.lock errno=11 — another engine owns this shard WAL dir; refusing to start (fail-closed single-writer guard)

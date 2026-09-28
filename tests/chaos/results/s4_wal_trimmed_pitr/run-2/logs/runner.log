@@ -1,0 +1,12 @@
+[13:38:48] engine start pid=3589405 ipc=chaos-s4r2x11 args=
+[13:38:48] loadgen start pid=3589436 rate=2000 dur=4 obase=201000000000001 report=/www/wwwroot/exc.local/tests/chaos/results/s4_wal_trimmed_pitr/run-2/loadgen-seed.json
+[13:38:53] engine stopped
+[13:38:53] check[1] fixture_state = PASS (wal_tail=14406 snapshot_seq=14406)
+[13:38:53] fixture: real WAL 0..14406 + marker at 14906; archive empty
+[13:38:53] check[2] gap_detected = PASS (scan_rc=3 lost_ranges=1)
+[13:38:53] check[3] ladder_fail_closed = PASS (exit=3 WAL_RECOVERY_HALT row emitted)
+[13:38:53] check[4] decision_lt_10s = PASS (17ms)
+[13:38:53] check[5] engine_boot_fail_closed = PASS (exit=1)
+[13:38:53] check[6] archive_empty = PASS (trimmed segments never archived — PITR selected)
+[13:38:53] check[7] pitr_staged = PASS (recovery.signal + restore_command + recovery_target_time written)
+[13:38:53] check[8] pg_report_persisted = PASS (inserted=1 pg_halt_rows=6)

@@ -6,7 +6,11 @@
 // argv: matching_engine [-shard <n>] [-ipc-base <name>] [-wal-dir <dir>]
 //                       [-poison-log <path>] [-idle-sleep-ns <ns>]
 
+#include <errno.h>
+#include <fcntl.h>
 #include <signal.h>
+#include <sys/file.h>
+#include <unistd.h>
 
 #include <atomic>
 #include <cinttypes>
@@ -273,6 +277,50 @@ int main(int argc, char** argv) {
         }
     }
 
+    // --- Single-writer shard lock (Task 4.5.3.1 chaos finding, spec §2.7) ---
+    // Two engine processes on the same shard WAL dir / shm rings would
+    // dual-write the journal (neither shm_open nor Wal::open carried an
+    // exclusivity guard — second-instance startup was a silent split-brain).
+    // Fail closed BEFORE touching either resource: flock(LOCK_EX|LOCK_NB) on
+    // <wal-dir>/<shard>/engine.lock. The kernel releases the lock on process
+    // death, so a crashed leader's lock is never sticky; flock (not an
+    // O_EXCL pidfile) is the authority — the pid payload is diagnostic only.
+    const auto shard_dir = std::filesystem::path(wal_dir) / std::to_string(shard);
+    {
+        std::error_code mk_ec;
+        std::filesystem::create_directories(shard_dir, mk_ec);
+    }
+    const std::string lock_path = (shard_dir / "engine.lock").string();
+    const int lock_fd =
+        ::open(lock_path.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0644);
+    if (lock_fd < 0 ||
+        ::flock(lock_fd, LOCK_EX | LOCK_NB) != 0) {
+        std::fprintf(stderr,
+                     "FATAL: shard lock unavailable path=%s errno=%d — "
+                     "another engine owns this shard WAL dir; refusing to "
+                     "start (fail-closed single-writer guard)\n",
+                     lock_path.c_str(), errno);
+        return 1;
+    }
+    // Record the owner for operators (pid + ipc base). Not the guard itself —
+    // the held flock is; this file's contents may be stale-read only.
+    {
+        if (::ftruncate(lock_fd, 0) == 0) {
+            char owner[160];
+            const int n =
+                std::snprintf(owner, sizeof(owner),
+                              "pid=%d ipc_base=%s shard=%u\n",
+                              static_cast<int>(::getpid()), ipc_base.c_str(),
+                              shard);
+            if (n > 0 &&
+                ::write(lock_fd, owner, static_cast<std::size_t>(n)) < 0) {
+                // Diagnostic write only — the held flock is the guard.
+            }
+        }
+    }
+    // lock_fd intentionally stays open for the process lifetime — the kernel
+    // drops the flock on exit/crash.
+
     // --- Transport: shm channel pair (Core endpoint) ------------------------
     // open() is authoritative; a transport that cannot attach fails closed.
     exch::SharedMemChannel core_chan(ipc_base, static_cast<uint16_t>(shard),
@@ -290,8 +338,7 @@ int main(int argc, char** argv) {
     // always reopening 0.wal would rewind next_seq into an already-journaled
     // range and trip the next boot's SeqGap check.
     std::error_code ec;
-    const auto shard_dir = std::filesystem::path(wal_dir) / std::to_string(shard);
-    std::filesystem::create_directories(shard_dir, ec);
+    // shard_dir was created + locked above (single-writer guard).
     uint64_t resume_base = 0;
     bool have_segment = false;
     for (const auto& de : std::filesystem::directory_iterator(shard_dir, ec)) {

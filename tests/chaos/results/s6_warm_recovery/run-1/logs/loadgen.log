@@ -1,0 +1,2 @@
+stopped (signal:terminated): sent=8026 fills=1943 cancels=147 dup_trade_ids=0 report=/www/wwwroot/exc.local/tests/chaos/results/s6_warm_recovery/run-1/loadgen-1.json
+stopped (duration): sent=5999 fills=1213 cancels=95 dup_trade_ids=0 report=/www/wwwroot/exc.local/tests/chaos/results/s6_warm_recovery/run-1/loadgen-2.json
