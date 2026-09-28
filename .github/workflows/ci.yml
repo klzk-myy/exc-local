@@ -316,6 +316,13 @@ jobs:
           cd tests/spec
           go run . merge --reports='../../reports/shard-*.json' --report=../../reports/merged.json
 
+      # Phase-08 Task 8.3.4 AC #14: CI validates 0 unmapped §24 criteria —
+      # `trace` fails on unmapped criteria or drift vs the committed matrix.
+      - name: §24 traceability gate (0 unmapped)
+        run: |
+          cd tests/spec
+          EXC_REPO_ROOT="$GITHUB_WORKSPACE" go run . trace
+
       - name: Upload merged report
         if: always()
         uses: actions/upload-artifact@v4

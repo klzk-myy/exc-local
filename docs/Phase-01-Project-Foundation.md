@@ -230,6 +230,8 @@ Ledger/wallet/balance specification continues the append-only migration index: 1
 
 Remediation #37 continues the append-only migration index: 103 `orders_discretionary_offset` (Phase-02 Task 2.3.25), 104 `accounts_settlement_intent` (Phase-03 Task 3.3.22), 105 `swap_free_admin_fees` (Phase-03 Task 3.3.23), 106 `positions_isolated_margin` (Phase-19 Task 19.3.28), 107 `banking_rail_schedules` (Phase-24 Task 24.3.20), 108 `suspense_accounts_routing` (Phase-24 Task 24.3.21).
 
+Phase-08 Task 8.3.3 implementation note (2026-09-28) continues the index: 192 `trades_instrument_id_desc` — hot-path index `trades (instrument_id, id DESC)` serving `orders.PgStore.ReferencePrice`; evidence-based (EXPLAIN ANALYZE 17.3ms → 0.24ms on a populated partition; see docs/perf/phase08-tuning-report.md). Note this registry does not currently list implementation-era numbers 109–191; reconciling that gap is an open documentation-drift item, not a Phase-08 deliverable.
+
 3. **Partitioning:** `trades` table partitioned by `created_at` (daily) using `pg_partman` extension.
 
 4. **Seed data:** Insert initial instruments (EUR/USD, GBP/USD, USD/JPY, AUD/USD, USD/CAD, USD/CHF, NZD/USD, USD/MXN) with correct settlement cycles and leverage.

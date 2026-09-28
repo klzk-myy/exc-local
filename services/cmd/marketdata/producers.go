@@ -143,7 +143,10 @@ func ipcTradeSource(res marketdata.InstrumentResolver,
 	var sources []marketdata.TradeSource
 	var firstErr error
 	for _, sh := range shards {
-		ch, err := ipc.OpenChannel(base, sh, ipc.EndpointGateway, false, 0, 0)
+		// Same attach-geometry fix as ipcSource: defaults are validated but
+		// overridden by the existing ring's header; 0 fails the precheck.
+		ch, err := ipc.OpenChannel(base, sh, ipc.EndpointGateway, false,
+			ipc.DefaultRingCapacity, ipc.DefaultRingSlotPayload)
 		if err != nil {
 			if firstErr == nil {
 				firstErr = err

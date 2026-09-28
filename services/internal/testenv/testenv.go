@@ -182,6 +182,20 @@ func (s *Service) ResetAccount(ctx context.Context, accountID int64) (map[string
 		accountID); err != nil {
 		return nil, err
 	}
+	// Order children before the orders sweep: the §5.4a idempotency
+	// ledger and the order-audit trail both FK orders.id (migration 154
+	// / order lifecycle audit) — deleting parents first trips 23503.
+	if err := exec("client_order_id_dedup",
+		`DELETE FROM client_order_id_dedup WHERE account_id=$1`,
+		accountID); err != nil {
+		return nil, err
+	}
+	if err := exec("order_audit",
+		`DELETE FROM order_audit WHERE order_id IN
+		  (SELECT id FROM orders WHERE account_id=$1)`,
+		accountID); err != nil {
+		return nil, err
+	}
 	if err := exec("orders",
 		`DELETE FROM orders WHERE account_id=$1`,
 		accountID); err != nil {

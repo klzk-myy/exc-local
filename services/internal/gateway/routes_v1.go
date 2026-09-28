@@ -762,7 +762,7 @@ func SeedRoutes() []Route {
 			"Audit log query surface", adminAuth(RoleReadOnlyAuditor)),
 		v1live(http.MethodGet, "/api/v1/admin/audit-log", TierBasic, "Phase-07 Task 7.3.3",
 			"Audit log (filters)", adminAuth(RoleReadOnlyAuditor)),
-		v1(http.MethodGet, "/api/v1/admin/dlq", TierBasic, "Phase-07",
+		v1live(http.MethodGet, "/api/v1/admin/dlq", TierBasic, "Phase-07 Task 7.3.10",
 			"Dead-letter queue review surface", adminAuth(RoleSupportAgent)),
 		v1live(http.MethodGet, "/api/v1/admin/roles", TierBasic, "Phase-07 Task 7.3.1",
 			"RBAC role catalog", adminAuth(RoleSuperAdmin)),

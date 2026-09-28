@@ -5,6 +5,8 @@
 
 #include "matching/IpcPublisher.hpp"
 
+#include <algorithm>
+
 #include "ipc/IpcChannel.hpp"
 
 namespace exch {
@@ -54,8 +56,15 @@ bool IpcPublisher::publish_book_snapshot(const OrderBook& book,
                                          uint32_t instrument_id,
                                          uint64_t ts_ns) noexcept {
     namespace w = exc::wire;
-    const uint32_t nb = book.bid_count();
-    const uint32_t na = book.ask_count();
+    // Phase-08 Task 8.3.3 — cap the wire frame at the L2 contract depth
+    // (spec §10.2: "Top 20 price levels per side"). The book itself keeps
+    // up to kMaxLevels; serializing all of them produced frames far past
+    // the shm ring's slot payload, so every deep-book snapshot was dropped
+    // at emit() (drops_++) — plus the serialization itself was O(depth)
+    // per book change on the matching thread. Top-20 is what the Go
+    // conflator keeps internally anyway (internal/marketdata/l2.go).
+    const uint32_t nb = std::min(book.bid_count(), kWireDepthLevels);
+    const uint32_t na = std::min(book.ask_count(), kWireDepthLevels);
     for (uint32_t i = 0; i < nb; ++i) {
         const PriceLevel* l = book.level(Side::BUY, i);
         level_off_[i] = w::CreatePriceLevel(builder_, l->price_ticks,

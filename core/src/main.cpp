@@ -323,9 +323,17 @@ int main(int argc, char** argv) {
 
     // --- Transport: shm channel pair (Core endpoint) ------------------------
     // open() is authoritative; a transport that cannot attach fails closed.
+    // Phase-08 Task 8.3.3 — 2048B slots: a spec-§10.2 top-20/side
+    // BookSnapshot serializes to ~1.3-1.5KB, so the 1024B default could
+    // never carry a conforming L2 frame (every deep-book publish dropped
+    // at send). The geometry applies to both rings; the extra stride on
+    // _in is harmless (orders are ~100B) and attaching Go endpoints adopt
+    // the size from the ring header.
     exch::SharedMemChannel core_chan(ipc_base, static_cast<uint16_t>(shard),
                                      exch::SharedMemChannel::Endpoint::Core,
-                                     /*create=*/true);
+                                     /*create=*/true,
+                                     exch::ShmRing::kDefaultCapacity,
+                                     /*slot_payload=*/2048);
     if (!core_chan.open()) {
         std::fprintf(stderr, "FATAL: ipc channel open failed (base=%s shard=%" PRIu32 ")\n",
                      ipc_base.c_str(), shard);

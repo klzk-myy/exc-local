@@ -1872,7 +1872,7 @@
       "text": "goroutine-per-connection WS",
       "file": "Phase-06-Market-Data-Distribution.md",
       "line": 44,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -1883,7 +1883,7 @@
       "text": "20 L2 / 5 L3 subscription limits",
       "file": "Phase-06-Market-Data-Distribution.md",
       "line": 45,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -1894,7 +1894,7 @@
       "text": "100ms conflation or 100 events",
       "file": "Phase-06-Market-Data-Distribution.md",
       "line": 72,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -1905,7 +1905,7 @@
       "text": "last_seq reconnect replay",
       "file": "Phase-06-Market-Data-Distribution.md",
       "line": 73,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -1916,7 +1916,7 @@
       "text": "L2 depth CRC32 checksums with resync on mismatch",
       "file": "Phase-06-Market-Data-Distribution.md",
       "line": 74,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -1927,7 +1927,7 @@
       "text": "market data SLA p99 WS push ≤ 100ms + uptime 99.95%",
       "file": "Phase-06-Market-Data-Distribution.md",
       "line": 75,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -1938,7 +1938,7 @@
       "text": "real-time trades no conflation",
       "file": "Phase-06-Market-Data-Distribution.md",
       "line": 96,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -1949,7 +1949,7 @@
       "text": "1s ticker with 24h OHLCV",
       "file": "Phase-06-Market-Data-Distribution.md",
       "line": 118,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -1960,7 +1960,7 @@
       "text": "private order stream with JWT auth",
       "file": "Phase-06-Market-Data-Distribution.md",
       "line": 140,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -1971,7 +1971,7 @@
       "text": "institutional A/B multicast + replay/snapshot recovery (§10.4, §24 #166)",
       "file": "Phase-06-Market-Data-Distribution.md",
       "line": 166,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -1982,7 +1982,7 @@
       "text": "OHLCV aggregation",
       "file": "Phase-06-Market-Data-Distribution.md",
       "line": 213,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -1993,7 +1993,7 @@
       "text": "WS session resume protocol",
       "file": "Phase-06-Market-Data-Distribution.md",
       "line": 242,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -2004,7 +2004,7 @@
       "text": "WS request-response dispatcher with thread-safe write synchronization",
       "file": "Phase-06-Market-Data-Distribution.md",
       "line": 268,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -2015,7 +2015,7 @@
       "text": "BBO emits every top-of-book change without conflation (§24 #261)",
       "file": "Phase-06-Market-Data-Distribution.md",
       "line": 279,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -2026,7 +2026,7 @@
       "text": "aggregate-trade events preserve taker/price grouping and trade-ID lineage (§24 #262)",
       "file": "Phase-06-Market-Data-Distribution.md",
       "line": 288,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -2037,7 +2037,7 @@
       "text": "public liquidation feed is delayed and never front-runs active auctions (§24 #263)",
       "file": "Phase-06-Market-Data-Distribution.md",
       "line": 297,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -2048,7 +2048,7 @@
       "text": "canonical candle set contains 13 aligned intervals (§24 #264)",
       "file": "Phase-06-Market-Data-Distribution.md",
       "line": 306,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -2059,7 +2059,7 @@
       "text": "depth subscriptions enforce supported level/cadence combinations (§24 #265)",
       "file": "Phase-06-Market-Data-Distribution.md",
       "line": 315,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -2070,7 +2070,7 @@
       "text": "WS multiplexing enforces documented subscription limits (§24 #265)",
       "file": "Phase-06-Market-Data-Distribution.md",
       "line": 324,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -2081,7 +2081,7 @@
       "text": "execution rules, reference prices, provenance, stream, and expiry reasons are client-visible (§24 #278)",
       "file": "Phase-06-Market-Data-Distribution.md",
       "line": 340,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -2092,7 +2092,7 @@
       "text": "REST/WS/private SBE negotiation and six-month schema lifecycle are interoperable (§24 #284)",
       "file": "Phase-06-Market-Data-Distribution.md",
       "line": 356,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -2103,7 +2103,7 @@
       "text": "planned shutdown drains clients with explicit WS/FIX reconnect advisories and cancel availability (§24 #289)",
       "file": "Phase-06-Market-Data-Distribution.md",
       "line": 372,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -2114,7 +2114,7 @@
       "text": "all-market rolling statistics and delayed anonymous block-trade tape are complete and correction-aware (§24 #291)",
       "file": "Phase-06-Market-Data-Distribution.md",
       "line": 388,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -2125,7 +2125,7 @@
       "text": "Slow consumer eviction, reconnect flood throttling, and multicast failover recovery (§24 #305)",
       "file": "Phase-06-Market-Data-Distribution.md",
       "line": 408,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -2136,7 +2136,7 @@
       "text": "durable WS sequence log with gap journal, order-action dedup window, and symbol-level market-data entitlements (§24 #339)",
       "file": "Phase-06-Market-Data-Distribution.md",
       "line": 428,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -2147,7 +2147,7 @@
       "text": "public open-interest stream and history from position aggregates (§24 #357)",
       "file": "Phase-06-Market-Data-Distribution.md",
       "line": 446,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -2158,7 +2158,7 @@
       "text": "WebSocket L2/L3 snapshot/delta resync protocol and sequence continuity contract (§24 #408)",
       "file": "Phase-06-Market-Data-Distribution.md",
       "line": 476,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -2169,7 +2169,7 @@
       "text": "6 RBAC roles with permission matrix",
       "file": "Phase-07-Admin-Monitoring.md",
       "line": 41,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -2180,7 +2180,7 @@
       "text": "dual control for sensitive ops",
       "file": "Phase-07-Admin-Monitoring.md",
       "line": 64,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -2191,7 +2191,7 @@
       "text": "admin audit log with before/after state",
       "file": "Phase-07-Admin-Monitoring.md",
       "line": 87,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -2202,7 +2202,7 @@
       "text": "Prometheus metrics from all services",
       "file": "Phase-07-Admin-Monitoring.md",
       "line": 110,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -2213,7 +2213,7 @@
       "text": "Grafana dashboards + PagerDuty",
       "file": "Phase-07-Admin-Monitoring.md",
       "line": 134,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -2224,7 +2224,7 @@
       "text": "health + readiness endpoints",
       "file": "Phase-07-Admin-Monitoring.md",
       "line": 158,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -2235,7 +2235,7 @@
       "text": "support tickets + complaint routing + read-only support view (§24 #163)",
       "file": "Phase-07-Admin-Monitoring.md",
       "line": 186,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -2246,7 +2246,7 @@
       "text": "LP management",
       "file": "Phase-07-Admin-Monitoring.md",
       "line": 230,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -2257,7 +2257,7 @@
       "text": "Error rate alerting, DLQ inspection, and anomaly alarms active (§24 #306)",
       "file": "Phase-07-Admin-Monitoring.md",
       "line": 251,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -2268,7 +2268,7 @@
       "text": "scoped bindings with grant-time intersection and disjoint role-system separation (§24 #348)",
       "file": "Phase-07-Admin-Monitoring.md",
       "line": 273,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -2279,7 +2279,7 @@
       "text": "binding expiry with session kill, quarterly recertification, and bounded break-glass with mandatory post-review (§24 #349)",
       "file": "Phase-07-Admin-Monitoring.md",
       "line": 295,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -2290,7 +2290,7 @@
       "text": "daily executive roll-up with hash-retained packs (§24 #378)",
       "file": "Phase-07-Admin-Monitoring.md",
       "line": 316,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -2301,7 +2301,7 @@
       "text": "dual-controlled immutable quarterly board packs (§24 #379)",
       "file": "Phase-07-Admin-Monitoring.md",
       "line": 338,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -2309,7 +2309,7 @@
       "phase": "08",
       "task": "8.3.1",
       "index": 1,
-      "text": "**418** §24 criteria mapped to test contracts; Phase 1–7 subset executable in Phase 8; all executable post-Phase-24 (supersedes prior 414, 401, 398, 397, 334, 333, 256 — the count lagged remediations #13–#18 — and earlier 252, 237, 219, 206, 201, 192, 174, 164)",
+      "text": "**419** §24 criteria mapped to test contracts; Phase 1–7 subset executable in Phase 8; all executable post-Phase-24 (supersedes prior 414, 401, 398, 397, 334, 333, 256 — the count lagged remediations #13–#18 — and earlier 252, 237, 219, 206, 201, 192, 174, 164)",
       "file": "Phase-08-Integration-Testing.md",
       "line": 42,
       "checked": false,

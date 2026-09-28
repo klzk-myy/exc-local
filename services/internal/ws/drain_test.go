@@ -131,11 +131,32 @@ func TestDrainAdvisoryOrderingAndDeadline(t *testing.T) {
 	}
 }
 
+// waitRegistered spins until the conn lands in the server registry.
+// dial returns on the upgrade response, before the handler goroutine
+// registers the conn — a drain that starts earlier would either see an
+// empty registry or the upgrade path would refuse with 1001
+// CONNECTION_DRAINING (test flake).
+func waitRegistered(t *testing.T, srv *Server) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		conns, _, _ := srv.Stats()
+		if conns >= 1 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("conn never registered on the server")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
 // TestDrainReturnsWhenClientsLeave checks the fast path: the drain
 // completes before the deadline once the registry empties.
 func TestDrainReturnsWhenClientsLeave(t *testing.T) {
 	srv := NewServer(Config{})
 	c := dial(t, srv)
+	waitRegistered(t, srv)
 
 	done := make(chan error, 1)
 	go func() {
@@ -186,6 +207,7 @@ func TestDrainAdvisoryMergesFailoverEndpoints(t *testing.T) {
 		Failover: FailoverConfig{Endpoints: []string{"wss://feed-b/ws/v1", "wss://feed-c/ws/v1"}},
 	})
 	c := dial(t, srv)
+	waitRegistered(t, srv)
 	done := make(chan error, 1)
 	go func() {
 		done <- srv.Drain(context.Background(), DrainAdvisory{

@@ -768,24 +768,48 @@ func run() error {
 	log.Info("route registry mounted", "routes", len(router.Routes()),
 		"error_codes", errs.Default.Len())
 
+	// API surface, built innermost → outward so the wrap order stays
+	// legible: mux → deprecation (Task 5.3.20 Sunset/410 ENDPOINT_GONE)
+	// → API version negotiation (Task 5.3.28) → Idempotency (Task 5.3.42
+	// — §8.8 Idempotency-Key on money-moving POSTs, Redis ledger +
+	// account-scoped keys; the resolver additionally reads X-API-KEY
+	// identities so signed callers get the same dedup contract) →
+	// OptionalAuthMiddleware — the REST claims seam: Bearer JWTs are
+	// verified and claims attached for every downstream consumer
+	// (claimsAccount/adminActor handlers, the Idempotency account
+	// resolver, the RBAC wrap). Anonymous requests pass through —
+	// endpoint auth decisions stay with the handlers; invalid tokens
+	// still reject fail-closed. The whole surface sits behind
+	// DegradationGate — the enforcement half of Task 2.3.6 (ReadOnly
+	// bars writes, MarketDataOnly serves only market reads, Maintenance
+	// bars everything but health).
+	apiSurface := middleware.DegradationGate(rdb, router.WriteError)(
+		auth.OptionalAuthMiddleware(jwtIssuer, sessMgr)(
+			middleware.Idempotency(
+				middleware.NewRedisIdemStore(rdb.Client),
+				nil, idemResolver(keyStore), router.WriteError)(
+				middleware.APIVersion(middleware.VersionConfig{
+					Versions: map[int]string{1: apiVersion},
+					Emit:     router.WriteError,
+				})(
+					deprecation.Middleware(depRules,
+						func(w http.ResponseWriter, req *http.Request, _ int, code, msg string) {
+							router.WriteError(w, req, code, msg, nil)
+						}, nil)(mux)))))
+
 	srv := &http.Server{
 		Addr: cfg.Gateway.Addr(),
 		// Task 2.3.6: X-Degradation-Mode on every response — outermost so
 		// even early middleware rejections carry the header. Reads the same
 		// coordination client the shard map uses; read failures report
 		// Maintenance (fail-closed, spec §2.7). Inside it: request-id
-		// stamping + panic recovery (Task 5.3.41), request logging, the
-		// tiered rate limiter + progressive IP-ban gate
-		// (Tasks 5.3.2/5.3.27/5.3.34), then API version negotiation
-		// (Task 5.3.28). Rejections emit the registry-gated §8.7
-		// envelope via router.WriteError.
-		// Cluster E additions to the chain: SecurityHeaders (Task 5.3.29
-		// item 9 — HAProxy does NOT emit these; the gateway is the single
-		// emitter), Tracing (item 2 W3C traceparent continuation), and
-		// Idempotency (Task 5.3.42 — the §8.8 Idempotency-Key surface on
-		// money-moving POSTs, Redis ledger + account-scoped keys; the
-		// resolver additionally reads X-API-KEY identities so signed
-		// callers get the same dedup contract).
+		// stamping + panic recovery (Task 5.3.41), request logging,
+		// SecurityHeaders (Task 5.3.29 item 9 — HAProxy does NOT emit
+		// these; the gateway is the single emitter), Tracing (item 2 W3C
+		// traceparent continuation), then the tiered rate limiter +
+		// progressive IP-ban gate (Tasks 5.3.2/5.3.27/5.3.34) in front of
+		// the apiSurface chain above. Rejections emit the registry-gated
+		// §8.7 envelope via router.WriteError.
 		Handler: met.HTTPMiddleware(
 			middleware.DegradationModeHeader(
 				rdb, middleware.SecurityHeaders(securityOpts(cfg),
@@ -796,21 +820,14 @@ func run() error {
 								middleware.RateLimit(limiter, middleware.RateLimitOptions{
 									ResolveTier: tierResolver,
 									Emit:        router.WriteError,
-								})(
-									middleware.Idempotency(
-										middleware.NewRedisIdemStore(rdb.Client),
-										nil, idemResolver(keyStore), router.WriteError)(
-										middleware.APIVersion(middleware.VersionConfig{
-											Versions: map[int]string{1: apiVersion},
-											Emit:     router.WriteError,
-										})(
-											// Task 5.3.20: announced endpoints carry
-											// Deprecation/Sunset/Link; past-sunset endpoints
-											// answer 410 ENDPOINT_GONE before the handler.
-											deprecation.Middleware(depRules,
-												func(w http.ResponseWriter, req *http.Request, _ int, code, msg string) {
-													router.WriteError(w, req, code, msg, nil)
-												}, nil)(mux))))))))))),
+									// Public-tier IP bucketing trusts XFF
+									// only when the gateway is known to sit
+									// behind HAProxy (EXC_TRUST_PROXY=1,
+									// same convention as cmd/marketdata) —
+									// a spoofable source IP would defeat
+									// the Task 5.3.34 ban machinery.
+									TrustProxy: os.Getenv("EXC_TRUST_PROXY") == "1",
+								})(apiSurface)))))))),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

@@ -56,6 +56,51 @@ func AuthMiddleware(issuer *Issuer, sessions *SessionManager) func(http.Handler)
 	}
 }
 
+// OptionalAuthMiddleware attaches verified Bearer claims to the request
+// context when an Authorization header is present and lets anonymous
+// requests pass through untouched — the endpoint handler (or the route
+// RBAC wrap) owns the require-auth decision. An *invalid* Bearer token
+// is still rejected: presenting credentials that do not verify is a
+// request error, not anonymity.
+//
+// This is the REST edge's claims-attaching seam (sibling of
+// AuthMiddleware's hard requirement): without it claimsAccount /
+// adminActor surfaces see nil claims and fail closed 401 forever.
+// Session re-validation follows the same rule as AuthMiddleware — a
+// present sid claim is checked against the live session record.
+func OptionalAuthMiddleware(issuer *Issuer, sessions *SessionManager) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			hdr := r.Header.Get("Authorization")
+			if hdr == "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			if !strings.HasPrefix(hdr, "Bearer ") {
+				writeAuthProblem(w, newError(CodeUnauthorized, "unsupported authorization scheme"))
+				return
+			}
+			claims, err := issuer.Parse(strings.TrimSpace(hdr[len("Bearer "):]))
+			if err != nil {
+				writeAuthProblem(w, err)
+				return
+			}
+			if sessions != nil && claims.SessionID != "" {
+				sess, err := sessions.Validate(r.Context(), claims.SessionID)
+				if err != nil {
+					writeAuthProblem(w, err)
+					return
+				}
+				claims.AccountID = sess.AccountID
+				if len(sess.AMR) > 0 {
+					claims.AMR = sess.AMR
+				}
+			}
+			next.ServeHTTP(w, r.WithContext(WithClaims(r.Context(), claims)))
+		})
+	}
+}
+
 // RequireScope returns middleware enforcing one §8.8 scope-matrix entry —
 // missing scope → INSUFFICIENT_SCOPE (403); missing claims → UNAUTHORIZED
 // (the request skipped auth middleware — a wiring bug, fail closed).

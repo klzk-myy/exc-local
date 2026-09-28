@@ -282,16 +282,26 @@ func u64Field(obj map[string]json.RawMessage, key string) (*uint64, bool, error)
 	if !ok || string(raw) == "null" {
 		return nil, false, nil
 	}
+	// Bare integers first: order_seq is a unixnano uint64 (~1.8e18) —
+	// decoding via `any` coerces to float64 and silently truncates the
+	// low bits, turning every honest STALE_MODIFY fence key into a
+	// mismatch (spec §6.9 — the fence is a correctness fence, not a
+	// fuzz one).
+	if u, err := strconv.ParseUint(string(raw), 10, 64); err == nil {
+		return &u, true, nil
+	}
 	var v any
-	if err := json.Unmarshal(raw, &v); err != nil {
+	dec := json.NewDecoder(strings.NewReader(string(raw)))
+	dec.UseNumber()
+	if err := dec.Decode(&v); err != nil {
 		return nil, true, fmt.Errorf("field %q is not valid JSON", key)
 	}
 	switch n := v.(type) {
-	case float64:
-		if n < 0 || n != float64(uint64(n)) {
+	case json.Number:
+		u, err := strconv.ParseUint(n.String(), 10, 64)
+		if err != nil {
 			return nil, true, fmt.Errorf("field %q must be an unsigned integer", key)
 		}
-		u := uint64(n)
 		return &u, true, nil
 	case string:
 		u, err := strconv.ParseUint(n, 10, 64)

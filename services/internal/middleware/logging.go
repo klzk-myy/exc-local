@@ -3,7 +3,10 @@
 package middleware
 
 import (
+	"bufio"
+	stderrors "errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"time"
 )
@@ -17,6 +20,20 @@ type statusWriter struct {
 func (w *statusWriter) WriteHeader(code int) {
 	w.status = code
 	w.ResponseWriter.WriteHeader(code)
+}
+
+// Unwrap exposes the real writer to http.ResponseController.
+func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+// Hijack forwards the connection takeover — the gorilla WS upgrader
+// asserts http.Hijacker on the writer it receives, so the logging
+// wrapper must pass it through verbatim.
+func (w *statusWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	h, ok := w.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, stderrors.New("underlying writer is not a Hijacker")
+	}
+	return h.Hijack()
 }
 
 // Logging emits one slog record per completed HTTP request.

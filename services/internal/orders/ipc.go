@@ -309,8 +309,7 @@ func (c *Consumer) handle(payload []byte) {
 		}
 		oc := &wire.OrderCancel{}
 		oc.Init(t.Bytes, t.Pos)
-		id := int64(oc.OrderId())
-		_ = c.store.ApplyCancel(context.Background(), id)
+		_ = c.store.ApplyCancel(context.Background(), int64(oc.OrderId()))
 		c.pending.resolve(oc.OrderId())
 	case wire.EventTypeTradeFill:
 		tf := ipc.EventTradeFill(ev)

@@ -1,0 +1,2530 @@
+{
+  "tool": "exchange-integration/8.3.1",
+  "version": "1.0.0",
+  "generated_at": "2026-09-28T20:43:47Z",
+  "elapsed": "939.224µs",
+  "summary": {
+    "EXECUTABLE": 145,
+    "PLANNED": 274
+  },
+  "phase_1_7_counts": {
+    "EXECUTABLE": 145,
+    "PLANNED": 3
+  },
+  "criteria": [
+    {
+      "criterion_id": 1,
+      "stable_test_id": "T02-001",
+      "owner_phase": "Phase 2 — Matching Engine Core (C++)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 2,
+      "stable_test_id": "T02-002",
+      "owner_phase": "Phase 2 — Matching Engine Core (C++)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 3,
+      "stable_test_id": "T02-003",
+      "owner_phase": "Phase 2 — Matching Engine Core (C++)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 4,
+      "stable_test_id": "T02-004",
+      "owner_phase": "Phase 2 — Matching Engine Core (C++)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 5,
+      "stable_test_id": "T02-005",
+      "owner_phase": "Phase 2 — Matching Engine Core (C++)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 6,
+      "stable_test_id": "T02-006",
+      "owner_phase": "Phase 2 — Matching Engine Core (C++)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 7,
+      "stable_test_id": "T04-001",
+      "owner_phase": "Phase 4 — Persistence \u0026 Recovery",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 8,
+      "stable_test_id": "T04-002",
+      "owner_phase": "Phase 4 — Persistence \u0026 Recovery",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 9,
+      "stable_test_id": "T03-001",
+      "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 10,
+      "stable_test_id": "T02-007",
+      "owner_phase": "Phase 2 — Matching Engine Core (C++)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 11,
+      "stable_test_id": "T025-001",
+      "owner_phase": "Phase 2.5 — Engine Soak \u0026 Benchmark Sign-off",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 12,
+      "stable_test_id": "T025-002",
+      "owner_phase": "Phase 2.5 — Engine Soak \u0026 Benchmark Sign-off",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 13,
+      "stable_test_id": "T05-001",
+      "owner_phase": "Phase 5 — Order Gateway API (Go)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 14,
+      "stable_test_id": "T06-001",
+      "owner_phase": "Phase 6 — Market Data Distribution",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 15,
+      "stable_test_id": "T06-002",
+      "owner_phase": "Phase 6 — Market Data Distribution",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 16,
+      "stable_test_id": "T06-003",
+      "owner_phase": "Phase 6 — Market Data Distribution",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 17,
+      "stable_test_id": "T06-004",
+      "owner_phase": "Phase 6 — Market Data Distribution",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 18,
+      "stable_test_id": "T17-001",
+      "owner_phase": "Phase 17 — L3 Order-Level Data",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 19,
+      "stable_test_id": "T24-001",
+      "owner_phase": "Phase 24 — Backoffice \u0026 Settlement (Nostro/Vostro)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 20,
+      "stable_test_id": "T24-002",
+      "owner_phase": "Phase 24 — Backoffice \u0026 Settlement (Nostro/Vostro)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 21,
+      "stable_test_id": "T24-003",
+      "owner_phase": "Phase 24 — Backoffice \u0026 Settlement (Nostro/Vostro)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 22,
+      "stable_test_id": "T11-001",
+      "owner_phase": "Phase 11 — Funding via Banking Rails, Suspension, Stats",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 23,
+      "stable_test_id": "T11-002",
+      "owner_phase": "Phase 11 — Funding via Banking Rails, Suspension, Stats",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 24,
+      "stable_test_id": "T11-003",
+      "owner_phase": "Phase 11 — Funding via Banking Rails, Suspension, Stats",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 25,
+      "stable_test_id": "T11-004",
+      "owner_phase": "Phase 11 — Funding via Banking Rails, Suspension, Stats",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 26,
+      "stable_test_id": "T07-001",
+      "owner_phase": "Phase 7 — Admin \u0026 Monitoring (Go)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 27,
+      "stable_test_id": "T14-001",
+      "owner_phase": "Phase 14 — Extended Production Features",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 28,
+      "stable_test_id": "T21-001",
+      "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 29,
+      "stable_test_id": "T21-002",
+      "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 30,
+      "stable_test_id": "T21-003",
+      "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 31,
+      "stable_test_id": "T21-004",
+      "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 32,
+      "stable_test_id": "T19-001",
+      "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 33,
+      "stable_test_id": "T19-002",
+      "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 34,
+      "stable_test_id": "T19-003",
+      "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 35,
+      "stable_test_id": "T19-004",
+      "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 36,
+      "stable_test_id": "T19-005",
+      "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 37,
+      "stable_test_id": "T19-006",
+      "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 38,
+      "stable_test_id": "T13-001",
+      "owner_phase": "Phase 13 — Production Hardening \u0026 Reconciliation",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 39,
+      "stable_test_id": "T02-008",
+      "owner_phase": "Phase 2 — Matching Engine Core (C++)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 40,
+      "stable_test_id": "T02-009",
+      "owner_phase": "Phase 2 — Matching Engine Core (C++)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 41,
+      "stable_test_id": "T02-010",
+      "owner_phase": "Phase 2 — Matching Engine Core (C++)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 42,
+      "stable_test_id": "T13-002",
+      "owner_phase": "Phase 13 — Production Hardening \u0026 Reconciliation",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 43,
+      "stable_test_id": "T01-003",
+      "owner_phase": "Phase 1 — C++ Core Foundation",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 44,
+      "stable_test_id": "T04-003",
+      "owner_phase": "Phase 4 — Persistence \u0026 Recovery",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 45,
+      "stable_test_id": "T195-001",
+      "owner_phase": "Phase 19.5 — Price Oracle \u0026 Mark Price Service",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 46,
+      "stable_test_id": "T11-011",
+      "owner_phase": "Phase 11 — Funding via Banking Rails, Suspension, Stats",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 47,
+      "stable_test_id": "T16-001",
+      "owner_phase": "Phase 16 — Advanced Order Types",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 48,
+      "stable_test_id": "T16-002",
+      "owner_phase": "Phase 16 — Advanced Order Types",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 49,
+      "stable_test_id": "T16-003",
+      "owner_phase": "Phase 16 — Advanced Order Types",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 50,
+      "stable_test_id": "T16-004",
+      "owner_phase": "Phase 16 — Advanced Order Types",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 51,
+      "stable_test_id": "T16-005",
+      "owner_phase": "Phase 16 — Advanced Order Types",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 52,
+      "stable_test_id": "T16-006",
+      "owner_phase": "Phase 16 — Advanced Order Types",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 53,
+      "stable_test_id": "T16-007",
+      "owner_phase": "Phase 16 — Advanced Order Types",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 54,
+      "stable_test_id": "T18-001",
+      "owner_phase": "Phase 18 — FIX Protocol Gateway",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 55,
+      "stable_test_id": "T18-002",
+      "owner_phase": "Phase 18 — FIX Protocol Gateway",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 56,
+      "stable_test_id": "T18-003",
+      "owner_phase": "Phase 18 — FIX Protocol Gateway",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 57,
+      "stable_test_id": "T22-001",
+      "owner_phase": "Phase 22 — FX Derivatives Foundation",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 58,
+      "stable_test_id": "T22-002",
+      "owner_phase": "Phase 22 — FX Derivatives Foundation",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 59,
+      "stable_test_id": "T22-003",
+      "owner_phase": "Phase 22 — FX Derivatives Foundation",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 60,
+      "stable_test_id": "T22-004",
+      "owner_phase": "Phase 22 — FX Derivatives Foundation",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 61,
+      "stable_test_id": "T22-005",
+      "owner_phase": "Phase 22 — FX Derivatives Foundation",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 62,
+      "stable_test_id": "T22-006",
+      "owner_phase": "Phase 22 — FX Derivatives Foundation",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 63,
+      "stable_test_id": "T22-007",
+      "owner_phase": "Phase 22 — FX Derivatives Foundation",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 64,
+      "stable_test_id": "T22-008",
+      "owner_phase": "Phase 22 — FX Derivatives Foundation",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 65,
+      "stable_test_id": "T20-001",
+      "owner_phase": "Phase 20 — Analytics \u0026 Reporting (ClickHouse)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 66,
+      "stable_test_id": "T20-002",
+      "owner_phase": "Phase 6 — Market Data Distribution",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 67,
+      "stable_test_id": "T20-003",
+      "owner_phase": "Phase 20 — Analytics \u0026 Reporting (ClickHouse)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 68,
+      "stable_test_id": "T20-004",
+      "owner_phase": "Phase 20 — Analytics \u0026 Reporting (ClickHouse)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 69,
+      "stable_test_id": "T05-017",
+      "owner_phase": "Phase 5 — Order Gateway API (Go)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 70,
+      "stable_test_id": "T05-002",
+      "owner_phase": "Phase 5 — Order Gateway API (Go)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 71,
+      "stable_test_id": "T05-003",
+      "owner_phase": "Phase 5 — Order Gateway API (Go)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 72,
+      "stable_test_id": "T05-018",
+      "owner_phase": "Phase 5 — Order Gateway API (Go)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 73,
+      "stable_test_id": "T05-019",
+      "owner_phase": "Phase 5 — Order Gateway API (Go)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 74,
+      "stable_test_id": "T05-020",
+      "owner_phase": "Phase 5 — Order Gateway API (Go)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 75,
+      "stable_test_id": "T05-004",
+      "owner_phase": "Phase 5 — Order Gateway API (Go)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 76,
+      "stable_test_id": "T05-005",
+      "owner_phase": "Phase 5 — Order Gateway API (Go)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 77,
+      "stable_test_id": "T05-006",
+      "owner_phase": "Phase 5 — Order Gateway API (Go)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 78,
+      "stable_test_id": "T24-004",
+      "owner_phase": "Phase 24 — Backoffice \u0026 Settlement (Nostro/Vostro)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 79,
+      "stable_test_id": "T11-006",
+      "owner_phase": "Phase 11 — Funding via Banking Rails, Suspension, Stats",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 80,
+      "stable_test_id": "T11-007",
+      "owner_phase": "Phase 11 — Funding via Banking Rails, Suspension, Stats",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 81,
+      "stable_test_id": "T05-021",
+      "owner_phase": "Phase 5 — Order Gateway API (Go)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 82,
+      "stable_test_id": "T05-022",
+      "owner_phase": "Phase 5 — Order Gateway API (Go)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 83,
+      "stable_test_id": "T06-005",
+      "owner_phase": "Phase 6 — Market Data Distribution",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 84,
+      "stable_test_id": "T06-006",
+      "owner_phase": "Phase 6 — Market Data Distribution",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 85,
+      "stable_test_id": "T04-004",
+      "owner_phase": "Phase 4 — Persistence \u0026 Recovery",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 86,
+      "stable_test_id": "T04-005",
+      "owner_phase": "Phase 4 — Persistence \u0026 Recovery",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 87,
+      "stable_test_id": "T04-006",
+      "owner_phase": "Phase 4 — Persistence \u0026 Recovery",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 88,
+      "stable_test_id": "T09-017",
+      "owner_phase": "Phase 9 — Deployment \u0026 Operations",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 89,
+      "stable_test_id": "T09-001",
+      "owner_phase": "Phase 9 — Deployment \u0026 Operations",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 90,
+      "stable_test_id": "T09-002",
+      "owner_phase": "Phase 9 — Deployment \u0026 Operations",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 91,
+      "stable_test_id": "T05-007",
+      "owner_phase": "Phase 5 — Order Gateway API (Go)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 92,
+      "stable_test_id": "T05-008",
+      "owner_phase": "Phase 5 — Order Gateway API (Go)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 93,
+      "stable_test_id": "T05-023",
+      "owner_phase": "Phase 5 — Order Gateway API (Go)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 94,
+      "stable_test_id": "T05-024",
+      "owner_phase": "Phase 5 — Order Gateway API (Go)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 95,
+      "stable_test_id": "T05-009",
+      "owner_phase": "Phase 5 — Order Gateway API (Go)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 96,
+      "stable_test_id": "T19-007",
+      "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 97,
+      "stable_test_id": "T19-008",
+      "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 98,
+      "stable_test_id": "T24-005",
+      "owner_phase": "Phase 24 — Backoffice \u0026 Settlement (Nostro/Vostro)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 99,
+      "stable_test_id": "T06-007",
+      "owner_phase": "Phase 6 — Market Data Distribution",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 100,
+      "stable_test_id": "T12-003",
+      "owner_phase": "Phase 12 — User Self-Service \u0026 Notifications",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 101,
+      "stable_test_id": "T14-002",
+      "owner_phase": "Phase 14 — Extended Production Features",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 102,
+      "stable_test_id": "T14-003",
+      "owner_phase": "Phase 14 — Extended Production Features",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 103,
+      "stable_test_id": "T14-004",
+      "owner_phase": "Phase 14 — Extended Production Features",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 104,
+      "stable_test_id": "T21-005",
+      "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 105,
+      "stable_test_id": "T21-006",
+      "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 106,
+      "stable_test_id": "T21-007",
+      "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 107,
+      "stable_test_id": "T21-008",
+      "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 108,
+      "stable_test_id": "T21-009",
+      "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 109,
+      "stable_test_id": "T135-001",
+      "owner_phase": "Phase 13.5 — Security \u0026 Compliance Audit",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 110,
+      "stable_test_id": "T135-002",
+      "owner_phase": "Phase 13.5 — Security \u0026 Compliance Audit",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 111,
+      "stable_test_id": "T135-003",
+      "owner_phase": "Phase 13.5 — Security \u0026 Compliance Audit",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 112,
+      "stable_test_id": "T09-003",
+      "owner_phase": "Phase 9 — Deployment \u0026 Operations",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 113,
+      "stable_test_id": "T09-004",
+      "owner_phase": "Phase 9 — Deployment \u0026 Operations",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 114,
+      "stable_test_id": "T09-005",
+      "owner_phase": "Phase 9 — Deployment \u0026 Operations",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 115,
+      "stable_test_id": "T09-006",
+      "owner_phase": "Phase 9 — Deployment \u0026 Operations",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 116,
+      "stable_test_id": "T09-007",
+      "owner_phase": "Phase 9 — Deployment \u0026 Operations",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 117,
+      "stable_test_id": "T09-008",
+      "owner_phase": "Phase 9 — Deployment \u0026 Operations",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 118,
+      "stable_test_id": "T02-013",
+      "owner_phase": "Phase 2 — Matching Engine Core (C++)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 119,
+      "stable_test_id": "T15-001",
+      "owner_phase": "Phase 15 — Market Admin Lifecycle",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 120,
+      "stable_test_id": "T195-002",
+      "owner_phase": "Phase 19.5 — Price Oracle \u0026 Mark Price Service",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 121,
+      "stable_test_id": "T03-002",
+      "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 122,
+      "stable_test_id": "T03-003",
+      "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 123,
+      "stable_test_id": "T03-004",
+      "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 124,
+      "stable_test_id": "T16-008",
+      "owner_phase": "Phase 16 — Advanced Order Types",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 125,
+      "stable_test_id": "T19-009",
+      "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 126,
+      "stable_test_id": "T24-006",
+      "owner_phase": "Phase 24 — Backoffice \u0026 Settlement (Nostro/Vostro)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 127,
+      "stable_test_id": "T09-009",
+      "owner_phase": "Phase 9 — Deployment \u0026 Operations",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 128,
+      "stable_test_id": "T18-004",
+      "owner_phase": "Phase 18 — FIX Protocol Gateway",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 129,
+      "stable_test_id": "T16-009",
+      "owner_phase": "Phase 16 — Advanced Order Types",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 130,
+      "stable_test_id": "T16-010",
+      "owner_phase": "Phase 16 — Advanced Order Types",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 131,
+      "stable_test_id": "T22-009",
+      "owner_phase": "Phase 22 — FX Derivatives Foundation",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 132,
+      "stable_test_id": "T14-005",
+      "owner_phase": "Phase 14 — Extended Production Features",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 133,
+      "stable_test_id": "T19-010",
+      "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 134,
+      "stable_test_id": "T195-003",
+      "owner_phase": "Phase 19.5 — Price Oracle \u0026 Mark Price Service",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 135,
+      "stable_test_id": "T18-005",
+      "owner_phase": "Phase 18 — FIX Protocol Gateway",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 136,
+      "stable_test_id": "T18-006",
+      "owner_phase": "Phase 18 — FIX Protocol Gateway",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 137,
+      "stable_test_id": "T18-007",
+      "owner_phase": "Phase 18 — FIX Protocol Gateway",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 138,
+      "stable_test_id": "T15-002",
+      "owner_phase": "Phase 15 — Market Admin Lifecycle",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 139,
+      "stable_test_id": "T18-008",
+      "owner_phase": "Phase 18 — FIX Protocol Gateway",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 140,
+      "stable_test_id": "T13-005",
+      "owner_phase": "Phase 13 — Production Hardening \u0026 Reconciliation",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 141,
+      "stable_test_id": "T11-009",
+      "owner_phase": "Phase 11 — Funding via Banking Rails, Suspension, Stats",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 142,
+      "stable_test_id": "T15-003",
+      "owner_phase": "Phase 15 — Market Admin Lifecycle",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 143,
+      "stable_test_id": "T20-006",
+      "owner_phase": "Phase 20 — Analytics \u0026 Reporting (ClickHouse)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 144,
+      "stable_test_id": "T05-010",
+      "owner_phase": "Phase 5 — Order Gateway API (Go)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 145,
+      "stable_test_id": "T19-011",
+      "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 146,
+      "stable_test_id": "T22-010",
+      "owner_phase": "Phase 22 — FX Derivatives Foundation",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 147,
+      "stable_test_id": "T05-011",
+      "owner_phase": "Phase 5 — Order Gateway API (Go)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 148,
+      "stable_test_id": "T05-012",
+      "owner_phase": "Phase 5 — Order Gateway API (Go)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 149,
+      "stable_test_id": "T21-010",
+      "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 150,
+      "stable_test_id": "T21-011",
+      "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 151,
+      "stable_test_id": "T21-012",
+      "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 152,
+      "stable_test_id": "T13-006",
+      "owner_phase": "Phase 11 — Funding via Banking Rails, Suspension, Stats",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 153,
+      "stable_test_id": "T05-013",
+      "owner_phase": "Phase 5 — Order Gateway API (Go)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 154,
+      "stable_test_id": "T02-014",
+      "owner_phase": "Phase 2 — Matching Engine Core (C++)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 155,
+      "stable_test_id": "T24-007",
+      "owner_phase": "Phase 24 — Backoffice \u0026 Settlement (Nostro/Vostro)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 156,
+      "stable_test_id": "T05-014",
+      "owner_phase": "Phase 5 — Order Gateway API (Go)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 157,
+      "stable_test_id": "T02-015",
+      "owner_phase": "Phase 2 — Matching Engine Core (C++)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 158,
+      "stable_test_id": "T22-011",
+      "owner_phase": "Phase 22 — FX Derivatives Foundation",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 159,
+      "stable_test_id": "T04-008",
+      "owner_phase": "Phase 4 — Persistence \u0026 Recovery",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 160,
+      "stable_test_id": "T09-010",
+      "owner_phase": "Phase 9 — Deployment \u0026 Operations",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 161,
+      "stable_test_id": "T015-002",
+      "owner_phase": "Phase 1.5 — CI/CD \u0026 Validation Harness Hardening",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 162,
+      "stable_test_id": "T09-011",
+      "owner_phase": "Phase 9 — Deployment \u0026 Operations",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 163,
+      "stable_test_id": "T07-002",
+      "owner_phase": "Phase 7 — Admin \u0026 Monitoring (Go)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 164,
+      "stable_test_id": "T11-010",
+      "owner_phase": "Phase 11 — Funding via Banking Rails, Suspension, Stats",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 165,
+      "stable_test_id": "T19-012",
+      "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 166,
+      "stable_test_id": "T06-008",
+      "owner_phase": "Phase 6 — Market Data Distribution",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 167,
+      "stable_test_id": "T18-009",
+      "owner_phase": "Phase 18 — FIX Protocol Gateway",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 168,
+      "stable_test_id": "T24-008",
+      "owner_phase": "Phase 24 — Backoffice \u0026 Settlement (Nostro/Vostro)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 169,
+      "stable_test_id": "T21-013",
+      "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 170,
+      "stable_test_id": "T21-014",
+      "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 171,
+      "stable_test_id": "T09-012",
+      "owner_phase": "Phase 9 — Deployment \u0026 Operations",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 172,
+      "stable_test_id": "T24-009",
+      "owner_phase": "Phase 24 — Backoffice \u0026 Settlement (Nostro/Vostro)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 173,
+      "stable_test_id": "T24-010",
+      "owner_phase": "Phase 24 — Backoffice \u0026 Settlement (Nostro/Vostro)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 174,
+      "stable_test_id": "T21-015",
+      "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 175,
+      "stable_test_id": "T24-011",
+      "owner_phase": "Phase 24 — Backoffice \u0026 Settlement (Nostro/Vostro)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 176,
+      "stable_test_id": "T19-013",
+      "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 177,
+      "stable_test_id": "T09-013",
+      "owner_phase": "Phase 9 — Deployment \u0026 Operations",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 178,
+      "stable_test_id": "T21-016",
+      "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 179,
+      "stable_test_id": "T09-014",
+      "owner_phase": "Phase 9 — Deployment \u0026 Operations",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 180,
+      "stable_test_id": "T03-005",
+      "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 181,
+      "stable_test_id": "T01-001",
+      "owner_phase": "Phase 1 — C++ Core Foundation",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 182,
+      "stable_test_id": "T21-017",
+      "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 183,
+      "stable_test_id": "T09-015",
+      "owner_phase": "Phase 9 — Deployment \u0026 Operations",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 184,
+      "stable_test_id": "T21-018",
+      "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 185,
+      "stable_test_id": "T01-002",
+      "owner_phase": "Phase 1 — C++ Core Foundation",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 186,
+      "stable_test_id": "T13-007",
+      "owner_phase": "Phase 13 — Production Hardening \u0026 Reconciliation",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 187,
+      "stable_test_id": "T05-015",
+      "owner_phase": "Phase 5 — Order Gateway API (Go)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 188,
+      "stable_test_id": "T02-016",
+      "owner_phase": "Phase 2 — Matching Engine Core (C++)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 189,
+      "stable_test_id": "T18-010",
+      "owner_phase": "Phase 18 — FIX Protocol Gateway",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 190,
+      "stable_test_id": "T19-014",
+      "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 191,
+      "stable_test_id": "T09-016",
+      "owner_phase": "Phase 9 — Deployment \u0026 Operations",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 192,
+      "stable_test_id": "T05-016",
+      "owner_phase": "Phase 5 — Order Gateway API (Go)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 193,
+      "stable_test_id": "T18-011",
+      "owner_phase": "Phase 18 — FIX Protocol Gateway",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 194,
+      "stable_test_id": "T18-012",
+      "owner_phase": "Phase 18 — FIX Protocol Gateway",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 195,
+      "stable_test_id": "T14-008",
+      "owner_phase": "Phase 14 — Extended Production Features",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 196,
+      "stable_test_id": "T14-009",
+      "owner_phase": "Phase 14 — Extended Production Features",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 197,
+      "stable_test_id": "T16-018",
+      "owner_phase": "Phase 16 — Advanced Order Types",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 198,
+      "stable_test_id": "T16-011",
+      "owner_phase": "Phase 16 — Advanced Order Types",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 199,
+      "stable_test_id": "T22-014",
+      "owner_phase": "Phase 22 — FX Derivatives Foundation",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 200,
+      "stable_test_id": "T22-015",
+      "owner_phase": "Phase 22 — FX Derivatives Foundation",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 201,
+      "stable_test_id": "T22-016",
+      "owner_phase": "Phase 22 — FX Derivatives Foundation",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 202,
+      "stable_test_id": "T21-020",
+      "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 203,
+      "stable_test_id": "T21-021",
+      "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 204,
+      "stable_test_id": "T14-010",
+      "owner_phase": "Phase 14 — Extended Production Features",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 205,
+      "stable_test_id": "T20-007",
+      "owner_phase": "Phase 20 — Analytics \u0026 Reporting (ClickHouse)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 206,
+      "stable_test_id": "T19-015",
+      "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 207,
+      "stable_test_id": "T21-022",
+      "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 208,
+      "stable_test_id": "T05-028",
+      "owner_phase": "Phase 5 — Order Gateway API (Go)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 209,
+      "stable_test_id": "T01-011",
+      "owner_phase": "Phase 1 — C++ Core Foundation",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 210,
+      "stable_test_id": "T03-006",
+      "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 211,
+      "stable_test_id": "T09-021",
+      "owner_phase": "Phase 9 — Deployment \u0026 Operations",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 212,
+      "stable_test_id": "T09-022",
+      "owner_phase": "Phase 9 — Deployment \u0026 Operations",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 213,
+      "stable_test_id": "T135-004",
+      "owner_phase": "Phase 13.5 — Security \u0026 Compliance Audit",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 214,
+      "stable_test_id": "T02-017",
+      "owner_phase": "Phase 2 — Matching Engine Core (C++)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 215,
+      "stable_test_id": "T06-009",
+      "owner_phase": "Phase 6 — Market Data Distribution",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 216,
+      "stable_test_id": "T09-023",
+      "owner_phase": "Phase 9 — Deployment \u0026 Operations",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 217,
+      "stable_test_id": "T15-004",
+      "owner_phase": "Phase 15 — Market Admin Lifecycle",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 218,
+      "stable_test_id": "T19-016",
+      "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 219,
+      "stable_test_id": "T14-011",
+      "owner_phase": "Phase 14 — Extended Production Features",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 220,
+      "stable_test_id": "T02-018",
+      "owner_phase": "Phase 2 — Matching Engine Core (C++)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 221,
+      "stable_test_id": "T03-007",
+      "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 222,
+      "stable_test_id": "T03-008",
+      "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 223,
+      "stable_test_id": "T03-009",
+      "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 224,
+      "stable_test_id": "T11-012",
+      "owner_phase": "Phase 11 — Funding via Banking Rails, Suspension, Stats",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 225,
+      "stable_test_id": "T05-029",
+      "owner_phase": "Phase 5 — Order Gateway API (Go)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 226,
+      "stable_test_id": "T06-010",
+      "owner_phase": "Phase 6 — Market Data Distribution",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 227,
+      "stable_test_id": "T07-009",
+      "owner_phase": "Phase 7 — Admin \u0026 Monitoring (Go)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 228,
+      "stable_test_id": "T19-017",
+      "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 229,
+      "stable_test_id": "T19-018",
+      "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 230,
+      "stable_test_id": "T19-019",
+      "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 231,
+      "stable_test_id": "T19-020",
+      "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 232,
+      "stable_test_id": "T19-021",
+      "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 233,
+      "stable_test_id": "T09-024",
+      "owner_phase": "Phase 9 — Deployment \u0026 Operations",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 234,
+      "stable_test_id": "T15-005",
+      "owner_phase": "Phase 15 — Market Admin Lifecycle",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 235,
+      "stable_test_id": "T20-008",
+      "owner_phase": "Phase 20 — Analytics \u0026 Reporting (ClickHouse)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 236,
+      "stable_test_id": "T23-004",
+      "owner_phase": "Phase 23 — Market Data Products",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 237,
+      "stable_test_id": "T24-015",
+      "owner_phase": "Phase 24 — Backoffice \u0026 Settlement (Nostro/Vostro)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 238,
+      "stable_test_id": "T09-025",
+      "owner_phase": "Phase 9 — Deployment \u0026 Operations",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 239,
+      "stable_test_id": "T05-030",
+      "owner_phase": "Phase 5 — Order Gateway API (Go)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 240,
+      "stable_test_id": "T24-016",
+      "owner_phase": "Phase 24 — Backoffice \u0026 Settlement (Nostro/Vostro)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 241,
+      "stable_test_id": "T19-022",
+      "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 242,
+      "stable_test_id": "T18-014",
+      "owner_phase": "Phase 18 — FIX Protocol Gateway",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 243,
+      "stable_test_id": "T18-015",
+      "owner_phase": "Phase 18 — FIX Protocol Gateway",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 244,
+      "stable_test_id": "T17-006",
+      "owner_phase": "Phase 17 — L3 Order-Level Data",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 245,
+      "stable_test_id": "T06-011",
+      "owner_phase": "Phase 6 — Market Data Distribution",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 246,
+      "stable_test_id": "T20-009",
+      "owner_phase": "Phase 20 — Analytics \u0026 Reporting (ClickHouse)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 247,
+      "stable_test_id": "T22-017",
+      "owner_phase": "Phase 22 — FX Derivatives Foundation",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 248,
+      "stable_test_id": "T22-018",
+      "owner_phase": "Phase 22 — FX Derivatives Foundation",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 249,
+      "stable_test_id": "T21-023",
+      "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 250,
+      "stable_test_id": "T23-005",
+      "owner_phase": "Phase 23 — Market Data Products",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 251,
+      "stable_test_id": "T10-007",
+      "owner_phase": "Phase 10 — Trader UI (React + TypeScript)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 252,
+      "stable_test_id": "T16-016",
+      "owner_phase": "Phase 16 — Advanced Order Types",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 253,
+      "stable_test_id": "T05-031",
+      "owner_phase": "Phase 5 — Order Gateway API (Go) / Phase 6 — Market Data Distribution",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 254,
+      "stable_test_id": "T05-032",
+      "owner_phase": "Phase 5 — Order Gateway API (Go)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 255,
+      "stable_test_id": "T16-017",
+      "owner_phase": "Phase 16 — Advanced Order Types",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 256,
+      "stable_test_id": "T05-033",
+      "owner_phase": "Phase 5 — Order Gateway API (Go)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 257,
+      "stable_test_id": "TBN-257",
+      "owner_phase": "Phase 5 — Order Gateway API (Go) / Phase 18 — FIX Protocol Gateway",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 258,
+      "stable_test_id": "TBN-258",
+      "owner_phase": "Phase 5 — Order Gateway API (Go)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 259,
+      "stable_test_id": "TBN-259",
+      "owner_phase": "Phase 5 — Order Gateway API (Go)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 260,
+      "stable_test_id": "TBN-260",
+      "owner_phase": "Phase 5 — Order Gateway API (Go)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 261,
+      "stable_test_id": "TBN-261",
+      "owner_phase": "Phase 6 — Market Data Distribution",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 262,
+      "stable_test_id": "TBN-262",
+      "owner_phase": "Phase 6 — Market Data Distribution",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 263,
+      "stable_test_id": "TBN-263",
+      "owner_phase": "Phase 6 — Market Data Distribution",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 264,
+      "stable_test_id": "TBN-264",
+      "owner_phase": "Phase 6 — Market Data Distribution",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 265,
+      "stable_test_id": "TBN-265",
+      "owner_phase": "Phase 6 — Market Data Distribution",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 266,
+      "stable_test_id": "TBN-266",
+      "owner_phase": "Phase 8 — Integration Validation \u0026 Performance Tuning",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 267,
+      "stable_test_id": "TBN-267",
+      "owner_phase": "Phase 10 — Trader UI (React + TypeScript)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 268,
+      "stable_test_id": "TBN-268",
+      "owner_phase": "Phase 10 — Trader UI (React + TypeScript)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 269,
+      "stable_test_id": "TBN-269",
+      "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin / Phase 10 — Trader UI (React + TypeScript)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 270,
+      "stable_test_id": "TBN-270",
+      "owner_phase": "Phase 12 — User Self-Service \u0026 Notifications",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 271,
+      "stable_test_id": "TBN-271",
+      "owner_phase": "Phase 12 — User Self-Service \u0026 Notifications",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 272,
+      "stable_test_id": "TBN-272",
+      "owner_phase": "Phase 13 — Production Hardening \u0026 Reconciliation",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 273,
+      "stable_test_id": "TBN-273",
+      "owner_phase": "Phase 14 — Extended Production Features",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 274,
+      "stable_test_id": "TBN-274",
+      "owner_phase": "Phase 2 — Matching Engine Core (C++)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 275,
+      "stable_test_id": "TBN-275",
+      "owner_phase": "Phase 16 — Advanced Order Types",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 276,
+      "stable_test_id": "TBN-276",
+      "owner_phase": "Phase 20 — Analytics \u0026 Reporting (ClickHouse) / Phase 23 — Market Data Products",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 277,
+      "stable_test_id": "TBN-277",
+      "owner_phase": "Phase 2 — Matching Engine Core (C++)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 278,
+      "stable_test_id": "TBN-278",
+      "owner_phase": "Phase 6 — Market Data Distribution",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 279,
+      "stable_test_id": "TBN-279",
+      "owner_phase": "Phase 2 — Matching Engine Core (C++)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 280,
+      "stable_test_id": "TBN-280",
+      "owner_phase": "Phase 2 — Matching Engine Core (C++) / Phase 5 — Order Gateway API (Go)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 281,
+      "stable_test_id": "TBN-281",
+      "owner_phase": "Phase 5 — Order Gateway API (Go)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 282,
+      "stable_test_id": "TBN-282",
+      "owner_phase": "Phase 5 — Order Gateway API (Go) / Phase 18 — FIX Protocol Gateway",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 283,
+      "stable_test_id": "TBN-283",
+      "owner_phase": "Phase 5 — Order Gateway API (Go) / Phase 12 — User Self-Service \u0026 Notifications",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 284,
+      "stable_test_id": "TBN-284",
+      "owner_phase": "Phase 6 — Market Data Distribution / Phase 18 — FIX Protocol Gateway",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 285,
+      "stable_test_id": "TBN-285",
+      "owner_phase": "Phase 12 — User Self-Service \u0026 Notifications",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 286,
+      "stable_test_id": "TBN-286",
+      "owner_phase": "Phase 5 — Order Gateway API (Go)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 287,
+      "stable_test_id": "TBN-287",
+      "owner_phase": "Phase 16 — Advanced Order Types",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 288,
+      "stable_test_id": "TBN-288",
+      "owner_phase": "Phase 5 — Order Gateway API (Go)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 289,
+      "stable_test_id": "TBN-289",
+      "owner_phase": "Phase 6 — Market Data Distribution / Phase 18 — FIX Protocol Gateway",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 290,
+      "stable_test_id": "TBN-290",
+      "owner_phase": "Phase 15 — Market Admin Lifecycle",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 291,
+      "stable_test_id": "TBN-291",
+      "owner_phase": "Phase 6 — Market Data Distribution / Phase 23 — Market Data Products",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 292,
+      "stable_test_id": "TBN-292",
+      "owner_phase": "Phase 10 — Trader UI (React + TypeScript)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 293,
+      "stable_test_id": "TBN-293",
+      "owner_phase": "Phase 10 — Trader UI (React + TypeScript)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 294,
+      "stable_test_id": "TBN-294",
+      "owner_phase": "Phase 10 — Trader UI (React + TypeScript)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 295,
+      "stable_test_id": "TBN-295",
+      "owner_phase": "Phase 10 — Trader UI (React + TypeScript) / Phase 20 — Analytics \u0026 Reporting (ClickHouse)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 296,
+      "stable_test_id": "TBN-296",
+      "owner_phase": "Phase 16 — Advanced Order Types",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 297,
+      "stable_test_id": "ERR-297",
+      "owner_phase": "Phase 1 — C++ Core Foundation",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 298,
+      "stable_test_id": "ERR-298",
+      "owner_phase": "Phase 1.5 — CI/CD Validation Harness",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 299,
+      "stable_test_id": "ERR-299",
+      "owner_phase": "Phase 2 — Matching Engine Core (C++)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 300,
+      "stable_test_id": "ERR-300",
+      "owner_phase": "Phase 2.5 — Engine Soak \u0026 Chaos Testing",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 301,
+      "stable_test_id": "ERR-301",
+      "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 302,
+      "stable_test_id": "ERR-302",
+      "owner_phase": "Phase 4 — Persistence \u0026 Recovery",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 303,
+      "stable_test_id": "ERR-303",
+      "owner_phase": "Phase 4.5 — Chaos Engineering \u0026 Failure Injection",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 304,
+      "stable_test_id": "ERR-304",
+      "owner_phase": "Phase 5 — Order Gateway API (Go)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 305,
+      "stable_test_id": "ERR-305",
+      "owner_phase": "Phase 6 — Market Data Distribution",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 306,
+      "stable_test_id": "ERR-306",
+      "owner_phase": "Phase 7 — Admin \u0026 Monitoring (Go)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 307,
+      "stable_test_id": "ERR-307",
+      "owner_phase": "Phase 8 — Integration Validation \u0026 Performance Tuning",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 308,
+      "stable_test_id": "ERR-308",
+      "owner_phase": "Phase 8.5 — Pre-Production Load Testing \u0026 Soak Testing",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 309,
+      "stable_test_id": "ERR-309",
+      "owner_phase": "Phase 9 — Deployment \u0026 Operations",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 310,
+      "stable_test_id": "ERR-310",
+      "owner_phase": "Phase 10 — Trader UI (React + TypeScript)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 311,
+      "stable_test_id": "ERR-311",
+      "owner_phase": "Phase 11 — Funding via Banking Rails, Suspension, Stats",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 312,
+      "stable_test_id": "ERR-312",
+      "owner_phase": "Phase 12 — User Self-Service \u0026 Notifications",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 313,
+      "stable_test_id": "ERR-313",
+      "owner_phase": "Phase 13 — Production Hardening \u0026 Reconciliation",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 314,
+      "stable_test_id": "ERR-314",
+      "owner_phase": "Phase 13.5 — Security \u0026 Compliance Audit",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 315,
+      "stable_test_id": "ERR-315",
+      "owner_phase": "Phase 14 — Extended Production Features",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 316,
+      "stable_test_id": "ERR-316",
+      "owner_phase": "Phase 15 — Market Admin Lifecycle",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 317,
+      "stable_test_id": "ERR-317",
+      "owner_phase": "Phase 16 — Advanced Order Types",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 318,
+      "stable_test_id": "ERR-318",
+      "owner_phase": "Phase 17 — L3 Order-Level Data",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 319,
+      "stable_test_id": "ERR-319",
+      "owner_phase": "Phase 18 — FIX Protocol Gateway",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 320,
+      "stable_test_id": "ERR-320",
+      "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 321,
+      "stable_test_id": "ERR-321",
+      "owner_phase": "Phase 19.5 — Price Oracle \u0026 Mark Price Engine",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 322,
+      "stable_test_id": "ERR-322",
+      "owner_phase": "Phase 20 — Analytics \u0026 Reporting (ClickHouse)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 323,
+      "stable_test_id": "ERR-323",
+      "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 324,
+      "stable_test_id": "ERR-324",
+      "owner_phase": "Phase 22 — FX Derivatives Foundation",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 325,
+      "stable_test_id": "ERR-325",
+      "owner_phase": "Phase 23 — Market Data Products",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 326,
+      "stable_test_id": "ERR-326",
+      "owner_phase": "Phase 24 — Backoffice \u0026 Settlement (Nostro/Vostro)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 327,
+      "stable_test_id": "GOV-327",
+      "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 328,
+      "stable_test_id": "GOV-328",
+      "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 329,
+      "stable_test_id": "GOV-329",
+      "owner_phase": "Phase 24 — Backoffice \u0026 Settlement (Nostro/Vostro)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 330,
+      "stable_test_id": "GOV-330",
+      "owner_phase": "Phase 24 — Backoffice \u0026 Settlement (Nostro/Vostro)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 331,
+      "stable_test_id": "GOV-331",
+      "owner_phase": "Phase 9 — Deployment \u0026 Operations",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 332,
+      "stable_test_id": "GOV-332",
+      "owner_phase": "Phase 13 — Production Hardening \u0026 Reconciliation",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 333,
+      "stable_test_id": "GOV-333",
+      "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 334,
+      "stable_test_id": "OPS-334",
+      "owner_phase": "Phase 9 — Deployment \u0026 Operations",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 335,
+      "stable_test_id": "DR-335",
+      "owner_phase": "Phase 4 — Persistence \u0026 Recovery",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 336,
+      "stable_test_id": "MAT-336",
+      "owner_phase": "Phase 2 — Matching Engine Core (C++)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 337,
+      "stable_test_id": "MAT-337",
+      "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 338,
+      "stable_test_id": "MAT-338",
+      "owner_phase": "Phase 5 — Order Gateway API (Go)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 339,
+      "stable_test_id": "MAT-339",
+      "owner_phase": "Phase 6 — Market Data Distribution",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 340,
+      "stable_test_id": "MAT-340",
+      "owner_phase": "Phase 9 — Deployment \u0026 Operations",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 341,
+      "stable_test_id": "MAT-341",
+      "owner_phase": "Phase 12 — User Self-Service \u0026 Notifications",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 342,
+      "stable_test_id": "MAT-342",
+      "owner_phase": "Phase 13.5 — Security \u0026 Compliance Audit",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 343,
+      "stable_test_id": "MAT-343",
+      "owner_phase": "Phase 15 — Market Admin Lifecycle",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 344,
+      "stable_test_id": "MAT-344",
+      "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 345,
+      "stable_test_id": "MAT-345",
+      "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 346,
+      "stable_test_id": "MAT-346",
+      "owner_phase": "Phase 22 — FX Derivatives Foundation",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 347,
+      "stable_test_id": "MAT-347",
+      "owner_phase": "Phase 24 — Backoffice \u0026 Settlement (Nostro/Vostro)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 348,
+      "stable_test_id": "MAT-348",
+      "owner_phase": "Phase 7 — Admin \u0026 Monitoring (Go)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 349,
+      "stable_test_id": "MAT-349",
+      "owner_phase": "Phase 7 — Admin \u0026 Monitoring (Go)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 350,
+      "stable_test_id": "MAT-350",
+      "owner_phase": "Phase 9 — Deployment \u0026 Operations",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 351,
+      "stable_test_id": "MAT-351",
+      "owner_phase": "Phase 10 — Trader UI (React + TypeScript)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 352,
+      "stable_test_id": "MAT-352",
+      "owner_phase": "Phase 15 — Market Admin Lifecycle",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 353,
+      "stable_test_id": "MAT-353",
+      "owner_phase": "Phase 4 — Persistence \u0026 Recovery",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 354,
+      "stable_test_id": "MAT-354",
+      "owner_phase": "Phase 4 — Persistence \u0026 Recovery",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 355,
+      "stable_test_id": "MAT-355",
+      "owner_phase": "Phase 5 — Order Gateway API (Go)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 356,
+      "stable_test_id": "MAT-356",
+      "owner_phase": "Phase 5 — Order Gateway API (Go)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 357,
+      "stable_test_id": "MAT-357",
+      "owner_phase": "Phase 6 — Market Data Distribution",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 358,
+      "stable_test_id": "MAT-358",
+      "owner_phase": "Phase 23 — Market Data Products",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 359,
+      "stable_test_id": "MAT-359",
+      "owner_phase": "Phase 23 — Market Data Products",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 360,
+      "stable_test_id": "MAT-360",
+      "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 361,
+      "stable_test_id": "MAT-361",
+      "owner_phase": "Phase 20 — Analytics \u0026 Reporting (ClickHouse)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 362,
+      "stable_test_id": "MAT-362",
+      "owner_phase": "Phase 20 — Analytics \u0026 Reporting (ClickHouse)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 363,
+      "stable_test_id": "MAT-363",
+      "owner_phase": "Phase 5 — Order Gateway API (Go)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 364,
+      "stable_test_id": "MAT-364",
+      "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 365,
+      "stable_test_id": "MAT-365",
+      "owner_phase": "Phase 16 — Advanced Order Types",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 366,
+      "stable_test_id": "MAT-366",
+      "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 367,
+      "stable_test_id": "MAT-367",
+      "owner_phase": "Phase 16 — Advanced Order Types",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 368,
+      "stable_test_id": "MAT-368",
+      "owner_phase": "Phase 2 — Matching Engine Core (C++)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 369,
+      "stable_test_id": "MAT-369",
+      "owner_phase": "Phase 14 — Extended Production Features",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 370,
+      "stable_test_id": "MAT-370",
+      "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 371,
+      "stable_test_id": "MAT-371",
+      "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 372,
+      "stable_test_id": "MAT-372",
+      "owner_phase": "Phase 14 — Extended Production Features",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 373,
+      "stable_test_id": "MAT-373",
+      "owner_phase": "Phase 14 — Extended Production Features",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 374,
+      "stable_test_id": "MAT-374",
+      "owner_phase": "Phase 20 — Analytics \u0026 Reporting (ClickHouse)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 375,
+      "stable_test_id": "MAT-375",
+      "owner_phase": "Phase 20 — Analytics \u0026 Reporting (ClickHouse)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 376,
+      "stable_test_id": "MAT-376",
+      "owner_phase": "Phase 14 — Extended Production Features",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 377,
+      "stable_test_id": "MAT-377",
+      "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 378,
+      "stable_test_id": "MAT-378",
+      "owner_phase": "Phase 7 — Admin \u0026 Monitoring (Go)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 379,
+      "stable_test_id": "MAT-379",
+      "owner_phase": "Phase 7 — Admin \u0026 Monitoring (Go)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 380,
+      "stable_test_id": "MAT-380",
+      "owner_phase": "Phase 23 — Market Data Products",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 381,
+      "stable_test_id": "MAT-381",
+      "owner_phase": "Phase 20 — Analytics \u0026 Reporting (ClickHouse)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 382,
+      "stable_test_id": "MAT-382",
+      "owner_phase": "Phase 10 — Trader UI (React 18 + TypeScript)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 383,
+      "stable_test_id": "MAT-383",
+      "owner_phase": "Phase 10 — Trader UI (React 18 + TypeScript)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 384,
+      "stable_test_id": "MAT-384",
+      "owner_phase": "Phase 10 — Trader UI (React 18 + TypeScript)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 385,
+      "stable_test_id": "MAT-385",
+      "owner_phase": "Phase 10 — Trader UI (React 18 + TypeScript)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 386,
+      "stable_test_id": "MAT-386",
+      "owner_phase": "Phase 10 — Trader UI (React 18 + TypeScript)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 387,
+      "stable_test_id": "MAT-387",
+      "owner_phase": "Phase 10 — Trader UI (React 18 + TypeScript)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 388,
+      "stable_test_id": "MAT-388",
+      "owner_phase": "Phase 10 — Trader UI (React 18 + TypeScript)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 389,
+      "stable_test_id": "MAT-389",
+      "owner_phase": "Phase 10 — Trader UI (React 18 + TypeScript)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 390,
+      "stable_test_id": "MAT-390",
+      "owner_phase": "Phase 10 — Trader UI (React 18 + TypeScript)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 391,
+      "stable_test_id": "T11-013",
+      "owner_phase": "Phase 11 — Funding via Banking Rails, Suspension, Stats",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 392,
+      "stable_test_id": "T21-024",
+      "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 393,
+      "stable_test_id": "T22-019",
+      "owner_phase": "Phase 22 — FX Derivatives Foundation",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 394,
+      "stable_test_id": "MAT-394",
+      "owner_phase": "Phase 2 — Matching Engine Core (C++)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 395,
+      "stable_test_id": "MAT-395",
+      "owner_phase": "Phase 16 — Advanced Order Types",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 396,
+      "stable_test_id": "MAT-396",
+      "owner_phase": "Phase 22 — FX Derivatives Foundation",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 397,
+      "stable_test_id": "MAT-397",
+      "owner_phase": "Phase 19.5 — Price Oracle \u0026 Mark Price Service",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 398,
+      "stable_test_id": "MAT-398",
+      "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 399,
+      "stable_test_id": "MAT-399",
+      "owner_phase": "Phase 16 — Advanced Order Types",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 400,
+      "stable_test_id": "MAT-400",
+      "owner_phase": "Phase 2 — Matching Engine Core (C++)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 401,
+      "stable_test_id": "MAT-401",
+      "owner_phase": "Phase 15 — Market Admin Lifecycle",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 402,
+      "stable_test_id": "MAT-402",
+      "owner_phase": "Phase 2 — Matching Engine Core (C++)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 403,
+      "stable_test_id": "MAT-403",
+      "owner_phase": "Phase 2 — Matching Engine Core (C++)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 404,
+      "stable_test_id": "MAT-404",
+      "owner_phase": "Phase 2 — Matching Engine Core (C++)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 405,
+      "stable_test_id": "MAT-405",
+      "owner_phase": "Phase 2 — Matching Engine Core (C++)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 406,
+      "stable_test_id": "MAT-406",
+      "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 407,
+      "stable_test_id": "MAT-407",
+      "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 408,
+      "stable_test_id": "MAT-408",
+      "owner_phase": "Phase 6 — Market Data Distribution",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 409,
+      "stable_test_id": "MAT-409",
+      "owner_phase": "Phase 11 — Funding via Banking Rails, Suspension, Stats",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 410,
+      "stable_test_id": "MAT-410",
+      "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 411,
+      "stable_test_id": "MAT-411",
+      "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 412,
+      "stable_test_id": "MAT-412",
+      "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 413,
+      "stable_test_id": "MAT-413",
+      "owner_phase": "Phase 24 — Backoffice \u0026 Settlement (Nostro/Vostro)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 414,
+      "stable_test_id": "MAT-414",
+      "owner_phase": "Phase 24 — Backoffice \u0026 Settlement (Nostro/Vostro)",
+      "status": "PLANNED"
+    },
+    {
+      "criterion_id": 415,
+      "stable_test_id": "MAT-415",
+      "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 416,
+      "stable_test_id": "MAT-416",
+      "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 417,
+      "stable_test_id": "MAT-417",
+      "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 418,
+      "stable_test_id": "MAT-418",
+      "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
+      "status": "EXECUTABLE"
+    },
+    {
+      "criterion_id": 419,
+      "stable_test_id": "MAT-419",
+      "owner_phase": "Phase 4 — Persistence \u0026 Recovery",
+      "status": "EXECUTABLE"
+    }
+  ]
+}

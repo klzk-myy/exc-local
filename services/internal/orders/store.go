@@ -669,9 +669,9 @@ func (s *PgStore) ApplyFill(ctx context.Context, orderID int64, price, qty decim
 		    avg_fill_price = (
 		        (COALESCE(avg_fill_price,0) * filled_qty + $3::numeric * $2::numeric)
 		        / NULLIF(filled_qty + $2::numeric, 0)),
-		    status = CASE
+		    status = (CASE
 		        WHEN filled_qty + $2::numeric >= quantity THEN 'FILLED'
-		        ELSE 'PARTIALLY_FILLED' END,
+		        ELSE 'PARTIALLY_FILLED' END)::order_status_enum,
 		    updated_at = now()
 		WHERE id = $1 AND status <> 'FILLED'`,
 		orderID, qty.String(), price.String())

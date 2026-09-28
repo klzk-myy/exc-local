@@ -345,7 +345,12 @@ func ipcSource(res marketdata.InstrumentResolver, log *slog.Logger) (marketdata.
 	sources := make([]marketdata.DeltaSource, 0, len(shards))
 	var firstErr error
 	for _, sh := range shards {
-		ch, err := ipc.OpenChannel(base, sh, ipc.EndpointGateway, false, 0, 0)
+		// Attach passes the default geometry — OpenRing ignores it on a
+		// pre-existing ring (the shared header's capacity/slot_payload are
+		// authoritative); passing 0 trips the power-of-two precheck before
+		// the header is ever read.
+		ch, err := ipc.OpenChannel(base, sh, ipc.EndpointGateway, false,
+			ipc.DefaultRingCapacity, ipc.DefaultRingSlotPayload)
 		if err != nil {
 			if firstErr == nil {
 				firstErr = err

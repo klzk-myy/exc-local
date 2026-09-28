@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	gonats "github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 
 	excnats "exchange/internal/nats"
 )
@@ -87,24 +87,50 @@ func TestIntegrationDLQRoundTrip(t *testing.T) {
 		t.Fatalf("entry seq %d not listed", seq)
 	}
 
-	// Replay republishes to the origin subject — capture it on core NATS.
-	got := make(chan []byte, 1)
-	sub, err := c.Conn().Subscribe("ops-dlq-test.origin",
-		func(m *gonats.Msg) { got <- m.Data })
-	if err != nil {
-		t.Fatal(err)
+	// Replay republishes through JetStream — js.Publish expects the
+	// origin subject to be ingestible by a stream (production always
+	// replays into a real stream subject). Bind the synthetic origin
+	// to a throwaway stream so the cluster acks it.
+	if _, err := c.JetStream().CreateOrUpdateStream(ctx, jetstream.StreamConfig{
+		Name:      "itest-dlq-origin",
+		Subjects:  []string{"ops-dlq-test.*"},
+		Retention: jetstream.LimitsPolicy,
+		Storage:   jetstream.MemoryStorage,
+	}); err != nil {
+		t.Fatalf("origin stream: %v", err)
 	}
-	defer sub.Unsubscribe()
+	defer func() { _ = c.JetStream().DeleteStream(ctx, "itest-dlq-origin") }()
+
+	// Replay republishes to the origin subject — a JetStream-ingested
+	// message is captured by the bound stream, not pushed to core
+	// subscriptions, so observe it through a consumer (the same way a
+	// production replay would reach the origin stream's consumers).
+	cons, err := c.JetStream().CreateOrUpdateConsumer(ctx, "itest-dlq-origin",
+		jetstream.ConsumerConfig{
+			Durable:       "itest-dlq-consumer",
+			FilterSubject: "ops-dlq-test.origin",
+			AckPolicy:     jetstream.AckExplicitPolicy,
+		})
+	if err != nil {
+		t.Fatalf("origin consumer: %v", err)
+	}
 	if err := reopened.Replay(ctx, seq); err != nil {
 		t.Fatalf("replay: %v", err)
 	}
-	select {
-	case data := <-got:
-		if string(data) != string(payload) {
-			t.Fatalf("replayed payload = %s", data)
+	msgs, err := cons.Fetch(1, jetstream.FetchMaxWait(10*time.Second))
+	if err != nil {
+		t.Fatalf("fetch replayed: %v", err)
+	}
+	gotMsg := false
+	for m := range msgs.Messages() {
+		if string(m.Data()) != string(payload) {
+			t.Fatalf("replayed payload = %s", m.Data())
 		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("replayed message never arrived on origin subject")
+		_ = m.Ack()
+		gotMsg = true
+	}
+	if !gotMsg {
+		t.Fatal("replayed message never arrived on origin stream")
 	}
 	if _, err := reopened.Get(ctx, seq); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("entry still present after replay: %v", err)

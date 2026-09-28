@@ -12,47 +12,7 @@ r.Register("P05-T5.3.1-C1", func(ctx context.Context, env *spec.Env) spec.Result
 
 | Checkpoint | Task | Status | Text |
 |---|---|---|---|
-| `P06-T6.3.1-C1` | 6.3.1 (Phase-06-Market-Data-Distribution.md:44) | [ ] | goroutine-per-connection WS |
-| `P06-T6.3.1-C2` | 6.3.1 (Phase-06-Market-Data-Distribution.md:45) | [ ] | 20 L2 / 5 L3 subscription limits |
-| `P06-T6.3.2-C1` | 6.3.2 (Phase-06-Market-Data-Distribution.md:72) | [ ] | 100ms conflation or 100 events |
-| `P06-T6.3.2-C2` | 6.3.2 (Phase-06-Market-Data-Distribution.md:73) | [ ] | last_seq reconnect replay |
-| `P06-T6.3.2-C3` | 6.3.2 (Phase-06-Market-Data-Distribution.md:74) | [ ] | L2 depth CRC32 checksums with resync on mismatch |
-| `P06-T6.3.2-C4` | 6.3.2 (Phase-06-Market-Data-Distribution.md:75) | [ ] | market data SLA p99 WS push ≤ 100ms + uptime 99.95% |
-| `P06-T6.3.3-C1` | 6.3.3 (Phase-06-Market-Data-Distribution.md:96) | [ ] | real-time trades no conflation |
-| `P06-T6.3.4-C1` | 6.3.4 (Phase-06-Market-Data-Distribution.md:118) | [ ] | 1s ticker with 24h OHLCV |
-| `P06-T6.3.5-C1` | 6.3.5 (Phase-06-Market-Data-Distribution.md:140) | [ ] | private order stream with JWT auth |
-| `P06-T6.3.6-C1` | 6.3.6 (Phase-06-Market-Data-Distribution.md:166) | [ ] | institutional A/B multicast + replay/snapshot recovery (§10.4, §24 #166) |
-| `P06-T6.3.8-C1` | 6.3.8 (Phase-06-Market-Data-Distribution.md:213) | [ ] | OHLCV aggregation |
-| `P06-T6.3.9-C1` | 6.3.9 (Phase-06-Market-Data-Distribution.md:242) | [ ] | WS session resume protocol |
-| `P06-T6.3.10-C1` | 6.3.10 (Phase-06-Market-Data-Distribution.md:268) | [ ] | WS request-response dispatcher with thread-safe write synchronization |
-| `P06-T6.3.11-C1` | 6.3.11 (Phase-06-Market-Data-Distribution.md:279) | [ ] | BBO emits every top-of-book change without conflation (§24 #261) |
-| `P06-T6.3.12-C1` | 6.3.12 (Phase-06-Market-Data-Distribution.md:288) | [ ] | aggregate-trade events preserve taker/price grouping and trade-ID lineage (§24 #262) |
-| `P06-T6.3.13-C1` | 6.3.13 (Phase-06-Market-Data-Distribution.md:297) | [ ] | public liquidation feed is delayed and never front-runs active auctions (§24 #263) |
-| `P06-T6.3.14-C1` | 6.3.14 (Phase-06-Market-Data-Distribution.md:306) | [ ] | canonical candle set contains 13 aligned intervals (§24 #264) |
-| `P06-T6.3.15-C1` | 6.3.15 (Phase-06-Market-Data-Distribution.md:315) | [ ] | depth subscriptions enforce supported level/cadence combinations (§24 #265) |
-| `P06-T6.3.16-C1` | 6.3.16 (Phase-06-Market-Data-Distribution.md:324) | [ ] | WS multiplexing enforces documented subscription limits (§24 #265) |
-| `P06-T6.3.17-C1` | 6.3.17 (Phase-06-Market-Data-Distribution.md:340) | [ ] | execution rules, reference prices, provenance, stream, and expiry reasons are client-visible (§24 #… |
-| `P06-T6.3.18-C1` | 6.3.18 (Phase-06-Market-Data-Distribution.md:356) | [ ] | REST/WS/private SBE negotiation and six-month schema lifecycle are interoperable (§24 #284) |
-| `P06-T6.3.19-C1` | 6.3.19 (Phase-06-Market-Data-Distribution.md:372) | [ ] | planned shutdown drains clients with explicit WS/FIX reconnect advisories and cancel availability (… |
-| `P06-T6.3.20-C1` | 6.3.20 (Phase-06-Market-Data-Distribution.md:388) | [ ] | all-market rolling statistics and delayed anonymous block-trade tape are complete and correction-aw… |
-| `P06-T6.3.21-C1` | 6.3.21 (Phase-06-Market-Data-Distribution.md:408) | [ ] | Slow consumer eviction, reconnect flood throttling, and multicast failover recovery (§24 #305) |
-| `P06-T6.3.22-C1` | 6.3.22 (Phase-06-Market-Data-Distribution.md:428) | [ ] | durable WS sequence log with gap journal, order-action dedup window, and symbol-level market-data e… |
-| `P06-T6.3.23-C1` | 6.3.23 (Phase-06-Market-Data-Distribution.md:446) | [ ] | public open-interest stream and history from position aggregates (§24 #357) |
-| `P06-T6.3.24-C1` | 6.3.24 (Phase-06-Market-Data-Distribution.md:476) | [ ] | WebSocket L2/L3 snapshot/delta resync protocol and sequence continuity contract (§24 #408) |
-| `P07-T7.3.1-C1` | 7.3.1 (Phase-07-Admin-Monitoring.md:41) | [ ] | 6 RBAC roles with permission matrix |
-| `P07-T7.3.2-C1` | 7.3.2 (Phase-07-Admin-Monitoring.md:64) | [ ] | dual control for sensitive ops |
-| `P07-T7.3.3-C1` | 7.3.3 (Phase-07-Admin-Monitoring.md:87) | [ ] | admin audit log with before/after state |
-| `P07-T7.3.4-C1` | 7.3.4 (Phase-07-Admin-Monitoring.md:110) | [ ] | Prometheus metrics from all services |
-| `P07-T7.3.5-C1` | 7.3.5 (Phase-07-Admin-Monitoring.md:134) | [ ] | Grafana dashboards + PagerDuty |
-| `P07-T7.3.6-C1` | 7.3.6 (Phase-07-Admin-Monitoring.md:158) | [ ] | health + readiness endpoints |
-| `P07-T7.3.7-C1` | 7.3.7 (Phase-07-Admin-Monitoring.md:186) | [ ] | support tickets + complaint routing + read-only support view (§24 #163) |
-| `P07-T7.3.9-C1` | 7.3.9 (Phase-07-Admin-Monitoring.md:230) | [ ] | LP management |
-| `P07-T7.3.10-C1` | 7.3.10 (Phase-07-Admin-Monitoring.md:251) | [ ] | Error rate alerting, DLQ inspection, and anomaly alarms active (§24 #306) |
-| `P07-T7.3.11-C1` | 7.3.11 (Phase-07-Admin-Monitoring.md:273) | [ ] | scoped bindings with grant-time intersection and disjoint role-system separation (§24 #348) |
-| `P07-T7.3.12-C1` | 7.3.12 (Phase-07-Admin-Monitoring.md:295) | [ ] | binding expiry with session kill, quarterly recertification, and bounded break-glass with mandatory… |
-| `P07-T7.3.13-C1` | 7.3.13 (Phase-07-Admin-Monitoring.md:316) | [ ] | daily executive roll-up with hash-retained packs (§24 #378) |
-| `P07-T7.3.14-C1` | 7.3.14 (Phase-07-Admin-Monitoring.md:338) | [ ] | dual-controlled immutable quarterly board packs (§24 #379) |
-| `P08-T8.3.1-C1` | 8.3.1 (Phase-08-Integration-Testing.md:42) | [ ] | **418** §24 criteria mapped to test contracts; Phase 1–7 subset executable in Phase 8; all executab… |
+| `P08-T8.3.1-C1` | 8.3.1 (Phase-08-Integration-Testing.md:42) | [ ] | **419** §24 criteria mapped to test contracts; Phase 1–7 subset executable in Phase 8; all executab… |
 | `P08-T8.3.2-C1` | 8.3.2 (Phase-08-Integration-Testing.md:68) | [ ] | 50k/sec sustained p99 ≤ 50µs (supersedes prior ≤ 1ms) |
 | `P08-T8.3.3-C1` | 8.3.3 (Phase-08-Integration-Testing.md:92) | [ ] | performance tuning to hit targets |
 | `P08-T8.3.4-C1` | 8.3.4 (Phase-08-Integration-Testing.md:114) | [ ] | §24 traceability matrix CI-gated |

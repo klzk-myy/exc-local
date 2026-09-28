@@ -75,8 +75,12 @@ public:
                                             uint64_t account_id,
                                             uint64_t ts_ns) noexcept;
 
-    // Aggregated full-depth snapshot — cold-ish path, bounded by
-    // OrderBook::kMaxLevels per side.
+    // Aggregated top-N snapshot per the L2 wire contract (spec §10.2:
+    // "Top 20 price levels per side"). Phase-08 Task 8.3.3: previously
+    // serialized all levels (up to kMaxLevels/side), which both overflowed
+    // the 1024B shm slot (every deep-book frame dropped at send) and spent
+    // O(depth) on the matching thread per book change.
+    static constexpr uint32_t kWireDepthLevels = 20;
     [[nodiscard]] bool publish_book_snapshot(const OrderBook& book,
                                              uint32_t instrument_id,
                                              uint64_t ts_ns) noexcept;
