@@ -24,7 +24,7 @@
 
 All counts are verified mechanically across the corpus:
 - **Evaluated Operational Domains:** **13** domains (**133** components, 100% spec & plan depth, 0% code implementation, remediation #39)
-- **§24 Acceptance Criteria:** **414** criteria (contiguous 1..414, each with unique Stable Test Contract ID)
+- **§24 Acceptance Criteria:** **418** criteria (contiguous 1..418, each with unique Stable Test Contract ID)
 - **Phase Tasks:** **479** tasks across 30 phase plans
 - **Checklist Spec Checkpoints:** **543** checklist checkpoints across all phase tasks
 - **Acceptance Criteria Rows:** **1,079** rows (976 core + 103 buffer phase rows)

@@ -25,7 +25,7 @@ A **Tier-1 institutional Foreign Exchange (FX) exchange**: spot, forwards, swaps
 | File | Role | Use it for |
 |---|---|---|
 | `MEMORY.md` | **Authoritative project memory & operational directives** | Zero-drift canonical counts, load-bearing invariants, mechanism ownership, next steps |
-| `docs/Specification - Complete Exchange System Suite.md, spec §5.3/§5.21 (ledger/wallet/balance)` | **The contract (v7.0)** — 27 sections, 414 acceptance criteria (§24; supersedes prior 401, 398, 390, 389, 381, 377, 373, 368, 354, 352, 349, 347, 335, 334, 333, 296, 276, 256, 252, 237, 206), decision log (§27) | What must be true. Phase plans must conform to it |
+| `docs/Specification - Complete Exchange System Suite.md, spec §5.3/§5.21 (ledger/wallet/balance)` | **The contract (v7.0)** — 27 sections, 418 acceptance criteria (§24; supersedes prior 414, 401, 398, 390, 389, 381, 377, 373, 368, 354, 352, 349, 347, 335, 334, 333, 296, 276, 256, 252, 237, 206), decision log (§27) | What must be true. Phase plans must conform to it |
 | `AGENTS.md` | **Master plan & working rules** — 30-phase index, dependency graph, hard gates, canonical values, mechanism ownership map | How work is sequenced; the rules for editing docs |
 | `CLAUDE.md` | Agent quick reference | Compressed pointer to the above |
 | `ARCHITECTURE.md` | System architecture — topology, components, flows, deployment, tech rationale | Where things live and how data moves |
@@ -56,7 +56,7 @@ A **Tier-1 institutional Foreign Exchange (FX) exchange**: spot, forwards, swaps
   - **2.5 → 3/4/5/6:** 72h soak at 50k/sec sustained, p99 ≤ 50µs, memory < 75%, zero WAL lag, recovery < 10s with zero duplicate/missing trades.
   - **8.5 → 9:** staging 75k/sec, replica lag < 2s, N≥10,000 WS connections zero drops, mid-run recovery drill, zero alerts.
   - **13.5 → 14/15/24:** pen test 0 Critical / <3 High; PII audit 0 leaks; 47+ alert runbooks, 4 tabletops < SLA.
-  - **24 → production:** all **414** §24 criteria have passing executable tests (supersedes prior 401, 398, 390, 389, 381, 377, 373, 368, 354, 352, 349, 347, 335, 334, 333, 296, 276, 256, 252, 237, 206); zero unmapped traceability rows; legal/venue/CLS/bank attestations complete.
+  - **24 → production:** all **418** §24 criteria have passing executable tests (supersedes prior 414, 401, 398, 390, 389, 381, 377, 373, 368, 354, 352, 349, 347, 335, 334, 333, 296, 276, 256, 252, 237, 206); zero unmapped traceability rows; legal/venue/CLS/bank attestations complete.
 - **Staffing assumption:** 7–10 developers (2–3 C++ engine, 2–3 Go services, 1 DevOps/SRE, 1–2 QA) + dedicated compliance officer by Phase 21.
 
 ## 6. Canonical Values (Do Not Drift)
@@ -67,7 +67,7 @@ If you ever find a conflicting value anywhere in the repo, **these win** and the
 |---|---|
 | p99 tick-to-trade latency | **≤ 50µs** (supersedes ≤ 1ms) |
 | Throughput | 50,000 orders/sec per shard; 75k/sec staging gate |
-| §24 acceptance criteria | **414** (supersedes 401/398/390/389/381/377/373/368/354/352/349/347/335/334/333/296/276/256/252/237/219/206/201/192/174); CI checkpoints 400+ (**actual 543 across 479 tasks**, remediation #37 mechanical recount; supersedes 530/466, 527/463, 523/461, 522/460, 514/452, 510/448, 506/444, 501/439, 487/425, 485/423, 482/420, 480/418, 468/406, 467/405, 466/404, 422/360, 407/346, 377/316, 373/312, 358/297, 369) |
+| §24 acceptance criteria | **418** (supersedes 414, 401/398/390/389/381/377/373/368/354/352/349/347/335/334/333/296/276/256/252/237/219/206/201/192/174); CI checkpoints 400+ (**actual 543 across 479 tasks**, remediation #37 mechanical recount; supersedes 530/466, 527/463, 523/461, 522/460, 514/452, 510/448, 506/444, 501/439, 487/425, 485/423, 482/420, 480/418, 468/406, 467/405, 466/404, 422/360, 407/346, 377/316, 373/312, 358/297, 369) |
 | Withdrawal confirmation window | **15 min** |
 | Data retention schedule | spec **§19.12** (enforcement owner Phase-09 Task 9.3.22, remediation #18): order/trade/surveillance records 5y (MiFID II RTS 6) · comms recordings 5y (Art. 16(7)) · ClickHouse raw ticks 90d then aggregate · OHLCV 5y · finance/house reports 7y · KYC docs account lifetime + 5y · audit logs 7y; hot→warm→cold tiers; Art. 17(3)(b) legal-hold carve-outs; nightly enforcer raises `RETENTION_POLICY_VIOLATION` (P2) on drift |
 | Error-code registry | spec **§23**, **149 codes** (supersedes 145/144/131/130/124 — remediation #37 added `RAIL_CUTOFF_EXCEEDED`, `BILATERAL_CREDIT_EXHAUSTED`, `DISCRETIONARY_OFFSET_INVALID`, `ISOLATED_MARGIN_DEFICIT`); Phase-05 Task 5.3.21 is the enforcement owner · every code is **owner-resolvable** — either emitted by a phase plan or cited with its owning `Phase-NN Task N.N.N` in §23; `CORPORATE_ACTION_SCHEDULED` is `reserved, never emitted` (no corporate actions in fiat spot FX); CI asserts zero ownerless codes (remediation #19) |

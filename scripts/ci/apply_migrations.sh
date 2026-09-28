@@ -61,24 +61,24 @@ docker exec -i "$CID" psql -v ON_ERROR_STOP=1 -U "$PG_USER" -d "$PG_DB" -c \
 mapfile -t UPS < <(ls "$MIG_DIR"/*.up.sql | sort)
 [ "${#UPS[@]}" -gt 0 ] || { echo "apply_migrations: no migrations in $MIG_DIR" >&2; exit 1; }
 
-# Foundational corpus gate: exactly 21 contiguous migrations 001..021
-# (Phase-01 §deliverables — the canonical count recorded in the phase doc and
-# AGENTS.md). A dropped or renumbered file must fail CI, not drift silently.
-EXPECTED_MIGRATIONS=21
-if [ "${#UPS[@]}" -ne "$EXPECTED_MIGRATIONS" ]; then
-    echo "apply_migrations: expected exactly $EXPECTED_MIGRATIONS .up.sql files, found ${#UPS[@]}:" >&2
-    printf '  %s\n' "${UPS[@]}" >&2
-    exit 1
-fi
-for i in "${!UPS[@]}"; do
-    want=$(printf '%03d' $((i + 1)))
-    base="$(basename "${UPS[$i]}")"
-    [[ "$base" == "$want"_*.up.sql ]] || {
-        echo "apply_migrations: numbering gap — position $((i + 1)) must be ${want}_*.up.sql, got $base" >&2
-        exit 1
-    }
+# Migration corpus gate (supersedes the Phase-01 "exactly 21 contiguous
+# 001..021" check — later phases allocate sparse task-numbered migrations):
+# no duplicate numeric prefixes and every .up.sql has a .down.sql sibling.
+# A dropped, renamed, or unpaired file must fail CI, not drift silently.
+seen=""
+for f in "${UPS[@]}"; do
+    base="$(basename "$f")"
+    num="${base%%_*}"
+    case " $seen " in *" $num "*)
+        echo "apply_migrations: duplicate migration number $num ($base)" >&2; exit 1;;
+    esac
+    seen="$seen $num"
+    [[ "$base" =~ ^[0-9]{3}_.*\.up\.sql$ ]] || {
+        echo "apply_migrations: bad migration name $base (want NNN_name.up.sql)" >&2; exit 1; }
+    [ -f "$MIG_DIR/${base%.up.sql}.down.sql" ] || {
+        echo "apply_migrations: missing down migration for $base" >&2; exit 1; }
 done
-echo "apply_migrations: corpus check ok — $EXPECTED_MIGRATIONS contiguous migrations (001..021)"
+echo "apply_migrations: corpus check ok — ${#UPS[@]} migrations, unique numbers, up/down paired"
 
 t_apply=$SECONDS
 for f in "${UPS[@]}"; do

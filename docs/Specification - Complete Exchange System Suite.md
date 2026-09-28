@@ -3532,7 +3532,7 @@ Full registry maintained in Phase-05 Task 5.3.21, which enforces the owner-resol
 | 45 | Price oracle: ≥2 independent sources; 5s staleness gate; fail-closed on stale | Phase 19.5 — Price Oracle & Mark Price Service | Phase 19.5-Price-Oracle-Mark-Price §AC rows 2, 9 | `T195-001` |
 | 46 | Global trading halt: kill-switch rejects all new orders; cancels/reads/WS survive | Phase 11 — Funding via Banking Rails, Suspension, Stats | Phase 11-Funding-Suspension §AC rows 18, 19 | `T11-011` |
 
-### 24.2 Extended Criteria (47–414) (supersedes prior 47–401/398/390/389/381/377/373/368/354/352/349/347/335/334/333/296/276/256/237; criteria 257–276 integrate remediation #13, 277–296 add remediation #14, 297–326 add remediation #15, 327–333 add remediation #17, 334 adds remediation #22, 335 adds remediation #23, 336–347 add remediation #24, 348–349 add remediation #25, 350–352 add remediation #26, 353–354 add remediation #27, 355–368 add remediation #28, 369–373 add remediation #29, 374–377 add remediation #30, 378–381 add remediation #31, 382–389 add remediation #32, 390 adds remediation #33, 391–398 add remediation #35, 399–401 add audit #36, 402–414 add remediation #37)
+### 24.2 Extended Criteria (47–418) (supersedes prior 47–401/398/390/389/381/377/373/368/354/352/349/347/335/334/333/296/276/256/237; criteria 257–276 integrate remediation #13, 277–296 add remediation #14, 297–326 add remediation #15, 327–333 add remediation #17, 334 adds remediation #22, 335 adds remediation #23, 336–347 add remediation #24, 348–349 add remediation #25, 350–352 add remediation #26, 353–354 add remediation #27, 355–368 add remediation #28, 369–373 add remediation #29, 374–377 add remediation #30, 378–381 add remediation #31, 382–389 add remediation #32, 390 adds remediation #33, 391–398 add remediation #35, 399–401 add audit #36, 402–414 add remediation #37, 415–418 add remediation #40)
 
 | # | Criterion | Owner Phase | Phase AC Reference | Stable Test Contract |
 |---|-----------|-------------|--------------------|--------------------|
@@ -3904,24 +3904,28 @@ Full registry maintained in Phase-05 Task 5.3.21, which enforces the owner-resol
 | 412 | Intraday dynamic collateral haircut re-evaluation recalculates effective equity on >100bps currency moves, preventing unauthorized collateral inflation | Phase 19 — Multi-Asset & Portfolio Margin | Phase 19-Multi-Asset-Margin §AC row 66 | `MAT-412` |
 | 413 | Banking rail cut-off engine automatically rolls settlement value dates forward for post-cut-off instructions, preventing overdraft and CSDR fails | Phase 24 — Backoffice & Settlement (Nostro/Vostro) | Phase 24-Backoffice-Settlement §AC row 47 | `MAT-413` |
 | 414 | Unmatched bank deposits route to designated GL suspense liability accounts with automated compliance quarantine | Phase 24 — Backoffice & Settlement (Nostro/Vostro) | Phase 24-Backoffice-Settlement §AC row 48 | `MAT-414` |
+| 415 | Multi-asset auto-exchange converts negative balances at index price + 0.1% buffer with balanced multi-currency GL journal, clearing deficits without external banking rails | Phase 3 — Risk & Settlement (Go, T+1/T+2) | Phase 03-Risk-Settlement §AC row 40 | `MAT-415` |
+| 416 | Carry-trade swap yield tracked per allocation with net-yield legs and settled daily during the 17:00 ET rollover, cumulative yield recorded | Phase 3 — Risk & Settlement (Go, T+1/T+2) | Phase 03-Risk-Settlement §AC row 41 | `MAT-416` |
+| 417 | VIP 0–9 tier engine recalculates 30-day volume and equity at 00:00 UTC daily with auditable tier history (migration 086) | Phase 3 — Risk & Settlement (Go, T+1/T+2) | Phase 03-Risk-Settlement §AC row 42 | `MAT-417` |
+| 418 | Negative maker fees are credited as cash rebates to the client balance with an offsetting debit to the liquidity-expense GL account | Phase 3 — Risk & Settlement (Go, T+1/T+2) | Phase 03-Risk-Settlement §AC row 43 | `MAT-418` |
 
 ### 24.3 Coverage Summary
 
 | Metric | Value |
 |---|---|
-| Total §24 criteria | 414 (supersedes prior 401, 398, 390, 368, 354, 352, 349, 347, 335, 334, 333, 326, 296, 276, 256, 252, 237, 219) |
-| Criteria with explicit phase AC row reference | 414 (supersedes prior 401, 398, 390, 368, 354, 352, 349, 347, 335, 334, 333, 326, 296) |
+| Total §24 criteria | 418 (supersedes prior 414, 401, 398, 390, 368, 354, 352, 349, 347, 335, 334, 333, 326, 296, 276, 256, 252, 237, 219) |
+| Criteria with explicit phase AC row reference | 418 (supersedes prior 414, 401, 398, 390, 368, 354, 352, 349, 347, 335, 334, 333, 326, 296) |
 | Criteria mapped by owner-phase inference | 0 |
 | Unmapped criteria | 0 |
 | Criteria without stable test contract | 0 |
 
 ### 24.4 Traceability Validation Rules
 
-1. CI extracts every §24 criterion ID (1–414) from this master specification and verifies exactly 414 matrix rows.
+1. CI extracts every §24 criterion ID (1–418) from this master specification and verifies exactly 418 matrix rows.
 2. CI fails if any criterion lacks an owner phase, phase AC reference, or stable test contract.
 3. New §24 criteria require an append-only matrix row plus a corresponding phase task/AC before merge.
 4. Deleted or renamed criteria require matrix row removal plus a changelog entry; manual waivers are prohibited.
-5. Phase 8 executes the Phase 1–7-owned executable subset; the Phase 24 → production gate requires all 414 criteria (supersedes prior 401, 398, 390, 368, 354, 352, 349, 347, 335, 334, 333, 326, 296, 276, 256, 252, 237, 219, 206 and 201) executable and passing with zero PLANNED/unmapped rows.
+5. Phase 8 executes the Phase 1–7-owned executable subset; the Phase 24 → production gate requires all 418 criteria (supersedes prior 414, 401, 398, 390, 368, 354, 352, 349, 347, 335, 334, 333, 326, 296, 276, 256, 252, 237, 219, 206 and 201) executable and passing with zero PLANNED/unmapped rows.
 
 ## 25. Summary
 
@@ -4059,6 +4063,15 @@ This specification defines a **complete production-grade FOREX exchange system s
     - **R18 (Firm Liquidity Enforcement):** Central Limit Order Book (CLOB) firm liquidity is strictly enforced per FX Global Code Principle 17; RFQ, RFS, indicative quotes, and last-look liquidity models are permanently out of scope.
   - **Day-0 Implementation Baseline:** Ratifies that while architectural design and planning coverage are 100%, production application code implementation is at 0.0% across all 13 domains, with implementation commencing immediately at Phase 01 Task 1.3.1.
   - **Canonical Counts Summary:** Unchanged and zero-drift verified across the entire corpus: §24 Criteria: **414** | Phase Tasks: **479** | Spec Checkpoints: **543** | Total Phase AC Rows: **1,079** | Error Codes: **149** | Migrations: **108**.
+- **Phase-03 implementation evidence remediation #40 (2026-09-28):** First implementation-phase reconciliation, recorded during Phase-03 landing:
+  - **§24 citation repair:** Phase-03 tasks 3.3.14/3.3.15/3.3.16/3.3.17 cited §24 rows #284/#288/#290/#291 which successive remediations had renumbered onto unrelated Phase-05/06/15 criteria — a dangling-citation defect. Repaired by appending §24 rows **#415** (auto-exchange deficit settlement, AC row 40), **#416** (carry-trade swap yield, AC row 41), **#417** (VIP 0–9 tier engine, AC row 42), **#418** (negative maker rebates, AC row 43) and updating all 12 phase-file citation sites. §24 criteria count 414 → **418**.
+  - **R19 (VIP tier matrix values — provisional):** spec §8.5 defines the 10-tier VIP concept and daily 00:00 UTC recompute but no concrete threshold/fee matrix. The implementation (migration 086 `vip_tier_schedule` + `internal/settlement/vip_engine.go`) ships a seeded matrix chosen during implementation; the seeded values are provisional house policy and may be tuned by Finance Ops without a spec change — the *mechanism* (daily recompute, tier history, Redis cache) is contractual, the numbers are configuration.
+  - **Swap-free GL account code:** Phase-03 Task 3.3.23 names `4020_SWAPFREE_ADMIN_REVENUE_{CCY}` while §5.45.3 says "posted to GL 4300". Ruling: **4020 is canonical** (task text wins over the older §5.45.3 prose); both codes are seeded in migration 088 so either reference resolves fail-safe, and the posting path uses `4020_SWAPFREE_ADMIN_REVENUE_{CCY}`. §5.45.3's "GL 4300" is superseded by this entry.
+  - **`chart_of_accounts.account_code` widened to VARCHAR(48):** migration 088 seeds compound codes (`4020_SWAPFREE_ADMIN_REVENUE_USD` = 30 chars) exceeding the 20-char column migration 036 created; 088 widens it. Recorded as schema drift resolved in favour of the wider bound.
+  - **Migration numbering beyond plan corpus:** the plan corpus prescribes migrations 001–108; Phase-03 tasks required additional tables beyond their assigned numbers (022/036/086/088/096/104/105), allocating **109–119 and 150** (`109_risk_limits_exposure`, `110_multi_currency_pnl`, `111_position_fills_and_limits`, `112_settlement_dispatch_and_nostro_movements`, `113_dust_sweeps`, `114_swap_rates`, `115_carry_trade`, `116_accounts_swapfree_status`, `117_swap_free_admin_fee_assessments`, `118_positions_rollover_columns`, `119_commission_engine`, `150_currency_holidays`). Future phases continue at 151+ or use their plan-assigned numbers, whichever is free.
+  - **`scripts/ci/apply_migrations.sh` corpus gate:** the "exactly 21 contiguous migrations" check was superseded by sparse task-numbered migrations; the gate now verifies unique numeric prefixes + up/down pairing instead.
+  - **New emitted error codes pending Phase-05 registry (Task 5.3.21):** `SWAP_RATE_STALE`, `SWAP_FEED_UNAVAILABLE`, plus settlement/commission codes emitted by the Phase-03 services — to be registered when Phase-05 owns the route/error registry.
+
 ### 27.1 Operational Domains & High-Level Completeness Matrix
 
 | # | Domain | Core Components | Spec % | Plan % | §24 ACs | Migrations | Code % | Implementation Readiness |

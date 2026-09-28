@@ -88,12 +88,12 @@ Harden the CI pipeline and test infrastructure to support 400+ per-task spec val
 **File Locations:** `docs/Specification - Complete Exchange System Suite.md` (§24), `tests/spec/traceability.go`
 
 **Implementation:**
-1. Extract every §24 criterion ID (1–414 (canonical criterion count, remediation #37); supersedes prior 1–401, 1–398, 1–335, 1–334, 1–333, 1–296, 1–276, 1–256, 1–252, 1–237, 1–219, 1–206, 1–201, 1–192, 1–174) directly from the specification §24 matrix.
+1. Extract every §24 criterion ID (1–418 (canonical criterion count, remediation #37); supersedes prior 1–401, 1–398, 1–335, 1–334, 1–333, 1–296, 1–276, 1–256, 1–252, 1–237, 1–219, 1–206, 1–201, 1–192, 1–174) directly from the specification §24 matrix.
 2. Map each criterion to ≥1 validating test and/or phase AC reference.
 3. CI job validates: 0 unmapped criteria; fails on gaps.
 
 **Definition of Done (Acceptance Criteria):**
-* [x] Specification §24 traceability matrix maps all 414 criteria (canonical, remediation #37) to owner phase, phase AC and stable test contract (supersedes prior 401, 398, 335, 334, 333, 296, 276, 256, 252, 237, 219, 206, 201, 192, 174; consolidated from prior standalone acceptance-matrix.md)
+* [x] Specification §24 traceability matrix maps all 418 criteria (canonical, remediation #37) to owner phase, phase AC and stable test contract (supersedes prior 414, 401, 398, 335, 334, 333, 296, 276, 256, 252, 237, 219, 206, 201, 192, 174; consolidated from prior standalone acceptance-matrix.md)
 * [x] CI job validates 0 unmapped criteria
 * [x] Matrix updated automatically when new criteria added
 
@@ -154,7 +154,7 @@ Harden the CI pipeline and test infrastructure to support 400+ per-task spec val
 - GitHub Actions CI pipeline with 4 parallel spec validation shards
 - Spec validation harness with 400+ checkpoint extraction (actual 543 across 479 tasks (canonical per AGENTS.md, remediation #37); supersedes prior 530/466, 527/463, 523/462, 467/405, 466/404, 422/360, 407/346, 377/316, 373/312, 365+, 358/297, 369+, 340+, 323, 315, 310+, 240+, 182+)
 - Golden corpus of 20+ spec-derived test cases
-- Criteria-to-test traceability matrix (414 criteria mapped; supersedes prior 401, 398, 335, 334, 333, 296, 276, 256, 252, 237, 219, 206, 201, 192, 174 and 164)
+- Criteria-to-test traceability matrix (418 criteria mapped; supersedes prior 414, 401, 398, 335, 334, 333, 296, 276, 256, 252, 237, 219, 206, 201, 192, 174 and 164)
 - Supply-chain security scanning (SAST, dependency audit, Trivy, secret scan)
 - Negative test suite & fault injection CI harness (Task 1.5.3.5)
 
@@ -192,7 +192,7 @@ Harden the CI pipeline and test infrastructure to support 400+ per-task spec val
 | 8 | Golden corpus: 20+ spec-derived test cases (FIFO, self-trade, FOK/IOC, ICEBERG, balance, WAL) |
 | 9 | JSON report with per-checkpoint pass/fail generated |
 | 10 | CI fails on any checkpoint failure |
-| 11 | Specification §24 traceability matrix maps all 414 criteria to owner phase, phase AC and stable test contract (supersedes prior 401, 398, 335, 334, 333, 296, 276, 256, 252, 237, 219, 206, 201, 192, 174; consolidated from prior standalone acceptance-matrix.md) |
+| 11 | Specification §24 traceability matrix maps all 418 criteria to owner phase, phase AC and stable test contract (supersedes prior 414, 401, 398, 335, 334, 333, 296, 276, 256, 252, 237, 219, 206, 201, 192, 174; consolidated from prior standalone acceptance-matrix.md) |
 | 12 | CI job validates 0 unmapped criteria |
 | 13 | Ephemeral services (PostgreSQL, Redis, ClickHouse) health-checked before tests |
 | 14 | CMake build cache + Go module cache + Docker layer cache configured |
