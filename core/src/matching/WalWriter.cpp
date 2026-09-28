@@ -86,6 +86,11 @@ WalStatus WalWriter::write_time_tick(uint64_t tick_ns) noexcept {
     return append(WalEventType::TIME_TICK, &p, sizeof(p), tick_ns);
 }
 
+WalStatus WalWriter::write_prevented_match(
+    const WalPreventedMatchPayload& p, uint64_t ts_ns) noexcept {
+    return append(WalEventType::PREVENTED_MATCH, &p, sizeof(p), ts_ns);
+}
+
 WalStatus WalWriter::flush() noexcept {
     if (wal_ == nullptr) return WalStatus::NotOpen;
     return wal_->flush();

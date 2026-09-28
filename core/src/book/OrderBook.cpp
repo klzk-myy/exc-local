@@ -27,6 +27,28 @@ namespace {
     return r;
 }
 
+// Task 2.3.20 (spec §6.9 fairness): FIFO within a level is ordered by the
+// (timestamp_ns, ingress_seq) priority key, not blind arrival order — an
+// amend re-stamp or a timestamped replayed entry could otherwise land behind
+// a strictly younger-keyed node. Walk back from the tail past every node
+// with a greater key and splice in place; equal keys stay behind existing
+// equals (stable). The common case is O(1): non-decreasing keys trip the
+// tail comparison once, matching the old push_back cost.
+void level_insert_priority(PriceLevel& lvl, Order* o) noexcept {
+    Order* pos = lvl.tail;
+    while (pos != nullptr &&
+           (pos->timestamp_ns > o->timestamp_ns ||
+            (pos->timestamp_ns == o->timestamp_ns &&
+             pos->ingress_seq > o->ingress_seq))) {
+        pos = pos->prev;
+    }
+    o->prev = pos;
+    o->next = pos != nullptr ? pos->next : lvl.head;
+    if (pos != nullptr) pos->next = o; else lvl.head = o;
+    if (o->next != nullptr) o->next->prev = o; else lvl.tail = o;
+    ++lvl.order_count;
+}
+
 }  // namespace
 
 const char* book_error_name(BookError e) noexcept {
@@ -217,7 +239,7 @@ BookError OrderBook::add_order(const Order& tmpl, Order** out) noexcept {
     PriceLevel* lvl =
         found ? &side_levels(tmpl.side)[idx]
               : insert_level_at(tmpl.side, idx, tmpl.price_ticks);
-    lvl->push_back(o);
+    level_insert_priority(*lvl, o);
     lvl->total_qty_units = new_total;
     index_insert(o);
     ++live_orders_;
@@ -257,7 +279,8 @@ BookError OrderBook::cancel_order(uint64_t id, Order* snapshot_out) noexcept {
 BookError OrderBook::modify_order(uint64_t id, int64_t new_price_ticks,
                                   int64_t new_qty_units,
                                   uint64_t new_timestamp_ns,
-                                  uint64_t new_ingress_seq) noexcept {
+                                  uint64_t new_ingress_seq,
+                                  bool force_requeue) noexcept {
     Order* o = index_find(id);
     if (o == nullptr) return BookError::NOT_FOUND;
     // IOC/FOK never rest long enough to amend — rejected outright per the
@@ -269,7 +292,7 @@ BookError OrderBook::modify_order(uint64_t id, int64_t new_price_ticks,
     if (new_qty_units <= 0) return BookError::INVALID_QTY;
     // Amending to <= already-filled leaves nothing live — caller cancels.
     if (new_qty_units <= o->filled_qty_units) return BookError::INVALID_QTY;
-    if (new_price_ticks == o->price_ticks &&
+    if (!force_requeue && new_price_ticks == o->price_ticks &&
         new_qty_units == o->qty_units) {
         return BookError::OK;  // no-op: no mutation → no seq bump
     }
@@ -280,9 +303,12 @@ BookError OrderBook::modify_order(uint64_t id, int64_t new_price_ticks,
     PriceLevel* src = &side_levels(o->side)[src_idx];
     const int64_t new_rem = new_qty_units - o->filled_qty_units;
 
-    if (new_price_ticks == o->price_ticks && new_qty_units < o->qty_units) {
+    if (!force_requeue && new_price_ticks == o->price_ticks &&
+        new_qty_units < o->qty_units) {
         // Keep-priority path (spec §6.6a / Task 2.3.20): qty-down-only stays
-        // in place with its original timestamp and level position.
+        // in place with its original timestamp and level position. A forced
+        // requeue (ICEBERG display_qty change, spec §6.9) skips this branch
+        // and loses priority even though the node quantity shrank.
         const int64_t delta = o->qty_units - new_qty_units;
         int64_t new_total;
         if (!safe_math::try_sub(src->total_qty_units, delta, new_total)) {
@@ -351,7 +377,7 @@ BookError OrderBook::modify_order(uint64_t id, int64_t new_price_ticks,
     } else {
         dst_total = new_rem;
     }
-    dst->push_back(o);
+    level_insert_priority(*dst, o);
     dst->total_qty_units = dst_total;
     ++book_seq_;
     return BookError::OK;

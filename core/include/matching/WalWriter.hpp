@@ -43,6 +43,8 @@ struct OrderAux {
                                     // computes DAY session close; 0 = none)
     uint32_t trade_group_id   = 0;  // migration 072 STP group; 0 = none
     uint32_t instrument_id    = 0;  // WAL stamping when book has no instrument
+    int64_t  discretionary_offset_pips = 0;  // Task 2.3.26 (§6.11, migration
+                                           // 103); whole pips, 0 = plain limit
 };
 
 // Cancel/terminal reasons — values of WalOrderCancelPayload.reason.
@@ -105,6 +107,12 @@ public:
                                         int64_t qty_units,
                                         uint64_t ts_ns) noexcept;
     [[nodiscard]] WalStatus write_time_tick(uint64_t tick_ns) noexcept;
+    // Task 2.3.18 — immutable STP prevented-match audit record (spec §6.5,
+    // §24 #279-280). Appended by the matching engine for mutually-requested
+    // TRANSFER prevention across accounts inside one trade_group_id; the
+    // Phase-03 GL service consumes it for the balanced ledger posting.
+    [[nodiscard]] WalStatus write_prevented_match(
+        const WalPreventedMatchPayload& p, uint64_t ts_ns) noexcept;
 
     // Durability barrier passthrough (batch fsync).
     [[nodiscard]] WalStatus flush() noexcept;

@@ -437,8 +437,7 @@ void EnginePump::dispatch(const uint8_t* data, uint32_t len) noexcept {
                 }
                 aux.trade_group_id = m->trade_group_id();
                 aux.instrument_id = m->instrument_id();
-                // discretionary_offset_pips is engine-consumed in Task 2.3.26;
-                // rides the wire now so that task adds no schema churn.
+                aux.discretionary_offset_pips = m->discretionary_offset_pips();
 
                 if (wal_ != nullptr && opts_.wal_log_commands) {
                     WalOrderNewPayload p{};

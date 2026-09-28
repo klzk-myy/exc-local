@@ -25,6 +25,8 @@
 
 #include "book/OrderBook.hpp"
 #include "book/PriceLevel.hpp"
+#include "matching/MatchingEngine.hpp"
+#include "matching/WalWriter.hpp"
 #include "recovery/RecoveryManager.hpp"
 #include "recovery/SnapshotStore.hpp"
 #include "utils/MemoryPool.hpp"
@@ -67,13 +69,28 @@ Order mk_order(uint64_t id, Side side, int64_t price, int64_t qty,
     return o;
 }
 
+// Order-type wire code — must match MatchingEngine::write_order_new
+// (MARKET=0, LIMIT=1, STOP=2, STOP_LIMIT=3, ICEBERG=250); the enum
+// underlying values differ (LIMIT=0/MARKET=1), so a raw enum cast
+// would mis-encode the journal.
+uint8_t wire_type(OrderType t) {
+    switch (t) {
+        case OrderType::MARKET:     return 0;
+        case OrderType::LIMIT:      return 1;
+        case OrderType::STOP:       return 2;
+        case OrderType::STOP_LIMIT: return 3;
+        case OrderType::ICEBERG:    return kWalOrderTypeIceberg;
+        default:                    return 1;  // LIMIT convention
+    }
+}
+
 WalOrderNewPayload p_new(const Order& o, uint32_t iid = kIid) {
     WalOrderNewPayload p{};
     p.order_id = o.id;
     p.account_id = o.account_id;
     p.instrument_id = iid;
     p.side = static_cast<uint8_t>(o.side);
-    p.type = static_cast<uint8_t>(o.type);
+    p.type = wire_type(o.type);
     p.tif = static_cast<uint8_t>(o.tif);
     p.flags = o.flags;
     p.price_ticks = o.price_ticks;
@@ -83,10 +100,13 @@ WalOrderNewPayload p_new(const Order& o, uint32_t iid = kIid) {
     return p;
 }
 
-WalOrderCancelPayload p_cancel(uint64_t id, uint8_t reason = 0) {
+// account_id must match the order's account — the replay engine enforces
+// the same auth check as live cancel_internal (spec §3.5 replay fidelity).
+WalOrderCancelPayload p_cancel(uint64_t id, uint8_t reason = 0,
+                               uint64_t acct = 42) {
     WalOrderCancelPayload p{};
     p.order_id = id;
-    p.account_id = 42;
+    p.account_id = acct;
     p.reason = reason;
     return p;
 }
@@ -740,7 +760,7 @@ TEST(RecoveryManager, FullStateByteIdenticalToLiveBook) {
     const WalOrderNewPayload n5 = p_new(o5);
     const WalTradePayload t1 = p_trade(500, 1, 999, 10000 * kTick, 20);
     const WalOrderModifyPayload m2 = p_modify(2, 10000 * kTick, 40);
-    const WalOrderCancelPayload c3 = p_cancel(3);
+    const WalOrderCancelPayload c3 = p_cancel(3, 0, /*acct*/ 7);
     const WalTradePayload t2 = p_trade(501, 1, 998, 10000 * kTick, 30);
     write_wal(wpath.string(), kShard,
               {
@@ -824,4 +844,148 @@ TEST(RecoveryManager, ForeignInstrumentEntriesCountedNotApplied) {
     ASSERT_EQ(f.book.live_orders(), 1u);
     EXPECT_NE(f.book.find_order(1), nullptr);
     EXPECT_EQ(f.book.find_order(55), nullptr);
+}
+
+namespace {
+
+// Structural book state: per-side level chain -> (price, [(id, remaining,
+// filled)]). Replay stamps (timestamp_ns/ingress_seq) intentionally differ
+// from a live book's, so equality is defined on the resting-state contract.
+struct OrderLine {
+    uint64_t id;
+    int64_t remaining;
+    int64_t filled;
+    bool operator==(const OrderLine&) const = default;
+};
+std::vector<std::tuple<Side, int64_t, std::vector<OrderLine>>>
+book_state(const OrderBook& b) {
+    std::vector<std::tuple<Side, int64_t, std::vector<OrderLine>>> out;
+    for (Side s : {Side::BUY, Side::SELL}) {
+        for (std::size_t d = 0;; ++d) {
+            const PriceLevel* lvl = b.level(s, d);
+            if (lvl == nullptr) break;
+            std::vector<OrderLine> lines;
+            for (const Order* o = lvl->head; o != nullptr; o = o->next) {
+                lines.push_back(
+                    {o->id, remaining_qty_units(*o), o->filled_qty_units});
+            }
+            out.emplace_back(s, lvl->price_ticks, std::move(lines));
+        }
+    }
+    return out;
+}
+
+}  // namespace
+
+TEST(RecoveryManager, LiveWalWithMarketableTakersReplays) {
+    // The Phase-02 replay gap, end-to-end: the engine journals ORDER_NEW at
+    // admission, so a marketable taker's NEW precedes its TRADE tail and
+    // naive reinsertion reports CROSSED. Deferred-taker replay must converge
+    // to the live book's resting state.
+    const auto dir = tmp_dir("live_taker_flow");
+    const auto wpath = dir / "0.wal";
+
+    MemoryPool<Order> live_pool{512};
+    OrderBook live_book{live_pool};
+    Instrument instr;
+    instr.instrument_id = kIid;
+    instr.pip_factor = 10;
+    instr.pip_size_ticks = 10'000;
+    instr.tick_size_ticks = 1;
+    instr.lot_size_units = 1;
+    live_book.set_instrument(instr);
+    Wal wal(wpath.string(), kShard);
+    ASSERT_EQ(wal.open(), WalStatus::Ok);
+    WalWriter ww(&wal);
+    MatchingEngine eng(kShard, live_book, live_pool, &ww, nullptr);
+    OrderAux aux{};
+    aux.instrument_id = kIid;
+
+    auto send = [&](uint64_t id, Side side, int64_t px, int64_t qty,
+                    TimeInForce tif = TimeInForce::GTC, uint64_t acct = 1) {
+        Order* o = live_pool.alloc();
+        ASSERT_NE(o, nullptr);
+        *o = mk_order(id, side, px, qty, /*ts*/ 100 + id, /*seq*/ id, acct);
+        o->tif = tif;
+        eng.on_order_received(o, aux);
+    };
+
+    send(1, Side::SELL, 10100, 20, TimeInForce::GTC, 9);  // maker
+    send(2, Side::BUY, 10100, 30, TimeInForce::GTC, 8);   // fills 20, rests 10
+    send(3, Side::SELL, 10200, 15, TimeInForce::GTC, 9);  // deeper maker
+    send(4, Side::BUY, 10300, 25, TimeInForce::GTC, 8);   // fills 15, rests 10
+    send(5, Side::BUY, 10200, 5, TimeInForce::IOC, 8);    // no liquidity -> dead
+    send(6, Side::SELL, 9900, 5, TimeInForce::GTC, 7);    // sweeps best bid 10300
+    eng.on_time_tick(9'999);
+    wal.close();
+    const char* v = nullptr;
+    ASSERT_TRUE(live_book.validate(&v)) << (v ? v : "");
+
+    Fixture got;
+    RecoveryManager rm(kShard);
+    const RecoveryResult res = rm.recover(dir.string(), {{kIid, &got.book}});
+    ASSERT_EQ(res.status, RecoveryStatus::Ok) << res.detail;
+    EXPECT_TRUE(got.book.validate(&v)) << (v ? v : "");
+
+    // Resting-state equality: same levels, same FIFO order, same remaining
+    // and filled quantities — the gap previously failed at replayed NEW id2.
+    EXPECT_EQ(book_state(got.book), book_state(live_book));
+
+    // Sanity on the scenario itself.
+    const Order* o2 = got.book.find_order(2);
+    ASSERT_NE(o2, nullptr);
+    EXPECT_EQ(o2->price_ticks, 10100);
+    EXPECT_EQ(remaining_qty_units(*o2), 10);
+    const Order* o4 = got.book.find_order(4);
+    ASSERT_NE(o4, nullptr);
+    EXPECT_EQ(remaining_qty_units(*o4), 5);  // 10 rested - 5 sold to id6
+}
+
+TEST(RecoveryManager, DeferredTakerRestingAcrossMidStream) {
+    // Priority ordering: a deferred taker's remainder must sit at its level
+    // BEFORE a later same-price resting order — materialization order is
+    // WAL order, not stream-end order.
+    const auto dir = tmp_dir("pending_fifo");
+    const auto wpath = dir / "0.wal";
+
+    MemoryPool<Order> live_pool{512};
+    OrderBook live_book{live_pool};
+    Instrument instr;
+    instr.instrument_id = kIid;
+    instr.pip_factor = 10;
+    instr.pip_size_ticks = 10'000;
+    instr.tick_size_ticks = 1;
+    instr.lot_size_units = 1;
+    live_book.set_instrument(instr);
+    Wal wal(wpath.string(), kShard);
+    ASSERT_EQ(wal.open(), WalStatus::Ok);
+    WalWriter ww(&wal);
+    MatchingEngine eng(kShard, live_book, live_pool, &ww, nullptr);
+    OrderAux aux{};
+    aux.instrument_id = kIid;
+
+    auto send = [&](uint64_t id, Side side, int64_t px, int64_t qty,
+                    uint64_t acct = 1) {
+        Order* o = live_pool.alloc();
+        ASSERT_NE(o, nullptr);
+        *o = mk_order(id, side, px, qty, 100 + id, id, acct);
+        eng.on_order_received(o, aux);
+    };
+
+    send(1, Side::SELL, 10100, 10, 9);   // maker
+    send(2, Side::BUY, 10100, 30, 8);    // fills 10, rests 20 @10100 (deferred)
+    send(3, Side::BUY, 10100, 7, 9);     // later same-level rest — behind id2
+    wal.close();
+
+    Fixture got;
+    RecoveryManager rm(kShard);
+    const RecoveryResult res = rm.recover(dir.string(), {{kIid, &got.book}});
+    ASSERT_EQ(res.status, RecoveryStatus::Ok) << res.detail;
+    EXPECT_EQ(book_state(got.book), book_state(live_book));
+
+    const PriceLevel* lvl = got.book.level(Side::BUY, 0);
+    ASSERT_NE(lvl, nullptr);
+    ASSERT_NE(lvl->head, nullptr);
+    EXPECT_EQ(lvl->head->id, 2u);               // deferred taker keeps head
+    EXPECT_EQ(lvl->head->next->id, 3u);
 }

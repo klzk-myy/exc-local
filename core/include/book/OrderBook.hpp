@@ -15,6 +15,13 @@
 // power-of-two bucket array using intrusive `hash_next` chains (Fibonacci
 // hashing) — O(1) expected cancel/modify by id with zero per-op allocation.
 //
+// FIFO within a price level is keyed on (timestamp_ns, ingress_seq)
+// explicitly — Task 2.3.20 fairness: level insertion splices a node ahead
+// of any resting node with a strictly greater key rather than blindly
+// tail-appending, so an amend re-stamp can never park an older-keyed node
+// behind a younger one (deterministic under WAL replay — same stamps, same
+// chain).
+//
 // Memory: orders come exclusively from the MemoryPool<Order> bound at
 // construction — zero new/delete in add/cancel/modify/fill (spec §3.6.1).
 // The one heap allocation in the whole object is the id-index bucket array,
@@ -139,20 +146,26 @@ public:
                                          Order* snapshot_out = nullptr) noexcept;
 
     // Amend/replace (Task 2.3.20 + spec §6.6a/§6.9 contract):
-    //   * price change OR qty increase  → remove + re-insert at the FIFO
-    //     tail with fresh timestamp_ns/ingress_seq (priority lost);
+    //   * price change OR qty increase  → remove + re-insert under the
+    //     (timestamp_ns, ingress_seq) priority key with fresh stamps
+    //     (priority lost — lands at the level tail in practice);
     //   * qty decrease at same price    → in-place, position + timestamp
     //     preserved;
+    //   * force_requeue                 → unconditional remove + re-insert
+    //     even when price/qty are unchanged or down — ICEBERG display_qty
+    //     changes lose priority per spec §6.9 item 2;
     //   * IOC/FOK orders                → NOT_MODIFIABLE;
     //   * new_qty <= filled_qty         → INVALID_QTY (cancel instead);
     //   * new price meeting/crossing opposite best → CROSSED (order
     //     untouched — validation precedes any unlink, atomically).
     // Order id and filled_qty_units are preserved across the amend.
-    // A no-op amend (same price + same qty) is OK without a seq bump.
+    // A no-op amend (same price + same qty + !force_requeue) is OK without
+    // a seq bump.
     [[nodiscard]] BookError modify_order(uint64_t id, int64_t new_price_ticks,
                                          int64_t new_qty_units,
                                          uint64_t new_timestamp_ns,
-                                         uint64_t new_ingress_seq) noexcept;
+                                         uint64_t new_ingress_seq,
+                                         bool force_requeue = false) noexcept;
 
     // Apply a fill against a resting maker: increments filled_qty_units,
     // decrements the level aggregate; on full fill unlinks + frees the order

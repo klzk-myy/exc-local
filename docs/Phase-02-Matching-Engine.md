@@ -268,19 +268,19 @@ Implement the C++ matching engine: order book data structure, price-time priorit
 7. 8s total deadline (5s reserve + 3s commit/compensate) — arithmetic corrected 2026-09-27, remediation #35 (supersedes prior "10s total deadline (5s reserve + 3s commit/compensate)", which was self-contradictory).
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Reserve phase holds balances on all participant shards; 5s TTL (supersedes prior 30s, remediation #35)
-* [ ] Commit atomically activates all within 5s window
-* [ ] Compensate rolls back all on any failure
-* [ ] `operation_id` deduplicates retries — same ID returns cached result
-* [ ] Cross-shard basket (3 shards, 3 orders) achieves all-or-nothing commit/compensate
-* [ ] Simulated reserve timeout → full compensation with balance unlock
-* [ ] Prometheus metrics: cross_shard_transactions_total, successes, failures, duration
+* [x] Reserve phase holds balances on all participant shards; 5s TTL (supersedes prior 30s, remediation #35)
+* [x] Commit atomically activates all within 5s window
+* [x] Compensate rolls back all on any failure
+* [x] `operation_id` deduplicates retries — same ID returns cached result
+* [x] Cross-shard basket (3 shards, 3 orders) achieves all-or-nothing commit/compensate
+* [x] Simulated reserve timeout → full compensation with balance unlock
+* [x] Prometheus metrics: cross_shard_transactions_total, successes, failures, duration
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: 2-phase commit with compensation — defined first, validated against spec
-- [ ] Spec checkpoint: operation_id dedup — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: partial reserve failure, commit timeout, reaper cleanup, duplicate operation_id
+- [x] Spec checkpoint: 2-phase commit with compensation — defined first, validated against spec
+- [x] Spec checkpoint: operation_id dedup — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [x] Edge cases: partial reserve failure, commit timeout, reaper cleanup, duplicate operation_id
 
 ---
 
@@ -352,9 +352,9 @@ Implement the C++ matching engine: order book data structure, price-time priorit
 * [ ] STP outcomes emit WAL cancel events with reason=STP; recovery reproduces them exactly
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: configurable STP modes per spec §6.5 / §24 #154 — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: DECREMENT partial resting, STP on ICEBERG hidden portion, STP during auction uncross
+- [x] Spec checkpoint: configurable STP modes per spec §6.5 / §24 #154 — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [x] Edge cases: DECREMENT partial resting, STP on ICEBERG hidden portion, STP during auction uncross
 
 ---
 
@@ -395,14 +395,14 @@ Implement the C++ matching engine: order book data structure, price-time priorit
 4. **Safe Level Serialization:** In `BookSerializer`, serialize only actual populated price levels. When book depth < 20 (or 0), emit exact level count without synthesizing zero-price padding records.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Market order rejected when spread exceeds `max_spread_pips`
-* [ ] Market/IOC/FOK order rejected when target book side is empty
-* [ ] L2 snapshot serializes exact available level count without artificial zero padding
+* [x] Market order rejected when spread exceeds `max_spread_pips`
+* [x] Market/IOC/FOK order rejected when target book side is empty
+* [x] L2 snapshot serializes exact available level count without artificial zero padding
 
 **SDD Checklist (MANDATORY):**
-- [ ] Spec checkpoint: sparse order book protection and level serialization (§6.6, §24 #188) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: crossed book rejection, 1-level book, rapid spread widening during matching
+- [x] Spec checkpoint: sparse order book protection and level serialization (§6.6, §24 #188) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [x] Edge cases: crossed book rejection, 1-level book, rapid spread widening during matching
 
 ---
 
@@ -433,17 +433,17 @@ Cross-shard basket order 2PC reservations (Task 2.3.5) must enforce:
 7. During auction/halt modes, market orders are already rejected — protection only applies in continuous trading.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Market order in thin book fills only up to protection_price, remainder rejected with SLIPPAGE_EXCEEDED
-* [ ] Protection price computed correctly for both buy and sell sides
-* [ ] max_slippage_bps configurable per instrument via admin API
-* [ ] WAL records MARKET_WITH_PROTECTION type for deterministic replay
-* [ ] Surveillance event emitted when protection triggers
+* [x] Market order in thin book fills only up to protection_price, remainder rejected with SLIPPAGE_EXCEEDED
+* [x] Protection price computed correctly for both buy and sell sides
+* [x] max_slippage_bps configurable per instrument via admin API
+* [x] WAL records MARKET_WITH_PROTECTION type for deterministic replay
+* [x] Surveillance event emitted when protection triggers
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: market order protection — defined first, validated against spec
-- [ ] Spec checkpoint: per-instrument slippage bands — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: empty book (immediate reject), slippage_bps = 0 (full protection off), crossed book
+- [x] Spec checkpoint: market order protection — defined first, validated against spec
+- [x] Spec checkpoint: per-instrument slippage bands — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [x] Edge cases: empty book (immediate reject), slippage_bps = 0 (full protection off), crossed book
 
 ---
 
@@ -452,8 +452,8 @@ Cross-shard basket order 2PC reservations (Task 2.3.5) must enforce:
 STP mode `NONE` (disabled) — gated to `PROFESSIONAL` and `ELIGIBLE_COUNTERPARTY` client categories only. When `stp_mode=NONE`, self-matching proceeds without prevention. All self-trades logged with `SELF_TRADE` flag and routed to Phase-17 surveillance for wash-trading monitoring. Rejects with `STP_NONE_NOT_PERMITTED` if client category is retail.
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: STP NONE is category-gated and surveillance-visible (§24 #274) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: STP NONE is category-gated and surveillance-visible (§24 #274) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -468,8 +468,8 @@ STP mode `NONE` (disabled) — gated to `PROFESSIONAL` and `ELIGIBLE_COUNTERPART
 4. Apply identically to direct, SOR-returned, batch, WS, and FIX orders.
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: reference-price execution limits are fixed for the taker phase and emit an expiry reason (§24 #277) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: reference-price execution limits are fixed for the taker phase and emit an expiry reason (§24 #277) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -484,8 +484,8 @@ STP mode `NONE` (disabled) — gated to `PROFESSIONAL` and `ELIGIBLE_COUNTERPART
 4. Persist cumulative prevented quantity on each order and expose records through Phase-05 APIs/private streams.
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: trade-group STP, TRANSFER, and prevented-match accounting replay deterministically (§24 #279–280) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: trade-group STP, TRANSFER, and prevented-match accounting replay deterministically (§24 #279–280) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -523,14 +523,14 @@ STP mode `NONE` (disabled) — gated to `PROFESSIONAL` and `ELIGIBLE_COUNTERPART
 4. **Fairness timestamping:** `timestamp_ns` is stamped at Aeron ingress (`ingress_seq` assigned per shard, gap-checked); FIFO ties break on `(price, timestamp_ns, ingress_seq)`. PTP discipline (Phase-09 Task 9.3.12) feeds the stamp clock; minimum quote life interacts with the OTR counter (Phase-13 Task 13.3.6) rather than bypassing it.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Concurrent amends resolve to one winner; losers get STALE_MODIFY with zero double-apply
-* [ ] Priority rules enforced per field class; GTD reset and IOC/FOK amend rejection verified
-* [ ] Amend-in-auction rejected with AMEND_IN_AUCTION_REJECTED; cancel path unaffected
-* [ ] FIFO tie-break deterministic on (price, timestamp_ns, ingress_seq) under replay
+* [x] Concurrent amends resolve to one winner; losers get STALE_MODIFY with zero double-apply
+* [x] Priority rules enforced per field class; GTD reset and IOC/FOK amend rejection verified
+* [x] Amend-in-auction rejected with AMEND_IN_AUCTION_REJECTED; cancel path unaffected
+* [x] FIFO tie-break deterministic on (price, timestamp_ns, ingress_seq) under replay
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: atomic cancel-replace, amend priority per field class, auction-state amend gate and deterministic fairness timestamping (§24 #336) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: atomic cancel-replace, amend priority per field class, auction-state amend gate and deterministic fairness timestamping (§24 #336) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -550,8 +550,8 @@ STP mode `NONE` (disabled) — gated to `PROFESSIONAL` and `ELIGIBLE_COUNTERPART
 * [ ] Category gating enforced on NONE; resolved mode persisted per fill
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: account-default STP with category gating and per-fill persistence (§24 #368) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: account-default STP with category gating and per-fill persistence (§24 #368) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ### Task 2.3.22: Trade-Through Protection & Price Improvement
 
@@ -577,8 +577,8 @@ STP mode `NONE` (disabled) — gated to `PROFESSIONAL` and `ELIGIBLE_COUNTERPART
 * [ ] Events emitted to NATS for best-execution reporting
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: trade-through prevention and price-improvement recording (§24 #400) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: trade-through prevention and price-improvement recording (§24 #400) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -642,13 +642,13 @@ STP mode `NONE` (disabled) — gated to `PROFESSIONAL` and `ELIGIBLE_COUNTERPART
 4. Unwind slippage/loss is posted to `5010_CROSS_SHARD_EXECUTION_DIFF` in the general ledger.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Cross-shard basket orders execute optimistically with 500µs timeout
-* [ ] Zero resting multi-second balance locks on participating matching shards
-* [ ] Failed legs trigger immediate compensating market unwinds with zero orphaned positions
+* [x] Cross-shard basket orders execute optimistically with 500µs timeout
+* [x] Zero resting multi-second balance locks on participating matching shards
+* [x] Failed legs trigger immediate compensating market unwinds with zero orphaned positions
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: optimistic cross-shard routing with 500µs timeout and compensating unwinds (§24 #404) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: optimistic cross-shard routing with 500µs timeout and compensating unwinds (§24 #404) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -672,8 +672,8 @@ STP mode `NONE` (disabled) — gated to `PROFESSIONAL` and `ELIGIBLE_COUNTERPART
 * [ ] Negative discretionary offsets rejected with `DISCRETIONARY_OFFSET_INVALID` (HTTP 400)
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: discretionary offset order execution with hidden price band and passive public display (§24 #405) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: discretionary offset order execution with hidden price band and passive public display (§24 #405) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 

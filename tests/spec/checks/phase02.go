@@ -93,6 +93,62 @@ func registerPhase02(r *spec.Registry) {
 	// ---- Task 2.3.24: Bilateral Credit Matrix -----------------------------------
 	r.Register("P02-T2.3.24-C1", ckBilateralCreditMatrix,
 		"in-memory shm bilateral credit matrix, consume-or-skip in matching loop (§3.3b, §24 #403)")
+
+	// ---- Task 2.3.8: Cross-Shard Basket Order 2PC ------------------------------
+	// Task 2.3.14 (prose-format, no checkpoint line) folds into these checks:
+	// the 5s TTL / 10-concurrent / 2s-reaper contract is verified here.
+	r.Register("P02-T2.3.8-C1", ckCrossShard2PC,
+		"coordinator lowest-shard, RESERVED TTL, atomic commit, all-or-nothing compensate (§6.7)")
+
+	r.Register("P02-T2.3.8-C2", ckCrossShardDedup,
+		"operation_id retry dedup — cached result, zero double-apply")
+
+	// ---- Task 2.3.25: Optimistic Cross-Shard Reservation ------------------------
+	r.Register("P02-T2.3.25-C1", ckOptimisticCrossShard,
+		"parallel TRY_MATCH 500us timeout, COMPENSATE_UNWIND, 5010 GL posting, no resting locks")
+
+	// ---- Task 2.3.13: Sparse-Book Protection + Serialization --------------------
+	r.Register("P02-T2.3.13-C1", ckSparseBookProtection,
+		"wide-spread market reject, empty-side reject, exact-depth serialization (§6.6)")
+
+	// ---- Task 2.3.15: Market-Order Slippage Protection --------------------------
+	r.Register("P02-T2.3.15-C1", ckMarketSlippageProtection,
+		"max_slippage_bps synthetic-limit conversion, SLIPPAGE_EXCEEDED, MARKET_WITH_PROTECTION (§6.6a)")
+
+	r.Register("P02-T2.3.15-C2", ckSlippagePerInstrument,
+		"per-instrument slippage bands — 100bps major/200bps exotic defaults, >=10000 disables")
+
+	// ---- Task 2.3.20: Atomic Amend/Replace --------------------------------------
+	r.Register("P02-T2.3.20-C1", ckAtomicAmend,
+		"single replaceOrder path, one-winner fence, priority semantics, GTD rearm (§6.9)")
+
+	// ---- Task 2.3.11: Configurable STP Modes -------------------------------------
+	r.Register("P02-T2.3.11-C1", ckStpModesFull,
+		"all four prevention modes + iceberg/auction coverage inside matching loop (§6.5)")
+
+	// ---- Task 2.3.16: STP NONE Professional Gate ---------------------------------
+	r.Register("P02-T2.3.16-C1", ckStpNoneGating,
+		"NONE restricted to Professional/ECP, STP_NONE_NOT_PERMITTED, SELF_TRADE surveillance")
+
+	// ---- Task 2.3.17: Reference-Price Execution Rule ------------------------------
+	r.Register("P02-T2.3.17-C1", ckExecutionCollar,
+		"phase-entry bounds snapshot, EXECUTION_RULE_PRICE_RANGE_EXCEEDED, stale-ref fail-closed (§22.2)")
+
+	// ---- Task 2.3.18: Trade Groups + TRANSFER + Prevented Matches ------------------
+	r.Register("P02-T2.3.18-C1", ckTradeGroupsTransfer,
+		"trade_group_id STP, mutual TRANSFER, PREVENTED_MATCH audit rows, deterministic replay (§6.5)")
+
+	// ---- Task 2.3.21: Account Default STP ------------------------------------------
+	r.Register("P02-T2.3.21-C1", ckAccountDefaultStp,
+		"accounts.default_stp_mode resolution chain, resting-order insulation, stamped mode")
+
+	// ---- Task 2.3.22: Trade-Through + Price Improvement ----------------------------
+	r.Register("P02-T2.3.22-C1", ckTradeThroughImprovement,
+		"protected-quote guard, market clip + SLIPPAGE_EXCEEDED, improvement delta stamps (§6.6b, §24 #400)")
+
+	// ---- Task 2.3.26: Discretionary Offset / FAS -------------------------------------
+	r.Register("P02-T2.3.26-C1", ckDiscretionaryFas,
+		"hidden offset band sweep, rest at nominal limit, public L2 hides band (§6.11)")
 }
 
 // ============================ implementations ============================
@@ -502,5 +558,173 @@ func ckBilateralCreditMatrix(ctx context.Context, env *spec.Env) spec.Result {
 		structural(env, "core/include/risk/RiskInterfaces.hpp",
 			`IPartyMap`, `credit_party_id`, `kCodeBilateralCreditExhausted`),
 		gtest("test_credit_matrix", "CreditMatrix.*"),
+	)
+}
+
+// ---- Wave C/D implementations ------------------------------------------------
+
+func ckCrossShard2PC(ctx context.Context, env *spec.Env) spec.Result {
+	return seqf(ctx, env,
+		files(env,
+			"core/include/matching/CrossShardCoordinator.hpp",
+			"core/src/matching/CrossShardCoordinator.cpp"),
+		structural(env, "core/include/matching/CrossShardCoordinator.hpp",
+			`operation_id`, `RESERVED`, `reaper`, `5'000`),
+		gtest("test_cross_shard",
+			"CrossShard2PC.ThreeShardAllOrNothingCommit:CrossShard2PC.NackCompensatesAll:CrossShard2PC.CommitLosingTtlRaceCompensatesCommittedLeg:CrossShard2PC.WalRoundTripAndParticipantRecover:CrossShard2PC.ReserveTimeoutFullCompensation:CrossShard2PC.ConcurrentLimitExceeded:CrossShard2PC.ReaperCadenceIsTwoSeconds:BasketCtlCodec.*"),
+	)
+}
+
+func ckCrossShardDedup(ctx context.Context, env *spec.Env) spec.Result {
+	return seqf(ctx, env,
+		structural(env, "core/include/matching/CrossShardCoordinator.hpp",
+			`operation_id`),
+		gtest("test_cross_shard",
+			"CrossShard2PC.DedupReturnsCachedResult:CrossShard2PC.DuplicateAndLateAcksAreZeroDrift"),
+	)
+}
+
+// Task 2.3.14 coverage (prose-format task — folded into T2.3.8-C1): 5s
+// reservation TTL, 10-concurrent-per-account limit, 2s reaper cadence.
+func ckCrossShardTimeoutLimit(ctx context.Context, env *spec.Env) spec.Result {
+	return seqf(ctx, env,
+		structural(env, "core/include/matching/CrossShardCoordinator.hpp",
+			`kReserveTtl`, `kMaxConcurrent`, `kReaperCadence`),
+		gtest("test_cross_shard",
+			"CrossShard2PC.ReserveTimeoutFullCompensation:CrossShard2PC.ConcurrentLimitExceeded:CrossShard2PC.ReaperCadenceIsTwoSeconds"),
+	)
+}
+
+func ckOptimisticCrossShard(ctx context.Context, env *spec.Env) spec.Result {
+	return seqf(ctx, env,
+		files(env,
+			"core/include/matching/OptimisticShardCoordinator.hpp",
+			"core/src/matching/OptimisticShardCoordinator.cpp"),
+		structural(env, "core/include/matching/OptimisticShardCoordinator.hpp",
+			`COMPENSATE_UNWIND`, `5010`, `500`),
+		gtest("test_cross_shard",
+			"Optimistic.*:OptimisticCtlCodec.*"),
+	)
+}
+
+func ckSparseBookProtection(ctx context.Context, env *spec.Env) spec.Result {
+	return seqf(ctx, env,
+		files(env,
+			"core/include/marketdata/BookSerializer.hpp",
+			"core/src/marketdata/BookSerializer.cpp"),
+		structural(env, "core/include/book/Instrument.hpp",
+			`max_spread_pips`),
+		structural(env, "core/src/matching/MatchingEngine.cpp",
+			`kRejectNoLiquidity`, `kRejectWideSpread`),
+		gtest("test_book_protection", "BookProtection.*"),
+	)
+}
+
+func ckMarketSlippageProtection(ctx context.Context, env *spec.Env) spec.Result {
+	return seqf(ctx, env,
+		structural(env, "core/include/book/Instrument.hpp",
+			`max_slippage_bps`),
+		structural(env, "core/src/matching/MatchingEngine.cpp",
+			`kRejectSlippageExceeded`, `kWalCancelReasonSlippageExceeded`,
+			`slippage_protection_price`, `MARKET_WITH_PROTECTION|protection_fn_`),
+		gtest("test_book_protection", "BookProtection.Slippage*:BookProtection.ProtectionEventEmittedOncePerConversion:BookProtection.WalCarriesMarketWithProtectionFlag"),
+	)
+}
+
+func ckSlippagePerInstrument(ctx context.Context, env *spec.Env) spec.Result {
+	return seqf(ctx, env,
+		structural(env, "core/include/book/Instrument.hpp",
+			`max_slippage_bps`),
+		structural(env, "core/include/book/OrderBook.hpp",
+			`set_instrument`),
+		gtest("test_book_protection",
+			"BookProtection.SlippageDefaultsBySettlementCycle:BookProtection.SlippageUnboundedBandDisablesProtection:BookProtection.UnboundInstrumentRunsUnprotected"),
+	)
+}
+
+func ckAtomicAmend(ctx context.Context, env *spec.Env) spec.Result {
+	return seqf(ctx, env,
+		structural(env, "core/src/matching/MatchingEngine.cpp",
+			`on_amend_received`, `kRejectStaleModify`, `amend_state_gate`),
+		gtest("test_amend", "Amend.*"),
+	)
+}
+
+func ckStpModesFull(ctx context.Context, env *spec.Env) spec.Result {
+	return seqf(ctx, env,
+		structural(env, "core/include/matching/SelfTradeGuard.hpp",
+			`CANCEL_TAKER`, `CANCEL_MAKER`, `CANCEL_BOTH`, `DECREMENT`, `PROCEED`),
+		structural(env, "core/src/matching/MatchingEngine.cpp",
+			`SelfTradeGuard::action`, `apply_stp`),
+		gtest("test_stp",
+			"StpModes.*:StpWal.*"),
+	)
+}
+
+func ckStpNoneGating(ctx context.Context, env *spec.Env) spec.Result {
+	return seqf(ctx, env,
+		structural(env, "core/src/risk/PreTradeChecker.cpp",
+			`STP_NONE_NOT_PERMITTED|StpMode::NONE`),
+		gtest("test_stp",
+			"StpNone.*"),
+	)
+}
+
+func ckExecutionCollar(ctx context.Context, env *spec.Env) spec.Result {
+	return seqf(ctx, env,
+		files(env,
+			"core/include/matching/ExecutionCollar.hpp"),
+		structural(env, "core/src/matching/MatchingEngine.cpp",
+			`begin_phase`, `price_allowed`, `kWalCancelReasonExecRuleRange`,
+			`kExpiryReason`),
+		gtest("test_trade_through",
+			"EngineCollar.*:ExecutionCollar.*"),
+	)
+}
+
+func ckTradeGroupsTransfer(ctx context.Context, env *spec.Env) spec.Result {
+	return seqf(ctx, env,
+		structural(env, "core/include/wal/WalEntry.hpp",
+			`PREVENTED_MATCH`, `WalPreventedMatchPayload`),
+		structural(env, "core/src/matching/MatchingEngine.cpp",
+			`trade_group_id`, `kOrderFlagStpTransfer`, `write_prevented_match|prevented`),
+		gtest("test_stp",
+			"StpGroups.*:StpTransfer.*"),
+	)
+}
+
+func ckAccountDefaultStp(ctx context.Context, env *spec.Env) spec.Result {
+	return seqf(ctx, env,
+		structural(env, "core/src/risk/PreTradeChecker.cpp",
+			`default_stp_mode`),
+		gtest("test_stp",
+			"StpDefault.*"),
+	)
+}
+
+func ckTradeThroughImprovement(ctx context.Context, env *spec.Env) spec.Result {
+	return seqf(ctx, env,
+		files(env,
+			"core/include/matching/TradeThroughGuard.hpp",
+			"core/src/matching/TradeThroughGuard.cpp",
+			"core/include/matching/PriceImprovementRecorder.hpp"),
+		structural(env, "core/src/matching/MatchingEngine.cpp",
+			`trade_through_`, `refresh_protected_quote`, `improvement_`, `tt_enabled_`),
+		gtest("test_trade_through",
+			"EngineTradeThrough.*:TradeThroughGuard.*:PriceImprovementRecorder.*"),
+	)
+}
+
+func ckDiscretionaryFas(ctx context.Context, env *spec.Env) spec.Result {
+	return seqf(ctx, env,
+		files(env,
+			"core/include/matching/DiscretionaryExecutor.hpp",
+			"core/src/matching/DiscretionaryExecutor.cpp"),
+		structural(env, "core/src/matching/MatchingEngine.cpp",
+			`discretionary_offset_pips`, `DiscretionaryExecutor::eval`),
+		structural(env, "core/src/ipc/EnginePump.cpp",
+			`discretionary_offset_pips`),
+		gtest("test_discretionary",
+			"DiscretionaryEngineIntake.*:DiscretionaryEngine.*:DiscretionaryValidate.*"),
 	)
 }

@@ -435,11 +435,17 @@ RiskVerdict PreTradeChecker::run(const Order& order,
             return reject(kCodeInvalidRequest, "unknown stp_mode value");
         }
         const StpMode resolved = resolved_stp(order);
-        if (resolved == StpMode::NONE &&
-            accounts_->client_category(order.account_id) ==
-                ClientCategory::RETAIL) {
-            return reject(kCodeStpNoneNotPermitted,
-                          "stp NONE requires Professional/ECP");
+        if (resolved == StpMode::NONE) {
+            // §24 #274 whitelist gate: NONE is legal ONLY for
+            // PROFESSIONAL/ELIGIBLE_COUNTERPARTY — retail AND any future/
+            // unrecognized category reject fail-closed.
+            const ClientCategory cat =
+                accounts_->client_category(order.account_id);
+            if (cat != ClientCategory::PROFESSIONAL &&
+                cat != ClientCategory::ELIGIBLE_COUNTERPARTY) {
+                return reject(kCodeStpNoneNotPermitted,
+                              "stp NONE requires Professional/ECP");
+            }
         }
         if (stamp != nullptr) stamp->stp_mode = resolved;
     }

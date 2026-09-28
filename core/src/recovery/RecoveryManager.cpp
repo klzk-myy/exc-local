@@ -9,10 +9,12 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <memory>
 #include <system_error>
 #include <unordered_map>
 #include <unordered_set>
 
+#include "matching/MatchingEngine.hpp"
 #include "wal/Wal.hpp"
 
 namespace exch {
@@ -44,8 +46,22 @@ struct RecoveryManager::BookState {
     uint64_t mutations_applied = 0;
     uint64_t dedup_skips = 0;
     uint64_t covered_skips = 0;
+    uint64_t trades_derived = 0;    // journaled fills the engine re-derived
+    uint64_t trades_applied = 0;    // orphan fills applied to the maker
     uint64_t cursor = 0;            // WAL cursor this book's state reaches
     PerBookRecovery report;
+
+    // Replay machinery (journal-free engine: wal/publisher both nullptr).
+    // Pool precedes engine so teardown frees the engine first; the pool
+    // holds ingress scratch + pending-stop nodes — the book's own pool
+    // keeps owning resting nodes.
+    std::unique_ptr<MemoryPool<Order>> replay_pool;
+    std::unique_ptr<MatchingEngine> engine;
+    // Cumulative journaled fill qty per order id — the derived-vs-orphan
+    // ledger for TRADE replay (seeded with filled_qty_units of
+    // snapshot-restored orders; accrued on both legs of every consumed
+    // journaled trade).
+    std::unordered_map<uint64_t, int64_t> journaled_fills;
 };
 
 namespace {
@@ -101,6 +117,7 @@ uint32_t expected_payload_len(WalEventType t) noexcept {
         case WalEventType::ORDER_MODIFY:   return sizeof(WalOrderModifyPayload);
         case WalEventType::TRADE:          return sizeof(WalTradePayload);
         case WalEventType::TIME_TICK:      return sizeof(WalTimeTickPayload);
+        case WalEventType::PREVENTED_MATCH:return sizeof(WalPreventedMatchPayload);
         default:                           return 0;  // BOOK_SNAPSHOT/MARGIN_*
     }
 }
@@ -228,6 +245,17 @@ RecoveryResult RecoveryManager::recover(
                 last_outcome_ = res.outcome();
                 return res;
             }
+            // Engine-driven replay must start from an empty book: replaying
+            // the journal onto populated state would double-apply every
+            // mutation (a taker ORDER_NEW would re-execute its fills).
+            if (bindings[i].book->live_orders() != 0) {
+                set_fail(res, RecoveryStatus::InvariantViolated, UINT64_MAX,
+                         bindings[i].instrument_id,
+                         "bound book not empty at recovery start");
+                wal_tail_ = res.wal_tail;
+                last_outcome_ = res.outcome();
+                return res;
+            }
             if (by_instrument.count(bindings[i].instrument_id) != 0) {
                 set_fail(res, RecoveryStatus::InvariantViolated, UINT64_MAX,
                          bindings[i].instrument_id, "duplicate binding");
@@ -238,12 +266,15 @@ RecoveryResult RecoveryManager::recover(
             by_instrument[bindings[i].instrument_id] = &states[i];
         }
 
-        // Monotone timestamp clamp for replayed mutations — seeded with the
-        // newest restored stamp so a replayed order tail-appending to a level
-        // that holds snapshot-restored orders keeps the chain non-decreasing
-        // (level_chain_consistent audit). Restored orders keep their ext
-        // timestamps verbatim; replayed ones get max(wal_ts, running max).
+        // Monotone stamp clamps for replayed mutations — seeded with the
+        // newest restored (timestamp_ns, ingress_seq) key so a replayed
+        // order inserting into a level that holds snapshot-restored orders
+        // keeps the (ts, seq) chain strictly ordered (level_chain_consistent
+        // audit + FIFO fidelity). Restored orders keep their ext timestamps
+        // verbatim; replayed ones get max(wal_ts, running max) /
+        // max(wal_seq, running max).
         uint64_t max_ts = 0;
+        uint64_t max_seq = 0;
 
         // --- Phase 1: snapshot restore (per bound book) ----------------------
         for (auto& bs : states) {
@@ -253,7 +284,9 @@ RecoveryResult RecoveryManager::recover(
                 last_outcome_ = res.outcome();
                 return res;
             }
-            // Register restored orders for CANCEL/MODIFY dispatch.
+            // Register restored orders for CANCEL/MODIFY dispatch and seed
+            // the journaled-fill ledger with the snapshot baseline (the
+            // covered fills are already inside each node's filled_qty).
             const OrderBook* b = bs.book;
             for (int s = 0; s < 2; ++s) {
                 const Side side = s == 0 ? Side::BUY : Side::SELL;
@@ -263,10 +296,27 @@ RecoveryResult RecoveryManager::recover(
                     const PriceLevel* lvl = b->level(side, i);
                     for (const Order* o = lvl->head; o != nullptr; o = o->next) {
                         order_owner[o->id] = &bs;
+                        bs.journaled_fills[o->id] = o->filled_qty_units;
                         if (o->timestamp_ns > max_ts) max_ts = o->timestamp_ns;
+                        if (o->ingress_seq > max_seq) max_seq = o->ingress_seq;
                     }
                 }
             }
+        }
+
+        // --- Replay machinery: one journal-free MatchingEngine per book ------
+        // wal == nullptr and publisher == nullptr — every wal_/publisher_
+        // dereference inside the engine is null-guarded, so the replayed
+        // stream is re-derived but never re-journaled or re-published.
+        for (auto& bs : states) {
+            std::size_t cap = bs.book->max_orders();
+            if (cap == 0) cap = 1024;              // detached book floor
+            if (cap > kOrderPoolCapacity) cap = kOrderPoolCapacity;
+            bs.replay_pool.reset(new MemoryPool<Order>(cap));
+            bs.engine.reset(new MatchingEngine(shard_id_, *bs.book,
+                                               *bs.replay_pool,
+                                               /*wal*/ nullptr,
+                                               /*publisher*/ nullptr));
         }
 
         // --- Phase 2: enumerate + pre-scan WAL segments ----------------------
@@ -348,6 +398,12 @@ RecoveryResult RecoveryManager::recover(
         }
 
         // --- Phase 4: replay --------------------------------------------------
+        // Deterministic re-derivation: every journaled ingress/mutation
+        // event is driven through the per-book replay MatchingEngine
+        // (wal/publisher nullptr). The engine re-executes sweeps, trigger
+        // drains, expiry sweeps, STP and amend rules — direct book mutation
+        // is used ONLY for journaled orphan fills (a TRADE whose aggressor
+        // ORDER_NEW lies outside the scanned stream) and snapshot restore.
         bool started = false;
         uint64_t expected = 0;
         res.stream_base = 0;
@@ -404,8 +460,35 @@ RecoveryResult RecoveryManager::recover(
                     if (ev.seq + 1 > b.cursor) b.cursor = ev.seq + 1;
                 }
 
+                // Deterministic logical clock: the journal header timestamp
+                // carries the engine's now_ns_ on engine-authored entries,
+                // so driving every bound engine's clock with it is a
+                // monotone no-op on real streams and a deterministic clock
+                // on tick-free journals (expiry/trigger sweeps re-derive at
+                // the journaled time — never a wall clock).
+                for (auto& b : states) {
+                    b.engine->on_time_tick(ev.timestamp_ns);
+                }
+                if (ev.timestamp_ns > max_ts) max_ts = ev.timestamp_ns;
+                if (ev.seq > max_seq) max_seq = ev.seq;
+
+                if (ev.type == WalEventType::PREVENTED_MATCH) {
+                    // Task-2.3.18 audit row: the accompanying ORDER_CANCEL /
+                    // ORDER_MODIFY entries carry the actual book mutation.
+                    // Classified explicitly — never routed via payload[0].
+                    ++res.audit_events;
+                    continue;
+                }
+
                 if (is_shard_event(ev.type)) {
                     ++res.shard_events;
+                    if (ev.type == WalEventType::TIME_TICK) {
+                        WalTimeTickPayload tt;
+                        std::memcpy(&tt, ev.payload, sizeof(tt));
+                        for (auto& b : states) {
+                            b.engine->on_time_tick(tt.tick_ns);
+                        }
+                    }
                     continue;
                 }
 
@@ -459,93 +542,126 @@ RecoveryResult RecoveryManager::recover(
                 ++bs.entries_consumed;
                 ++res.entries_replayed;
 
+                // Book-mutation delta around an engine call distinguishes a
+                // real admission/amend/cancel from an engine-level no-op
+                // (reject, duplicate id) — replay idempotence accounting.
+                const uint64_t seq_before = bs.book->book_seq();
+
                 switch (ev.type) {
                     case WalEventType::ORDER_NEW: {
                         WalOrderNewPayload p;
                         std::memcpy(&p, ev.payload, sizeof(p));
-                        if (bs.book->find_order(p.order_id) != nullptr) {
-                            ++res.dedup_skips;
-                            ++bs.dedup_skips;
-                            break;  // already resting — idempotent no-op
+                        OrderType otype = OrderType::LIMIT;
+                        switch (p.type) {
+                            case 0: otype = OrderType::MARKET; break;
+                            case 1: otype = OrderType::LIMIT; break;
+                            case 2: otype = OrderType::STOP; break;
+                            case 3: otype = OrderType::STOP_LIMIT; break;
+                            case kWalOrderTypeIceberg:
+                                otype = OrderType::ICEBERG; break;
+                            default:
+                                set_fail(res, RecoveryStatus::ApplyFailed,
+                                         ev.seq, bs.instrument_id,
+                                         "unmappable wire order type");
+                                break;
                         }
-                        Order o{};
-                        o.id = p.order_id;
-                        o.account_id = p.account_id;
-                        o.side = static_cast<Side>(p.side);
-                        o.type = static_cast<OrderType>(p.type);
-                        o.tif = static_cast<TimeInForce>(p.tif);
-                        o.stp_mode = static_cast<StpMode>(p.stp_mode);
-                        o.flags = p.flags;
-                        o.price_ticks = p.price_ticks;
-                        o.qty_units = p.qty_units;
-                        o.filled_qty_units = 0;
-                        // Book convention: display_qty_units == 0 means fully
-                        // visible (non-iceberg). The wire stores visible==qty
-                        // for non-iceberg; map accordingly.
-                        o.display_qty_units =
-                            (o.type == OrderType::ICEBERG &&
-                             p.visible_qty_units < p.qty_units)
-                                ? p.visible_qty_units
-                                : 0;
-                        // Deterministic priority stamps: WAL order == original
-                        // insertion order; the monotone clamp keeps each
-                        // level's timestamp chain valid (validate() audit).
-                        if (ev.timestamp_ns > max_ts) max_ts = ev.timestamp_ns;
-                        o.timestamp_ns = max_ts;
-                        o.ingress_seq = ev.seq;
-                        Order* out = nullptr;
-                        const BookError e = bs.book->add_order(o, &out);
-                        if (e != BookError::OK) {
+                        if (res.status != RecoveryStatus::Ok) break;
+                        Order* o = bs.replay_pool->alloc();
+                        if (o == nullptr) {
                             set_fail(res, RecoveryStatus::ApplyFailed, ev.seq,
                                      bs.instrument_id,
-                                     "replayed ORDER_NEW rejected by book");
+                                     "replay order pool exhausted");
                             break;
                         }
+                        o->id = p.order_id;
+                        o->account_id = p.account_id;
+                        o->side = static_cast<Side>(p.side);
+                        o->type = otype;
+                        o->tif = static_cast<TimeInForce>(p.tif);
+                        o->stp_mode = static_cast<StpMode>(p.stp_mode);
+                        o->flags = p.flags;
+                        o->price_ticks = p.price_ticks;
+                        o->qty_units = p.qty_units;
+                        o->filled_qty_units = 0;
+                        // visible_qty_units on the wire is the engine-
+                        // resolved slice for icebergs (register_order
+                        // re-derives the same slice); non-iceberg journals
+                        // carry remaining qty → display = 0 (fully visible),
+                        // matching EnginePump's default.
+                        o->display_qty_units =
+                            (otype == OrderType::ICEBERG)
+                                ? p.visible_qty_units
+                                : 0;
+                        o->quantity = Decimal::from_mantissa(p.qty_units);
+                        // (ts, seq) priority stamps from the WAL envelope —
+                        // the EnginePump stamping convention — clamped
+                        // monotone vs the snapshot-restored stamp domain so
+                        // level (ts, seq) chains stay ordered.
+                        o->timestamp_ns = max_ts;
+                        o->ingress_seq = max_seq;
+                        o->next = o->prev = o->hash_next = nullptr;
+                        OrderAux aux{};
+                        aux.stop_price_ticks = p.stop_price_ticks;
+                        aux.gtd_expiry_ns = p.gtd_expiry_ns;
+                        aux.trade_group_id = p.trade_group_id;
+                        aux.instrument_id = p.instrument_id;
+                        // The engine owns the node from here: terminal paths
+                        // free it to the replay pool; pending stops and
+                        // resting remainders are adopted.
+                        bs.engine->on_order_received_ex(o, aux);
                         order_owner[p.order_id] = &bs;
-                        ++res.mutations_applied;
-                        ++bs.mutations_applied;
+                        if (bs.book->book_seq() != seq_before ||
+                            bs.engine->stops().pending(p.order_id)) {
+                            ++res.mutations_applied;
+                            ++bs.mutations_applied;
+                        } else {
+                            // Rejected admission (duplicate id, FOK kill,
+                            // liquidity gate): the journal recorded the
+                            // attempt but the book is unchanged.
+                            ++res.dedup_skips;
+                            ++bs.dedup_skips;
+                        }
                         break;
                     }
                     case WalEventType::ORDER_CANCEL: {
                         WalOrderCancelPayload p;
                         std::memcpy(&p, ev.payload, sizeof(p));
-                        const BookError e = bs.book->cancel_order(p.order_id);
-                        if (e == BookError::NOT_FOUND) {
+                        const bool was_pending =
+                            bs.engine->stops().pending(p.order_id);
+                        bs.engine->on_cancel_received(p.order_id,
+                                                    p.account_id);
+                        if (bs.book->book_seq() != seq_before || was_pending) {
+                            ++res.mutations_applied;
+                            ++bs.mutations_applied;
+                        } else {
+                            // Consumed/derived cancel (IOC-FOK-STP-expiry
+                            // remainder re-derived by the replayed
+                            // admission, or a duplicate journal row).
                             ++res.dedup_skips;
                             ++bs.dedup_skips;
-                            break;  // already gone — idempotent
                         }
-                        if (e != BookError::OK) {
-                            set_fail(res, RecoveryStatus::ApplyFailed, ev.seq,
-                                     bs.instrument_id,
-                                     "replayed ORDER_CANCEL rejected");
-                            break;
-                        }
-                        ++res.mutations_applied;
-                        ++bs.mutations_applied;
                         break;
                     }
                     case WalEventType::ORDER_MODIFY: {
                         WalOrderModifyPayload p;
                         std::memcpy(&p, ev.payload, sizeof(p));
-                        if (ev.timestamp_ns > max_ts) max_ts = ev.timestamp_ns;
-                        const BookError e =
-                            bs.book->modify_order(p.order_id, p.new_price_ticks,
-                                                  p.new_qty_units, max_ts,
-                                                  ev.seq);
-                        if (e == BookError::NOT_FOUND) {
+                        const bool was_pending =
+                            bs.engine->stops().pending(p.order_id);
+                        // Resolved payload values + the entry seq as the
+                        // §6.9 amend fence input — WAL order is strictly
+                        // increasing seqs.
+                        bs.engine->on_amend_received(p.order_id,
+                                                     p.new_price_ticks,
+                                                     p.new_qty_units,
+                                                     p.new_stop_price_ticks,
+                                                     ev.seq);
+                        if (bs.book->book_seq() != seq_before || was_pending) {
+                            ++res.mutations_applied;
+                            ++bs.mutations_applied;
+                        } else {
                             ++res.dedup_skips;
                             ++bs.dedup_skips;
-                            break;
                         }
-                        if (e != BookError::OK) {
-                            set_fail(res, RecoveryStatus::ApplyFailed, ev.seq,
-                                     bs.instrument_id,
-                                     "replayed ORDER_MODIFY rejected");
-                            break;
-                        }
-                        ++res.mutations_applied;
-                        ++bs.mutations_applied;
                         break;
                     }
                     case WalEventType::TRADE: {
@@ -554,14 +670,20 @@ RecoveryResult RecoveryManager::recover(
                         if (applied_trades.count(p.trade_id) != 0) {
                             ++res.dedup_skips;
                             ++bs.dedup_skips;
-                            break;  // same trade_id already applied — no-op
+                            break;  // same trade_id already consumed — no-op
                         }
+                        applied_trades.insert(p.trade_id);
+                        // Resolve the resting maker leg: both resting → the
+                        // leg whose price the trade prints at; exactly one
+                        // resting → that leg. (A partial taker's remainder
+                        // can be the resting leg — the journaled-fill ledger
+                        // still decides derived-vs-orphan correctly because
+                        // it accumulates every fill the journal applies to
+                        // that order id, aggressor or maker.)
                         Order* buy = bs.book->find_order(p.buy_order_id);
                         Order* sell = bs.book->find_order(p.sell_order_id);
                         Order* maker = nullptr;
                         if (buy != nullptr && sell != nullptr) {
-                            // Both resting contradicts the trade (the taker
-                            // never rests) — resolve by execution price.
                             if (buy->price_ticks == p.price_ticks &&
                                 sell->price_ticks != p.price_ticks) {
                                 maker = buy;
@@ -578,27 +700,73 @@ RecoveryResult RecoveryManager::recover(
                             maker = buy != nullptr ? buy : sell;
                         }
                         if (maker == nullptr) {
-                            ++res.dedup_skips;
-                            ++bs.dedup_skips;
-                            break;  // maker already consumed — idempotent
+                            // Both legs consumed/absent — nothing applies.
+                            // When a journaled order id participated the
+                            // fill was engine-derived during an ORDER_NEW
+                            // replay; otherwise the maker was consumed by
+                            // earlier entries — an idempotent no-op either
+                            // way.
+                            if (order_owner.count(p.buy_order_id) != 0 ||
+                                order_owner.count(p.sell_order_id) != 0) {
+                                ++bs.trades_derived;
+                                ++res.trades_derived;
+                            } else {
+                                ++res.dedup_skips;
+                                ++bs.dedup_skips;
+                            }
+                        } else {
+                            // Applied fills on this order id — an iceberg
+                            // record tracks the whole order across slice
+                            // refreshes; the book node carries the live
+                            // slice only.
+                            int64_t actual_filled = maker->filled_qty_units;
+                            if (const IcebergManager::Record* rec =
+                                    bs.engine->icebergs().find(maker->id)) {
+                                actual_filled = rec->filled_total_units;
+                            }
+                            const int64_t journaled =
+                                bs.journaled_fills[maker->id];
+                            if (journaled + p.qty_units <= actual_filled) {
+                                // The replayed aggressor's walk_match
+                                // already re-derived this fill — do not
+                                // re-apply (zero duplicate trades).
+                                ++bs.trades_derived;
+                                ++res.trades_derived;
+                            } else {
+                                // Orphan fill: the aggressor's ORDER_NEW
+                                // lives outside the scanned stream
+                                // (snapshot-covered prefix / trimmed tail)
+                                // so the engine could not reproduce it.
+                                // Apply to the resting maker verbatim —
+                                // zero missing trades.
+                                if (p.qty_units >
+                                    remaining_qty_units(*maker)) {
+                                    set_fail(res, RecoveryStatus::ApplyFailed,
+                                             ev.seq, bs.instrument_id,
+                                             "TRADE qty exceeds maker "
+                                             "remaining");
+                                    break;
+                                }
+                                const BookError e =
+                                    bs.book->apply_fill(maker, p.qty_units);
+                                if (e != BookError::OK) {
+                                    set_fail(res, RecoveryStatus::ApplyFailed,
+                                             ev.seq, bs.instrument_id,
+                                             "replayed TRADE fill rejected");
+                                    break;
+                                }
+                                ++res.mutations_applied;
+                                ++bs.mutations_applied;
+                                ++bs.trades_applied;
+                                ++res.trades_applied;
+                            }
                         }
-                        if (p.qty_units > remaining_qty_units(*maker)) {
-                            set_fail(res, RecoveryStatus::ApplyFailed, ev.seq,
-                                     bs.instrument_id,
-                                     "TRADE qty exceeds maker remaining");
-                            break;
-                        }
-                        applied_trades.insert(p.trade_id);
-                        const BookError e =
-                            bs.book->apply_fill(maker, p.qty_units);
-                        if (e != BookError::OK) {
-                            set_fail(res, RecoveryStatus::ApplyFailed, ev.seq,
-                                     bs.instrument_id,
-                                     "replayed TRADE fill rejected");
-                            break;
-                        }
-                        ++res.mutations_applied;
-                        ++bs.mutations_applied;
+                        // Accrue the journaled quantity on BOTH legs: an
+                        // order's filled accumulates whether it filled as
+                        // maker or as aggressor (a resting taker remainder
+                        // is resolvable only through this ledger).
+                        bs.journaled_fills[p.buy_order_id] += p.qty_units;
+                        bs.journaled_fills[p.sell_order_id] += p.qty_units;
                         break;
                     }
                     default:
@@ -686,6 +854,12 @@ RecoveryResult RecoveryManager::recover(
             bs.report.mutations_applied = bs.mutations_applied;
             bs.report.dedup_skips = bs.dedup_skips;
             bs.report.covered_skips = bs.covered_skips;
+            bs.report.trades_derived = bs.trades_derived;
+            bs.report.trades_applied = bs.trades_applied;
+            bs.report.engine_trades_emitted =
+                bs.engine != nullptr ? bs.engine->trades_emitted() : 0;
+            bs.report.pending_stops =
+                bs.engine != nullptr ? bs.engine->stops().size() : 0;
             res.books.push_back(bs.report);
         }
         wal_tail_ = res.wal_tail;

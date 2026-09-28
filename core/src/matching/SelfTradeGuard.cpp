@@ -12,6 +12,7 @@ const char* SelfTradeGuard::action_name(StpAction a) noexcept {
         case StpAction::CANCEL_MAKER: return "CANCEL_MAKER";
         case StpAction::CANCEL_BOTH:  return "CANCEL_BOTH";
         case StpAction::DECREMENT:    return "DECREMENT";
+        case StpAction::TRANSFER:     return "TRANSFER";
     }
     return "?";
 }

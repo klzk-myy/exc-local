@@ -78,9 +78,19 @@ TEST(MatchingComponents, SelfTradeGuardTable) {
               StpAction::CANCEL_BOTH);
     EXPECT_EQ(SelfTradeGuard::action(StpMode::DECREMENT),
               StpAction::DECREMENT);
-    // NONE fails closed until Task 2.3.16's ECP gating exists.
-    EXPECT_EQ(SelfTradeGuard::action(StpMode::NONE),
-              StpAction::CANCEL_TAKER);
+    // NONE -> PROCEED (Task 2.3.16): legal only after check-14's
+    // Professional/ECP admission gate rejects retail NONE upstream.
+    EXPECT_EQ(SelfTradeGuard::action(StpMode::NONE), StpAction::PROCEED);
+    // Task 2.3.18 mutual-flag TRANSFER dispatch (the two-flag overload is
+    // the one exception to taker-mode authority).
+    EXPECT_EQ(SelfTradeGuard::action(StpMode::CANCEL_NEWEST,
+                                     /*taker_xfer=*/true,
+                                     /*maker_xfer=*/true),
+              StpAction::TRANSFER);
+    EXPECT_EQ(SelfTradeGuard::action(StpMode::DECREMENT,
+                                     /*taker_xfer=*/true,
+                                     /*maker_xfer=*/false),
+              StpAction::DECREMENT);  // taker-only request -> mode verbatim
     EXPECT_EQ(SelfTradeGuard::action(static_cast<StpMode>(99)),
               StpAction::CANCEL_TAKER);  // out-of-enum -> fail closed
 

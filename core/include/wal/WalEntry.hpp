@@ -40,6 +40,14 @@ enum class WalEventType : uint8_t {
     // committed state and must not survive restart (fail-closed recovery).
     MARGIN_RESERVE,
     MARGIN_RELEASE,
+    // Task 2.3.18 — immutable STP audit record (spec §6.5, §24 #279-280).
+    // Emitted when a mutually-requested TRANSFER prevents a cross-account
+    // match inside one trade_group_id: NO TRADE is emitted. The payload is
+    // WalPreventedMatchPayload. Recovery replays it as a book-level no-op
+    // (the maker-side ORDER_CANCEL/ORDER_MODIFY entries that accompany it
+    // carry the actual state change); Phase-03's GL service consumes it for
+    // the balanced prevented-notional posting.
+    PREVENTED_MATCH,
 };
 
 #pragma pack(push, 1)
@@ -138,6 +146,28 @@ struct WalSnapshotOrder {
     uint8_t  tif;
     uint8_t  _pad[3];
 };
+
+// Task 2.3.18 — PREVENTED_MATCH payload: immutable audit row for a prevented
+// self-/group-match (mirrors the `prevented_matches` table, migration 072).
+// maker_order_id is deliberately the leading field: the RecoveryManager's
+// generic cancel/modify dispatcher reads the first u64 as an order id for
+// book routing, so an unmodified replayer resolves this record to the
+// maker's book and no-ops under its default arm — no book mutation, fully
+// deterministic.
+struct WalPreventedMatchPayload {
+    uint64_t maker_order_id;
+    uint64_t taker_order_id;
+    uint64_t maker_account_id;
+    uint64_t taker_account_id;
+    int64_t  price_ticks;                // book level price of the prevented match
+    int64_t  maker_prevented_qty_units;  // qty suppressed on the resting order
+    int64_t  taker_prevented_qty_units;  // incoming remainder suppressed
+    int64_t  prevented_notional_units;   // maker qty*price/1e8, saturates INT64_MAX
+    uint32_t trade_group_id;             // shared group (migration 072)
+    uint8_t  mode;                       // StpAction applied (5 = TRANSFER)
+    uint8_t  _pad0[3];
+    uint64_t ts_ns;                      // engine logical clock (== header ts)
+};
 #pragma pack(pop)
 
 static_assert(sizeof(WalFileHeader) == 8);
@@ -150,6 +180,7 @@ static_assert(sizeof(WalTimeTickPayload) == 16);
 static_assert(sizeof(WalBookSnapshotHeader) == 24);
 static_assert(sizeof(WalSnapshotLevel) == 16);
 static_assert(sizeof(WalSnapshotOrder) == 48);
+static_assert(sizeof(WalPreventedMatchPayload) == 80);
 static_assert(__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__,
               "WAL wire format is little-endian (spec §3.4)");
 

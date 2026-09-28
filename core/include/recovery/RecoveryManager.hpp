@@ -31,16 +31,54 @@
 // With the stream fully replayed, recomputed_book_seq == wal_tail per book;
 // the equality is asserted and reported per book.
 //
+// Replay model (deterministic re-derivation, spec §3.5 "same input stream =>
+// same book, same fills"): journaled events are driven through a journal-free
+// MatchingEngine per bound book — one constructed at recovery time with
+// wal == nullptr and publisher == nullptr (both sinks are null-guarded inside
+// the engine; replay never re-journals and never publishes).
+//   * ORDER_NEW — the Order + OrderAux (stop_price/gtd/trade_group/instrument
+//     all travel in WalOrderNewPayload) is rebuilt and fed to
+//     on_order_received_ex with the WAL envelope stamps (timestamp_ns =
+//     entry ts, ingress_seq = entry seq — the EnginePump convention), so
+//     marketable takers re-match instead of failing add_order(CROSSED).
+//   * ORDER_CANCEL — on_cancel_received(order_id, account_id); idempotent
+//     no-op when the order is already gone (engine-derived cancels —
+//     IOC/FOK/STP/expiry remainders — re-derive inside the replayed
+//     admission and their journaled records no-op here).
+//   * ORDER_MODIFY — on_amend_received with the resolved payload values and
+//     the entry seq as the §6.9 amend fence input (monotone in WAL order).
+//     Engine-derived modifies (STP decrements) re-apply as book-level no-ops.
+//   * TRADE — fills are NOT re-applied: the replayed taker's walk_match
+//     already re-derived them (a cumulative per-order "journaled fill"
+//     ledger decides derived-vs-orphan: expected journaled qty <= the
+//     order's applied filled qty means the engine already emitted it).
+//     A trade the engine could not reproduce — the aggressor's ORDER_NEW
+//     sits in a snapshot-covered prefix or a trimmed segment — is applied
+//     verbatim to the resting maker via apply_fill (zero missing trades).
+//   * TIME_TICK — on_time_tick(tick_ns) fans out to every bound engine so
+//     GTD/DAY expiry and trigger sweeps re-derive at the journaled clock.
+//     Every entry's header timestamp additionally drives the same clock —
+//     engine-authored entries stamp now_ns_ into the header, so this is a
+//     monotone no-op on real streams and a deterministic clock on
+//     tick-free journals.
+//   * BOOK_SNAPSHOT / MARGIN_* — shard-level events: consumed and counted.
+//   * PREVENTED_MATCH — pinned payload size + explicit audit no-op
+//     (the accompanying cancel/modify entries carry the state change).
+//
 // Replay idempotence (spec: zero duplicate / zero missing trades):
-//   * ORDER_NEW  — no-op when order_id already rests in its book;
-//   * ORDER_CANCEL/ORDER_MODIFY — no-op when order_id is unknown;
-//   * TRADE — fills the resting maker (exactly one of buy/sell ids may be
-//     resting); no-op when neither side rests;
-//   * TIME_TICK / BOOK_SNAPSHOT / MARGIN_* — shard-level events: consumed and
-//     counted, no book mutation (engine-owned substates replay themselves).
+//   * ORDER_NEW whose admission mutates nothing (duplicate id, engine-level
+//     reject) counts as a dedup no-op — detected by book_seq delta;
+//   * ORDER_CANCEL/ORDER_MODIFY on an unknown/consumed order id is a no-op;
+//   * journaled trade_ids are dedup'd verbatim.
 //
 // CANCEL/MODIFY carry no instrument_id — dispatch resolves order_id → book via
 // the live order map built during snapshot restore + ORDER_NEW replay.
+//
+// Replay capacity: each bound book gets an internal order pool sized to the
+// book's max_orders() bound (pending stops + in-flight takers live there —
+// the book's own pool keeps holding resting nodes). Bound books must be
+// empty at recovery start (fail-closed InvariantViolated) — replaying onto a
+// populated book would double-apply the journal.
 
 #include <cstdint>
 #include <initializer_list>
@@ -93,6 +131,15 @@ struct PerBookRecovery {
     uint64_t mutations_applied = 0;   // real book mutations during replay
     uint64_t dedup_skips = 0;         // idempotent no-ops
     uint64_t covered_skips = 0;       // entries < snapshot_seq (snapshot-covered)
+    uint64_t trades_derived = 0;      // journaled fills re-derived by the
+                                      // replay engine (not re-applied)
+    uint64_t trades_applied = 0;      // orphan fills applied verbatim to a
+                                      // resting maker (aggressor's ORDER_NEW
+                                      // outside the scanned stream)
+    uint64_t engine_trades_emitted = 0; // fills the replay engine emitted —
+                                        // == trades_derived on a faithful
+                                        // replay (verification surface)
+    uint64_t pending_stops = 0;       // stop orders still pending post-replay
     uint64_t recomputed_book_seq = 0; // WAL cursor reached == wal_tail on Ok
     bool book_seq_verified = false;   // recomputed_book_seq == wal_tail held
 };
@@ -110,7 +157,10 @@ struct RecoveryResult {
     uint64_t dedup_skips = 0;
     uint64_t covered_skips = 0;
     uint64_t shard_events = 0;        // TIME_TICK/BOOK_SNAPSHOT/MARGIN_*
+    uint64_t audit_events = 0;        // PREVENTED_MATCH audit records (no-op)
     uint64_t foreign_entries = 0;     // targeting instruments not bound
+    uint64_t trades_derived = 0;      // engine re-derived fills (all books)
+    uint64_t trades_applied = 0;      // orphan fills applied to makers
     uint64_t first_divergent_seq = UINT64_MAX;  // recovery_reports field
     uint32_t detail_instrument = 0;
     char detail[96] = {};             // static context for ops/runbooks
