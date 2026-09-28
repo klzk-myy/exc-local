@@ -29,6 +29,7 @@ import (
 	"exchange/internal/config"
 	excnats "exchange/internal/nats"
 	"exchange/internal/observability"
+	"exchange/internal/timesync"
 	"exchange/internal/utils"
 	"exchange/pkg/logging"
 )
@@ -116,6 +117,21 @@ func run() error {
 	cncMon := observability.NewCnCMonitor(reg, os.Getenv("EXC_AERON_DIR"), log)
 	go cncMon.Run(ctx)
 
+	// PTP/phc2sys monitor (Phase-09 Task 9.3.12, MiFID II RTS 25).
+	// EXC_PTP_EXPECTED=1 on bare-metal matching nodes — unavailability
+	// then pages P1 (ptp_available==0, mirroring aeron_driver_up); on
+	// other hosts the monitor still exports metrics but never pages.
+	// EXC_PTP_REPORT_PATH selects the daily-divergence archive file.
+	ptpMon := timesync.NewPTPMonitor(reg, nil,
+		os.Getenv("EXC_PTP_EXPECTED") == "1")
+	if p := os.Getenv("EXC_PTP_REPORT_PATH"); p != "" {
+		ptpMon.DailyReportPath = p
+	}
+	ptpMon.OnAlert = func(a timesync.PTPAlert) {
+		log.Error("ptp P1", "kind", a.Kind, "detail", a.Detail)
+	}
+	go ptpMon.Run(ctx)
+
 	// Alert evaluator — canonical Task 7.3.8/7.3.10 rule set.
 	var sink observability.Sink = observability.LogSink{Log: log}
 	if nc != nil {
@@ -174,9 +190,14 @@ func run() error {
 		"nats", nc != nil)
 	<-ctx.Done()
 
-	sctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// Task 9.3.23: in-flight admin HTTP drains under the shared 30s
+	// budget. The admin surface has no WebSockets and no engine writes,
+	// so a plain Shutdown is the complete contract.
+	sctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	_ = srv.Shutdown(sctx)
+	if err := srv.Shutdown(sctx); err != nil {
+		log.Error("admin: http drain incomplete", "err", err)
+	}
 	log.Info("admin shutting down")
 	return nil
 }

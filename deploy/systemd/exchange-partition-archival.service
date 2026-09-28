@@ -1,0 +1,34 @@
+# exchange-partition-archival.service — nightly pg_partman detach +
+# Parquet/S3 WORM export (§19.13.1 partition-archival-worker row, Task 9.3.17).
+# Bare-metal cron twin of the K8s CronJob — pick ONE per environment
+# (Kubernetes CronJob is canonical where the cluster exists).
+[Unit]
+Description=exchange PostgreSQL partition archival (>90d -> S3 WORM)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=exchange
+Group=exchange
+
+# EXC_POSTGRES_DSN, S3 creds etc. via env file (secrets pipeline).
+EnvironmentFile=-/etc/exchange/archival.env
+ExecStart=/opt/exchange/bin/archiver run
+
+# Hard bound: never hold the OLTP primary hostage for >2h.
+TimeoutSec=2h
+LimitNOFILE=65536
+
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/var/log/exchange /tmp
+NoNewPrivileges=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+
+SyslogIdentifier=partition-archival
+
+[Install]
+WantedBy=multi-user.target

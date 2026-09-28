@@ -1,0 +1,120 @@
+# marketdata-service — WS L2/L3 conflation + BBO + SBE A/B multicast
+# publisher (§19.13.1). WS is sticky; SBE multicast publishing is a
+# bare-metal concern (UDP A/B feeds pin to the core hosts) — this Deployment
+# owns the WS distribution surface.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: marketdata-service
+  namespace: exchange
+  labels: {app.kubernetes.io/name: marketdata-service, app.kubernetes.io/part-of: exchange}
+spec:
+  replicas: 2
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
+  selector:
+    matchLabels: {app.kubernetes.io/name: marketdata-service}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: marketdata-service}
+    spec:
+      serviceAccountName: exchange-service
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60   # system.reconnect push + WS drain
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: marketdata
+          image: registry.internal/exchange/marketdata-service:CHANGE_ME
+          imagePullPolicy: IfNotPresent
+          ports:
+            - {name: ws, containerPort: 8081}
+          envFrom:
+            - configMapRef: {name: exchange-env}
+          env:
+            - name: EXC_POSTGRES_DSN
+              valueFrom: {secretKeyRef: {name: exchange-db, key: dsn}}
+            - name: EXC_SECRETS_DATA_KEY
+              valueFrom: {secretKeyRef: {name: exchange-secrets, key: data-key}}
+            - name: EXC_JWT_HS256_KEY_B64
+              valueFrom: {secretKeyRef: {name: exchange-secrets, key: jwt-hs256-key-b64}}
+          # R9 schema. Current binary also exposes /healthz + /readyz on :8081
+          # (keep both until R9 aliases land — see deploy/k8s/README.md).
+          readinessProbe:
+            httpGet: {path: /health/ready, port: ws}
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: {path: /health/live, port: ws}
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              exec: {command: ["sh", "-c", "sleep 30"]}
+          resources:
+            requests: {cpu: 250m, memory: 256Mi}
+            limits:   {cpu: "1",  memory: 512Mi}
+          securityContext:
+            runAsUser: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - {name: tmp, emptyDir: {}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: marketdata-service
+  namespace: exchange
+spec:
+  type: ClusterIP
+  ports:
+    - {name: ws, port: 8081, targetPort: ws}
+  selector: {app.kubernetes.io/name: marketdata-service}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: marketdata-service
+  namespace: exchange
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: marketdata-service
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource: {name: cpu, target: {type: Utilization, averageUtilization: 70}}
+    - type: Pods
+      pods:
+        metric: {name: ws_connections}
+        target: {type: AverageValue, averageValue: "5000"}   # per-pod conn ceiling
+    - type: Pods
+      pods:
+        metric: {name: ws_outbound_queue_depth}
+        target: {type: AverageValue, averageValue: "1000"}
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies: [{type: Pods, value: 1, periodSeconds: 60}]
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: marketdata-service
+  namespace: exchange
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: marketdata-service}

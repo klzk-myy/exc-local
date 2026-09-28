@@ -221,3 +221,91 @@ groups:
         annotations:
           summary: "IPC ring >95% on shard {{ $labels.shard }}"
           description: "Critical backpressure — ring overflow drops engine events; immediate mitigation required."
+
+  # ---- Phase-09 Task 9.3.12: PTP clock sync (MiFID II RTS 25) ----------
+  # Exported by services/internal/timesync.PTPMonitor on hosts running the
+  # admin node exporter (EXC_PTP_EXPECTED=1 on bare-metal matching nodes).
+  - name: exchange.ptp
+    interval: 15s
+    rules:
+      # RTS 25 bound: |offset| > 100µs = 100_000ns — P1 page.
+      - alert: PTPClockOffsetExceeded
+        expr: abs(clock_offset_nanoseconds) > 100000
+        for: 10s
+        labels: {severity: p1, team: sre}
+        annotations:
+          summary: "PTP clock offset >100µs on {{ $labels.instance }}"
+          description: "clock_offset_nanoseconds is {{ $value }}ns — exceeds the MiFID II RTS 25 100µs bound; matching timestamps are not auditable."
+
+      # Servo unlocked / GM absent on a host exporting PTP state.
+      - alert: PTPNotSynchronized
+        expr: ptp_available == 1 and ptp_sync_status == 0
+        for: 30s
+        labels: {severity: p1, team: sre}
+        annotations:
+          summary: "ptp4l not slaved on {{ $labels.instance }}"
+          description: "Grandmaster absent or port left SLAVE for 30s — clock is drifting undisciplined."
+
+      # Stale readings — the status writer/pmc path died silently.
+      - alert: PTPStale
+        expr: ptp_last_read_age_seconds > 60
+        for: 30s
+        labels: {severity: p1, team: sre}
+        annotations:
+          summary: "PTP reading stale on {{ $labels.instance }}"
+          description: "No fresh PTP state for >60s — ptp4l/phc2sys or the status writer may be dead."
+
+      # Host expected to run PTP reports nothing — the aeron_driver_up
+      # analogue for the clock plane (only fires on matching bare metal
+      # where the monitor exports with expected=1).
+      - alert: PTPUnavailable
+        expr: ptp_available == 0
+        for: 1m
+        labels: {severity: p1, team: sre}
+        annotations:
+          summary: "No PTP source on {{ $labels.instance }}"
+          description: "Neither /run/ptp/status nor pmc produced a reading on a PTP-expected host — verify ptp4l/phc2sys/ptp-status timer (deploy/ansible/roles/ptp)."
+
+  # ---- Phase-09 Task 9.3.13: edge WAF / DDoS ---------------------------
+  # HAProxy deny counters come from the prometheus-exporter listener;
+  # waf_block/waf_challenge counters come from the provider Logpush
+  # exporter (deploy/cloudflare/). FIX traffic never traverses this edge.
+  - name: exchange.edge
+    interval: 15s
+    rules:
+      # Sustained edge denies = attack or misconfigured client — P2 page.
+      - alert: EdgeDeniesSustained
+        expr: rate(haproxy_frontend_denied_connections_total{proxy="https_in"}[5m]) > 100
+        for: 5m
+        labels: {severity: p2, team: sre}
+        annotations:
+          summary: "Edge deny rate >100/s for 5m on {{ $labels.instance }}"
+          description: "{{ $value }} denied conn/s — WAF/DDoS controls active at volume; confirm attack shape via 'show table st_req_per_ip' and playbook deploy/edge/ddos-playbook.md."
+
+      # Provider-side WAF block surge — feed is the Logpush exporter.
+      - alert: WAFBlocksSurge
+        expr: rate(waf_block_total[5m]) > 500
+        for: 2m
+        labels: {severity: p2, team: sre}
+        annotations:
+          summary: "Provider WAF blocks surging ({{ $value }}/s)"
+          description: "OWASP-class blocks sustained — verify it's not a legit client regression before it flips to the challenge ladder."
+
+      # Challenge mode under sustained load → possible L7 attack running.
+      - alert: WAFChallengesSustained
+        expr: rate(waf_challenge_total[5m]) > 1000
+        for: 5m
+        labels: {severity: p2, team: sre}
+        annotations:
+          summary: "WAF challenges sustained at {{ $value }}/s"
+          description: "Managed-challenge volume high — L7 flood in progress or over-broad challenge rule; check whitelist coverage."
+
+      # Volumetric suspicion: ingress byte-rate far above baseline —
+      # provider should be absorbing; if this reaches origin, escalate.
+      - alert: EdgeDDoSSuspected
+        expr: rate(haproxy_frontend_bytes_in_total{proxy="https_in"}[1m]) > 500e6
+        for: 1m
+        labels: {severity: p1, team: sre}
+        annotations:
+          summary: "Possible volumetric DDoS — ingress >500MB/s at origin"
+          description: "Provider mitigation may be bypassed or saturated; run deploy/edge/ddos-playbook.md (tighten ladders, challenge mode, escalate to provider)."

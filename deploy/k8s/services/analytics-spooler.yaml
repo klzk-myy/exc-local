@@ -1,0 +1,120 @@
+# analytics-spooler — ClickHouse bulk tick/trade ingestion with RocksDB
+# spillover (§19.13.1). Insert timeout >5s spools locally; ReplacingMergeTree
+# deduplicates on recovery.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: analytics-spooler
+  namespace: exchange
+  labels: {app.kubernetes.io/name: analytics-spooler, app.kubernetes.io/part-of: exchange}
+spec:
+  replicas: 2
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
+  selector:
+    matchLabels: {app.kubernetes.io/name: analytics-spooler}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: analytics-spooler}
+    spec:
+      serviceAccountName: exchange-service
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: analytics-spooler
+          image: registry.internal/exchange/analytics-spooler:CHANGE_ME
+          imagePullPolicy: IfNotPresent
+          ports:
+            - {name: health, containerPort: 9104}
+          envFrom:
+            - configMapRef: {name: exchange-env}
+          env:
+            - name: EXC_POSTGRES_DSN
+              valueFrom: {secretKeyRef: {name: exchange-db, key: dsn}}
+            - name: EXC_CH_URL
+              value: "http://clickhouse.exchange-data.svc:8123"
+            - name: EXC_ANALYTICS_HEALTH_ADDR
+              value: "0.0.0.0:9104"
+            - name: EXC_ANALYTICS_SPOOL_DIR
+              value: /var/data/analytics_spool
+          readinessProbe:
+            httpGet: {path: /health/ready, port: health}
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: {path: /health/live, port: health}
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              exec: {command: ["sh", "-c", "sleep 10"]}
+          resources:
+            requests: {cpu: 250m, memory: 512Mi}
+            limits:   {cpu: "1",  memory: 1Gi}
+          securityContext:
+            runAsUser: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: spool, mountPath: /var/data/analytics_spool}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: spool
+          persistentVolumeClaim: {claimName: analytics-spool}
+        - {name: tmp, emptyDir: {}}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: analytics-spool
+  namespace: exchange
+spec:
+  accessModes: [ReadWriteOnce]
+  resources: {requests: {storage: 20Gi}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: analytics-spooler
+  namespace: exchange
+spec:
+  type: ClusterIP
+  ports:
+    - {name: health, port: 9104, targetPort: health}
+  selector: {app.kubernetes.io/name: analytics-spooler}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: analytics-spooler
+  namespace: exchange
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: analytics-spooler}
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource: {name: cpu, target: {type: Utilization, averageUtilization: 70}}
+    - type: Pods
+      pods:
+        metric: {name: clickhouse_insert_lag_rows}
+        target: {type: AverageValue, averageValue: "500000"}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: analytics-spooler
+  namespace: exchange
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: analytics-spooler}

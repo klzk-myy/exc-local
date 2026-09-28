@@ -248,6 +248,11 @@ type Server struct {
 	// to multiplex the internal 20-level snapshot into param channels.
 	depthIdx map[string]map[DepthVariant]int
 
+	// draining latches at Drain() (Task 9.3.23): new upgrades refuse
+	// pre-upgrade with 503 MAINTENANCE_MODE; live conns get the
+	// system.reconnect advisory then close 1001.
+	draining atomic.Bool
+
 	metrics *Metrics
 }
 
@@ -302,6 +307,18 @@ func (s *Server) snapshotSource(channelType string) SnapshotSource {
 // enforced pre-upgrade (CAPACITY_EXCEEDED 503) and re-checked under the
 // registry lock post-upgrade.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Task 9.3.23: draining servers refuse new upgrades before the
+	// upgrade — the orchestrator must be able to observe the drain
+	// instead of accepting sockets it is about to close.
+	if s.draining.Load() {
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"type": "error", "error": "MAINTENANCE_MODE",
+			"message": "service draining for shutdown", "status": 503,
+		})
+		return
+	}
 	ip := middleware.ClientIP(r, s.cfg.TrustProxy)
 
 	s.mu.Lock()

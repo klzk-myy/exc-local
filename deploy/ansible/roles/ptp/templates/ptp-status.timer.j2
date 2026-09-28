@@ -1,0 +1,12 @@
+# ptp-status.timer — 5s cadence for the status writer (the monitor's
+# staleness bound is 30s, so a missed tick never pages by itself).
+[Unit]
+Description=Write PTP status file every 5s
+
+[Timer]
+OnBootSec=10s
+OnUnitActiveSec=5s
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

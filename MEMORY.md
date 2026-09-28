@@ -28,8 +28,8 @@ All counts are verified mechanically across the corpus:
 - **Phase Tasks:** **479** tasks across 30 phase plans
 - **Checklist Spec Checkpoints:** **543** checklist checkpoints across all phase tasks
 - **Acceptance Criteria Rows:** **1,079** rows (976 core + 103 buffer phase rows)
-- **Spec §23 Error Codes:** **172** codes (100% owner-resolvable against phase tasks; supersedes 170/149 — remediation #44 registered the 21 gateway `localRow` emissions + follow-on `INVALID_DEPTH_LIMIT`/`INVALID_INTERVAL` from Phase-06)
-- **Database Migrations:** **68** `.up.sql` files on disk (sparse task-numbered prefixes 001–190, collision-free, each paired `.down.sql`; supersedes prior "49 files" and "108 contiguous" prose — planned corpus allocated 001–108 by task number, implementation allocates beyond it, e.g. 109–119/150 in Phase-03, 023/065/092/120 in Phase-04, 151–155/160–162/170–173/180–182/190 in Phase-05)
+- **Spec §23 Error Codes:** **173** codes (100% owner-resolvable against phase tasks; supersedes 172/170/149 — remediation #44 registered the 21 gateway `localRow` emissions + follow-on `INVALID_DEPTH_LIMIT`/`INVALID_INTERVAL` from Phase-06 + `TICKET_NOT_FOUND` from Phase-07)
+- **Database Migrations:** **79** `.up.sql` files on disk (sparse task-numbered prefixes 001–197, collision-free, each paired `.down.sql`; supersedes prior "68"/"49 files" and "108 contiguous" prose — planned corpus allocated 001–108 by task number, implementation allocates beyond it, e.g. 109–119/150 in Phase-03, 023/065/092/120 in Phase-04, 151–155/160–162/170–173/180–182/190 in Phase-05, 091/192–197 in Phase-09)
 - **Phase Plans:** **30 phases** (24 core + 6 mandatory buffer phases: 01.5, 02.5, 04.5, 08.5, 13.5, 19.5)
 - **Financial Correctness Categories:** **9** categories (including double-entry GL zero-sum conservation)
 - **Degradation Modes:** **6** exact-cased modes (`Normal · ReadOnly · MarketDataOnly · SpotOnly · Throttled · Maintenance`)

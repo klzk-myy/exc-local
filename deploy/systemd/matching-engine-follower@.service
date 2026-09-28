@@ -1,0 +1,55 @@
+# matching-engine-follower@<shard>.service — warm-standby engine
+# (spec §19.6/§19.13.3 failover path; core/src/main.cpp -follower mode:
+# no snapshot load, no WAL replay — book fills from the leader-output seam).
+[Unit]
+Description=exchange matching engine shard %i (warm-standby follower)
+After=network-online.target aeronmd.service
+Wants=network-online.target
+Requires=aeronmd.service
+# Never run leader+follower for the same shard on one host.
+Conflicts=matching-engine@%i.service
+
+[Service]
+Type=notify
+NotifyAccess=main
+# Same watchdog contract as the leader unit.
+WatchdogSec=1s
+Restart=always
+RestartSec=1s
+KillMode=mixed
+TimeoutStopSec=15s
+KillSignal=SIGTERM
+
+User=exchange
+Group=exchange
+
+# Follower pins to a different isolated core than the leader would use on a
+# single-purpose host; on a dedicated standby host core 5 is free.
+ExecStart=/usr/bin/numactl --cpunodebind=0 --membind=0 --physcpubind=5 \
+    /opt/exchange/bin/matching-engine \
+        -shard %i -follower \
+        -ipc-base exc-follower \
+        -wal-dir /var/lib/exchange/wal-follower \
+        -snap-dir /var/lib/exchange/snapshots-follower \
+        -report-log /var/log/exchange/recovery-reports-f-%i.jsonl
+
+LimitMEMLOCK=infinity
+LimitNOFILE=1048576
+LimitCORE=infinity
+MemoryMax=12G
+IOWeight=1000
+OOMScoreAdjust=-900
+
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/exchange /var/log/exchange /dev/shm
+NoNewPrivileges=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+SystemCallArchitectures=native
+LockPersonality=yes
+
+SyslogIdentifier=matching-engine-f%i
+
+[Install]
+WantedBy=multi-user.target

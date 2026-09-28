@@ -1,0 +1,30 @@
+# deploy/dr/redis-secondary.conf.sample — secondary-region Redis replica
+# (Task 9.3.4, spec §18.3 RPO ≤ 5s / RTO ≤ 30s).
+#
+# The primary region runs the Phase-01/09 Sentinel topology (1 primary +
+# 2 replicas + 3 sentinels). The SECONDARY region replica is a distinct
+# replication target fed by cross-region replicaof — it promotes on
+# failover, it is NOT part of the in-region Sentinel quorum (quorum stays
+# local; cross-region Sentinel would partition under WAN loss).
+
+# --- replication -------------------------------------------------------------
+replicaof redis-primary.dc1.exc.local 6379
+replica-read-only yes
+repl-diskless-sync yes
+repl-disable-tcp-nodelay no        # low-latency replication for the 5s RPO
+replica-priority 50                # local replicas win intra-region elections
+
+# --- durability floor ---------------------------------------------------------
+# RDB snapshots for the cold-path restart; AOF off (region traffic is
+# read-through cache + short-lived session state; the authoritative data
+# is PG). everysec on the replica bounds the promotion-time replay.
+save 900 1
+save 300 10
+appendonly yes
+appendfsync everysec
+appendfilename "dr-replica.aof"
+
+# --- promotion surface --------------------------------------------------------
+# Failover promotes this node to primary via `redis-cli REPLICAOF NO ONE`
+# (failover-runbook step 4). Sentinel is NOT pointed at it until the
+# region becomes active — promotion re-registers it then.

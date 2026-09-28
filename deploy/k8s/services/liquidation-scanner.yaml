@@ -1,0 +1,89 @@
+# liquidation-scanner — 2.0s margin scan cadence, Dutch auction, ADL
+# (§19.13.1, spec §13.3). Missed scans trip the degraded-liquidation
+# fallback — probes are deliberately tight.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: liquidation-scanner
+  namespace: exchange
+  labels: {app.kubernetes.io/name: liquidation-scanner, app.kubernetes.io/part-of: exchange}
+spec:
+  replicas: 2
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
+  selector:
+    matchLabels: {app.kubernetes.io/name: liquidation-scanner}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: liquidation-scanner}
+    spec:
+      serviceAccountName: exchange-service
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: liquidation-scanner
+          image: registry.internal/exchange/liquidation-scanner:CHANGE_ME
+          imagePullPolicy: IfNotPresent
+          ports:
+            - {name: health, containerPort: 9103}
+          envFrom:
+            - configMapRef: {name: exchange-env}
+          env:
+            - name: EXC_POSTGRES_DSN
+              valueFrom: {secretKeyRef: {name: exchange-db, key: dsn}}
+            - name: EXC_SECRETS_DATA_KEY
+              valueFrom: {secretKeyRef: {name: exchange-secrets, key: data-key}}
+            - name: EXC_LIQ_HEALTH_ADDR
+              value: "0.0.0.0:9103"
+          readinessProbe:
+            httpGet: {path: /health/ready, port: health}
+            periodSeconds: 2               # matches 2s scan cadence
+            timeoutSeconds: 2
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: {path: /health/live, port: health}
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              exec: {command: ["sh", "-c", "sleep 10"]}  # in-flight auction handoff
+          resources:
+            requests: {cpu: 500m, memory: 512Mi}
+            limits:   {cpu: "2",  memory: 1Gi}
+          securityContext:
+            runAsUser: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - {name: tmp, emptyDir: {}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: liquidation-scanner
+  namespace: exchange
+spec:
+  type: ClusterIP
+  ports:
+    - {name: health, port: 9103, targetPort: health}
+  selector: {app.kubernetes.io/name: liquidation-scanner}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: liquidation-scanner
+  namespace: exchange
+spec:
+  minAvailable: 1                        # never fully down — scanner failure is P1
+  selector:
+    matchLabels: {app.kubernetes.io/name: liquidation-scanner}

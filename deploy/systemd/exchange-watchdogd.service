@@ -1,0 +1,54 @@
+# exchange-watchdogd.service — Tier-3 platform supervisor daemon
+# (spec §19.13.3 tier 3, Task 9.3.28 item 2; services/cmd/watchdogd).
+#
+# Duties: Aeron ring watermarks, leader-fencing/sequence-stall detection,
+# synthetic canary order probe (1.0s cadence, 250ms budget), PTP skew poll,
+# NVMe quota — and leader-lock revocation (engine:leader:{shard}) on hang.
+#
+# WatchdogSec=500ms is the canonical value for this daemon (spec §19.13.3);
+# the binary pets sd_notify("WATCHDOG=1") every probe cycle.
+[Unit]
+Description=exchange platform watchdog supervisor
+After=network-online.target
+Wants=network-online.target
+Before=matching-engine.target
+
+[Service]
+Type=notify
+NotifyAccess=main
+WatchdogSec=500ms
+Restart=always
+RestartSec=1s
+KillMode=mixed
+TimeoutStopSec=5s
+
+# Runs unprivileged-but-not-sandboxed-to-death: needs /dev/shm read access
+# (Aeron rings), /dev/watchdog is driven by systemd itself (RuntimeWatchdogSec),
+# Redis + Prometheus binding needs AF_INET.
+User=exchange
+Group=exchange
+
+ExecStart=/opt/exchange/bin/exchange-watchdogd \
+    --aeron-dir /dev/shm/aeron-exchange \
+    --redis-sentinel 10.1.0.11:26379,10.2.0.12:26379,10.3.0.13:26379 \
+    --metrics 0.0.0.0:9110 \
+    --canary-interval 1s --canary-timeout 250ms
+
+LimitNOFILE=65536
+# Watchdog trips must keep coredumps.
+LimitCORE=infinity
+MemoryMax=512M
+OOMScoreAdjust=-500
+
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/dev/shm /var/log/exchange
+NoNewPrivileges=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+SystemCallArchitectures=native
+
+SyslogIdentifier=exchange-watchdogd
+
+[Install]
+WantedBy=multi-user.target

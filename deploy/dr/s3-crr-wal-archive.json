@@ -1,0 +1,23 @@
+{
+  "comment": "Task 9.3.4 / spec §18.6.4 — cross-region replication rule for the WAL WORM archive bucket (deploy/postgres/wal_archive.sh writes; wal_restore.sh reads in-region on the standby). WORM/object-lock required — compliance archive.",
+  "Role": "arn:aws:iam::<acct>:role/s3-crr-wal-archive",
+  "Rules": [
+    {
+      "ID": "wal-archive-to-dr",
+      "Status": "Enabled",
+      "Priority": 1,
+      "Filter": {"Prefix": "wal/"},
+      "DeleteMarkerReplication": {"Status": "Disabled"},
+      "Destination": {
+        "Bucket": "arn:aws:s3:::exchange-wal-archive-dr",
+        "StorageClass": "STANDARD",
+        "ReplicationTime": {"Status": "Enabled", "Time": {"Minutes": 15}},
+        "Metrics": {"Status": "Enabled", "EventThreshold": {"Minutes": 15}}
+      },
+      "SourceSelectionCriteria": {
+        "SseKmsEncryptedObjects": {"Status": "Enabled"},
+        "ReplicaModifications": {"Status": "Enabled"}
+      }
+    }
+  ]
+}

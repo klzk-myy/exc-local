@@ -1,0 +1,8 @@
+# whitelist.map.example — whitelisted trading clients (market-maker and
+# prime-broker egress ranges + office ops exits). Skips the per-IP flood
+# ladder only — geo-block and method/size ACLs still apply (whitelist is
+# rate relief, not policy bypass).
+# One CIDR per line; managed via the admin socket in production:
+#   echo "add map /etc/haproxy/whitelist.map 192.0.2.16/32" | socat /run/haproxy/admin.sock -
+192.0.2.16/32
+192.0.2.32/28

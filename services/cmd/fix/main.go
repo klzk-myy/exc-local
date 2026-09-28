@@ -47,6 +47,11 @@ func run() error {
 
 	log.Info("fix started", "addr", cfg.Fix.Addr(), "env", cfg.Environment)
 	<-ctx.Done()
+	// Task 9.3.23 item 3 (FIX logout sequence: send 35=5 with
+	// Text(58)="Scheduled maintenance", wait ≤10s for peer Logouts) is a
+	// no-op until the Phase-18 QuickFIX acceptor exists — there are no
+	// sessions to log out. The sequencing hook belongs here, ahead of
+	// process exit, once internal/fixgw lands.
 	log.Info("fix shutting down")
 	return nil
 }

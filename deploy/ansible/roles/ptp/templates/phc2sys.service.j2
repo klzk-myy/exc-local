@@ -1,0 +1,21 @@
+# phc2sys.service — sync CLOCK_REALTIME to the PTP hardware clock the
+# NIC's PHC holds (ptp4l disciplines the PHC; phc2sys closes the loop
+# into the kernel clock adjtimex reads).
+[Unit]
+Description=Synchronize system clock to PTP hardware clock (phc2sys)
+After=ptp4l.service
+Requires=ptp4l.service
+
+[Service]
+Type=simple
+# -s: source = the NIC PHC device; -c CLOCK_REALTIME target; -w wait for
+# ptp4l lock; -O0 no forced offset; -m logs each update (journald).
+ExecStart=/usr/sbin/phc2sys -s {{ ptp_interface | default('ptp0') }} -c CLOCK_REALTIME -w -m -R 8
+Restart=always
+RestartSec=2
+# Lower scheduling latency for the servo loop.
+CPUSchedulingPolicy=rr
+CPUSchedulingPriority=20
+
+[Install]
+WantedBy=multi-user.target

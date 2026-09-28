@@ -1,0 +1,13 @@
+# Exchange platform namespace (Phase-09 Task 9.3.2).
+# Pod Security Standards: restricted — all workloads in this namespace must
+# run non-root with dropped capabilities and a read-only root filesystem.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: exchange
+  labels:
+    app.kubernetes.io/part-of: exchange
+    environment: production
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

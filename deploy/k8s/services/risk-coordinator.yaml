@@ -1,0 +1,106 @@
+# risk-coordinator — global portfolio margin, cross-shard 2PC reservation
+# (§19.13.1). Reservation timeout >10ms hard-cancels — keep this service on
+# dedicated QoS; 500µs RPC timer per inventory row.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: risk-coordinator
+  namespace: exchange
+  labels: {app.kubernetes.io/name: risk-coordinator, app.kubernetes.io/part-of: exchange}
+spec:
+  replicas: 2
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
+  selector:
+    matchLabels: {app.kubernetes.io/name: risk-coordinator}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: risk-coordinator}
+    spec:
+      serviceAccountName: exchange-service
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: risk-coordinator
+          image: registry.internal/exchange/risk-coordinator:CHANGE_ME
+          imagePullPolicy: IfNotPresent
+          ports:
+            - {name: health, containerPort: 9102}
+          envFrom:
+            - configMapRef: {name: exchange-env}
+          env:
+            - name: EXC_POSTGRES_DSN
+              valueFrom: {secretKeyRef: {name: exchange-db, key: dsn}}
+            - name: EXC_SECRETS_DATA_KEY
+              valueFrom: {secretKeyRef: {name: exchange-secrets, key: data-key}}
+            - name: EXC_RISK_HEALTH_ADDR
+              value: "0.0.0.0:9102"
+          readinessProbe:
+            httpGet: {path: /health/ready, port: health}
+            periodSeconds: 5
+            timeoutSeconds: 2              # tighter: 2PC peer must be snappy
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: {path: /health/live, port: health}
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              exec: {command: ["sh", "-c", "sleep 30"]}
+          resources:
+            requests: {cpu: 500m, memory: 512Mi}
+            limits:   {cpu: "2",  memory: 1Gi}
+          securityContext:
+            runAsUser: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - {name: tmp, emptyDir: {}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: risk-coordinator
+  namespace: exchange
+spec:
+  type: ClusterIP
+  ports:
+    - {name: health, port: 9102, targetPort: health}
+  selector: {app.kubernetes.io/name: risk-coordinator}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: risk-coordinator
+  namespace: exchange
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: risk-coordinator}
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource: {name: cpu, target: {type: Utilization, averageUtilization: 70}}
+    - type: Pods
+      pods:
+        metric: {name: rpc_duration_p99_us}
+        target: {type: AverageValue, averageValue: "500"}    # 500µs RPC timer
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: risk-coordinator
+  namespace: exchange
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: risk-coordinator}

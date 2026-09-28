@@ -1,0 +1,11 @@
+# matching-engine.target — boot-order anchor for Stage-2 core shards
+# (§19.13.2). `systemctl start matching-engine.target` brings up the full
+# per-host engine stack in dependency order.
+[Unit]
+Description=exchange matching engine stage (all shards on this host)
+Requires=aeronmd.service exchange-watchdogd.service ptp4l.service phc2sys.service
+After=aeronmd.service exchange-watchdogd.service ptp4l.service phc2sys.service
+Wants=matching-engine@0.service
+
+[Install]
+WantedBy=multi-user.target

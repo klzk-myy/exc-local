@@ -1,0 +1,14 @@
+# ptp4l.service — PTP boundary/ordinary clock daemon on matching nodes.
+[Unit]
+Description=Precision Time Protocol daemon (ptp4l)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/sbin/ptp4l -f /etc/ptp4l.conf -i {{ ptp_interface | default('ptp0') }}
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

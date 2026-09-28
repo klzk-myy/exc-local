@@ -309,7 +309,16 @@ func run() error {
 
 	<-ctx.Done()
 	log.Info("marketdata shutting down")
-	shCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// Task 9.3.23: reconnect advisory → 5s voluntary-leave window → force
+	// close, then HTTP drain under the 30s contract. Liveness stays ok
+	// throughout; readiness (K8s) was already dropped by the LB draining
+	// hook upstream.
+	drainCtx, drainCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	if err := srv.Drain(drainCtx, "maintenance", 5*time.Second); err != nil {
+		log.Warn("marketdata ws drain incomplete", "err", err)
+	}
+	drainCancel()
+	shCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	return httpSrv.Shutdown(shCtx)
 }

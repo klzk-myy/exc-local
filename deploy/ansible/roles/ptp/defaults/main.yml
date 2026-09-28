@@ -1,0 +1,7 @@
+# defaults for the ptp role — bare-metal matching nodes only.
+# ptp_interface: the PTP-capable NIC bound to the GPS grandmaster
+#   (e.g. ptp0 / ens1f0). Inventory must set it per host.
+ptp_interface: ptp0
+# ptp_domain: the grandmaster's PTP domain number (telecom profile GMs
+# commonly use 24 or 44; coordinate with the GM vendor).
+ptp_domain: 24

@@ -1,0 +1,31 @@
+# deploy/dr/postgres-standby.conf.sample — secondary-region warm standby
+# (Task 9.3.4, spec §18.3/§18.6.4). Applied ON TOP OF
+# deploy/postgres/postgresql.conf on the standby host.
+#
+# Semi-sync: the primary commits only after the standby flushes WAL —
+# synchronous_standby_names makes the commit wait bounded by the 15s RPO.
+# synchronous_commit = remote_apply is too strong for the order path;
+# remote_flush is the §18.3-compatible choice (durability, not visibility).
+
+# --- standby identity --------------------------------------------------------
+primary_conninfo = 'host=pg-primary.dc1.exc.local port=5432 user=replicator application_name=pg-dr-secondary sslmode=verify-full'
+primary_slot_name = 'dr_secondary'          # physical slot pre-created on primary
+restore_command  = 'deploy/postgres/wal_restore.sh %f %p'  # archive fallback when streaming gaps
+
+# --- promotion readiness ------------------------------------------------------
+hot_standby = on                            # serves read-only traffic
+hot_standby_feedback = on
+max_standby_streaming_delay = 15s           # bound by PG RPO
+wal_receiver_timeout = 30s                  # detect dead primary fast
+recovery_target_timeline = 'latest'
+
+# --- on the PRIMARY (applied there, kept here for topology docs) -------------
+# synchronous_standby_names = 'FIRST 1 (pg-dr-secondary)'   # semi-sync quorum
+# synchronous_commit        = 'remote_flush'              # flush-ack = RPO bound
+# archive_mode / archive_command already set by deploy/postgres/postgresql.conf
+#   → wal_archive.sh streams segments to the cross-region S3 WORM bucket.
+
+# --- Patroni hook -------------------------------------------------------------
+# Patroni promotes via `pg_ctl promote`; this conf is the bootstrap state.
+# Post-promotion: remove primary_conninfo, flip synchronous_standby_names
+# on the NEW primary's config to the fallback replica if one exists.

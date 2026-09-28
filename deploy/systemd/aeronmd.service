@@ -1,0 +1,48 @@
+# aeronmd.service — Aeron C media driver (§19.13.1 row 2, §19.13.2 Stage 1).
+# Owns the /dev/shm/aeron-exchange IPC rings; conductor/sender/receiver
+# pinned to isolated cores 2/3/4 (Task 9.3.1 layout; affinity also settable
+# via config/aeron-low-latency.properties).
+[Unit]
+Description=Aeron C media driver (exchange IPC rings)
+After=local-fs.target
+Before=matching-engine.target matching-engine@.service
+
+[Service]
+Type=notify
+NotifyAccess=main
+# Conductor heartbeat pets sd_notify.
+WatchdogSec=1s
+Restart=always
+RestartSec=1s
+KillMode=mixed
+TimeoutStopSec=5s
+
+User=exchange
+Group=exchange
+
+Environment=AERON_DIR=/dev/shm/aeron-exchange
+EnvironmentFile=-/etc/exchange/aeronmd.env
+ExecStart=/opt/exchange/bin/aeronmd \
+    --config /etc/exchange/aeron-low-latency.properties \
+    --aeron-dir /dev/shm/aeron-exchange
+ExecStartPost=/bin/sh -c 'chmod 0660 /dev/shm/aeron-exchange/cnc.dat 2>/dev/null || true'
+
+LimitMEMLOCK=infinity
+LimitNOFILE=1048576
+LimitCORE=infinity
+MemoryMax=2G
+OOMScoreAdjust=-800
+
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/dev/shm /var/log/exchange
+NoNewPrivileges=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+SystemCallArchitectures=native
+LockPersonality=yes
+
+SyslogIdentifier=aeronmd
+
+[Install]
+WantedBy=multi-user.target

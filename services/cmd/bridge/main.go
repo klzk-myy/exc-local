@@ -178,6 +178,15 @@ func run() error {
 	if err := b.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		return err
 	}
+	// Task 9.3.23 item 4: flush the in-memory buffer to JetStream before
+	// termination. A residual buffer fails closed (nonzero exit) — the
+	// WAL replay/archive covers it, but silent loss is not acceptable.
+	fctx, fcancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer fcancel()
+	if err := b.Flush(fctx); err != nil {
+		log.Error("bridge: shutdown flush incomplete", "err", err)
+		return fmt.Errorf("bridge flush: %w", err)
+	}
 	log.Info("bridge shutting down", "shard", bcfg.ShardID)
 	return nil
 }

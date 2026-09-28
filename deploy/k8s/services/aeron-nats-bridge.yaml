@@ -1,0 +1,121 @@
+# aeron-nats-bridge — drains Aeron execution events -> NATS JetStream
+# (§19.13.1). RocksDB spillover to /var/spool/exchange on JetStream ack
+# timeout; spool >5GB trips ReadOnly — the PVC keeps that budget durable.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aeron-nats-bridge
+  namespace: exchange
+  labels: {app.kubernetes.io/name: aeron-nats-bridge, app.kubernetes.io/part-of: exchange}
+spec:
+  replicas: 2
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
+  selector:
+    matchLabels: {app.kubernetes.io/name: aeron-nats-bridge}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: aeron-nats-bridge}
+    spec:
+      serviceAccountName: exchange-service
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60   # flush in-memory buffer to NATS
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: bridge
+          image: registry.internal/exchange/aeron-nats-bridge:CHANGE_ME
+          imagePullPolicy: IfNotPresent
+          ports:
+            - {name: health, containerPort: 9101}
+          envFrom:
+            - configMapRef: {name: exchange-env}
+          env:
+            - name: EXC_POSTGRES_DSN
+              valueFrom: {secretKeyRef: {name: exchange-db, key: dsn}}
+            - name: EXC_BRIDGE_METRICS_ADDR
+              value: "0.0.0.0:9101"
+            - name: EXC_BRIDGE_SPOOL_DIR
+              value: /var/spool/exchange
+          readinessProbe:
+            httpGet: {path: /health/ready, port: health}
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: {path: /health/live, port: health}
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              exec: {command: ["sh", "-c", "sleep 30"]}
+          resources:
+            requests: {cpu: 250m, memory: 256Mi}
+            limits:   {cpu: "1",  memory: 512Mi}
+          securityContext:
+            runAsUser: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: spool, mountPath: /var/spool/exchange}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: spool
+          persistentVolumeClaim: {claimName: bridge-spool}
+        - {name: tmp, emptyDir: {}}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: bridge-spool
+  namespace: exchange
+spec:
+  accessModes: [ReadWriteOnce]
+  resources: {requests: {storage: 10Gi}}   # >5GB spool ceiling + headroom
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aeron-nats-bridge
+  namespace: exchange
+spec:
+  type: ClusterIP
+  ports:
+    - {name: health, port: 9101, targetPort: health}
+  selector: {app.kubernetes.io/name: aeron-nats-bridge}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: aeron-nats-bridge
+  namespace: exchange
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: aeron-nats-bridge
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource: {name: cpu, target: {type: Utilization, averageUtilization: 70}}
+    - type: Pods
+      pods:
+        metric: {name: nats_publish_lag}
+        target: {type: AverageValue, averageValue: "500"}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: aeron-nats-bridge
+  namespace: exchange
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: aeron-nats-bridge}

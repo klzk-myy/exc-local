@@ -1,0 +1,185 @@
+# infrastructure/data-tiering/tiering_policy.yaml
+# Unified data retention + hot/warm/cold tiering matrix.
+# Phase-09 Tasks 9.3.22 / 9.3.24 — spec §19.12 (canonical schedule),
+# §19.7 (partition tiers), §24 #179/#212.
+#
+# This file is THE policy: docs/compliance/data-retention.md renders it
+# for humans; services/internal/operations/retention enforces it nightly;
+# cmd/archiver's `lifecycle` subcommand applies the partitioned classes'
+# hot_days/warm_days/retain_days to tier movement.
+#
+# Fields per class:
+#   name            data-type name (retention_audit_log.data_type)
+#   store           postgres_partitioned | postgres_table | clickhouse |
+#                   object_store | external
+#   table           PG parent/table or ClickHouse table
+#   ts_column       timestamp column (postgres_table / clickhouse checks)
+#   hot_days        attached-OLTP window before detach→warm (default 90)
+#   warm_days       total age before warm→cold export (spec §19.7: 365)
+#   retain_days     legal retention floor / WORM lock window
+#   purgeable       enforcer may DELETE expired rows in apply mode
+#   mechanism       archival mechanism (prose, rendered into the doc)
+#   regulatory_basis  MiFID/CFTC/GDPR citation
+#   gdpr_interaction  Art. 17(3)(b) / hold carve-out notes
+version: 1
+classes:
+  # --- OLTP partitioned parents (hot→warm→cold via archiver lifecycle) ----
+  - name: orders
+    description: Order records (all states incl. terminal)
+    store: postgres_partitioned
+    table: orders
+    hot_days: 90
+    warm_days: 365
+    retain_days: 1825        # 5y
+    mechanism: pg_partman detach → warm schema → csv+zstd WORM S3
+    regulatory_basis: MiFID II RTS 6 — order records 5 years
+    gdpr_interaction: Art. 17(3)(b) legal obligation overrides erasure
+  - name: trades
+    description: Executed trade history
+    store: postgres_partitioned
+    table: trades
+    hot_days: 90
+    warm_days: 365
+    retain_days: 1825
+    mechanism: pg_partman detach → warm schema → csv+zstd WORM S3
+    regulatory_basis: MiFID II RTS 6 — trade records 5 years
+    gdpr_interaction: Art. 17(3)(b) legal obligation overrides erasure
+  - name: order_audit
+    description: Order lifecycle audit trail
+    store: postgres_partitioned
+    table: order_audit
+    hot_days: 90
+    warm_days: 365
+    retain_days: 1825
+    mechanism: pg_partman detach → warm schema → csv+zstd WORM S3
+    regulatory_basis: MiFID II RTS 6 — order audit 5 years
+    gdpr_interaction: Art. 17(3)(b) legal obligation overrides erasure
+  - name: ledger
+    description: GL journal entries + ledger lines
+    store: postgres_partitioned
+    table: ledger_lines
+    hot_days: 90
+    warm_days: 365
+    retain_days: 2555        # 7y
+    mechanism: pg_partman detach → warm schema → csv+zstd WORM S3
+    regulatory_basis: Finance/house records 7 years (spec §19.12)
+    gdpr_interaction: Art. 17(3)(b) legal obligation overrides erasure
+  - name: audit_hash_chain
+    description: Tamper-evident audit hash chain
+    store: postgres_partitioned
+    table: audit_hash_chain
+    hot_days: 90
+    warm_days: 365
+    retain_days: 2555        # 7y
+    mechanism: pg_partman detach → warm schema → csv+zstd WORM S3
+    regulatory_basis: Audit logs 7 years (spec §19.12; Task 9.3.17)
+    gdpr_interaction: hash chain integrity — never row-purgeable
+
+  # --- ClickHouse analytics tier (TTL-governed) ---------------------------
+  - name: tick_history
+    description: Raw market-data ticks
+    store: clickhouse
+    table: tick_history
+    ts_column: timestamp
+    retain_days: 90
+    mechanism: MergeTree TTL 90d → drop raw; aggregates retained
+    regulatory_basis: spec §19.12 raw ticks 90 days
+    gdpr_interaction: no PII
+  - name: ohlcv_aggregates
+    description: OHLCV candle aggregates (12 persisted intervals)
+    store: clickhouse
+    table: ohlcv_1m
+    ts_column: window_start
+    retain_days: 1825
+    mechanism: SummingMergeTree TTL 5y
+    regulatory_basis: spec §19.12 OHLCV aggregates 5 years
+    gdpr_interaction: no PII
+
+  # --- Object store / WORM -------------------------------------------------
+  - name: comms_recordings
+    description: Communications recordings (taping)
+    store: object_store
+    table: comms_recordings
+    retain_days: 1825
+    mechanism: WORM object lock (COMPLIANCE mode)
+    regulatory_basis: MiFID II Art. 16(7) — communications 5 years
+    gdpr_interaction: Art. 17(3)(b); erasure blocked while retain live
+  - name: finance_reports
+    description: House finance reports / statements / confirmations
+    store: object_store
+    table: finance_reports
+    retain_days: 2555        # 7y
+    mechanism: WORM object lock (COMPLIANCE mode)
+    regulatory_basis: spec §19.12 finance reports 7 years
+    gdpr_interaction: Art. 17(3)(b)
+  - name: wal_archives
+    description: WAL segment archives + snapshots
+    store: object_store
+    table: wal
+    retain_days: 1825
+    mechanism: WORM object lock; S3→Glacier transition at 90d
+    regulatory_basis: DR/evidence retention (spec §3.5, §18.1)
+    gdpr_interaction: n/a — order-event journal, not PII store
+
+  # --- Plain OLTP tables ---------------------------------------------------
+  - name: surveillance_signals
+    description: Market-abuse surveillance signal records
+    store: postgres_table
+    table: surveillance_signals
+    ts_column: created_at
+    retain_days: 1825
+    mechanism: in-table retention; export on demand
+    regulatory_basis: spec §19.12 surveillance signals 5 years
+    gdpr_interaction: Art. 17(3)(b)
+  - name: support_tickets
+    description: Support tickets + complaints
+    store: postgres_table
+    table: support_tickets
+    ts_column: created_at
+    retain_days: 1825
+    mechanism: in-table retention
+    regulatory_basis: MiFID II complaints record-keeping
+    gdpr_interaction: PII — erasure reviewed against retention floor
+
+  # --- Transient operational data (purgeable) ------------------------------
+  - name: client_order_id_dedup
+    description: Client order-id dedup window rows
+    store: postgres_table
+    table: client_order_id_dedup
+    ts_column: created_at
+    retain_days: 7           # 24h semantic window + margin
+    purgeable: true
+    mechanism: enforcer nightly row purge
+    regulatory_basis: internal idempotency window (migration 154)
+    gdpr_interaction: operational key data
+  - name: idempotency_keys
+    description: API idempotency-key records
+    store: postgres_table
+    table: idempotency_keys
+    ts_column: created_at
+    retain_days: 7
+    purgeable: true
+    mechanism: enforcer nightly row purge
+    regulatory_basis: internal idempotency window (migration 154)
+    gdpr_interaction: operational key data
+  - name: webhook_deliveries
+    description: Webhook delivery attempt log
+    store: postgres_table
+    table: webhook_deliveries
+    ts_column: created_at
+    retain_days: 90
+    purgeable: true
+    mechanism: enforcer nightly row purge
+    regulatory_basis: operational delivery log
+    gdpr_interaction: endpoint metadata only
+
+  # --- Lifecycle-bound (not time-purgeable from this table) ----------------
+  - name: kyc_documents
+    description: KYC/AML identity documents
+    store: external
+    table: kyc_documents
+    retain_days: 1825        # account close + 5y
+    mechanism: account-lifecycle bound — offboarding flow (Task 14.3.9)
+    regulatory_basis: AML/KYC — account lifetime + 5 years
+    gdpr_interaction: Art. 17 erasure honoured after account close +
+                    retention floor; Art. 17(3)(b) blocks earlier

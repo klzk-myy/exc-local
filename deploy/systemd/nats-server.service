@@ -1,0 +1,40 @@
+# nats-server.service — JetStream event backbone node (§19.13.1, Task 1.3.11).
+# Clustered 3-node (configs deploy/nats/nats-{1,2,3}.conf); provisioned by
+# deploy/nats/provision.sh. Raft quorum health is monitored by
+# exchange-watchdogd + natsctl health.
+[Unit]
+Description=NATS JetStream server (exchange backbone)
+After=network-online.target
+Wants=network-online.target
+Before=exchange-watchdogd.service
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=2s
+KillMode=mixed
+# raft leader stepdown + JetStream flush.
+TimeoutStopSec=10s
+
+User=nats
+Group=nats
+
+EnvironmentFile=-/etc/exchange/nats.env      # NATS_NODE=1|2|3
+ExecStart=/usr/bin/nats-server -c /etc/nats/nats-${NATS_NODE:-1}.conf
+
+LimitNOFILE=1048576
+MemoryMax=4G
+OOMScoreAdjust=-500
+
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/nats /var/log/nats
+NoNewPrivileges=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+SystemCallArchitectures=native
+
+SyslogIdentifier=nats-server
+
+[Install]
+WantedBy=multi-user.target

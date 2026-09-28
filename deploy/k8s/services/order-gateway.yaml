@@ -1,0 +1,274 @@
+# order-gateway — REST + WS trading API (§19.13.1). Two Deployments for the
+# HAProxy blue/green topology (deploy/haproxy/active_color.map): each color is
+# a full Deployment + Service + HPA + PDB. HAProxy's be_gateway_{blue,green}
+# server entries point at these Services' stable virtual IPs.
+#
+# Probes use the R9 schema (spec §24, Task 7.3.6): /health/live never gates
+# traffic; /health/ready checks PG + Redis + engine IPC rings.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-gateway-blue
+  namespace: exchange
+  labels:
+    app.kubernetes.io/name: order-gateway
+    app.kubernetes.io/part-of: exchange
+    exchange/color: blue
+spec:
+  replicas: 2
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: order-gateway
+      exchange/color: blue
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: order-gateway
+        exchange/color: blue
+    spec:
+      serviceAccountName: exchange-service
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60   # Task 9.3.23 graceful drain
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: gateway
+          # Tag is pinned by the release pipeline (deploy/scripts/bluegreen.sh
+          # rewrites it via `kubectl set image`); :latest is never deployed.
+          image: registry.internal/exchange/order-gateway:CHANGE_ME
+          imagePullPolicy: IfNotPresent
+          ports:
+            - {name: http, containerPort: 8080}
+          envFrom:
+            - configMapRef: {name: exchange-env}
+          env:
+            - name: EXC_POSTGRES_DSN
+              valueFrom: {secretKeyRef: {name: exchange-db, key: dsn}}
+            - name: EXC_SECRETS_DATA_KEY
+              valueFrom: {secretKeyRef: {name: exchange-secrets, key: data-key}}
+            - name: EXC_JWT_HS256_KEY_B64
+              valueFrom: {secretKeyRef: {name: exchange-secrets, key: jwt-hs256-key-b64}}
+            - name: EXC_REDIS_PASSWORD
+              valueFrom: {secretKeyRef: {name: exchange-secrets, key: redis-password}}
+            - name: EXC_TRUST_PROXY        # behind HAProxy — honor X-Forwarded-For
+              value: "1"
+          readinessProbe:                  # R9 readiness — gates traffic
+            httpGet: {path: /health/ready, port: http}
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:                   # R9 liveness — orchestrator only
+            httpGet: {path: /health/live, port: http}
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          lifecycle:                       # SIGTERM drain before kubelet kills
+            preStop:
+              exec: {command: ["sh", "-c", "sleep 30"]}
+          resources:
+            requests: {cpu: 250m, memory: 256Mi}
+            limits:   {cpu: "1",  memory: 512Mi}
+          securityContext:
+            runAsUser: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: sharding, mountPath: /etc/exchange, readOnly: true}
+      volumes:
+        - {name: tmp, emptyDir: {}}
+        - name: sharding
+          configMap: {name: exchange-sharding}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: order-gateway-blue
+  namespace: exchange
+  labels:
+    app.kubernetes.io/name: order-gateway
+    exchange/color: blue
+spec:
+  type: ClusterIP                    # HAProxy servers point here (or NodePort
+                                     # / externalName per cluster topology)
+  ports:
+    - {name: http, port: 8080, targetPort: http}
+  selector:
+    app.kubernetes.io/name: order-gateway
+    exchange/color: blue
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: order-gateway-blue
+  namespace: exchange
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: order-gateway-blue
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource: {name: cpu, target: {type: Utilization, averageUtilization: 70}}
+    - type: Pods
+      pods:
+        metric: {name: http_request_duration_p99_ms}
+        target: {type: AverageValue, averageValue: "50"}   # Task 9.3.29 HPA p99 target
+    - type: Pods
+      pods:
+        metric: {name: ingress_queue_depth}
+        target: {type: AverageValue, averageValue: "5000"}
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies: [{type: Pods, value: 1, periodSeconds: 60}]
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: order-gateway-blue
+  namespace: exchange
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: order-gateway
+      exchange/color: blue
+---
+# ------------------------------ green ---------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-gateway-green
+  namespace: exchange
+  labels:
+    app.kubernetes.io/name: order-gateway
+    app.kubernetes.io/part-of: exchange
+    exchange/color: green
+spec:
+  replicas: 0                        # idle color scales on demand at deploy time
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: order-gateway
+      exchange/color: green
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: order-gateway
+        exchange/color: green
+    spec:
+      serviceAccountName: exchange-service
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: gateway
+          image: registry.internal/exchange/order-gateway:CHANGE_ME
+          imagePullPolicy: IfNotPresent
+          ports:
+            - {name: http, containerPort: 8080}
+          envFrom:
+            - configMapRef: {name: exchange-env}
+          env:
+            - name: EXC_POSTGRES_DSN
+              valueFrom: {secretKeyRef: {name: exchange-db, key: dsn}}
+            - name: EXC_SECRETS_DATA_KEY
+              valueFrom: {secretKeyRef: {name: exchange-secrets, key: data-key}}
+            - name: EXC_JWT_HS256_KEY_B64
+              valueFrom: {secretKeyRef: {name: exchange-secrets, key: jwt-hs256-key-b64}}
+            - name: EXC_REDIS_PASSWORD
+              valueFrom: {secretKeyRef: {name: exchange-secrets, key: redis-password}}
+            - name: EXC_TRUST_PROXY
+              value: "1"
+          readinessProbe:
+            httpGet: {path: /health/ready, port: http}
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: {path: /health/live, port: http}
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              exec: {command: ["sh", "-c", "sleep 30"]}
+          resources:
+            requests: {cpu: 250m, memory: 256Mi}
+            limits:   {cpu: "1",  memory: 512Mi}
+          securityContext:
+            runAsUser: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: sharding, mountPath: /etc/exchange, readOnly: true}
+      volumes:
+        - {name: tmp, emptyDir: {}}
+        - name: sharding
+          configMap: {name: exchange-sharding}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: order-gateway-green
+  namespace: exchange
+  labels:
+    app.kubernetes.io/name: order-gateway
+    exchange/color: green
+spec:
+  type: ClusterIP
+  ports:
+    - {name: http, port: 8080, targetPort: http}
+  selector:
+    app.kubernetes.io/name: order-gateway
+    exchange/color: green
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: order-gateway-green
+  namespace: exchange
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: order-gateway-green
+  minReplicas: 0                     # zero while idle — HPA wakes on scale-up
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource: {name: cpu, target: {type: Utilization, averageUtilization: 70}}
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies: [{type: Pods, value: 1, periodSeconds: 60}]
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: order-gateway-green
+  namespace: exchange
+spec:
+  minAvailable: 0                    # idle color may go to zero
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: order-gateway
+      exchange/color: green

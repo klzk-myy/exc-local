@@ -1,0 +1,57 @@
+# tomnext-rollover — daily spot position roll at New York close (§19.13.1,
+# spec §17.4: canonical trigger 17:00 ET = 21:00 UTC EDT / 22:00 UTC EST).
+# The daemon computes the trigger from the §17.4 rule; the CronJob schedule
+# is the backstop that guarantees a daily run. Redis execution lock prevents
+# a double-roll on CronJob retry.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: tomnext-rollover
+  namespace: exchange
+  labels: {app.kubernetes.io/name: tomnext-rollover, app.kubernetes.io/part-of: exchange}
+spec:
+  schedule: "0 21 * * *"             # UTC; EST weeks run an hour early and the
+                                     # daemon no-ops until the 17:00 ET tick
+  timeZone: "Etc/UTC"
+  concurrencyPolicy: Forbid          # never run two rolls concurrently
+  successfulJobsHistoryLimit: 14
+  failedJobsHistoryLimit: 14
+  startingDeadlineSeconds: 1800
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 3600    # roll must finish before Asia open
+      backoffLimit: 2
+      template:
+        metadata:
+          labels: {app.kubernetes.io/name: tomnext-rollover}
+        spec:
+          serviceAccountName: exchange-service
+          automountServiceAccountToken: false
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            fsGroup: 10001
+            seccompProfile: {type: RuntimeDefault}
+          containers:
+            - name: tomnext-rollover
+              image: registry.internal/exchange/tomnext-rollover:CHANGE_ME
+              imagePullPolicy: IfNotPresent
+              envFrom:
+                - configMapRef: {name: exchange-env}
+              env:
+                - name: EXC_POSTGRES_DSN
+                  valueFrom: {secretKeyRef: {name: exchange-db, key: dsn}}
+                - name: EXC_SECRETS_DATA_KEY
+                  valueFrom: {secretKeyRef: {name: exchange-secrets, key: data-key}}
+              resources:
+                requests: {cpu: 250m, memory: 256Mi}
+                limits:   {cpu: "1",  memory: 512Mi}
+              securityContext:
+                runAsUser: 10001
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: [ALL]}
+              volumeMounts:
+                - {name: tmp, mountPath: /tmp}
+          volumes:
+            - {name: tmp, emptyDir: {}}

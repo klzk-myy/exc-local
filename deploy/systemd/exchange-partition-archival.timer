@@ -1,0 +1,16 @@
+# exchange-partition-archival.timer — nightly 02:00 UTC trigger for the
+# partition archival oneshot (Task 9.3.17: nightly cadence supersedes the
+# spec §19.7 "weekly" — remediation #35).
+[Unit]
+Description=nightly exchange partition archival timer
+Requires=exchange-partition-archival.service
+
+[Timer]
+OnCalendar=*-*-* 02:00:00 UTC
+# Catch up after host downtime.
+Persistent=true
+# Deterministic window — archival is audited.
+RandomizedDelaySec=0
+
+[Install]
+WantedBy=timers.target

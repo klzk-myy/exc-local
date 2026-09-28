@@ -24,16 +24,21 @@ import (
 	"exchange/internal/admin"
 	"exchange/internal/api"
 	"exchange/internal/auth"
+	"exchange/internal/cache"
 	"exchange/internal/config"
 	"exchange/internal/db"
 	"exchange/internal/deprecation"
 	"exchange/internal/errs"
+	"exchange/internal/flags"
+	"exchange/internal/fleet"
 	"exchange/internal/funding"
 	"exchange/internal/gateway"
+	"exchange/internal/ipc"
 	"exchange/internal/marketapi"
 	"exchange/internal/middleware"
 	"exchange/internal/nats"
 	"exchange/internal/observability"
+	"exchange/internal/ops"
 	"exchange/internal/orders"
 	"exchange/internal/promos"
 	"exchange/internal/ratelimit"
@@ -44,6 +49,7 @@ import (
 	"exchange/internal/tax"
 	"exchange/internal/testenv"
 	"exchange/internal/timesync"
+	"exchange/internal/tracing"
 	"exchange/internal/utils"
 	"exchange/internal/webhooks"
 	"exchange/internal/ws"
@@ -102,6 +108,41 @@ func run() error {
 	metReg := observability.New()
 	met := observability.NewMetrics(metReg, "gateway")
 	mux.Handle("/metrics", metReg.Handler())
+
+	// Phase-09 Task 9.3.11: OTLP-compatible tracer (no OTel SDK — the
+	// internal model emits OTLP/HTTP JSON a collector fans out to
+	// Jaeger/Tempo; deploy/otel/). EXC_OTLP_ENDPOINT selects the
+	// collector; EXC_OTLP_FILE a JSONL file (node scrape); neither →
+	// Nop. Sampling is spec §19.12.3 head 1% + tail on errors/slow;
+	// EXC_TRACE_SAMPLE_ALL=1 overrides for dev/staging.
+	var traceExp tracing.Exporter = tracing.NopExporter{}
+	var traceBatch *tracing.BatchExporter
+	switch {
+	case os.Getenv("EXC_OTLP_ENDPOINT") != "":
+		traceBatch = tracing.NewBatchExporter(
+			&tracing.OTLPHTTPExporter{Endpoint: os.Getenv("EXC_OTLP_ENDPOINT")},
+			2048, 500*time.Millisecond, 256)
+		traceExp = traceBatch
+	case os.Getenv("EXC_OTLP_FILE") != "":
+		if fe, err := tracing.NewFileExporter(os.Getenv("EXC_OTLP_FILE")); err == nil {
+			traceBatch = tracing.NewBatchExporter(fe, 2048, 500*time.Millisecond, 256)
+			traceExp = traceBatch
+		} else {
+			log.Warn("tracing: EXC_OTLP_FILE open failed", "err", err)
+		}
+	}
+	tracer := tracing.NewTracer("order-gateway", traceExp,
+		&tracing.Options{
+			SampleAll: os.Getenv("EXC_TRACE_SAMPLE_ALL") == "1",
+		})
+	if traceBatch != nil {
+		metReg.CounterFunc("tracing_spans_dropped",
+			"spans dropped by the export queue under backpressure",
+			func() float64 { return float64(traceBatch.Dropped()) })
+		metReg.CounterFunc("tracing_spans_exported",
+			"spans shipped to the OTLP sink",
+			func() float64 { return float64(traceBatch.Exported()) })
+	}
 
 	// Tasks 5.3.2/5.3.27/5.3.34: edge rate-limit + progressive-IP-ban
 	// cluster. One Lua round trip per request atomically runs the ban
@@ -584,6 +625,111 @@ func run() error {
 	}
 	// --- end RBAC cluster wiring ---
 
+	// Phase-09 Task 9.3.30: environment/fleet/promotion-gate backend
+	// (migration 091). The env-scoped role/env enforcement is the
+	// Task 7.3.11 middleware on the route metadata (Env="env-scoped"
+	// requires an explicit env axis on the binding); the service adds the
+	// promotion direction lattice and §19.16.3 interlock probes.
+	fleetSvc := fleet.NewService(pool, fleet.RoleResolver(adminRoleResolver), nil)
+
+	// ---- Phase-09 ops wiring (Tasks 9.3.6/9.3.7/9.3.8/9.3.10/9.3.25) ----
+	//
+	// Feature flags (9.3.7): PG-backed store, Redis flags:{name} cache.
+	flagStore, err := flags.NewStore(pool, rdb.Client)
+	if err != nil {
+		return fmt.Errorf("flag store: %w", err)
+	}
+	flagList, flagCreate, flagGet, flagUpdate, flagToggle, flagDel, flagAdvance :=
+		api.FlagHandlers(flagStore)
+
+	// Cache warming (9.3.8): boot-time "deploy" pass plus the warm:trigger
+	// pub/sub funnel the watchdog/DR coordinator publish on recovery and
+	// failover.
+	warmer := cache.New(&cache.Env{
+		Pool: pool, RDB: rdb.Client, Log: log,
+	}, cache.DefaultUnits())
+	go func() {
+		if rep := warmer.Run(sweepCtx, "deploy"); !rep.OK() {
+			log.Warn("boot cache warm incomplete — check warm:state:* markers")
+		}
+	}()
+	go func() {
+		if err := warmer.RunOnTriggers(sweepCtx); err != nil && sweepCtx.Err() == nil {
+			log.Error("warm trigger loop exited", "err", err)
+		}
+	}()
+
+	// Deprecation ops (9.3.6): sunset sweep + usage compaction; the
+	// middleware telemetry sink is wired into the apiSurface below.
+	sunsetTotal := metReg.Counter("deprecation_sunset_total",
+		"Deprecation rules transitioned to SUNSET by the sweep.")
+	depSweeper := &deprecation.Sweeper{
+		Store: depStore, RDB: rdb.Client, Log: log,
+		OnSunset: func(n int) { sunsetTotal.With().Add(float64(n)) },
+	}
+	go depSweeper.Run(sweepCtx)
+
+	// Load shedding (9.3.10): inbound queue depth is the summed Aeron
+	// ingress-ring occupancy; capacity drives the §2.7 80%/95%
+	// watermarks. A channel that cannot open reports -1 → conservative
+	// stage-1 posture, never silent health.
+	shedder := middleware.NewShedder(middleware.ShedConfig{
+		Depth: func() int64 {
+			var d int64
+			for _, id := range shardIDs(shardMap) {
+				ch, err := orderSubmitter.Channel(id)
+				if err != nil {
+					return -1
+				}
+				d += int64(ch.Occupancy())
+			}
+			return d
+		},
+		Capacity: int64(len(shardIDs(shardMap))) * int64(ipc.DefaultRingCapacity),
+	})
+	go shedder.Run(sweepCtx)
+	metReg.GaugeFunc("load_shed_stage",
+		"Active load-shed stage (0=off).",
+		func() float64 { return float64(shedder.Stage()) })
+	metReg.CounterFunc("load_shed_rejected_total",
+		"Requests shed under Task 9.3.10.",
+		func() float64 { return float64(shedder.Stats().ShedTotal) })
+
+	// Status aggregation (9.3.25): the exporter probes the same
+	// dependencies readiness does, publishes status:current +
+	// status:component:* + status:events into Redis each second, and
+	// records transitions/incidents into the ops_* tables (migration
+	// 197). NATS is non-critical (JetStream dispatch is
+	// fail-operational); a dead engine ring is critical.
+	statusAgg := ops.NewAggregator(pool, rdb.Client, rdb, []ops.Component{
+		{Name: "postgres", Critical: true, Probe: pool.Ping},
+		{Name: "redis", Critical: true, Probe: rdb.Ping},
+		{Name: "nats", Probe: func(ctx context.Context) error {
+			if natsClient == nil {
+				return fmt.Errorf("nats client not configured")
+			}
+			return natsClient.Conn().FlushWithContext(ctx)
+		}},
+		{Name: "engine_shards", Critical: true, Probe: func(ctx context.Context) error {
+			for _, id := range shardIDs(shardMap) {
+				ch, err := orderSubmitter.Channel(id)
+				if err != nil {
+					return fmt.Errorf("shard %d channel: %w", id, err)
+				}
+				if !ch.ProducerAlive() {
+					return fmt.Errorf("shard %d engine producer not alive", id)
+				}
+			}
+			return nil
+		}},
+	}, log)
+	go statusAgg.Run(sweepCtx, time.Second)
+
+	// Drain latch (9.3.23): flips on signal — readiness reports
+	// unhealthy immediately while in-flight work drains.
+	drainFlag := &middleware.DrainFlag{}
+	// ---- end Phase-09 ops wiring ----
+
 	live := map[string]http.Handler{
 		"GET /api/v1/account/rate-limits": http.HandlerFunc(
 			api.AccountRateLimits(limiter, tierResolver)),
@@ -665,16 +811,42 @@ func run() error {
 		"POST /api/v1/admin/api-deprecations": http.HandlerFunc(depAnnounce),
 		"GET /api/v1/admin/api-deprecations":  http.HandlerFunc(depList),
 		"GET /developer/migration":            http.HandlerFunc(api.MigrationGuide(depStore)),
+		// --- Phase-09 ops surface ---
+		// Task 9.3.6: deprecated-route usage telemetry for operators.
+		"GET /api/v1/admin/api-deprecations/usage": http.HandlerFunc(
+			api.AdminDeprecationUsage(depStore, rdb,
+				api.AdminRoleResolver(adminRoleResolver))),
+		// Task 9.3.7: feature-flag CRUD/toggle/rollout-step administration.
+		"GET /api/v1/admin/flags":                 http.HandlerFunc(flagList),
+		"POST /api/v1/admin/flags":                http.HandlerFunc(flagCreate),
+		"GET /api/v1/admin/flags/{name}":          http.HandlerFunc(flagGet),
+		"PUT /api/v1/admin/flags/{name}":          http.HandlerFunc(flagUpdate),
+		"POST /api/v1/admin/flags/{name}":         http.HandlerFunc(flagToggle),
+		"DELETE /api/v1/admin/flags/{name}":       http.HandlerFunc(flagDel),
+		"POST /api/v1/admin/flags/{name}/advance": http.HandlerFunc(flagAdvance),
+		// Task 9.3.8: operator-triggered cache warm.
+		"POST /api/v1/admin/cache/warm": http.HandlerFunc(api.AdminCacheWarm(warmer)),
+		// Task 9.3.25: public status + incidents, admin ops-health export.
+		"GET /api/v1/system/status":    http.HandlerFunc(api.SystemStatus(rdb)),
+		"GET /api/v1/system/incidents": http.HandlerFunc(api.SystemIncidents(pool)),
+		"GET /api/v1/admin/ops/health": http.HandlerFunc(
+			api.AdminOpsHealth(&api.OpsExportDeps{
+				Pool: pool, RDB: rdb,
+				Resolver:  api.AdminRoleResolver(adminRoleResolver),
+				ShedStats: shedder.Stats,
+			})),
 		// R9 health schema (Task 5.3.28 item 6): /health/live is always-ok
 		// liveness; /health/ready (Task 7.3.6) probes PostgreSQL, Redis,
 		// NATS (optional — ledger dispatch is fail-operational) and every
 		// engine IPC ring producer, reporting per-dependency detail +
 		// 503 when a required dependency or the mode is down. /health and
 		// /ready are the Task 7.3.6 aliases.
-		"GET /health/live":  http.HandlerFunc(api.Health),
-		"GET /health":       http.HandlerFunc(api.Health),
-		"GET /health/ready": http.HandlerFunc(readiness(rdb, pool, natsClient, orderSubmitter, shardMap, apiVersion)),
-		"GET /ready":        http.HandlerFunc(readiness(rdb, pool, natsClient, orderSubmitter, shardMap, apiVersion)),
+		"GET /health/live": http.HandlerFunc(api.Health),
+		"GET /health":      http.HandlerFunc(api.Health),
+		"GET /health/ready": middleware.ReadyGate(drainFlag, router.WriteError,
+			http.HandlerFunc(readiness(rdb, pool, natsClient, orderSubmitter, shardMap, apiVersion))),
+		"GET /ready": middleware.ReadyGate(drainFlag, router.WriteError,
+			http.HandlerFunc(readiness(rdb, pool, natsClient, orderSubmitter, shardMap, apiVersion))),
 		// --- Phase-07 Task 7.3.3: admin audit query + verify ---
 		"GET /api/v1/admin/audit":        http.HandlerFunc(api.AdminAuditLog(pool, adminRoleResolver)),
 		"GET /api/v1/admin/audit-log":    http.HandlerFunc(api.AdminAuditLog(pool, adminRoleResolver)),
@@ -758,6 +930,25 @@ func run() error {
 		"POST /api/v1/admin/break-glass": http.HandlerFunc(api.AdminBreakGlassGrant(rbacDeps)),
 		"POST /api/v1/admin/break-glass/{id}/review": http.HandlerFunc(
 			api.AdminBreakGlassReview(rbacDeps)),
+		// --- Phase-09 Task 9.3.30: fleet / releases / promotion gates ---
+		"GET /api/v1/admin/fleet/environments": http.HandlerFunc(
+			api.AdminFleetEnvironments(fleetSvc, true)),
+		"GET /api/v1/admin/fleet/hosts": http.HandlerFunc(
+			api.AdminFleetHosts(fleetSvc, true)),
+		"GET /api/v1/admin/fleet/topology": http.HandlerFunc(
+			api.AdminFleetTopology(fleetSvc, true)),
+		"POST /api/v1/admin/fleet/hosts/{id}/drain": http.HandlerFunc(
+			api.AdminHostAction(fleetSvc, fleet.ActionDrain, true)),
+		"POST /api/v1/admin/fleet/hosts/{id}/cordon": http.HandlerFunc(
+			api.AdminHostAction(fleetSvc, fleet.ActionCordon, true)),
+		"POST /api/v1/admin/fleet/hosts/{id}/decommission": http.HandlerFunc(
+			api.AdminHostAction(fleetSvc, fleet.ActionDecommission, true)),
+		"GET /api/v1/admin/releases": http.HandlerFunc(
+			api.AdminReleaseList(fleetSvc, true)),
+		"POST /api/v1/admin/releases": http.HandlerFunc(
+			api.AdminReleaseCreate(fleetSvc, true)),
+		"POST /api/v1/admin/releases/{id}/promote": http.HandlerFunc(
+			api.AdminReleasePromote(fleetSvc, true)),
 	}
 	if err := router.MountSeedLive(live); err != nil {
 		return fmt.Errorf("route registry: %w", err)
@@ -785,17 +976,31 @@ func run() error {
 	// bars everything but health).
 	apiSurface := middleware.DegradationGate(rdb, router.WriteError)(
 		auth.OptionalAuthMiddleware(jwtIssuer, sessMgr)(
-			middleware.Idempotency(
-				middleware.NewRedisIdemStore(rdb.Client),
-				nil, idemResolver(keyStore), router.WriteError)(
-				middleware.APIVersion(middleware.VersionConfig{
-					Versions: map[int]string{1: apiVersion},
-					Emit:     router.WriteError,
-				})(
-					deprecation.Middleware(depRules,
-						func(w http.ResponseWriter, req *http.Request, _ int, code, msg string) {
-							router.WriteError(w, req, code, msg, nil)
-						}, nil)(mux)))))
+			// Task 9.3.10: staged tiered shedding inside OptionalAuth so the
+			// tier resolver sees claims; cancels bypass entirely.
+			middleware.Shedding(shedder, middleware.ShedOptions{
+				ResolveTier: func(r *http.Request) ratelimit.Tier {
+					return tierResolver(r.Context(), auth.ClaimsFrom(r.Context()))
+				},
+				Emit: router.WriteError,
+			})(
+				// Task 9.3.23: during drain new non-cancel work rejects
+				// 503; in-flight requests finish inside srv.Shutdown.
+				middleware.RejectWhenDraining(drainFlag, router.WriteError)(
+					middleware.Idempotency(
+						middleware.NewRedisIdemStore(rdb.Client),
+						nil, idemResolver(keyStore), router.WriteError)(
+						middleware.APIVersion(middleware.VersionConfig{
+							Versions: map[int]string{1: apiVersion},
+							Emit:     router.WriteError,
+						})(
+							// Task 9.3.6: headers/410 unchanged; the Redis
+							// sink records per-key usage telemetry.
+							deprecation.MiddlewareWithTelemetry(depRules,
+								func(w http.ResponseWriter, req *http.Request, _ int, code, msg string) {
+									router.WriteError(w, req, code, msg, nil)
+								}, nil,
+								deprecation.RedisHitSink(rdb.Client))(mux)))))))
 
 	srv := &http.Server{
 		Addr: cfg.Gateway.Addr(),
@@ -816,18 +1021,19 @@ func run() error {
 					gateway.RequestID(router.Recover(
 						func(f string, a ...any) { log.Error(fmt.Sprintf(f, a...)) },
 						middleware.Tracing(
-							middleware.Logging(log,
-								middleware.RateLimit(limiter, middleware.RateLimitOptions{
-									ResolveTier: tierResolver,
-									Emit:        router.WriteError,
-									// Public-tier IP bucketing trusts XFF
-									// only when the gateway is known to sit
-									// behind HAProxy (EXC_TRUST_PROXY=1,
-									// same convention as cmd/marketdata) —
-									// a spoofable source IP would defeat
-									// the Task 5.3.34 ban machinery.
-									TrustProxy: os.Getenv("EXC_TRUST_PROXY") == "1",
-								})(apiSurface)))))))),
+							tracing.Middleware(tracer)(
+								middleware.Logging(log,
+									middleware.RateLimit(limiter, middleware.RateLimitOptions{
+										ResolveTier: tierResolver,
+										Emit:        router.WriteError,
+										// Public-tier IP bucketing trusts XFF
+										// only when the gateway is known to sit
+										// behind HAProxy (EXC_TRUST_PROXY=1,
+										// same convention as cmd/marketdata) —
+										// a spoofable source IP would defeat
+										// the Task 5.3.34 ban machinery.
+										TrustProxy: os.Getenv("EXC_TRUST_PROXY") == "1",
+									})(apiSurface))))))))),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -848,9 +1054,23 @@ func run() error {
 	select {
 	case <-ctx.Done():
 		log.Info("gateway shutting down")
-		sctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		return srv.Shutdown(sctx)
+		// Task 9.3.23 ordering: readiness flips unhealthy immediately
+		// (Kubernetes stops routing new traffic while the PreStop window
+		// elapses), new work rejects 503, WS clients get the reconnect
+		// advisory, in-flight HTTP drains under the 30s budget, then
+		// background loops stop via sweepStop.
+		drainFlag.Set()
+		err := middleware.RunSteps(context.Background(), log, []middleware.Step{
+			{Name: "ws_drain", Timeout: 15 * time.Second, Fn: func(c context.Context) error {
+				return wsSrv.Drain(c, ws.DrainAdvisory{
+					Reason:     "maintenance",
+					RetryAfter: 2 * time.Second,
+				})
+			}},
+			{Name: "http_drain", Timeout: 30 * time.Second, Fn: srv.Shutdown},
+		})
+		sweepStop()
+		return err
 	case err := <-serveErr:
 		return err
 	}

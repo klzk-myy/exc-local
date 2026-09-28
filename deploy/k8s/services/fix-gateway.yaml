@@ -1,0 +1,94 @@
+# fix-gateway — QuickFIX-Go FIX 4.4/5.0 SP2 sessions (§19.13.1), FIXS mTLS.
+# FIX is sessionful TCP: no HPA on session count, keep 2 replicas for CoD
+# drain overlap; scale-by-connection-count is a Task 9.3.29 metric.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fix-gateway
+  namespace: exchange
+  labels: {app.kubernetes.io/name: fix-gateway, app.kubernetes.io/part-of: exchange}
+spec:
+  replicas: 2
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxSurge: 0, maxUnavailable: 1}   # sessions CoD-drain to peer
+  selector:
+    matchLabels: {app.kubernetes.io/name: fix-gateway}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: fix-gateway}
+    spec:
+      serviceAccountName: exchange-service
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60   # Logout(35=5) fanout ≤10s + drain
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: fix
+          image: registry.internal/exchange/fix-gateway:CHANGE_ME
+          imagePullPolicy: IfNotPresent
+          ports:
+            - {name: fix, containerPort: 9800, protocol: TCP}
+            - {name: health, containerPort: 8082}
+          envFrom:
+            - configMapRef: {name: exchange-env}
+          env:
+            - name: EXC_POSTGRES_DSN
+              valueFrom: {secretKeyRef: {name: exchange-db, key: dsn}}
+            - name: EXC_SECRETS_DATA_KEY
+              valueFrom: {secretKeyRef: {name: exchange-secrets, key: data-key}}
+            - name: EXC_FIX_MTLS_KEYSTORE
+              valueFrom: {secretKeyRef: {name: exchange-secrets, key: fix-mtls-keystore}}
+          # R9 schema endpoints. Liveness checks the process; readiness must
+          # additionally verify the FIX acceptor — today /healthz on :8082
+          # (alias to /health/ready lands with Task 7.3.6 rollout).
+          readinessProbe:
+            httpGet: {path: /health/ready, port: health}
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: {path: /health/live, port: health}
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              exec: {command: ["sh", "-c", "sleep 30"]}
+          resources:
+            requests: {cpu: 250m, memory: 256Mi}
+            limits:   {cpu: "1",  memory: 512Mi}
+          securityContext:
+            runAsUser: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - {name: tmp, emptyDir: {}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fix-gateway
+  namespace: exchange
+spec:
+  type: LoadBalancer                 # client FIX sessions terminate here
+  externalTrafficPolicy: Local       # preserve source IP for entitlement/CoD
+  ports:
+    - {name: fix, port: 9800, targetPort: fix}
+  selector: {app.kubernetes.io/name: fix-gateway}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: fix-gateway
+  namespace: exchange
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: fix-gateway}

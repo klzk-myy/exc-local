@@ -1,0 +1,8 @@
+# geo-block.map.example — Phase-21 sanctioned-jurisdiction CIDRs rendered
+# to /etc/haproxy/geo-block.map. One network per line; empty file = no
+# denies. Live-update via the admin socket:
+#   echo "add map /etc/haproxy/geo-block.map 203.0.113.0/24" | socat /run/haproxy/admin.sock -
+# Entries below are documentation ranges (TEST-NET-*) — replace with the
+# Phase-21 feed output, never hand-edit the live file.
+203.0.113.0/24
+198.51.100.0/24

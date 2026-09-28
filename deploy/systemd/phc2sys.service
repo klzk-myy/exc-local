@@ -1,0 +1,29 @@
+# phc2sys.service — sync CLOCK_REALTIME from the NIC PHC disciplined by
+# ptp4l (spec §19.4). Starts after ptp4l has a lock.
+[Unit]
+Description=PHC-to-system clock synchronizer (phc2sys)
+After=ptp4l.service
+Requires=ptp4l.service
+Before=matching-engine.target
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=2s
+EnvironmentFile=-/etc/exchange/ptp4l.env
+# -s CLOCK_REALTIME from the PHC on the PTP NIC; -w waits for ptp4l lock.
+ExecStart=/usr/sbin/phc2sys -s ${PTP_IFACE:-eth0} -c CLOCK_REALTIME -m -w -O 0
+
+LimitNOFILE=1024
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+NoNewPrivileges=yes
+AmbientCapabilities=CAP_SYS_TIME
+CapabilityBoundingSet=CAP_SYS_TIME
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+
+SyslogIdentifier=phc2sys
+
+[Install]
+WantedBy=multi-user.target

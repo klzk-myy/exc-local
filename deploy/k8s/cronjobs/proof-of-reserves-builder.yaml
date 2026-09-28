@@ -1,0 +1,54 @@
+# proof-of-reserves-builder — daily 22:00 UTC client-balance Merkle tree +
+# root publication (§19.13.1). Merkle generation failure alerts Compliance
+# and prevents root publication — failedJobsHistoryLimit keeps evidence.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: proof-of-reserves-builder
+  namespace: exchange
+  labels: {app.kubernetes.io/name: proof-of-reserves-builder, app.kubernetes.io/part-of: exchange}
+spec:
+  schedule: "0 22 * * *"
+  timeZone: "Etc/UTC"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 30
+  failedJobsHistoryLimit: 30
+  startingDeadlineSeconds: 3600
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 1800
+      backoffLimit: 2
+      template:
+        metadata:
+          labels: {app.kubernetes.io/name: proof-of-reserves-builder}
+        spec:
+          serviceAccountName: exchange-service
+          automountServiceAccountToken: false
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            fsGroup: 10001
+            seccompProfile: {type: RuntimeDefault}
+          containers:
+            - name: por-builder
+              image: registry.internal/exchange/proof-of-reserves-builder:CHANGE_ME
+              imagePullPolicy: IfNotPresent
+              envFrom:
+                - configMapRef: {name: exchange-env}
+              env:
+                - name: EXC_POSTGRES_DSN
+                  valueFrom: {secretKeyRef: {name: exchange-db, key: dsn}}
+                - name: EXC_SECRETS_DATA_KEY
+                  valueFrom: {secretKeyRef: {name: exchange-secrets, key: data-key}}
+              resources:
+                requests: {cpu: 500m, memory: 1Gi}
+                limits:   {cpu: "2",  memory: 2Gi}
+              securityContext:
+                runAsUser: 10001
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: [ALL]}
+              volumeMounts:
+                - {name: tmp, mountPath: /tmp}
+          volumes:
+            - {name: tmp, emptyDir: {}}

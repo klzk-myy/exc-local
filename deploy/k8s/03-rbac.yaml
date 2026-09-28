@@ -1,0 +1,10 @@
+# Minimal RBAC — services need no K8s API access by default. A single shared
+# ServiceAccount with automountServiceAccountToken=false keeps the blast
+# radius at zero; add per-service accounts only when one legitimately calls
+# the API server (none in the current §19.13.1 inventory).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: exchange-service
+  namespace: exchange
+automountServiceAccountToken: false

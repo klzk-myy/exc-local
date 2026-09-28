@@ -1,0 +1,75 @@
+# deploy/ansible/roles/ptp/tasks/main.yml — Phase-09 Task 9.3.12.
+# Installs linuxptp (ptp4l + phc2sys) on bare-metal matching nodes with
+# hardware timestamping on the PTP-capable NIC bound to the GPS
+# grandmaster, plus the status-file helper the Go monitor
+# (services/internal/timesync) reads — the monitor never execs pmc from
+# the hot host's critical path; the helper's systemd timer does.
+---
+- name: Install linuxptp
+  ansible.builtin.package:
+    name: linuxptp
+    state: present
+
+- name: Deploy ptp4l configuration
+  ansible.builtin.template:
+    src: ptp4l.conf.j2
+    dest: /etc/ptp4l.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart ptp4l
+
+- name: Deploy phc2sys unit
+  ansible.builtin.template:
+    src: phc2sys.service.j2
+    dest: /etc/systemd/system/phc2sys.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart phc2sys
+
+- name: Deploy ptp4l unit override (hardware timestamping + priority1)
+  ansible.builtin.template:
+    src: ptp4l.service.j2
+    dest: /etc/systemd/system/ptp4l.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart ptp4l
+
+- name: Install status-writer helper
+  ansible.builtin.copy:
+    src: ptp-status.sh
+    dest: /usr/local/sbin/ptp-status.sh
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Deploy status-writer timer (writes /run/ptp/status every 5s)
+  ansible.builtin.template:
+    src: ptp-status.service.j2
+    dest: /etc/systemd/system/ptp-status.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart ptp-status
+
+- name: Deploy status-writer timer unit
+  ansible.builtin.template:
+    src: ptp-status.timer.j2
+    dest: /etc/systemd/system/ptp-status.timer
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart ptp-status
+
+- name: Enable units
+  ansible.builtin.systemd:
+    daemon_reload: true
+    enabled: true
+    state: started
+    name: "{{ item }}"
+  loop:
+    - ptp4l.service
+    - phc2sys.service
+    - ptp-status.timer

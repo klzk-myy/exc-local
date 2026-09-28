@@ -1,0 +1,89 @@
+# regulatory-reporter — MiFID II RTS 22/27/28, EMIR REFIT, CFTC submissions
+# (§19.13.1). Rejected submissions auto-resubmit within 2h — the pod must
+# stay up; PDB minAvailable 1.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: regulatory-reporter
+  namespace: exchange
+  labels: {app.kubernetes.io/name: regulatory-reporter, app.kubernetes.io/part-of: exchange}
+spec:
+  replicas: 2
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
+  selector:
+    matchLabels: {app.kubernetes.io/name: regulatory-reporter}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: regulatory-reporter}
+    spec:
+      serviceAccountName: exchange-service
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: regulatory-reporter
+          image: registry.internal/exchange/regulatory-reporter:CHANGE_ME
+          imagePullPolicy: IfNotPresent
+          ports:
+            - {name: health, containerPort: 9106}
+          envFrom:
+            - configMapRef: {name: exchange-env}
+          env:
+            - name: EXC_POSTGRES_DSN
+              valueFrom: {secretKeyRef: {name: exchange-db, key: dsn}}
+            - name: EXC_SECRETS_DATA_KEY
+              valueFrom: {secretKeyRef: {name: exchange-secrets, key: data-key}}
+            - name: EXC_REGREP_HEALTH_ADDR
+              value: "0.0.0.0:9106"
+          readinessProbe:
+            httpGet: {path: /health/ready, port: health}
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: {path: /health/live, port: health}
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              exec: {command: ["sh", "-c", "sleep 10"]}
+          resources:
+            requests: {cpu: 250m, memory: 256Mi}
+            limits:   {cpu: "1",  memory: 512Mi}
+          securityContext:
+            runAsUser: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - {name: tmp, emptyDir: {}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: regulatory-reporter
+  namespace: exchange
+spec:
+  type: ClusterIP
+  ports:
+    - {name: health, port: 9106, targetPort: health}
+  selector: {app.kubernetes.io/name: regulatory-reporter}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: regulatory-reporter
+  namespace: exchange
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: regulatory-reporter}

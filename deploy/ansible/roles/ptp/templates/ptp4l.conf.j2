@@ -1,0 +1,30 @@
+# ptp4l.conf — linuxptp PTP daemon on bare-metal matching nodes
+# (Phase-09 Task 9.3.12, MiFID II RTS 25 ≤100µs from UTC).
+#
+# Hardware timestamping on the PTP-capable NIC; the GPS grandmaster
+# domain is {{ ptp_domain | default(24) }} (linuxptp default domain for
+# telecom profiles is usually 24/44 — coordinate with the GM vendor).
+[global]
+time_stamping            hardware
+tx_timestamp_timeout     10
+delay_mechanism          E2E
+network_transport        UDPv4
+domainNumber             {{ ptp_domain | default(24) }}
+# Logging lands in journald; the ptp-status helper turns it into the
+# key=value file the Go monitor reads.
+logging_level            6
+verbose                  0
+use_syslog               1
+summary_interval         0
+# Servo — PI controller defaults are correct for GPS GMs.
+pi_proportional_const    0.0
+pi_integral_const        0.0
+# Two-step required on hardware timestamping NICs.
+twoStepFlag              1
+
+[{{ ptp_interface | default('ptp0') }}]
+# Port data set: SLAVE on the matching nodes (they are ordinary clocks
+# slaved to the GPS grandmaster); priority1 low so a node never wins BMCA
+# against the GM.
+priority1                128
+priority2                128

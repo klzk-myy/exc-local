@@ -1,0 +1,18 @@
+# Handlers for the ptp role.
+- name: Restart ptp4l
+  ansible.builtin.systemd:
+    name: ptp4l.service
+    state: restarted
+    daemon_reload: true
+
+- name: Restart phc2sys
+  ansible.builtin.systemd:
+    name: phc2sys.service
+    state: restarted
+    daemon_reload: true
+
+- name: Restart ptp-status
+  ansible.builtin.systemd:
+    name: ptp-status.timer
+    state: restarted
+    daemon_reload: true

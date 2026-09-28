@@ -1,0 +1,65 @@
+# partition-archival-worker — nightly detach + Parquet/S3 WORM export of
+# pg_partman partitions >90d (§19.13.1, Task 9.3.17). Runs the `archiver`
+# binary (services/cmd/archiver): `archiver run` archives every eligible
+# partition; upload-checksum mismatch aborts the DROP — OLTP data preserved.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: partition-archival-worker
+  namespace: exchange
+  labels: {app.kubernetes.io/name: partition-archival-worker, app.kubernetes.io/part-of: exchange}
+spec:
+  schedule: "0 2 * * *"              # nightly, off-peak
+  timeZone: "Etc/UTC"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 30
+  failedJobsHistoryLimit: 30
+  startingDeadlineSeconds: 3600
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 7200    # large partitions export slowly; bounded
+      backoffLimit: 1                # partial export + retry risks double S3 keys;
+                                     # archiver is idempotent per partition name
+      template:
+        metadata:
+          labels: {app.kubernetes.io/name: partition-archival-worker}
+        spec:
+          serviceAccountName: exchange-service
+          automountServiceAccountToken: false
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            fsGroup: 10001
+            seccompProfile: {type: RuntimeDefault}
+          containers:
+            - name: archiver
+              image: registry.internal/exchange/archiver:CHANGE_ME
+              imagePullPolicy: IfNotPresent
+              args: ["run"]
+              envFrom:
+                - configMapRef: {name: exchange-env}
+              env:
+                - name: EXC_POSTGRES_DSN
+                  valueFrom: {secretKeyRef: {name: exchange-db, key: dsn}}
+                - name: EXC_S3_ENDPOINT
+                  valueFrom: {secretKeyRef: {name: exchange-s3, key: endpoint}}
+                - name: EXC_S3_REGION
+                  valueFrom: {secretKeyRef: {name: exchange-s3, key: region}}
+                - name: EXC_S3_ACCESS_KEY_ID
+                  valueFrom: {secretKeyRef: {name: exchange-s3, key: access-key-id}}
+                - name: EXC_S3_SECRET_ACCESS_KEY
+                  valueFrom: {secretKeyRef: {name: exchange-s3, key: secret-access-key}}
+                - name: EXC_S3_ARCHIVE_BUCKET
+                  value: "exchange-partition-archive"   # WORM Object Lock bucket
+              resources:
+                requests: {cpu: 500m, memory: 512Mi}
+                limits:   {cpu: "2",  memory: 2Gi}
+              securityContext:
+                runAsUser: 10001
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: [ALL]}
+              volumeMounts:
+                - {name: tmp, mountPath: /tmp}
+          volumes:
+            - {name: tmp, emptyDir: {}}

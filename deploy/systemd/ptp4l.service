@@ -1,0 +1,33 @@
+# ptp4l.service — PTP IEEE 1588v2 clock sync to grandmaster
+# (spec §19.4, MiFID II RTS 25; drift >100µs trips TIME_SYNC_LOSS_HALT
+# via exchange-watchdogd). Replace -i arg with the PTP-capable NIC.
+[Unit]
+Description=Precision Time Protocol daemon (ptp4l)
+After=network-online.target
+Wants=network-online.target
+Before=phc2sys.service matching-engine.target
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=2s
+# -s slave-only; -m log to stdout (journald); -i overridable via
+# /etc/exchange/ptp4l.env (PTP_IFACE=<nic>).
+EnvironmentFile=-/etc/exchange/ptp4l.env
+ExecStart=/usr/sbin/ptp4l -i ${PTP_IFACE:-eth0} -m -s -2 \
+    -f /etc/linuxptp/ptp4l.conf
+
+LimitNOFILE=4096
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+NoNewPrivileges=yes
+# needs CAP_SYS_TIME for clock discipline
+AmbientCapabilities=CAP_SYS_TIME
+CapabilityBoundingSet=CAP_SYS_TIME
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK AF_PACKET
+
+SyslogIdentifier=ptp4l
+
+[Install]
+WantedBy=multi-user.target

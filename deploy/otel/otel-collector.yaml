@@ -1,0 +1,81 @@
+# otel-collector.yaml — Phase-09 Task 9.3.11 (spec §19.12, §24 #112).
+#
+# Terminates OTLP/HTTP JSON from the exchange services (the internal
+# services/internal/tracing package — no SDK in the services) and fans
+# out to Jaeger (dev) or Tempo (production). Both backends speak OTLP;
+# switching is an exporter pointer, not a redeploy of services.
+#
+# Run (dev):  otelcol-contrib --config=otel-collector.yaml
+#             jaeger all-in-one alongside (see README.md)
+#
+# Receivers:
+#   :4318  OTLP/HTTP JSON  — what internal/tracing.OTLPHTTPExporter posts
+#   :4317  OTLP/gRPC       — kept open for any future gRPC-capable source
+#          (C++ side emits via the same traceparent continuity, and if a
+#           grpc exporter lands on the C++ side it posts here unchanged)
+#
+# Batching is light — services already batch (BatchExporter 256/500ms);
+# the collector's batch is a transport-efficiency pass only. Memory
+# limiter is first in the pipeline: an overloaded collector sheds load
+# rather than OOM-ing mid-incident.
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 512
+    spike_limit_mib: 128
+  batch:
+    timeout: 500ms
+    send_batch_size: 512
+    send_batch_max_size: 1024
+  # K8s attributes land via service-side env (OTEL_RESOURCE_ATTRIBUTES is
+  # not used — our exporter stamps service.name explicitly); a k8sattr
+  # pass would belong here if the collector runs in-cluster.
+  attributes/crop:
+    # Cardinality hygiene (spec §19.12.3 budget): drop attributes whose
+    # values are unbounded free-form strings we never query on.
+    actions:
+      - key: user_agent.original
+        action: delete
+      - key: network.peer.address
+        action: delete
+
+exporters:
+  # Jaeger (dev default): OTLP gRPC ingest on :4317 of the jaeger
+  # all-in-one, or :14250 on classic jaeger-collector.
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+  # Tempo (production): OTLP gRPC ingest on the Tempo distributor.
+  otlp/tempo:
+    endpoint: tempo.observability.svc:4317
+    tls:
+      insecure: true   # in-cluster plaintext; mTLS variant below
+  # Uncomment + swap tls block for mTLS termination in production:
+  #   tls:
+  #     ca_file: /etc/otel/ca.crt
+  #     cert_file: /etc/otel/client.crt
+  #     key_file: /etc/otel/client.key
+  debug:
+    verbosity: basic
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch, attributes/crop]
+      # Dev: [otlp/jaeger] · Prod: [otlp/tempo] — or both during cutover.
+      exporters: [otlp/jaeger, otlp/tempo, debug]
+  telemetry:
+    logs:
+      level: info
+    metrics:
+      address: 0.0.0.0:8888   # collector self-metrics; Prometheus scrapes

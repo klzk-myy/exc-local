@@ -1,0 +1,92 @@
+# admin — internal ops console API (services/cmd/admin, :8085). Not in the
+# §19.13.1 16-service HPA inventory row but a live buildable daemon; deploys
+# as a Deployment, reachable only on the ops subnet (never public — the
+# gateway/RBAC surface is separate).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: admin
+  namespace: exchange
+  labels: {app.kubernetes.io/name: admin, app.kubernetes.io/part-of: exchange}
+spec:
+  replicas: 2
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
+  selector:
+    matchLabels: {app.kubernetes.io/name: admin}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: admin}
+    spec:
+      serviceAccountName: exchange-service
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: admin
+          image: registry.internal/exchange/admin:CHANGE_ME
+          imagePullPolicy: IfNotPresent
+          ports:
+            - {name: http, containerPort: 8085}
+          envFrom:
+            - configMapRef: {name: exchange-env}
+          env:
+            - name: EXC_POSTGRES_DSN
+              valueFrom: {secretKeyRef: {name: exchange-db, key: dsn}}
+            - name: EXC_SECRETS_DATA_KEY
+              valueFrom: {secretKeyRef: {name: exchange-secrets, key: data-key}}
+            - name: EXC_ADMIN_HOST
+              value: "0.0.0.0"
+          # Binary serves /health today (Task 7.3.4); R9 aliases land with the
+          # 7.3.6 rollout — probes target the R9 contract.
+          readinessProbe:
+            httpGet: {path: /health/ready, port: http}
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: {path: /health/live, port: http}
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              exec: {command: ["sh", "-c", "sleep 10"]}
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits:   {cpu: 500m, memory: 512Mi}
+          securityContext:
+            runAsUser: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - {name: tmp, emptyDir: {}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: admin
+  namespace: exchange
+spec:
+  type: ClusterIP                      # ops-subnet ingress only, no LB
+  ports:
+    - {name: http, port: 8085, targetPort: http}
+  selector: {app.kubernetes.io/name: admin}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: admin
+  namespace: exchange
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: admin}

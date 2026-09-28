@@ -1,0 +1,72 @@
+# matching-engine@<shard>.service — C++ matching engine shard
+# (§19.13.1 row 1, Task 9.3.28). One instance per shard; %i is the shard id.
+#
+# WATCHDOG CONTRACT: WatchdogSec=1s is the canonical Tier-1 supervision value
+# (spec §19.13.3). It requires the sd_notify-enabled engine build — the
+# in-process WatchdogThread pets systemd with sd_notify("WATCHDOG=1") on each
+# healthy cycle. On a binary built without sd_notify (current dev builds)
+# systemd will SIGABRT the unit every second — either ship the sd_notify
+# build or set WatchdogSec=0 in a drop-in for dev hosts.
+[Unit]
+Description=exchange matching engine shard %i
+Documentation=file:/opt/exchange/share/doc/daemon-supervision.md
+After=network-online.target aeronmd.service exchange-watchdogd.service
+Wants=network-online.target
+Requires=aeronmd.service
+# Stage 2 in the §19.13.2 boot graph — storage quorum must be up first.
+# (PostgreSQL/Redis are remote services; the readiness gate is the engine's
+# own fail-closed boot, not a systemd dep.)
+
+[Service]
+Type=notify
+NotifyAccess=main
+WatchdogSec=1s
+Restart=always
+RestartSec=1s
+# SIGTERM main PID first; children get SIGKILL after timeout.
+KillMode=mixed
+# Graceful drain: snapshot + WAL fsync (spec §19.6).
+TimeoutStopSec=15s
+KillSignal=SIGTERM
+FinalKillSignal=SIGKILL
+
+User=exchange
+Group=exchange
+
+# NUMA pin — isolated cores + node-0 memory (Task 9.3.1 layout:
+# matching thread on core 5 of the 2-7 isolated set on node 0).
+ExecStart=/usr/bin/numactl --cpunodebind=0 --membind=0 --physcpubind=5 \
+    /opt/exchange/bin/matching-engine \
+        -shard %i \
+        -ipc-base exc \
+        -wal-dir /var/lib/exchange/wal \
+        -snap-dir /var/lib/exchange/snapshots \
+        -poison-log /var/log/exchange/poison-pill-%i.log \
+        -report-log /var/log/exchange/recovery-reports-%i.jsonl
+
+# Resource limits (hardened per §19.13.3 — core dumps retained for triage)
+# LimitMEMLOCK=infinity: mlock + hugepage pinning for WAL mmap.
+LimitMEMLOCK=infinity
+LimitNOFILE=1048576
+LimitCORE=infinity
+# 16GB host: 12G engine + OS/edge headroom.
+MemoryMax=12G
+# WAL fsync wins the NVMe queue.
+IOWeight=1000
+# OOM killer takes anything before the engine.
+OOMScoreAdjust=-900
+
+# Sandbox
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/exchange /var/log/exchange /dev/shm
+NoNewPrivileges=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+SystemCallArchitectures=native
+LockPersonality=yes
+
+SyslogIdentifier=matching-engine-%i
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,31 @@
+# jaeger-compose.yaml — dev trace backend for Task 9.3.11.
+# `docker compose -f deploy/otel/jaeger-compose.yaml up -d` next to the
+# dev stack; set EXC_OTLP_ENDPOINT=http://127.0.0.1:4318/v1/traces on the
+# gateway (and EXC_TRACE_SAMPLE_ALL=1 to see everything in dev).
+#
+# Production uses Tempo (deploy/otel/otel-collector.yaml otlp/tempo
+# exporter) — Jaeger here is the dev/Debug backend only.
+services:
+  jaeger:
+    image: jaegertracing/all-in-one:1.62
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "4317:4317"     # OTLP gRPC ingest (from otel-collector)
+      - "4318:4318"     # OTLP HTTP ingest (direct, or from collector)
+      - "16686:16686"   # UI
+    restart: unless-stopped
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.114.0
+    command: ["--config=/etc/otel-collector.yaml"]
+    volumes:
+      - ./otel-collector.yaml:/etc/otel-collector.yaml:ro
+    ports:
+      - "14318:4318"    # collector OTLP/HTTP on host :14318 → set
+                        # EXC_OTLP_ENDPOINT=http://127.0.0.1:14318/v1/traces
+      - "14317:4317"
+      - "8888:8888"
+    depends_on:
+      - jaeger
+    restart: unless-stopped

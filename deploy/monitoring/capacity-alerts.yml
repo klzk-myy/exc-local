@@ -1,0 +1,77 @@
+# deploy/monitoring/capacity-alerts.yml
+# Phase-09 Task 9.3.19 — capacity-planning headroom alerts (spec §19.9,
+# §24 #191). Thresholds implement the task's 30% safety-margin contract;
+# see docs/ops/capacity-planning.md for the sizing model these guard.
+groups:
+  - name: exchange.capacity.headroom
+    interval: 30s
+    rules:
+      # CPU: sustained >70% for 15m on any core/database node.
+      - alert: CapacityCPUHeadroom
+        expr: |
+          avg by (instance) (
+            1 - rate(node_cpu_seconds_total{mode="idle"}[15m])
+          ) > 0.70
+        for: 15m
+        labels: {severity: P2, team: sre, domain: capacity}
+        annotations:
+          summary: "CPU headroom <30% on {{ $labels.instance }}"
+          description: "CPU utilisation >70% for 15m — spec §19.9 scaling threshold approaches (shard split trigger is 60%)."
+
+      # Memory: >75% on any bare-metal core node.
+      - alert: CapacityMemoryHeadroom
+        expr: |
+          (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes))
+            > 0.75
+        for: 15m
+        labels: {severity: P2, team: sre, domain: capacity}
+        annotations:
+          summary: "Memory headroom <25% on {{ $labels.instance }}"
+          description: "RAM utilisation >75% — order-pool sizing assumes ≤70% steady state (§19.9)."
+
+      # Disk: >70% on database / WAL mount points.
+      - alert: CapacityDiskHeadroom
+        expr: |
+          (1 - (node_filesystem_avail_bytes{mountpoint=~"/var/lib/(postgresql|exchange/wal|clickhouse)"}
+                / node_filesystem_size_bytes{mountpoint=~"/var/lib/(postgresql|exchange/wal|clickhouse)"}))
+            > 0.70
+        for: 10m
+        labels: {severity: P2, team: sre, domain: capacity}
+        annotations:
+          summary: "Disk headroom <30% on {{ $labels.instance }} {{ $labels.mountpoint }}"
+          description: "PG grows ~1.2 GB/day, WAL ~15 GB/day, CH ~4.5 GB/day at design load (§19.9) — project exhaustion via capacity-planning.md formulas."
+
+      # Network: >60% of link capacity.
+      - alert: CapacityNetworkHeadroom
+        expr: |
+          max by (instance, device) (
+            rate(node_network_transmit_bytes_total[5m])
+            + rate(node_network_receive_bytes_total[5m])
+          ) * 8 / on(instance, device)
+            node_network_speed_bytes > 0.60
+        for: 15m
+        labels: {severity: P2, team: sre, domain: capacity}
+        annotations:
+          summary: "NIC bandwidth >60% on {{ $labels.instance }}/{{ $labels.device }}"
+
+      # Hot-tier growth: PG data dir >10% growth over 30d (9.3.24 monitor).
+      - alert: HotTierGrowthAnomaly
+        expr: |
+          (node_filesystem_size_bytes{mountpoint="/var/lib/postgresql"}
+           - node_filesystem_avail_bytes{mountpoint="/var/lib/postgresql"})
+            / ignoring() (node_filesystem_size_bytes{mountpoint="/var/lib/postgresql"}
+           - node_filesystem_avail_bytes{mountpoint="/var/lib/postgresql"} offset 30d)
+            > 1.10
+        labels: {severity: P2, team: sre, domain: capacity}
+        annotations:
+          summary: "PostgreSQL hot tier grew >10% in 30d"
+          description: "Investigate: unpartitioned growth, archival cron stalled, or order volume above model."
+
+      # Lifecycle enforcer drift: violations recorded in the last day.
+      - alert: RetentionPolicyViolation
+        expr: |
+          increase(exchange_retention_violations_total[24h]) > 0
+        labels: {severity: P2, team: compliance, domain: capacity}
+        annotations:
+          summary: "RETENTION_POLICY_VIOLATION drift detected"
+          description: "Nightly retention enforcer found data past its retention window without archival (spec §19.12)."

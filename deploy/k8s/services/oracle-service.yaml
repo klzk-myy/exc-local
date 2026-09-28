@@ -1,0 +1,108 @@
+# oracle-service — Refinitiv/Bloomberg BFIX/ECB feed intake, mark price
+# (§19.13.1, Phase-19.5). <2 fresh feeds or staleness >5s halts mark
+# evaluation (PRICE_ORACLE_UNAVAILABLE) — min 2 replicas across zones.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oracle-service
+  namespace: exchange
+  labels: {app.kubernetes.io/name: oracle-service, app.kubernetes.io/part-of: exchange}
+spec:
+  replicas: 2
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
+  selector:
+    matchLabels: {app.kubernetes.io/name: oracle-service}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: oracle-service}
+    spec:
+      serviceAccountName: exchange-service
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule   # feeds fail over across zones
+          labelSelector:
+            matchLabels: {app.kubernetes.io/name: oracle-service}
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: oracle
+          image: registry.internal/exchange/oracle-service:CHANGE_ME
+          imagePullPolicy: IfNotPresent
+          ports:
+            - {name: health, containerPort: 9105}
+          envFrom:
+            - configMapRef: {name: exchange-env}
+          env:
+            - name: EXC_POSTGRES_DSN
+              valueFrom: {secretKeyRef: {name: exchange-db, key: dsn}}
+            - name: EXC_SECRETS_DATA_KEY
+              valueFrom: {secretKeyRef: {name: exchange-secrets, key: data-key}}
+            - name: EXC_ORACLE_HEALTH_ADDR
+              value: "0.0.0.0:9105"
+          readinessProbe:
+            httpGet: {path: /health/ready, port: health}
+            periodSeconds: 2               # staleness gate is 5s — catch it fast
+            timeoutSeconds: 2
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: {path: /health/live, port: health}
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              exec: {command: ["sh", "-c", "sleep 5"]}
+          resources:
+            requests: {cpu: 250m, memory: 256Mi}
+            limits:   {cpu: "1",  memory: 512Mi}
+          securityContext:
+            runAsUser: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - {name: tmp, emptyDir: {}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: oracle-service
+  namespace: exchange
+spec:
+  type: ClusterIP
+  ports:
+    - {name: health, port: 9105, targetPort: health}
+  selector: {app.kubernetes.io/name: oracle-service}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: oracle-service
+  namespace: exchange
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: oracle-service}
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource: {name: cpu, target: {type: Utilization, averageUtilization: 70}}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: oracle-service
+  namespace: exchange
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: oracle-service}

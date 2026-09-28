@@ -50,8 +50,13 @@ import (
 // DefaultPartitionBucket is the WORM archive bucket.
 const DefaultPartitionBucket = "exchange-partition-archive"
 
-// DefaultParents are the spec-named partitioned parents (Task 4.3.7 step 1).
-var DefaultParents = []string{"orders", "trades", "order_audit", "ledger_lines"}
+// DefaultParents are the spec-named partitioned parents. Supersedes the
+// Task 4.3.7 four-table list: Task 9.3.17 step 1 extends the lifecycle to
+// `audit_hash_chain` (7-year audit retention, spec §19.12) plus the
+// finance-GL parents `ledger_entries`/`journal_entries`. Non-partitioned
+// parents are harmless no-ops in the catalog walk.
+var DefaultParents = []string{"orders", "trades", "order_audit",
+	"ledger_lines", "ledger_entries", "journal_entries", "audit_hash_chain"}
 
 // RetainYears is the MiFID II / CFTC WORM retention window.
 const RetainYears = 5
@@ -110,6 +115,7 @@ type Archiver struct {
 	pool       *pgxpool.Pool
 	store      objectstore.Client
 	parents    []string
+	policies   []ClassPolicy
 	cutoffDays int
 	retainDays int
 	now        func() time.Time
@@ -121,6 +127,7 @@ func New(pool *pgxpool.Pool, store objectstore.Client) *Archiver {
 		pool:       pool,
 		store:      store,
 		parents:    append([]string{}, DefaultParents...),
+		policies:   DefaultClassPolicies(),
 		cutoffDays: 90,
 		retainDays: RetainYears * 365,
 		now:        func() time.Time { return time.Now().UTC() },
@@ -227,16 +234,17 @@ func parseBoundEnd(expr string) time.Time {
 	return time.Time{}
 }
 
-// EligiblePartitions returns partitions whose range ended before the
-// cutoff (default: 90 days ago).
+// EligiblePartitions returns attached partitions whose range ended before
+// their class hot cutoff (default: 90 days ago, per-parent via policies).
 func (a *Archiver) EligiblePartitions(ctx context.Context) ([]Partition, error) {
 	all, err := a.ListPartitions(ctx)
 	if err != nil {
 		return nil, err
 	}
-	cutoff := a.now().AddDate(0, 0, -a.cutoffDays)
 	var out []Partition
 	for _, p := range all {
+		hotDays := a.policyFor(p.Parent).HotDays
+		cutoff := a.now().AddDate(0, 0, -hotDays)
 		if !p.RangeEnd.IsZero() && p.RangeEnd.Before(cutoff) {
 			out = append(out, p)
 		}
@@ -459,37 +467,70 @@ func nilIfEmpty(s string) any {
 	return s
 }
 
-// ArchivePartition runs the full pipeline for one partition:
-// DETACH → export(csv+zstd) → PUT data+manifest (WORM) → HEAD-verify
-// (etag + lock + manifest hash) → log → DROP. On post-detach failure the
-// partition is re-attached with its original bound.
+// HeldError is returned when a lifecycle transition is attempted on a
+// partition covered by an active compliance hold (spec §19.12 item 5 —
+// legal-hold partitions never expire and are never dropped).
+type HeldError struct {
+	Parent    string
+	Partition string
+	Holds     []Hold
+}
+
+func (e *HeldError) Error() string {
+	refs := make([]string, len(e.Holds))
+	for i, h := range e.Holds {
+		refs[i] = fmt.Sprintf("hold #%d case=%s", h.HoldID, h.CaseRef)
+	}
+	return fmt.Sprintf("archiver: %s.%s under compliance hold (%s) — transition blocked",
+		e.Parent, e.Partition, strings.Join(refs, "; "))
+}
+
+// ArchivePartition runs the full pipeline for one attached partition:
+// hold check → DETACH → export(csv+zstd) → PUT data+manifest (WORM) →
+// HEAD-verify (etag + lock + manifest hash) → log → DROP. On post-detach
+// failure the partition is re-attached with its original bound.
 func (a *Archiver) ArchivePartition(ctx context.Context, p Partition) (*LogEntry, error) {
+	// 0. Compliance hold gate — held partitions never leave the database.
+	held, holds, err := a.partitionHeld(ctx, p.Parent, p.Name)
+	if err != nil {
+		return nil, err
+	}
+	if held {
+		return nil, &HeldError{Parent: p.Parent, Partition: p.Name, Holds: holds}
+	}
+
 	// 1. DETACH — after this the data is a standalone table; a failure path
 	//    must reattach before returning.
 	if err := a.detach(ctx, p); err != nil {
 		return nil, fmt.Errorf("archiver: detach %s: %w", p.Name, err)
 	}
-	detached := true
-	fail := func(e error) (*LogEntry, error) {
-		if detached {
-			if rerr := a.reattach(ctx, p); rerr != nil {
-				return nil, fmt.Errorf("%w (reattach of %s FAILED: %v — operator action required)",
-					e, p.Name, rerr)
-			}
+	le, err := a.archiveDetached(ctx, p)
+	if err != nil {
+		if rerr := a.reattach(ctx, p); rerr != nil {
+			return nil, fmt.Errorf("%w (reattach of %s FAILED: %v — operator action required)",
+				err, p.Name, rerr)
 		}
-		return nil, e
+		return nil, err
 	}
+	return le, nil
+}
 
+// archiveDetached runs stages 2–5 for a partition whose data already
+// lives in the standalone table p.Schema.p.Name — either freshly DETACHed
+// (ArchivePartition) or resident in the warm schema (lifecycle warm→cold).
+// export → PUT data+manifest (WORM, per-class retain) → HEAD-verify →
+// log → DROP. The caller owns any reattach/compensation semantics.
+func (a *Archiver) archiveDetached(ctx context.Context, p Partition) (*LogEntry, error) {
 	// 2. Export detached partition → temp .csv.zst with dual hashes.
 	ex, err := a.exportCopy(ctx, p)
 	if err != nil {
-		return fail(fmt.Errorf("archiver: export %s: %w", p.Name, err))
+		return nil, fmt.Errorf("archiver: export %s: %w", p.Name, err)
 	}
 	defer os.Remove(ex.path)
 
 	blob, err := os.ReadFile(ex.path)
 	if err != nil {
-		return fail(err)
+		return nil, err
 	}
 	man := Manifest{
 		ParentTable: p.Parent, Partition: p.Name, Columns: ex.cols,
@@ -502,7 +543,7 @@ func (a *Archiver) ArchivePartition(ctx context.Context, p Partition) (*LogEntry
 
 	// 3. WORM upload: data object then manifest, both COMPLIANCE-locked.
 	dataKey, manifestKey := s3Keys(p)
-	retainUntil := a.now().AddDate(RetainYears, 0, 0)
+	retainUntil := a.now().AddDate(0, 0, a.policyFor(p.Parent).RetainDays)
 	obj, err := a.store.Put(ctx, objectstore.PutInput{
 		Key:                   dataKey,
 		Body:                  bytes.NewReader(blob),
@@ -519,14 +560,14 @@ func (a *Archiver) ArchivePartition(ctx context.Context, p Partition) (*LogEntry
 		},
 	})
 	if err != nil {
-		return fail(fmt.Errorf("archiver: upload %s: %w", dataKey, err))
+		return nil, fmt.Errorf("archiver: upload %s: %w", dataKey, err)
 	}
 
 	// 4. Upload confirmation: ETag must be md5 of the exact blob bytes.
 	wantETag := hexMD5(blob)
 	if !strings.EqualFold(obj.ETag, wantETag) {
-		return fail(fmt.Errorf("archiver: %s ETag %q != md5 %q — upload not confirmed",
-			dataKey, obj.ETag, wantETag))
+		return nil, fmt.Errorf("archiver: %s ETag %q != md5 %q — upload not confirmed",
+			dataKey, obj.ETag, wantETag)
 	}
 	if _, err := a.store.Put(ctx, objectstore.PutInput{
 		Key:                   manifestKey,
@@ -536,37 +577,36 @@ func (a *Archiver) ArchivePartition(ctx context.Context, p Partition) (*LogEntry
 		ObjectLockMode:        "COMPLIANCE",
 		ObjectLockRetainUntil: retainUntil,
 	}); err != nil {
-		return fail(fmt.Errorf("archiver: upload %s: %w", manifestKey, err))
+		return nil, fmt.Errorf("archiver: upload %s: %w", manifestKey, err)
 	}
 
 	// HEAD cross-check: lock state + stored hash metadata.
 	head, err := a.store.Head(ctx, dataKey)
 	if err != nil {
-		return fail(fmt.Errorf("archiver: head %s: %w", dataKey, err))
+		return nil, fmt.Errorf("archiver: head %s: %w", dataKey, err)
 	}
 	if !strings.EqualFold(head.ETag, wantETag) ||
 		head.Metadata["archive-sha256"] != ex.archSHA256 {
-		return fail(fmt.Errorf("archiver: %s HEAD verification failed (etag=%q sha=%q)",
-			dataKey, head.ETag, head.Metadata["archive-sha256"]))
+		return nil, fmt.Errorf("archiver: %s HEAD verification failed (etag=%q sha=%q)",
+			dataKey, head.ETag, head.Metadata["archive-sha256"])
 	}
 	if !strings.EqualFold(head.ObjectLockMode, "COMPLIANCE") {
-		return fail(fmt.Errorf("archiver: %s missing COMPLIANCE object lock", dataKey))
+		return nil, fmt.Errorf("archiver: %s missing COMPLIANCE object lock", dataKey)
 	}
 
 	// 5. Log then drop — drop is gated on confirmed upload + persisted log.
 	logID, err := a.logInsert(ctx, p, ex, dataKey, manifestKey, obj.ETag, retainUntil)
 	if err != nil {
-		return fail(fmt.Errorf("archiver: log %s: %w", p.Name, err))
+		return nil, fmt.Errorf("archiver: log %s: %w", p.Name, err)
 	}
 	if err := a.logStatus(ctx, logID, "VERIFIED", ""); err != nil {
-		return fail(err)
+		return nil, err
 	}
 	qs, _ := quoteIdent(p.Schema)
 	qn, _ := quoteIdent(p.Name)
 	if _, err := a.pool.Exec(ctx, fmt.Sprintf(`DROP TABLE %s.%s`, qs, qn)); err != nil {
-		return fail(fmt.Errorf("archiver: drop %s: %w", p.Name, err))
+		return nil, fmt.Errorf("archiver: drop %s: %w", p.Name, err)
 	}
-	detached = false // nothing to reattach now
 	if err := a.logStatus(ctx, logID, "DROPPED", ""); err != nil {
 		return nil, fmt.Errorf("archiver: %s dropped but log update failed: %w", p.Name, err)
 	}

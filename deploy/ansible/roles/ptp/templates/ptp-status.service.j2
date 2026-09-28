@@ -1,0 +1,12 @@
+# ptp-status.service — one-shot writer for /run/ptp/status; driven by
+# ptp-status.timer every 5s. The Go timesync monitor reads the file —
+# pmc is never exec'd from the monitored process.
+[Unit]
+Description=Write ptp4l/phc2sys status to /run/ptp/status
+After=ptp4l.service phc2sys.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/ptp-status.sh
+# A failing write (pmc socket absent at boot) must not flap the timer.
+SuccessExitStatus=0 1

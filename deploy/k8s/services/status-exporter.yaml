@@ -1,0 +1,89 @@
+# status-exporter — health aggregator + public status feed (§19.13.1,
+# Task 9.3.25). Serves /metrics on :9100 for Prometheus and backs
+# GET /api/v1/system/status. Caches last known mode in Redis.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: status-exporter
+  namespace: exchange
+  labels: {app.kubernetes.io/name: status-exporter, app.kubernetes.io/part-of: exchange}
+spec:
+  replicas: 2
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
+  selector:
+    matchLabels: {app.kubernetes.io/name: status-exporter}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: status-exporter}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9100"
+    spec:
+      serviceAccountName: exchange-service
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: status-exporter
+          image: registry.internal/exchange/status-exporter:CHANGE_ME
+          imagePullPolicy: IfNotPresent
+          ports:
+            - {name: metrics, containerPort: 9100}
+          envFrom:
+            - configMapRef: {name: exchange-env}
+          env:
+            - name: EXC_POSTGRES_DSN
+              valueFrom: {secretKeyRef: {name: exchange-db, key: dsn}}
+            - name: EXC_SECRETS_DATA_KEY
+              valueFrom: {secretKeyRef: {name: exchange-secrets, key: data-key}}
+            - name: EXC_STATUS_ADDR
+              value: "0.0.0.0:9100"
+          readinessProbe:
+            httpGet: {path: /health/ready, port: metrics}
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: {path: /health/live, port: metrics}
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits:   {cpu: 500m, memory: 256Mi}
+          securityContext:
+            runAsUser: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - {name: tmp, emptyDir: {}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: status-exporter
+  namespace: exchange
+spec:
+  type: ClusterIP
+  ports:
+    - {name: metrics, port: 9100, targetPort: metrics}
+  selector: {app.kubernetes.io/name: status-exporter}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: status-exporter
+  namespace: exchange
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: status-exporter}

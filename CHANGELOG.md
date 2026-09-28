@@ -487,3 +487,40 @@ Scope: 26 tasks (2.3.1–2.3.26), 67 AC rows. Critical spec correction noted at 
   (docker-ephemeral leg, 50k/s, p99 50µs, REST 5ms, zero-loss-under-load, Go GC change,
   error-scenarios-in-CI, all-419-passing).
 - **Checkpoints:** 5/5 P08 PASS (`tests/spec` runner).
+
+## [2026-10-06] — PHASE-09 DEPLOYMENT & OPERATIONS — LANDED
+
+- **Scope:** all 30 Phase-09 tasks across 5 clusters —
+  runtime mechanisms (`internal/flags` FNV-1a staged rollout + Redis write-through,
+  `internal/cache` P0/P1 warm budgets, `internal/middleware` hysteresis shedder with
+  CANCEL_EXEMPT lane, uniform graceful-shutdown contract, `internal/deprecation` sunset
+  sweeper, `internal/ops` status aggregation with honest gateway-local fallback) ·
+  deploy assets (bare-metal provisioner, K8s manifests for all 16 §19.13.1 daemons incl.
+  R9 probes + preStop hooks, blue-green/canary pipeline on `active_color.map`, spec-verbatim
+  8-step shard drain/swap with auto-rollback, Sentinel 3-node configs + failover drill,
+  systemd units + watchdog tiers) · data lifecycle (`internal/archiver` tier-state +
+  VerifyDrill, `internal/operations/retention` YAML enforcer, tiering policy, capacity
+  models from measured numbers) · governance (runbooks, postmortem template, SLO/error
+  budgets, DORA ICT, P0–P3 matrix, DR drill program, BCP) · telemetry/edge/DR
+  (`internal/tracing` OTLP-shaped + EXCTRACE Aeron contract, PTP monitor + ansible role,
+  HAProxy edge hardening + geo-block, multi-region DR assets, `internal/fleet`
+  env/promotion-gate model).
+- **Migrations:** 091 (fleet + ops console), 192 (trades instrument_id,id DESC index),
+  193 (feature_flags), 194/195 (partition_tier_state + log), 196 (api_deprecation),
+  197 (ops_status) — all verified up/down/re-up on scratch PG; on-disk corpus 68 → **79** pairs.
+- **Checkpoints:** 33/33 P09 PASS (`tests/spec` runner, `--shards=4`, live PG/Redis).
+  `checks/phase09.go` binds deploy assets via `grepTree`/file-exact assertions.
+- **Honestly open (55 AC rows):** env-blocked legs — NUMA/isolcpus verify, HPA scaling
+  (unscheduled), live blue-green/rollback, multi-region semi-sync + S3 CRR + RPO/RTO
+  measurement, Sentinel failover drill, edge enforcement, staging flood, PTP hardware,
+  burn-rate chaos, S3 WORM, live swap window, `/dev/watchdog`; code gaps — `sd_notify`
+  in matching_engine (WatchdogSec unsafe as-is), `exchange-watchdogd` binary, FIX logout
+  hook (pending Phase-18), DORA incident-closure gate, synthetic-order gate mandatory,
+  public postmortem surface, quarterly capacity report, incident bot, deprecation
+  migration guide.
+- **Deviations recorded in spec §27:** csv+zstd cold exports (vs task-text Parquet),
+  archiver extends existing `internal/archiver`, warm→cold 365d per §19.7 canonical,
+  OTel-shaped tracing without SDK, `RETENTION_POLICY_VIOLATION`/`ARCHIVE_JOB_FAILED`
+  are log markers not §23 codes (registry stays **173**).
+- **Docs:** Phase-09 doc checkboxes audited (138 verified / 55 open, annotated);
+  spec §27 Phase-09 record appended; AGENTS/CLAUDE/MEMORY synced.
