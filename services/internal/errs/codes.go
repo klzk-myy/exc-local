@@ -252,6 +252,8 @@ var specCodes = []CodeDef{
 	specRow("UNAUTHORIZED_ROLE", 403, "Caller role lacks the required authorization for the operation (Phase-05 Task 5.3.12; remediation #44)"),
 	specRow("WEBHOOK_DELIVERY_FAILED", 500, "Webhook delivery permanently failed after retry budget (Phase-05 Task 5.3.17 Webhooks; remediation #44)"),
 	specRow("WITHDRAWAL_CONFIRM_EXPIRED", 409, "Withdrawal confirmation window elapsed; request must be re-initiated (Phase-05 Task 5.3.6 Withdrawal Flow; remediation #44)"),
+	specRow("INVALID_DEPTH_LIMIT", 400, "Requested book depth levels/cadence outside the supported {5,10,20}×{100,250,1000}ms table (Phase-06 Task 6.3.15 Configurable Depth; §24 #265 — cited by §27.1 L2 Book row but never registered; remediation #44 follow-on)"),
+	specRow("INVALID_INTERVAL", 400, "Kline/aggregate interval outside the canonical 13-timeframe set (Phase-06 Task 6.3.14; Phase-20 Task 20.3.1 REST surface — cited by §27.1 Klines row but never registered; remediation #44 follow-on)"),
 }
 
 // localCodes are emitted by the gateway but carry no spec §23 row yet.

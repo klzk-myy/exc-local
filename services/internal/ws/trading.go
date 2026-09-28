@@ -90,7 +90,7 @@ func (c *Conn) handleOrder(f clientFrame) error {
 		c.sendError(f.RequestID, f.Action, "UNAUTHORIZED",
 			"authenticate before order actions", 0)
 		// Task 5.3.31 edge case: unauthenticated trade frame → 4019.
-		c.closeConn(CloseAuthExpired, "UNAUTHENTICATED_TRADE_FRAME")
+		c.closeWith(CloseAuthExpired, DisconnectServer, "UNAUTHENTICATED_TRADE_FRAME")
 		return errCloseRead
 	}
 	if !sess.hasScope(scope) {

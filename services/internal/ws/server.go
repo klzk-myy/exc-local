@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -61,6 +62,40 @@ func ConnCapsTable() map[string]int {
 }
 
 // Config tunes Server. Zero values pick spec-pinned defaults.
+//
+// Subscription & abuse limits contract (Phase-06 Tasks 6.3.7 / 6.3.16 /
+// 6.3.19 / 6.3.21; spec §10.5–§10.6, §24 #215/#245/#265/#289/#305):
+//
+//   - MaxSubscriptions caps total channel bindings per connection at
+//     200 → WS_MAX_SUBSCRIPTIONS_EXCEEDED. Per-channel-type splits —
+//     the §24 #84 20 L2 / 5 L3 rule — and §10.7 entitlements plug in
+//     through SubAdmit; marketdata owns those policies, this package
+//     only supplies the generic plumbing.
+//   - Inbound control frames consume ControlRate tokens/s per conn
+//     (default 100). A breach emits WS_RATE_EXCEEDED with
+//     retry_after_ms plus a {"type":"rate_info",...} feedback frame;
+//     RateWarnMax warnings inside RateWarnWindow (3 per 60s) force-close
+//     the session with 4029 / ABUSE_DISCONNECT. IPLimiter optionally
+//     adds a cross-connection per-IP aggregate bound (Redis-backed at
+//     wiring, e.g. ws:rate:ip:{ip}).
+//   - Subscription churn beyond MaxChurnPerWindow per ChurnWindow
+//     terminates with 4003 / ABUSE_DISCONNECT.
+//   - The send queue is bounded by OutboundBuffer messages and
+//     OutboundMaxBytes bytes; over-threshold for EvictConsecutive
+//     EvictCheckInterval ticks — or a producer blocked past
+//     SlowConsumerTimeout — evicts with 4008 / WS_SLOW_CONSUMER_DROP.
+//   - ReconnectRate per ReconnectWindow bounds new upgrades per remote
+//     IP on the accept path (HTTP 429 RATE_LIMIT_TIER_EXCEEDED; the
+//     §21.3 client backoff schedule makes ≤6 attempts/min, under the
+//     default 10/min).
+//   - Drain() issues a server.shutdown advisory, refuses new work
+//     (cancels and in-flight responses stay available), and closes
+//     survivors with 1001 CONNECTION_DRAINING at DrainDeadline.
+//   - OnDisconnect receives a DisconnectInfo with the §24 #245
+//     disconnect_reason — the dead-man/CoD consumer's exemption input.
+//   - Failover advertises client-facing alternate endpoints and tracks
+//     the feed health the marketdata service reports through
+//     SetFeedState; transitions broadcast a feed.failover advisory.
 type Config struct {
 	// Issuer verifies JWT tokens on authenticate/refresh_token
 	// (Task 5.3.1). Nil fails closed: JWT auth rejects UNAUTHORIZED.
@@ -81,6 +116,21 @@ type Config struct {
 	// per-account connection cap. Nil ⇒ API-key sessions use the key's
 	// stored tier, JWT sessions fail closed to Basic.
 	TierResolver func(ctx context.Context, sess *Session) ratelimit.Tier
+	// IPLimiter is the optional cross-connection per-IP inbound-rate
+	// hook (Task 6.3.7). Nil ⇒ per-conn bucket only.
+	IPLimiter IPLimiter
+	// SubAdmit vets one channel add beyond the generic MaxSubscriptions
+	// cap (Task 6.3.16 seam — marketdata wires the 20 L2 / 5 L3 split and
+	// §10.7 entitlement checks). Nil ⇒ generic cap only.
+	SubAdmit SubAdmitHook
+	// Failover is the Task 6.3.21 feed-failover seam consumed by the
+	// marketdata service (endpoint advertisement + health transitions).
+	Failover FailoverConfig
+	// OnDisconnect receives the terminal DisconnectInfo for every
+	// unregistered conn — the cancel-on-disconnect/dead-man consumer's
+	// signal (Task 6.3.7 item 6: CoD must NOT fire for ABUSE_DISCONNECT).
+	// Called asynchronously; must not block.
+	OnDisconnect func(DisconnectInfo)
 
 	Logger     *slog.Logger
 	TrustProxy bool // honor X-Forwarded-For (set only behind HAProxy)
@@ -89,15 +139,24 @@ type Config struct {
 	MaxConnsPerIP       int           // default 256 — anonymous abuse bound
 	MaxSubscriptions    int           // default 200 (§10.6 / WS_MAX_SUBSCRIPTIONS_EXCEEDED)
 	OutboundBuffer      int           // default 1024 (§10.6 slow-consumer)
+	OutboundMaxBytes    int64         // default 4MiB queued-byte eviction threshold
+	EvictQueueDepth     int           // slow-consumer depth threshold; 0 ⇒ OutboundBuffer (saturated)
+	EvictCheckInterval  time.Duration // default 250ms queue monitor tick
+	EvictConsecutive    int           // default 8 consecutive over-threshold ticks → 4008 (≈2.0s)
 	SlowConsumerTimeout time.Duration // default 2s → close 4008
 	ControlRate         int           // default 100 inbound frames/s
+	RateWarnMax         int           // default 3 — forced disconnect after N rate warnings
+	RateWarnWindow      time.Duration // default 60s rate-warning window
 	MaxChurnPerWindow   int           // default 50 sub changes per ChurnWindow → 4003
 	ChurnWindow         time.Duration // default 5s (10/s sustained)
+	ReconnectRate       int           // default 10 upgrade attempts per ReconnectWindow per IP → 429
+	ReconnectWindow     time.Duration // default 60s reconnect-flood window
+	DrainDeadline       time.Duration // default 15s planned-shutdown drain bound
 	DispatchTimeout     time.Duration // default 500ms → CORE_TIMEOUT
 	DispatchConcurrency int           // per-conn concurrent order actions; default 16
 	DedupWindow         time.Duration // default 60s request_id dedup (Task 5.3.42)
 	PingInterval        time.Duration // default 30s
-	PongWait            time.Duration // default 75s
+	PongWait            time.Duration // default 60s (Task 6.3.7 item 4 heartbeat)
 	MaxFrameBytes       int64         // default 64KiB (Task 5.3.29 item 7)
 }
 
@@ -111,17 +170,41 @@ func (c *Config) defaults() {
 	if c.OutboundBuffer <= 0 {
 		c.OutboundBuffer = 1024
 	}
+	if c.OutboundMaxBytes <= 0 {
+		c.OutboundMaxBytes = 4 << 20
+	}
+	if c.EvictCheckInterval <= 0 {
+		c.EvictCheckInterval = 250 * time.Millisecond
+	}
+	if c.EvictConsecutive <= 0 {
+		c.EvictConsecutive = 8 // 250ms × 8 = 2.0s — the §10.6 saturation bound
+	}
 	if c.SlowConsumerTimeout <= 0 {
 		c.SlowConsumerTimeout = 2 * time.Second
 	}
 	if c.ControlRate <= 0 {
 		c.ControlRate = 100
 	}
+	if c.RateWarnMax <= 0 {
+		c.RateWarnMax = 3
+	}
+	if c.RateWarnWindow <= 0 {
+		c.RateWarnWindow = 60 * time.Second
+	}
 	if c.MaxChurnPerWindow <= 0 {
 		c.MaxChurnPerWindow = 50
 	}
 	if c.ChurnWindow <= 0 {
 		c.ChurnWindow = 5 * time.Second
+	}
+	if c.ReconnectRate <= 0 {
+		c.ReconnectRate = 10
+	}
+	if c.ReconnectWindow <= 0 {
+		c.ReconnectWindow = 60 * time.Second
+	}
+	if c.DrainDeadline <= 0 {
+		c.DrainDeadline = 15 * time.Second
 	}
 	if c.DispatchTimeout <= 0 {
 		c.DispatchTimeout = 500 * time.Millisecond
@@ -136,7 +219,7 @@ func (c *Config) defaults() {
 		c.PingInterval = 30 * time.Second
 	}
 	if c.PongWait <= 0 {
-		c.PongWait = 75 * time.Second
+		c.PongWait = 60 * time.Second
 	}
 	if c.MaxFrameBytes <= 0 {
 		c.MaxFrameBytes = 64 << 10
@@ -163,6 +246,16 @@ type Server struct {
 	byIP        map[string]int
 	byAccount   map[int64]int
 	subscribers map[string]map[*Conn]struct{} // channel → conns
+
+	draining  atomic.Bool
+	drainDone chan struct{} // created by Drain under mu; closed on empty registry
+	drainOnce sync.Once
+
+	feedState atomic.Int32 // FeedState — Task 6.3.21 seam
+
+	acceptMu    sync.Mutex
+	accept      map[string]*acceptBucket // reconnect-flood token buckets by IP
+	acceptSweep time.Time                // last lazy GC pass
 }
 
 // NewServer builds the WS endpoint.
@@ -182,25 +275,56 @@ func NewServer(cfg Config) *Server {
 		byIP:        map[string]int{},
 		byAccount:   map[int64]int{},
 		subscribers: map[string]map[*Conn]struct{}{},
+		accept:      map[string]*acceptBucket{},
 	}
+}
+
+// writePreUpgradeError answers a rejected upgrade with the JSON error
+// envelope used by every pre-WS rejection (CAPACITY_EXCEEDED,
+// RATE_LIMIT_TIER_EXCEEDED, MAINTENANCE_MODE). HTTP durations follow the
+// seconds convention (spec §10.5 item 5), so retryAfter is in seconds
+// and also rides the RFC 6585 Retry-After header.
+func writePreUpgradeError(w http.ResponseWriter, status int, code, msg string, retryAfterSec int) {
+	w.Header().Set("Content-Type", "application/problem+json")
+	if retryAfterSec > 0 {
+		w.Header().Set("Retry-After", strconv.Itoa(retryAfterSec))
+	}
+	w.WriteHeader(status)
+	body := map[string]any{
+		"type": "error", "error": code, "message": msg, "status": status,
+	}
+	if retryAfterSec > 0 {
+		body["retry_after"] = retryAfterSec
+	}
+	_ = json.NewEncoder(w).Encode(body)
 }
 
 // ServeHTTP upgrades the connection. The anonymous per-IP cap is enforced
 // pre-upgrade (CAPACITY_EXCEEDED 503) and re-checked under the registry
 // lock post-upgrade — a close frame races cannot overflow the cap.
+// Task 6.3.19/6.3.21 gates precede the cap checks: a draining endpoint
+// refuses upgrades (503 MAINTENANCE_MODE) and the per-IP reconnect-flood
+// bucket rejects with 429 RATE_LIMIT_TIER_EXCEEDED.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ip := middleware.ClientIP(r, s.cfg.TrustProxy)
+
+	if s.draining.Load() {
+		writePreUpgradeError(w, http.StatusServiceUnavailable,
+			"MAINTENANCE_MODE", "endpoint draining for planned shutdown", 0)
+		return
+	}
+	if retry, ok := s.allowReconnect(ip); !ok {
+		writePreUpgradeError(w, http.StatusTooManyRequests,
+			"RATE_LIMIT_TIER_EXCEEDED", "reconnect rate exceeded", retry)
+		return
+	}
 
 	s.mu.Lock()
 	if s.byIP[ip] >= s.cfg.MaxConnsPerIP {
 		s.mu.Unlock()
 		// Pre-upgrade so a plain JSON error is legal.
-		w.Header().Set("Content-Type", "application/problem+json")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"type": "error", "error": "CAPACITY_EXCEEDED",
-			"message": "per-IP WebSocket connection cap reached", "status": 503,
-		})
+		writePreUpgradeError(w, http.StatusServiceUnavailable,
+			"CAPACITY_EXCEEDED", "per-IP WebSocket connection cap reached", 0)
 		return
 	}
 	s.mu.Unlock()
@@ -220,6 +344,16 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.mu.Lock()
+	if s.draining.Load() {
+		s.mu.Unlock()
+		// Drain raced the upgrade — close 1001 directly (writePump is
+		// not running yet).
+		_ = ws.WriteMessage(websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.CloseGoingAway,
+				"CONNECTION_DRAINING"))
+		_ = ws.Close()
+		return
+	}
 	if s.byIP[ip] >= s.cfg.MaxConnsPerIP {
 		s.mu.Unlock()
 		// writePump is not running yet — emit the close frame directly.
@@ -235,6 +369,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	go c.writePump()
 	go c.expiryLoop()
+	go c.backpressureLoop()
 	c.readLoop() // blocks until socket dies
 	s.unregister(c)
 }
@@ -243,29 +378,60 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // the write pump to flush the close frame so terminal codes reach the
 // client before the socket is freed.
 func (s *Server) unregister(c *Conn) {
-	c.closeConn(websocket.CloseNormalClosure, "bye")
+	c.closeWith(websocket.CloseNormalClosure, DisconnectServer, "bye")
 	select {
 	case <-c.pumpDone:
 	case <-time.After(15 * time.Second): // write deadlines cap the wait
 	}
+	sess := c.session()
+	info := DisconnectInfo{
+		RemoteIP:  c.remoteIP,
+		Reason:    c.disconnectReason(),
+		CloseCode: int(c.closeCode.Load()),
+	}
+	if sess.Authenticated {
+		info.AccountID = sess.AccountID
+	}
+	// Snapshot + clear the sub set under subMu first — fanout reads
+	// c.subs under subMu, so touching it under s.mu alone races a
+	// concurrent Publish. Lock order stays subMu-free inside s.mu
+	// (handleSubscribe holds subMu → s.mu), so the set is cleared here
+	// and the channel list is replayed under s.mu below.
+	c.subMu.Lock()
+	channels := make([]string, 0, len(c.subs))
+	for ch := range c.subs {
+		channels = append(channels, ch)
+	}
+	c.subs = map[string]*subscription{}
+	c.subMu.Unlock()
+
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	delete(s.conns, c)
 	if s.byIP[c.remoteIP]--; s.byIP[c.remoteIP] <= 0 {
 		delete(s.byIP, c.remoteIP)
 	}
-	if sess := c.session(); sess.Authenticated && sess.AccountID != 0 {
+	if sess.Authenticated && sess.AccountID != 0 {
 		if s.byAccount[sess.AccountID]--; s.byAccount[sess.AccountID] <= 0 {
 			delete(s.byAccount, sess.AccountID)
 		}
 	}
-	for ch := range c.subs {
+	for _, ch := range channels {
 		delete(s.subscribers[ch], c)
 		if len(s.subscribers[ch]) == 0 {
 			delete(s.subscribers, ch)
 		}
 	}
-	c.subs = map[string]*subscription{}
+	// Wake a pending Drain once the registry empties.
+	if s.draining.Load() && len(s.conns) == 0 && s.drainDone != nil {
+		s.drainOnce.Do(func() { close(s.drainDone) })
+	}
+	s.mu.Unlock()
+	// The dead-man/CoD consumer runs async — it must never stall conn
+	// teardown (Task 6.3.7 item 6; the 1-per-5s mass-cancel throttle is
+	// the consumer's problem, not this package's).
+	if fn := s.cfg.OnDisconnect; fn != nil {
+		go fn(info)
+	}
 }
 
 // demote drops the auth binding (expiry teardown with surviving public
@@ -304,6 +470,14 @@ func (c *Conn) handleMessage(msg []byte) error {
 	f, err := parseFrame(msg)
 	if err != nil {
 		c.sendError("", "", "INVALID_REQUEST", "frame is not valid JSON", 0)
+		return nil
+	}
+	// Task 6.3.19 drain gate: during a planned-shutdown drain new
+	// subscriptions and order requests are refused (MAINTENANCE_MODE)
+	// while cancels, session upkeep and in-flight responses proceed.
+	if c.srv.draining.Load() && !drainAllowed[f.Action] {
+		c.sendError(f.RequestID, f.Action, "MAINTENANCE_MODE",
+			"endpoint draining for planned shutdown", 0)
 		return nil
 	}
 	switch f.Action {
@@ -561,7 +735,7 @@ func (c *Conn) handleSubscribe(f clientFrame, unsub bool) {
 	if c.noteChurn() {
 		c.sendError(f.RequestID, f.Action, "WS_ABUSE_DETECTED",
 			"subscription churn exceeded", 0)
-		c.closeConn(CloseAbuse, "WS_ABUSE_DETECTED")
+		c.closeWith(CloseAbuse, DisconnectAbuse, string(DisconnectAbuse))
 		return
 	}
 
@@ -608,6 +782,22 @@ func (c *Conn) handleSubscribe(f clientFrame, unsub bool) {
 				c.sendError(f.RequestID, f.Action, "WS_MAX_SUBSCRIPTIONS_EXCEEDED",
 					"subscription limit reached", 0)
 				continue
+			}
+			// Task 6.3.16 seam: per-channel-type policies (the §24 #84
+			// 20 L2 / 5 L3 split, §10.7 entitlements) plug in via
+			// SubAdmit — marketdata owns them; the hook must not call
+			// back into Conn paths that take subMu.
+			if hook := c.srv.cfg.SubAdmit; hook != nil {
+				code, ok := hook(c, ch)
+				if !ok {
+					c.subMu.Unlock()
+					if code == "" {
+						code = "WS_MAX_SUBSCRIPTIONS_EXCEEDED"
+					}
+					c.sendError(f.RequestID, f.Action, code,
+						"subscription rejected", 0)
+					continue
+				}
 			}
 			c.subs[ch] = &subscription{channel: ch, private: private}
 			c.srv.subscribe(c, ch)

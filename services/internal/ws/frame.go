@@ -128,6 +128,42 @@ type resyncFrame struct {
 	TsMs    int64  `json:"ts_ms"`
 }
 
+// rateInfoFrame is the Task 6.3.7 item 5 throttle-feedback frame sent
+// alongside every WS_RATE_EXCEEDED warning:
+// {"type":"rate_info","remaining":N,"reset_ms":T,"ts_ms":..}.
+type rateInfoFrame struct {
+	Type      string `json:"type"` // "rate_info"
+	Remaining int64  `json:"remaining"`
+	ResetMs   int64  `json:"reset_ms"`
+	TsMs      int64  `json:"ts_ms"`
+}
+
+// shutdownFrame is the Task 6.3.19 server.shutdown drain advisory (spec
+// §24 #289): emitted to every connection when a planned endpoint
+// shutdown starts; clients should stop new work, keep cancel
+// availability until deadline_ms, then reconnect to endpoint (or an
+// entry of endpoints) after retry_after_ms.
+type shutdownFrame struct {
+	Type         string   `json:"type"` // "server.shutdown"
+	Reason       string   `json:"reason"`
+	RetryAfterMs int64    `json:"retry_after_ms,omitempty"`
+	Endpoint     string   `json:"endpoint,omitempty"`
+	Endpoints    []string `json:"endpoints,omitempty"`
+	DeadlineMs   int64    `json:"deadline_ms,omitempty"`
+	TsMs         int64    `json:"ts_ms"`
+}
+
+// feedStatusFrame is the Task 6.3.21 feed-failover advisory broadcast on
+// upstream feed health transitions (the seam the marketdata service
+// drives through SetFeedState). state is "healthy"|"degraded"|"down";
+// endpoints lists the client-facing alternates in preference order.
+type feedStatusFrame struct {
+	Type      string   `json:"type"` // "feed.failover"
+	State     string   `json:"state"`
+	Endpoints []string `json:"endpoints,omitempty"`
+	TsMs      int64    `json:"ts_ms"`
+}
+
 // parseFrame decodes one inbound text frame.
 func parseFrame(msg []byte) (clientFrame, error) {
 	var f clientFrame

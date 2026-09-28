@@ -9,12 +9,46 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// Registered RFC 6455 private-use close codes (spec §10.6, §23).
+// Registered RFC 6455 private-use close codes (spec §10.6, §23 and the
+// §25 implementation-matrix WS row which pins 4029 for WS_RATE_EXCEEDED).
 const (
 	CloseAuthExpired  = 4019 // AUTH_EXPIRED — re-authenticate required
 	CloseAbuse        = 4003 // WS_ABUSE_DETECTED — subscription churn abuse
 	CloseSlowConsumer = 4008 // policy violation — outbound buffer not drained
+	CloseRateExceeded = 4029 // WS_RATE_EXCEEDED strikes exhausted — forced disconnect
 )
+
+// DisconnectReason is the §24 #245 / Phase-06 Task 6.3.7 item 6
+// disconnect_reason discriminator reported to the OnDisconnect consumer
+// (the dead-man/cancel-on-disconnect owner). The three task-pinned wire
+// values are CLIENT_DISCONNECT, NETWORK_TIMEOUT and ABUSE_DISCONNECT;
+// SERVER_SHUTDOWN additionally classifies server-initiated closes that
+// fall outside that enum (drain advisory, AUTH_EXPIRED teardown, normal
+// unregister) so the consumer can tell "endpoint went away" from
+// "client vanished". CoD eligibility per spec: CLIENT_DISCONNECT and
+// NETWORK_TIMEOUT trigger; ABUSE_DISCONNECT and SERVER_SHUTDOWN do NOT
+// (abuse disconnects leave orders resting but block new order entry
+// until reconnection + re-authentication — an unauthenticated fresh
+// conn is inherently blocked, so no extra machinery is needed here).
+// The 1-mass-cancel-per-account-per-5s CoD throttle lives in the
+// dead-man service that consumes OnDisconnect, not in this package.
+type DisconnectReason string
+
+const (
+	DisconnectClient  DisconnectReason = "CLIENT_DISCONNECT"
+	DisconnectNetwork DisconnectReason = "NETWORK_TIMEOUT"
+	DisconnectAbuse   DisconnectReason = "ABUSE_DISCONNECT"
+	DisconnectServer  DisconnectReason = "SERVER_SHUTDOWN"
+)
+
+// DisconnectInfo is the terminal-conn record delivered to
+// Config.OnDisconnect — the dead-man/CoD consumer's input.
+type DisconnectInfo struct {
+	RemoteIP  string
+	AccountID int64 // 0 for anonymous connections
+	Reason    DisconnectReason
+	CloseCode int
+}
 
 // subscription is one active channel binding on a connection.
 type subscription struct {
@@ -33,12 +67,14 @@ type Conn struct {
 	remoteIP string
 	path     string // upgrade path — the WS signature surface
 
-	out       chan []byte
-	done      chan struct{}
-	pumpDone  chan struct{} // closed by writePump AFTER the close frame goes out
-	closeOne  sync.Once
-	closeCode atomic.Int32
-	closeWhy  atomic.Value // string
+	out        chan []byte
+	outBytes   atomic.Int64 // bytes currently queued in out (slow-consumer monitor)
+	done       chan struct{}
+	pumpDone   chan struct{} // closed by writePump AFTER the close frame goes out
+	closeOne   sync.Once
+	closeCode  atomic.Int32
+	closeWhy   atomic.Value // string — wire close reason
+	discReason atomic.Value // DisconnectReason — terminal classification
 
 	sessMu sync.Mutex
 	sess   Session
@@ -50,8 +86,9 @@ type Conn struct {
 	expiryCh chan struct{}
 
 	rateMu sync.Mutex
-	tokens float64   // control-frame token bucket
-	rateAt time.Time // last refill
+	tokens float64     // control-frame token bucket
+	rateAt time.Time   // last refill
+	warns  []time.Time // recent WS_RATE_EXCEEDED warnings
 
 	churnMu sync.Mutex
 	churn   []time.Time // recent subscribe/unsubscribe timestamps
@@ -86,24 +123,41 @@ func (c *Conn) enqueue(b []byte) {
 	defer t.Stop()
 	select {
 	case c.out <- b:
+		c.outBytes.Add(int64(len(b)))
 	case <-c.done:
 	case <-t.C:
-		c.closeConn(CloseSlowConsumer, "WS_SLOW_CONSUMER_DROP")
+		c.closeWith(CloseSlowConsumer, DisconnectNetwork, "WS_SLOW_CONSUMER_DROP")
 	}
 }
 
-// closeConn initiates teardown: the write pump emits the close frame
+// closeWith initiates teardown: the write pump emits the close frame
 // (best-effort 1s deadline) and its deferred ws.Close() frees the
 // socket, failing the read loop's next ReadMessage. Idempotent — the
-// first close code wins. The socket must NOT be closed here: doing so
-// races the pump's flushOut + close-frame write and the client sees an
-// abnormal closure (1006) instead of the real close code.
-func (c *Conn) closeConn(code int, reason string) {
+// first close wins for BOTH the wire code/reason and the recorded
+// DisconnectReason, so a server-initiated teardown (drain, abuse, slow
+// consumer) is never reclassified by the read error it provokes. The
+// socket must NOT be closed here: doing so races the pump's flushOut +
+// close-frame write and the client sees an abnormal closure (1006)
+// instead of the real close code.
+func (c *Conn) closeWith(code int, dr DisconnectReason, reason string) {
 	c.closeOne.Do(func() {
+		c.discReason.Store(dr)
 		c.closeCode.Store(int32(code))
 		c.closeWhy.Store(reason)
 		close(c.done)
 	})
+}
+
+// disconnectReason returns the terminal classification; conns that die
+// before any classification degrade to DisconnectServer (fail-closed —
+// the conn was torn down by this side or never fully established).
+func (c *Conn) disconnectReason() DisconnectReason {
+	if v := c.discReason.Load(); v != nil {
+		if dr, ok := v.(DisconnectReason); ok {
+			return dr
+		}
+	}
+	return DisconnectServer
 }
 
 // writePump is the sole writer and owns socket teardown. On done it
@@ -120,6 +174,7 @@ func (c *Conn) writePump() {
 	for {
 		select {
 		case b := <-c.out:
+			c.outBytes.Add(-int64(len(b)))
 			_ = c.ws.SetWriteDeadline(c.srv.cfg.Now().Add(10 * time.Second))
 			if err := c.ws.WriteMessage(websocket.TextMessage, b); err != nil {
 				return // conn dead; serve() cleanup path handles registry
@@ -148,6 +203,7 @@ func (c *Conn) flushOut() {
 	for {
 		select {
 		case b := <-c.out:
+			c.outBytes.Add(-int64(len(b)))
 			_ = c.ws.SetWriteDeadline(c.srv.cfg.Now().Add(time.Second))
 			if err := c.ws.WriteMessage(websocket.TextMessage, b); err != nil {
 				return
@@ -191,10 +247,18 @@ func (c *Conn) sendResponse(requestID, action, status string, data any) {
 	c.enqueue(b)
 }
 
+// rateVerdict is one inbound-frame admission decision (Task 6.3.7).
+type rateVerdict struct {
+	ok           bool
+	retryAfterMs int64 // WS _ms convention (§10.5 item 5) for WS_RATE_EXCEEDED
+	remaining    int64 // tokens left in the bucket (rate_info.remaining)
+	resetMs      int64 // ms until the bucket refills to capacity (rate_info.reset_ms)
+}
+
 // allowControl is the per-connection control-frame token bucket
 // (spec §10.6: breach emits WS_RATE_EXCEEDED). Bucket refills at
 // ControlRate tokens/s with a 1-second burst capacity.
-func (c *Conn) allowControl() (retryAfterMs int64, ok bool) {
+func (c *Conn) allowControl() rateVerdict {
 	c.rateMu.Lock()
 	defer c.rateMu.Unlock()
 	now := c.srv.cfg.Now()
@@ -208,11 +272,67 @@ func (c *Conn) allowControl() (retryAfterMs int64, ok bool) {
 		c.tokens = rate
 	}
 	c.rateAt = now
+	resetMs := func() int64 { // ms until the bucket refills to capacity
+		ms := int64(((rate - c.tokens) / rate) * 1000)
+		if ms < 0 {
+			return 0
+		}
+		return ms
+	}
 	if c.tokens >= 1 {
 		c.tokens--
-		return 0, true
+		return rateVerdict{ok: true, remaining: int64(c.tokens), resetMs: resetMs()}
 	}
-	return int64((1-c.tokens)/rate*1000) + 1, false
+	return rateVerdict{
+		retryAfterMs: int64((1-c.tokens)/rate*1000) + 1,
+		resetMs:      resetMs(),
+	}
+}
+
+// checkRate is the inbound-frame admission gate: the per-conn bucket
+// first, then the optional cross-connection per-IP aggregate limiter
+// (Config.IPLimiter — the Task 6.3.7 IP-level hook a deployment may back
+// with Redis so NAT-egress floods are bounded cluster-wide).
+func (c *Conn) checkRate() rateVerdict {
+	v := c.allowControl()
+	if !v.ok {
+		return v
+	}
+	if lim := c.srv.cfg.IPLimiter; lim != nil {
+		if ms, ok := lim.Allow(c.remoteIP, c.srv.cfg.Now()); !ok {
+			return rateVerdict{retryAfterMs: ms, resetMs: ms}
+		}
+	}
+	return v
+}
+
+// noteRateWarning records one WS_RATE_EXCEEDED emission inside
+// RateWarnWindow; the caller force-closes on RateWarnMax (Task 6.3.7
+// item 2: "3 warnings in 60s → forced disconnect").
+func (c *Conn) noteRateWarning() (strikes int) {
+	c.rateMu.Lock()
+	defer c.rateMu.Unlock()
+	now := c.srv.cfg.Now()
+	cutoff := now.Add(-c.srv.cfg.RateWarnWindow)
+	kept := c.warns[:0]
+	for _, t := range c.warns {
+		if t.After(cutoff) {
+			kept = append(kept, t)
+		}
+	}
+	c.warns = append(kept, now)
+	return len(c.warns)
+}
+
+// sendRateInfo emits the Task 6.3.7 item 5 throttle-feedback frame.
+func (c *Conn) sendRateInfo(remaining, resetMs int64) {
+	b, err := marshalFrame(rateInfoFrame{
+		Type: "rate_info", Remaining: remaining, ResetMs: resetMs,
+		TsMs: c.srv.cfg.Now().UnixMilli(),
+	})
+	if err == nil {
+		c.enqueue(b)
+	}
 }
 
 // noteChurn records a subscription change. Sustained churn above
@@ -304,7 +424,7 @@ func (c *Conn) onAuthExpiry() {
 	c.subMu.Unlock()
 
 	if remaining == 0 {
-		c.closeConn(CloseAuthExpired, "AUTH_EXPIRED")
+		c.closeWith(CloseAuthExpired, DisconnectServer, "AUTH_EXPIRED")
 		return
 	}
 	c.srv.demote(c)
@@ -322,17 +442,87 @@ func (c *Conn) readLoop() {
 	for {
 		mt, msg, err := c.ws.ReadMessage()
 		if err != nil {
+			c.noteReadDeath(err)
 			return
 		}
 		if mt != websocket.TextMessage && mt != websocket.BinaryMessage {
 			continue
 		}
-		if ms, ok := c.allowControl(); !ok {
+		v := c.checkRate()
+		if !v.ok {
+			// Task 6.3.7 items 2+5: canonical WS_RATE_EXCEEDED warning
+			// with retry_after_ms, followed by the rate_info feedback
+			// frame; RateWarnMax strikes inside RateWarnWindow → forced
+			// disconnect as abuse (4029 / ABUSE_DISCONNECT).
 			c.sendError("", "", "WS_RATE_EXCEEDED",
-				"control message rate exceeded", ms)
+				"control message rate exceeded", v.retryAfterMs)
+			c.sendRateInfo(v.remaining, v.resetMs)
+			if c.noteRateWarning() >= c.srv.cfg.RateWarnMax {
+				c.sendError("", "", "WS_ABUSE_DETECTED",
+					"rate-limit warning budget exhausted; session terminated", 0)
+				c.closeWith(CloseRateExceeded, DisconnectAbuse,
+					string(DisconnectAbuse))
+				return
+			}
 			continue
 		}
 		if hErr := c.handleMessage(msg); hErr != nil {
+			return
+		}
+	}
+}
+
+// noteReadDeath classifies the terminal read error into the §24 #245
+// disconnect_reason discriminator: a client-sent close frame is
+// CLIENT_DISCONNECT; anything else (heartbeat/pong timeout, RST,
+// abnormal 1006) is NETWORK_TIMEOUT. Server-initiated closes win the
+// race because closeWith is first-wins — when the pump tears the socket
+// down for drain/abuse/expiry the read error here cannot reclassify it.
+func (c *Conn) noteReadDeath(err error) {
+	var ce *websocket.CloseError
+	if errors.As(err, &ce) && ce.Code != websocket.CloseAbnormalClosure {
+		code := ce.Code
+		if code < 1000 || code > 2999 {
+			code = websocket.CloseNormalClosure
+		}
+		c.closeWith(code, DisconnectClient, string(DisconnectClient))
+		return
+	}
+	c.closeWith(websocket.CloseGoingAway, DisconnectNetwork,
+		string(DisconnectNetwork))
+}
+
+// backpressureLoop is the Task 6.3.21 send-queue monitor: when the
+// outbound queue stays over the depth or byte threshold for
+// EvictConsecutive EvictCheckInterval ticks (default ≈2.0s of
+// saturation), the conn is evicted with 4008 / WS_SLOW_CONSUMER_DROP.
+// This covers the "queue stays full but no producer is mid-enqueue"
+// case the enqueue-block timeout alone cannot see.
+func (c *Conn) backpressureLoop() {
+	depth := c.srv.cfg.EvictQueueDepth
+	if depth <= 0 || depth > cap(c.out) {
+		depth = cap(c.out)
+	}
+	maxBytes := c.srv.cfg.OutboundMaxBytes
+	tick := time.NewTicker(c.srv.cfg.EvictCheckInterval)
+	defer tick.Stop()
+	strikes := 0
+	for {
+		select {
+		case <-c.done:
+			return
+		case <-tick.C:
+		}
+		over := len(c.out) >= depth ||
+			(maxBytes > 0 && c.outBytes.Load() > maxBytes)
+		if over {
+			strikes++
+		} else {
+			strikes = 0
+		}
+		if strikes >= c.srv.cfg.EvictConsecutive {
+			c.closeWith(CloseSlowConsumer, DisconnectNetwork,
+				"WS_SLOW_CONSUMER_DROP")
 			return
 		}
 	}
