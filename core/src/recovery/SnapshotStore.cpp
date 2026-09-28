@@ -93,7 +93,7 @@ bool FileSnapshotSink::store(uint32_t instrument_id, uint64_t seq,
                              const uint8_t* blob, uint64_t len) noexcept {
     last_errno_ = 0;
     if (blob == nullptr || len < sizeof(WalBookSnapshotHeader) ||
-        len > kWalMaxPayload) {
+        len > kSnapMaxPayload) {
         return false;
     }
 
@@ -219,11 +219,25 @@ bool FileSnapshotSink::load_latest(uint32_t instrument_id, uint64_t* seq_out,
     }
     if (fh.magic != kSnapFileMagic || fh.version != kSnapFileVersion ||
         fh.instrument_id != instrument_id || fh.seq != best_seq ||
-        fh.payload_len > kWalMaxPayload) {
+        fh.payload_len > kSnapMaxPayload) {
         ::close(fd);
         return false;  // foreign/corrupt/filename-vs-header mismatch
     }
-    blob_out->resize(fh.payload_len);
+    // Exact-size cross-check BEFORE the allocation: the file must be
+    // precisely header + payload (no trailer is written). A corrupt
+    // payload_len is rejected here without touching memory.
+    std::error_code szec;
+    const auto file_sz = std::filesystem::file_size(best_path, szec);
+    if (szec || file_sz != sizeof(fh) + fh.payload_len) {
+        ::close(fd);
+        return false;
+    }
+    try {
+        blob_out->resize(fh.payload_len);
+    } catch (...) {
+        ::close(fd);
+        return false;  // noexcept contract — bad_alloc must not escape
+    }
     uint64_t off = 0;
     while (off < fh.payload_len) {
         const ssize_t n = ::read(fd, blob_out->data() + off,
@@ -299,7 +313,7 @@ bool SnapshotStore::serialize_book(const OrderBook& book,
             sizeof(WalSnapshotOrder) * order_count +
             sizeof(WalSnapshotExtHeader) +
             sizeof(WalSnapshotOrderExt) * order_count;
-        if (total > kWalMaxPayload) return false;
+        if (total > kSnapMaxPayload) return false;
         out.reserve(static_cast<std::size_t>(total));
 
         blob_put(out, header_out);

@@ -98,6 +98,7 @@ struct SnapshotCtx {
     uint32_t instrument_id;
     uint64_t last_trades = 0;
     bool store_failed = false;
+    bool serialize_failed = false;
 };
 
 void on_snapshot_tick(void* raw, uint64_t now_ns,
@@ -107,13 +108,20 @@ void on_snapshot_tick(void* raw, uint64_t now_ns,
     c->last_trades = trades_emitted;
     const exch::SnapshotOutcome oc = c->store->maybe_snapshot(
         *c->book, c->instrument_id, c->wal->tail_seq(), now_ns, delta);
-    // Sink I/O failure must not kill the matching loop (journaling is the
-    // durability guarantee; the snapshot is a recovery accelerator) — report
-    // on the transition only, the next cadence window retries.
+    // Snapshot failure must not kill the matching loop (journaling is the
+    // durability guarantee; the snapshot is a recovery accelerator) — but a
+    // persistent failure MUST be observable: report on the transition only,
+    // the next cadence window retries.
     if (oc == exch::SnapshotOutcome::StoreFailed && !c->store_failed) {
         std::fprintf(stderr, "snapshot store failed — cadence retry pending\n");
     }
+    if (oc == exch::SnapshotOutcome::SerializeFailed && !c->serialize_failed) {
+        std::fprintf(stderr,
+                     "snapshot serialize failed — book exceeds encodable "
+                     "shape; recovery degrades to full replay\n");
+    }
     c->store_failed = oc == exch::SnapshotOutcome::StoreFailed;
+    c->serialize_failed = oc == exch::SnapshotOutcome::SerializeFailed;
 }
 
 bool parse_u32(const char* s, uint32_t* out) {

@@ -36,6 +36,7 @@
 // + atomic rename + fsync dir).
 
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -105,7 +106,8 @@ public:
 // --- Phase-02 file sink ------------------------------------------------------
 //
 // Layout: {root}/i{instrument_id}/snap_{seq:020}.bin
-//   [SnapFileHeader][payload = the blob][crc32c(payload) u32 trailer]
+//   [SnapFileHeader][payload = the blob]   — the payload CRC rides in the
+//   header (payload_crc); no trailer is written.
 // store() writes snap_*.bin.tmp-<pid>, fsyncs the fd, rename()s into place and
 // fsyncs the directory — a snapshot is either fully present or absent.
 
@@ -124,6 +126,15 @@ struct SnapFileHeader {
 
 inline constexpr uint32_t kSnapFileMagic = 0x50414E53u;  // 'SNAP'
 inline constexpr uint16_t kSnapFileVersion = 1;
+// File-snapshot payload bound. SnapFileHeader.payload_len is u32, so the
+// format's representable maximum IS the cap; integrity on load comes from
+// the exact file-size cross-check + payload CRC (a corrupt length field
+// fails the size check before any allocation). kWalMaxPayload (64 MiB)
+// bounds WAL *entries* — standalone snapshot files legitimately exceed it
+// on large books (Phase-02.5 soak finding: >64MiB books serialize-failed
+// silently and recovery degraded to full replay).
+inline constexpr uint64_t kSnapMaxPayload =
+    std::numeric_limits<uint32_t>::max();
 static_assert(sizeof(SnapFileHeader) == 32);
 
 class FileSnapshotSink final : public ISnapshotSink {
