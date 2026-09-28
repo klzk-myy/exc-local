@@ -245,8 +245,22 @@ WalStatus Wal::recover_existing(uint64_t file_size) {
     }
 
     const uint64_t valid_end = last_scan_.valid_end;
-    next_seq_.store(last_scan_.entries > 0 ? last_scan_.last_seq + 1 : 0,
-                    std::memory_order_relaxed);
+    // Resume sequence: normally last+1, but a numeric filename stem is the
+    // segment's seq_base (rotate() names {next_seq}.wal). A crash landing
+    // between rotate() and the first append leaves a header-only segment —
+    // without the stem floor, next_seq would rewind to 0 and duplicate the
+    // sealed segments' sequence range (found by Phase-02.5 failover bench).
+    uint64_t resume = last_scan_.entries > 0 ? last_scan_.last_seq + 1 : 0;
+    {
+        const std::string stem =
+            std::filesystem::path(path_).stem().string();
+        char* end = nullptr;
+        const unsigned long long base = std::strtoull(stem.c_str(), &end, 10);
+        if (end != stem.c_str() && *end == '\0' && base > resume) {
+            resume = base;
+        }
+    }
+    next_seq_.store(resume, std::memory_order_relaxed);
 
     if (opt_.direct_io) {
         // Keep the surviving partial last block in the staging buffer and cut

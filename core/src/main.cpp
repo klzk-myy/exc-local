@@ -44,9 +44,43 @@ void on_term_sig(int /*sig*/) { g_stop.store(true, std::memory_order_release); }
 void usage(const char* argv0) {
     std::fprintf(stderr,
                  "usage: %s [-shard <n>] [-ipc-base <name>] [-wal-dir <dir>]\n"
-                 "          [-poison-log <path>] [-idle-sleep-ns <ns>]\n",
+                 "          [-poison-log <path>] [-idle-sleep-ns <ns>]\n"
+                 "          [-instrument-id <n>] [-dev-all-accounts]\n",
                  argv0);
 }
+
+// Dev/soak account provider (Phase-02.5): every account reads ACTIVE with
+// effectively unlimited balance, ECP category and T2 KYC. Wired ONLY under
+// the explicit -dev-all-accounts flag — production boots fail closed on an
+// unbound account store (spec §2.7), which remains the default.
+class DevAccountState final : public exch::IAccountState {
+public:
+    [[nodiscard]] exch::AccountStatus status(
+        uint64_t /*account_id*/) const noexcept override {
+        return exch::AccountStatus::ACTIVE;
+    }
+    [[nodiscard]] int64_t available_balance(
+        uint64_t /*account_id*/, uint64_t /*instrument_id*/,
+        exch::BalanceUnit /*unit*/) const noexcept override {
+        return INT64_MAX / 4;
+    }
+    [[nodiscard]] uint32_t open_position_count(
+        uint64_t /*account_id*/) const noexcept override {
+        return 0;
+    }
+    [[nodiscard]] exch::StpMode default_stp_mode(
+        uint64_t /*account_id*/) const noexcept override {
+        return static_cast<exch::StpMode>(exch::kStpModeUnset);
+    }
+    [[nodiscard]] exch::ClientCategory client_category(
+        uint64_t /*account_id*/) const noexcept override {
+        return exch::ClientCategory::ELIGIBLE_COUNTERPARTY;
+    }
+    [[nodiscard]] exch::KycTier kyc_tier(
+        uint64_t /*account_id*/) const noexcept override {
+        return exch::KycTier::T2;
+    }
+};
 
 bool parse_u32(const char* s, uint32_t* out) {
     if (s == nullptr || *s == '\0' || *s == '-') return false;
@@ -103,6 +137,7 @@ int main(int argc, char** argv) {
     std::string wal_dir = "wal";
     std::string poison_path = "poison_pill.log";
     int64_t idle_sleep_ns = 0;
+    bool dev_all_accounts = false;
 
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "-shard") == 0) {
@@ -138,6 +173,8 @@ int main(int argc, char** argv) {
                 usage(argv[0]);
                 return 2;
             }
+        } else if (std::strcmp(argv[i], "-dev-all-accounts") == 0) {
+            dev_all_accounts = true;
         } else if (std::strcmp(argv[i], "-h") == 0 || std::strcmp(argv[i], "--help") == 0) {
             usage(argv[0]);
             return 0;
@@ -159,12 +196,29 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // --- WAL: wal/{shard}/0.wal (spec §3.4 layout) ----------------------------
+    // --- WAL: wal/{shard}/{seq_base}.wal (spec §3.4 layout) -------------------
     // Fail-closed: no journal, no engine (zero-loss invariant, spec §2.7).
+    // Resume at the NEWEST segment — rotation renames to {tail_seq}.wal, so
+    // always reopening 0.wal would rewind next_seq into an already-journaled
+    // range and trip the next boot's SeqGap check.
     std::error_code ec;
     const auto shard_dir = std::filesystem::path(wal_dir) / std::to_string(shard);
     std::filesystem::create_directories(shard_dir, ec);
-    const std::string wal_path = (shard_dir / "0.wal").string();
+    uint64_t resume_base = 0;
+    bool have_segment = false;
+    for (const auto& de : std::filesystem::directory_iterator(shard_dir, ec)) {
+        if (!de.is_regular_file() || de.path().extension() != ".wal") continue;
+        const std::string stem = de.path().stem().string();
+        char* end = nullptr;
+        const unsigned long long base = std::strtoull(stem.c_str(), &end, 10);
+        if (end == stem.c_str() || *end != '\0') continue;
+        if (!have_segment || base > resume_base) {
+            resume_base = base;
+            have_segment = true;
+        }
+    }
+    const std::string wal_path =
+        (shard_dir / (std::to_string(resume_base) + ".wal")).string();
     exch::Wal wal(wal_path, static_cast<uint16_t>(shard));
     if (wal.open() != exch::WalStatus::Ok) {
         std::fprintf(stderr, "FATAL: wal open failed path=%s errno=%d\n", wal_path.c_str(),
@@ -200,7 +254,22 @@ int main(int argc, char** argv) {
     // In-process pre-trade risk (Task 2.3.3): 14 checks, <10µs, codes surface
     // verbatim as engine last_reject(). now_ns_source reads the engine's
     // TIME_TICK clock — determinism preserved end to end.
-    exch::PreTradeChecker risk;
+    // Explicit dev/soak opt-in: bound provider reports ACTIVE for every
+    // account, and the per-account order-rate collar is lifted — soak
+    // ingress (50k/s) would otherwise trip the 50/s default. The flag is
+    // non-default precisely so production boots keep §2.7 fail-closed.
+    exch::RiskConfig risk_cfg{};
+    if (dev_all_accounts) {
+        risk_cfg.order_rate_per_sec = 10'000'000;
+        risk_cfg.order_rate_burst = 10'000'000;
+    }
+    exch::PreTradeChecker risk{risk_cfg};
+    DevAccountState dev_accounts;
+    if (dev_all_accounts) {
+        risk.bind_accounts(&dev_accounts);
+        std::fprintf(stderr, "WARN: -dev-all-accounts active — account "
+                             "checks permissive (soak/dev only)\n");
+    }
     exch::EngineRiskBinding risk_binding{&risk, book.instrument(),
                                          engine.now_ns_ptr()};
     engine.set_risk_hook(&exch::engine_risk_check, &risk_binding);

@@ -192,10 +192,10 @@ func ckSoakRecoveryBench(ctx context.Context, env *spec.Env) spec.Result {
 			return spec.Failf("read failover-report.json: %v", err)
 		}
 		var f struct {
-			Verdict      string  `json:"verdict"`
+			Verdict       string  `json:"verdict"`
 			RecoveryMsMax float64 `json:"recovery_ms_max"`
-			ParityFail   int     `json:"parity_fail"`
-			DupTrades    int     `json:"dup_trade_ids"`
+			ParityFail    int     `json:"parity_fail"`
+			DupTrades     int     `json:"dup_trade_ids"`
 		}
 		if err := json.Unmarshal(raw, &f); err != nil {
 			return spec.Failf("parse failover-report.json: %v", err)
@@ -270,8 +270,9 @@ func ckSoakFaultBackpressure(ctx context.Context, env *spec.Env) spec.Result {
 		return spec.Failf("read events.jsonl: %v", err)
 	}
 	ev := string(raw)
-	crash := strings.Contains(ev, "crash_inject") || strings.Contains(ev, "kill")
-	burst := strings.Contains(ev, "burst")
+	// monitor.sh event schema: {"type":"crash"|"burst_start"|"burst_end",...}
+	crash := strings.Contains(ev, `"type":"crash"`)
+	burst := strings.Contains(ev, `"type":"burst_start"`)
 	recov := strings.Contains(ev, "recovery_ms")
 	switch {
 	case !crash:

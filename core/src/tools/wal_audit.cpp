@@ -368,12 +368,20 @@ std::string stage_live_copy(const std::string& dir) {
     ec.clear();
     std::filesystem::create_directories(tmp, ec);
     if (ec) return {};
+    bool copy_failed = false;
     for (const auto& de : std::filesystem::directory_iterator(dir, ec)) {
-        if (ec) break;
+        if (ec) { copy_failed = true; break; }
         std::error_code tec;
         if (!de.is_regular_file(tec) || tec) continue;
         if (de.path().extension() != ".wal") continue;
         std::filesystem::copy_file(de.path(), tmp / de.path().filename(), tec);
+        if (tec) { copy_failed = true; break; }
+    }
+    if (copy_failed) {
+        // A partial segment set would fingerprint a false-subset book —
+        // fail closed rather than emit a plausible-looking hash.
+        std::filesystem::remove_all(tmp, ec);
+        return {};
     }
     return tmp.string();
 }
