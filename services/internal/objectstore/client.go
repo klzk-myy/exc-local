@@ -39,6 +39,11 @@ type Object struct {
 	// Object Lock fields (bucket must be created with Object Lock enabled).
 	ObjectLockMode        string
 	ObjectLockRetainUntil time.Time
+	// ServerSideEncryption / SSEKMSKeyID mirror the SSE settings the
+	// object was written with (echoed on Head/Get). "aws:kms" = SSE-KMS
+	// (spec §24 #102 — KYC document storage), "AES256" = SSE-S3.
+	ServerSideEncryption string
+	SSEKMSKeyID          string
 }
 
 // PutInput describes one object write.
@@ -52,6 +57,14 @@ type PutInput struct {
 	// Empty = no lock. RetainUntil zero = use bucket default.
 	ObjectLockMode        string
 	ObjectLockRetainUntil time.Time
+	// ServerSideEncryption selects the SSE algorithm for the write —
+	// "aws:kms" (SSE-KMS, spec §24 #102) or "AES256" (SSE-S3). Empty =
+	// backend default. SSEKMSKeyID optionally names the KMS key when the
+	// algorithm is aws:kms. Added 2026-11-15 for Phase-12 Task 12.3.4
+	// (KYC documents) — narrow extension, same seam. devs3 persists the
+	// headers so dev/integration tests can assert the request landed.
+	ServerSideEncryption string
+	SSEKMSKeyID          string
 }
 
 // ListInput narrows ListObjectsV2 to what the services need.

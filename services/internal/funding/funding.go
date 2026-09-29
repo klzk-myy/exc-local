@@ -162,6 +162,18 @@ type OpsAlerter interface {
 	Raise(ctx context.Context, a OpsAlert) error
 }
 
+// Notifier is the optional Phase-12 Task 12.3.5 client-notification
+// seam. Services call it AFTER the ledger commit / status transition —
+// a notification failure is logged and swallowed, never a rollback or a
+// user-facing error on an already-committed money movement.
+type Notifier interface {
+	// Notify emits a user-facing funding event. accountID identifies the
+	// funding row's account (implementations resolve account→user).
+	// event is one of notifications' canonical tokens
+	// (deposit_confirmed | withdrawal_completed).
+	Notify(ctx context.Context, accountID int64, event string, payload map[string]any)
+}
+
 // ---------------------------------------------------------------------------
 // Validation + token/hash/cursor helpers (package-internal)
 // ---------------------------------------------------------------------------

@@ -41,6 +41,11 @@ type objectMeta struct {
 	Metadata              map[string]string `json:"metadata,omitempty"`
 	ObjectLockMode        string            `json:"object_lock_mode,omitempty"`
 	ObjectLockRetainUntil time.Time         `json:"object_lock_retain_until,omitempty"`
+	// ServerSideEncryption / SSEKMSKeyID persist the SSE request headers
+	// (x-amz-server-side-encryption[-aws-kms-key-id]) so tests can assert
+	// the SSE-KMS contract (spec §24 #102) end-to-end — Phase-12 12.3.4.
+	ServerSideEncryption string `json:"server_side_encryption,omitempty"`
+	SSEKMSKeyID          string `json:"sse_kms_key_id,omitempty"`
 }
 
 // Server is an http.Handler exposing the stub S3 API.
@@ -185,6 +190,12 @@ func (s *Server) putObject(w http.ResponseWriter, r *http.Request, bucket, key s
 			m.ObjectLockRetainUntil = t.UTC()
 		}
 	}
+	if v := r.Header.Get("x-amz-server-side-encryption"); v != "" {
+		m.ServerSideEncryption = v
+	}
+	if v := r.Header.Get("x-amz-server-side-encryption-aws-kms-key-id"); v != "" {
+		m.SSEKMSKeyID = v
+	}
 
 	path := s.objPath(bucket, key)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -272,6 +283,12 @@ func (s *Server) getObject(w http.ResponseWriter, r *http.Request, bucket, key s
 	if !m.ObjectLockRetainUntil.IsZero() {
 		w.Header().Set("x-amz-object-lock-retain-until-date",
 			m.ObjectLockRetainUntil.UTC().Format(time.RFC3339))
+	}
+	if m.ServerSideEncryption != "" {
+		w.Header().Set("x-amz-server-side-encryption", m.ServerSideEncryption)
+	}
+	if m.SSEKMSKeyID != "" {
+		w.Header().Set("x-amz-server-side-encryption-aws-kms-key-id", m.SSEKMSKeyID)
 	}
 	w.WriteHeader(http.StatusOK)
 	if !headOnly {

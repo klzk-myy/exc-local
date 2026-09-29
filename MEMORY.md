@@ -28,8 +28,8 @@ All counts are verified mechanically across the corpus:
 - **Phase Tasks:** **479** tasks across 30 phase plans
 - **Checklist Spec Checkpoints:** **543** checklist checkpoints across all phase tasks
 - **Acceptance Criteria Rows:** **1,079** rows (976 core + 103 buffer phase rows)
-- **Spec §23 Error Codes:** **180** codes (100% owner-resolvable against phase tasks; supersedes 176/173/172/170/149 — Phase-11 implementation landing registered `BANKING_RAIL_UNAVAILABLE` (Task 11.3.1) + `FUNDING_FEE_EXCEEDS_AMOUNT` (Task 11.3.9) + `BENEFICIARY_HOLD_ACTIVE` (Task 11.3.7) + `WITHDRAWAL_WHITELIST_ONLY`/`WITHDRAWAL_WHITELIST_LOCKED`/`WHITELIST_CHANGE_LOCKED`/`NOSTRO_INSUFFICIENT_FUNDS` (Tasks 11.3.2/11.3.3/11.3.6/11.3.10); `THIRD_PARTY_DEPOSIT_REJECTED` amended in place)
-- **Database Migrations:** **85** `.up.sql` files on disk (sparse task-numbered prefixes 001–200, collision-free, each paired `.down.sql`; supersedes prior "79"/"68"/"49 files" and "108 contiguous" prose — planned corpus allocated 001–108 by task number, implementation allocates beyond it, e.g. 109–119/150 in Phase-03, 023/065/092/120 in Phase-04, 151–155/160–162/170–173/180–182/190 in Phase-05, 091/192–197 in Phase-09, 040/078/108/198/199/200 in the Phase-11 funding cluster)
+- **Spec §23 Error Codes:** **181** codes (100% owner-resolvable against phase tasks; supersedes 180/176/173/172/170/149 — Phase-12 landing registered `INVALID_CREDENTIALS` (Task 12.3.1); Phase-11 registered `BANKING_RAIL_UNAVAILABLE` (Task 11.3.1) + `FUNDING_FEE_EXCEEDS_AMOUNT` (Task 11.3.9) + `BENEFICIARY_HOLD_ACTIVE` (Task 11.3.7) + `WITHDRAWAL_WHITELIST_ONLY`/`WITHDRAWAL_WHITELIST_LOCKED`/`WHITELIST_CHANGE_LOCKED`/`NOSTRO_INSUFFICIENT_FUNDS` (Tasks 11.3.2/11.3.3/11.3.6/11.3.10); `THIRD_PARTY_DEPOSIT_REJECTED` amended in place)
+- **Database Migrations:** **96** `.up.sql` files on disk (sparse task-numbered prefixes 001–205, collision-free, each paired `.down.sql`; supersedes prior "85"/"79"/"68"/"49 files" and "108 contiguous" prose — planned corpus allocated 001–108 by task number, implementation allocates beyond it, e.g. 109–119/150 in Phase-03, 023/065/092/120 in Phase-04, 151–155/160–162/170–173/180–182/190 in Phase-05, 091/192–197 in Phase-09, 040/078/108/198/199/200 in Phase-11, 027/028/068/069/070/074/201–205 in Phase-12)
 - **Phase Plans:** **30 phases** (24 core + 6 mandatory buffer phases: 01.5, 02.5, 04.5, 08.5, 13.5, 19.5)
 - **Financial Correctness Categories:** **9** categories (including double-entry GL zero-sum conservation)
 - **Degradation Modes:** **6** exact-cased modes (`Normal · ReadOnly · MarketDataOnly · SpotOnly · Throttled · Maintenance`)
@@ -86,7 +86,7 @@ All counts are verified mechanically across the corpus:
 ## 6. Key Mechanism Ownership Map
 
 - **API Route Registry (all endpoints):** Phase 5 (Task 5.3.7 / 5.3.46)
-- **Error Code Registry & Enforcement:** Phase 5 (Task 5.3.21) — 180 codes, zero ownerless codes
+- **Error Code Registry & Enforcement:** Phase 5 (Task 5.3.21) — 181 codes, zero ownerless codes
 - **Matching Core & Degradation Modes (6):** Phase 2 (ModeManager)
 - **Circuit Breaker (5-Tier):** Phase 13
 - **Double-Entry General Ledger & Tom-Next Rollover:** Phase 3 (Tasks 3.3.6, 3.3.7)

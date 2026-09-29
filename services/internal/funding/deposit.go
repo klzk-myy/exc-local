@@ -109,6 +109,7 @@ type DepositService struct {
 	usd       UsdConverter      // nil → every deposit tiers PENDING_REVIEW
 	sanctions SanctionsScreener // nil → STANDARD tier escalates to review
 	alerter   OpsAlerter
+	notifier  Notifier // optional Phase-12 client-notification seam
 	clock     func() time.Time
 	logf      func(format string, args ...any)
 }
@@ -141,6 +142,13 @@ func (s *DepositService) WithAlerter(a OpsAlerter) *DepositService {
 	return s
 }
 
+// WithNotifier wires the Phase-12 client-notification seam — emits
+// deposit_confirmed after the credit journal commits (best-effort).
+func (s *DepositService) WithNotifier(n Notifier) *DepositService {
+	s.notifier = n
+	return s
+}
+
 // WithClock overrides the clock (tests).
 func (s *DepositService) WithClock(c func() time.Time) *DepositService {
 	s.clock = c
@@ -158,6 +166,21 @@ func (s *DepositService) log(format string, args ...any) {
 	if s.logf != nil {
 		s.logf(format, args...)
 	}
+}
+
+// notify fires the optional client notification — post-commit,
+// best-effort; the panic guard keeps a misbehaving emitter from
+// crashing the funding path.
+func (s *DepositService) notify(ctx context.Context, accountID int64, event string, payload map[string]any) {
+	if s.notifier == nil {
+		return
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			s.log("funding: notifier panic on %s: %v", event, r)
+		}
+	}()
+	s.notifier.Notify(ctx, accountID, event, payload)
 }
 
 // DepositResult is the handler-facing deposit outcome.
@@ -778,6 +801,13 @@ func (s *DepositService) credit(ctx context.Context, row *FundingTxRow) error {
 			fmt.Sprintf("deposit %d credit journal failed — ledger needs ops replay", row.ID))
 		return wrapCode("INTERNAL_ERROR", "deposit credit journal", err)
 	}
+	// Phase-12 Task 12.3.5: deposit_confirmed user notification —
+	// post-commit, best-effort (notify swallows its own errors).
+	s.notify(ctx, row.AccountID, "deposit_confirmed", map[string]any{
+		"deposit_id": row.ID,
+		"currency":   row.Currency,
+		"amount":     row.Amount.String(),
+	})
 	return nil
 }
 

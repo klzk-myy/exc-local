@@ -72,12 +72,13 @@ type RailDispatcher interface {
 // DispatchService releases CONFIRMED withdrawals against nostro
 // headroom and owns the replenishment request lifecycle.
 type DispatchService struct {
-	store   NostroStore
-	poster  JournalPoster
-	rails   RailDispatcher // optional
-	alerter OpsAlerter     // optional page channel
-	clock   func() time.Time
-	logf    func(format string, args ...any)
+	store    NostroStore
+	poster   JournalPoster
+	rails    RailDispatcher // optional
+	alerter  OpsAlerter     // optional page channel
+	notifier Notifier       // optional Phase-12 client-notification seam
+	clock    func() time.Time
+	logf     func(format string, args ...any)
 }
 
 // NewDispatchService wires the service; store + poster are mandatory.
@@ -97,6 +98,13 @@ func (s *DispatchService) WithRails(r RailDispatcher) *DispatchService {
 // WithAlerter wires the ops paging seam.
 func (s *DispatchService) WithAlerter(a OpsAlerter) *DispatchService {
 	s.alerter = a
+	return s
+}
+
+// WithNotifier wires the Phase-12 client-notification seam — emits
+// withdrawal_completed after the dispatch journal commits (best-effort).
+func (s *DispatchService) WithNotifier(n Notifier) *DispatchService {
+	s.notifier = n
 	return s
 }
 
@@ -275,7 +283,29 @@ func (s *DispatchService) dispatch(ctx context.Context, tx pgx.Tx,
 	}
 	res.Disposition = "DISPATCHED"
 	res.RailPayment = payment
+	// Phase-12 Task 12.3.5: withdrawal_completed user notification —
+	// post-commit, best-effort (notify swallows its own errors).
+	s.notify(ctx, w.AccountID, "withdrawal_completed", map[string]any{
+		"withdrawal_id": w.ID,
+		"currency":      w.Currency,
+		"amount":        w.Amount.String(),
+	})
 	return res, nil
+}
+
+// notify fires the optional client notification — post-commit,
+// best-effort; the panic guard keeps a misbehaving emitter from
+// crashing the funding path.
+func (s *DispatchService) notify(ctx context.Context, accountID int64, event string, payload map[string]any) {
+	if s.notifier == nil {
+		return
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			s.log("funding: notifier panic on %s: %v", event, r)
+		}
+	}()
+	s.notifier.Notify(ctx, accountID, event, payload)
 }
 
 // outboundPayment builds the Task 11.3.1 rail instruction envelope for

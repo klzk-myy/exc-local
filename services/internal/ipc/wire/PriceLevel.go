@@ -6,7 +6,7 @@ import (
 	flatbuffers "github.com/google/flatbuffers/go"
 )
 
-/// One aggregated price level within a BookSnapshot.
+// / One aggregated price level within a BookSnapshot.
 type PriceLevel struct {
 	_tab flatbuffers.Table
 }

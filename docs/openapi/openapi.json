@@ -491,6 +491,12 @@
         "owner": "Phase-05 Task 5.3.41"
       },
       {
+        "code": "INVALID_CREDENTIALS",
+        "description": "Email/password pair failed authentication (Phase-12 Task 12.3.1 User Registration & Authentication; also current-password verification on change-password/2FA-disable paths; remediation #45)",
+        "http_status": 401,
+        "owner": "Phase-12 Task 12.3.1"
+      },
+      {
         "code": "INVALID_DEPTH_LIMIT",
         "description": "Requested book depth levels/cadence outside the supported {5,10,20}×{100,250,1000}ms table (Phase-06 Task 6.3.15 Configurable Depth; §24 #265 — cited by §27.1 L2 Book row but never registered; remediation #44 follow-on)",
         "http_status": 400,
@@ -933,7 +939,7 @@
       },
       {
         "code": "THIRD_PARTY_DEPOSIT_REJECTED",
-        "description": "Inbound wire originator name fails the Jaro-Winkler ≥0.85 match vs verified KYC legal name; funds quarantined to 2150_SUSPENSE_DEPOSITS and returned to source (Phase-11 Task 11.3.11 Third-Party Deposit Fraud; §17.12.2 — description amended 2026-09-29, supersedes 'Deposit sender name does not match account holder')",
+        "description": "Inbound wire originator name fails the Jaro-Winkler ≥0.85 match vs verified KYC legal name; funds quarantined to 2150_SUSPENSE_DEPOSITS and returned to source (Phase-11 Task 11.3.11 Third-Party Deposit Fraud; §17.12.2 — description amended 2026-11-09, supersedes 'Deposit sender name does not match account holder')",
         "http_status": 422,
         "owner": "Phase-11 Task 11.3.11"
       },
@@ -1130,7 +1136,6 @@
   "paths": {
     "/api/v1/account/api-keys": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_account_api_keys",
         "responses": {
           "200": {
@@ -1171,13 +1176,12 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-12",
+        "x-owner": "Phase-12 Task 12.3.3",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       },
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_account_api_keys",
         "responses": {
           "200": {
@@ -1198,7 +1202,7 @@
             "oauth2": null
           }
         ],
-        "summary": "Create programmatic API key",
+        "summary": "Create programmatic API key (TOTP step-up enforced)",
         "tags": [
           "account"
         ],
@@ -1214,15 +1218,14 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-12",
+        "x-owner": "Phase-12 Task 12.3.3",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/account/api-keys/{id}": {
       "delete": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "delete_api_v1_account_api_keys_id",
         "parameters": [
           {
@@ -1269,9 +1272,255 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-12",
+        "x-owner": "Phase-12 Task 12.3.3",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/account/approval-policies": {
+      "get": {
+        "operationId": "get_api_v1_account_approval_policies",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "read"
+            ]
+          },
+          {
+            "apiKeyAuth": [
+              "read"
+            ]
+          },
+          {
+            "oauth2": [
+              "read"
+            ]
+          }
+        ],
+        "summary": "List client M-of-N approval policies",
+        "tags": [
+          "account"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "",
+          "scopes": [
+            "read"
+          ]
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-12 Task 12.3.11",
+        "x-rate-tier": "basic",
+        "x-status": "live",
+        "x-weight": 1
+      },
+      "put": {
+        "operationId": "put_api_v1_account_approval_policies",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Upsert M-of-N policy (operation, required_approvals, threshold, expiry)",
+        "tags": [
+          "account"
+        ],
+        "x-auth": {
+          "methods": [
+            "jwt",
+            "hmac",
+            "oauth2"
+          ],
+          "required": true,
+          "role": "",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-12 Task 12.3.11",
+        "x-rate-tier": "basic",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/account/approval-policies/{id}": {
+      "delete": {
+        "operationId": "delete_api_v1_account_approval_policies_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Disable an approval policy (open requests still decide)",
+        "tags": [
+          "account"
+        ],
+        "x-auth": {
+          "methods": [
+            "jwt",
+            "hmac",
+            "oauth2"
+          ],
+          "required": true,
+          "role": "",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-12 Task 12.3.11",
+        "x-rate-tier": "basic",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/account/approval-requests": {
+      "get": {
+        "operationId": "get_api_v1_account_approval_requests",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "read"
+            ]
+          },
+          {
+            "apiKeyAuth": [
+              "read"
+            ]
+          },
+          {
+            "oauth2": [
+              "read"
+            ]
+          }
+        ],
+        "summary": "List M-of-N approval requests (?status=&limit=)",
+        "tags": [
+          "account"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "",
+          "scopes": [
+            "read"
+          ]
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-12 Task 12.3.11",
+        "x-rate-tier": "basic",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/account/approval-requests/{id}/decide": {
+      "post": {
+        "operationId": "post_api_v1_account_approval_requests_id_decide",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Cast one CLIENT_APPROVER vote ({approve, note}; anti-self-approval)",
+        "tags": [
+          "account"
+        ],
+        "x-auth": {
+          "methods": [
+            "jwt",
+            "hmac",
+            "oauth2"
+          ],
+          "required": true,
+          "role": "",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-12 Task 12.3.11",
+        "x-rate-tier": "basic",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -1325,7 +1574,6 @@
     },
     "/api/v1/account/change-password": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_account_change_password",
         "responses": {
           "200": {
@@ -1362,9 +1610,9 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-12",
+        "x-owner": "Phase-12 Task 12.3.3",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -1669,9 +1917,248 @@
         "x-weight": 1
       }
     },
+    "/api/v1/account/delegated-users": {
+      "get": {
+        "operationId": "get_api_v1_account_delegated_users",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "read"
+            ]
+          },
+          {
+            "apiKeyAuth": [
+              "read"
+            ]
+          },
+          {
+            "oauth2": [
+              "read"
+            ]
+          }
+        ],
+        "summary": "List client delegated users with active role/scope bindings",
+        "tags": [
+          "account"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "",
+          "scopes": [
+            "read"
+          ]
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-12 Task 12.3.11",
+        "x-rate-tier": "basic",
+        "x-status": "live",
+        "x-weight": 1
+      },
+      "post": {
+        "operationId": "post_api_v1_account_delegated_users",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Create a named delegated login (CLIENT_* role + explicit scope)",
+        "tags": [
+          "account"
+        ],
+        "x-auth": {
+          "methods": [
+            "jwt",
+            "hmac",
+            "oauth2"
+          ],
+          "required": true,
+          "role": "",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-12 Task 12.3.11",
+        "x-rate-tier": "basic",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/account/delegated-users/revoke-all": {
+      "post": {
+        "operationId": "post_api_v1_account_delegated_users_revoke_all",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Emergency master revocation — every delegation + session dies",
+        "tags": [
+          "account"
+        ],
+        "x-auth": {
+          "methods": [
+            "jwt",
+            "hmac",
+            "oauth2"
+          ],
+          "required": true,
+          "role": "",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-12 Task 12.3.11",
+        "x-rate-tier": "basic",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/account/delegated-users/{id}": {
+      "delete": {
+        "operationId": "delete_api_v1_account_delegated_users_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Revoke a delegated login (sessions terminated immediately)",
+        "tags": [
+          "account"
+        ],
+        "x-auth": {
+          "methods": [
+            "jwt",
+            "hmac",
+            "oauth2"
+          ],
+          "required": true,
+          "role": "",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-12 Task 12.3.11",
+        "x-rate-tier": "basic",
+        "x-status": "live",
+        "x-weight": 1
+      },
+      "put": {
+        "operationId": "put_api_v1_account_delegated_users_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Update a delegated user's role/scope binding (SCOPE_CHANGED audit)",
+        "tags": [
+          "account"
+        ],
+        "x-auth": {
+          "methods": [
+            "jwt",
+            "hmac",
+            "oauth2"
+          ],
+          "required": true,
+          "role": "",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-12 Task 12.3.11",
+        "x-rate-tier": "basic",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
     "/api/v1/account/emergency-freeze": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_account_emergency_freeze",
         "responses": {
           "200": {
@@ -1692,7 +2179,7 @@
             "oauth2": null
           }
         ],
-        "summary": "Client-initiated emergency account freeze",
+        "summary": "Client-initiated emergency account freeze (session-only; mass-cancel ≤3 retries → FROZEN+SELF_FREEZE, other sessions + API keys revoked; P1 alert on partial failure)",
         "tags": [
           "account"
         ],
@@ -1708,9 +2195,9 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-12",
+        "x-owner": "Phase-12 Task 12.3.10",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -2007,7 +2494,6 @@
     },
     "/api/v1/account/login-history": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_account_login_history",
         "responses": {
           "200": {
@@ -2034,7 +2520,7 @@
             ]
           }
         ],
-        "summary": "Login history (IP/device/timestamp audit)",
+        "summary": "Login history (IP/device/timestamp audit, 90d)",
         "tags": [
           "account"
         ],
@@ -2048,9 +2534,9 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-12",
+        "x-owner": "Phase-12 Task 12.3.9",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -2101,7 +2587,6 @@
     },
     "/api/v1/account/notifications/preferences": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_account_notifications_preferences",
         "responses": {
           "200": {
@@ -2142,13 +2627,12 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-12",
+        "x-owner": "Phase-12 Task 12.3.6",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       },
       "put": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "put_api_v1_account_notifications_preferences",
         "responses": {
           "200": {
@@ -2185,9 +2669,9 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-12",
+        "x-owner": "Phase-12 Task 12.3.6",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -2291,7 +2775,6 @@
     },
     "/api/v1/account/profile": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_account_profile",
         "responses": {
           "200": {
@@ -2332,13 +2815,12 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-12",
+        "x-owner": "Phase-12 Task 12.3.3",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       },
       "put": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "put_api_v1_account_profile",
         "responses": {
           "200": {
@@ -2375,9 +2857,9 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-12",
+        "x-owner": "Phase-12 Task 12.3.3",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -2479,7 +2961,6 @@
     },
     "/api/v1/account/sessions": {
       "delete": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "delete_api_v1_account_sessions",
         "responses": {
           "200": {
@@ -2500,7 +2981,7 @@
             "oauth2": null
           }
         ],
-        "summary": "Revoke all sessions",
+        "summary": "Revoke all sessions except current",
         "tags": [
           "account"
         ],
@@ -2516,13 +2997,12 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-12",
+        "x-owner": "Phase-12 Task 12.3.9",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       },
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_account_sessions",
         "responses": {
           "200": {
@@ -2563,15 +3043,14 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-05 Task 5.3.10",
+        "x-owner": "Phase-05 Task 5.3.10 / Phase-12 Task 12.3.9",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/account/sessions/{id}": {
       "delete": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "delete_api_v1_account_sessions_id",
         "parameters": [
           {
@@ -2618,15 +3097,14 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-05 Task 5.3.10",
+        "x-owner": "Phase-05 Task 5.3.10 / Phase-12 Task 12.3.9",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/account/settings/anti-phishing-code": {
       "put": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "put_api_v1_account_settings_anti_phishing_code",
         "responses": {
           "200": {
@@ -2647,7 +3125,7 @@
             "oauth2": null
           }
         ],
-        "summary": "Set anti-phishing code shown in outbound mail",
+        "summary": "Set anti-phishing code shown in outbound mail (2FA)",
         "tags": [
           "account"
         ],
@@ -2663,9 +3141,9 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-12",
+        "x-owner": "Phase-12 Task 12.3.8",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -3058,7 +3536,6 @@
     },
     "/api/v1/account/unfreeze-request": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_account_unfreeze_request",
         "responses": {
           "200": {
@@ -3079,7 +3556,7 @@
             "oauth2": null
           }
         ],
-        "summary": "Request unfreeze of a self-frozen account",
+        "summary": "Request unfreeze of a self-frozen account (durable re-verification record; Phase-14 workflow decides)",
         "tags": [
           "account"
         ],
@@ -3095,15 +3572,14 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-12",
+        "x-owner": "Phase-12 Task 12.3.10",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/account/webauthn/authenticate": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_account_webauthn_authenticate",
         "responses": {
           "200": {
@@ -3140,15 +3616,14 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-12",
+        "x-owner": "Phase-12 Task 12.3.7",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/account/webauthn/register": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_account_webauthn_register",
         "responses": {
           "200": {
@@ -3185,9 +3660,9 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-12",
+        "x-owner": "Phase-12 Task 12.3.7",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -11569,7 +12044,6 @@
     },
     "/api/v1/auth/2fa/disable": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_auth_2fa_disable",
         "responses": {
           "200": {
@@ -11590,7 +12064,7 @@
             "oauth2": null
           }
         ],
-        "summary": "Disable 2FA (fresh TOTP required)",
+        "summary": "Disable 2FA (password + live TOTP/backup code required)",
         "tags": [
           "auth"
         ],
@@ -11606,15 +12080,14 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-12",
+        "x-owner": "Phase-12 Task 12.3.2",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/auth/2fa/enroll": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_auth_2fa_enroll",
         "responses": {
           "200": {
@@ -11651,15 +12124,14 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-12",
+        "x-owner": "Phase-12 Task 12.3.2",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/auth/2fa/setup": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_auth_2fa_setup",
         "responses": {
           "200": {
@@ -11680,7 +12152,7 @@
             "oauth2": null
           }
         ],
-        "summary": "TOTP enrollment — returns secret/QR (pending activation)",
+        "summary": "TOTP enrollment — returns secret/QR (10m pending candidate, non-destructive)",
         "tags": [
           "auth"
         ],
@@ -11696,15 +12168,14 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-12",
+        "x-owner": "Phase-12 Task 12.3.2",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/auth/2fa/verify": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_auth_2fa_verify",
         "responses": {
           "200": {
@@ -11725,7 +12196,7 @@
             "oauth2": null
           }
         ],
-        "summary": "Activate TOTP — verifies first code",
+        "summary": "Activate TOTP (verify candidate → backup codes) or session step-up",
         "tags": [
           "auth"
         ],
@@ -11741,16 +12212,15 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-12",
+        "x-owner": "Phase-12 Task 12.3.2",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
-    "/api/v1/auth/login": {
+    "/api/v1/auth/forgot-password": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
-        "operationId": "post_api_v1_auth_login",
+        "operationId": "post_api_v1_auth_forgot_password",
         "responses": {
           "200": {
             "description": "success"
@@ -11759,7 +12229,7 @@
             "$ref": "#/components/responses/Problem"
           }
         },
-        "summary": "Password login → JWT pair",
+        "summary": "Dispatch password-reset link (1h token, uniform response)",
         "tags": [
           "auth"
         ],
@@ -11771,15 +12241,43 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-12",
+        "x-owner": "Phase-12 Task 12.3.1",
         "x-rate-tier": "public",
-        "x-status": "stub",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/auth/login": {
+      "post": {
+        "operationId": "post_api_v1_auth_login",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Password login → JWT pair (two-phase TOTP challenge)",
+        "tags": [
+          "auth"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": false,
+          "role": "",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-12 Task 12.3.1",
+        "x-rate-tier": "public",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/auth/logout": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_auth_logout",
         "responses": {
           "200": {
@@ -11816,15 +12314,14 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-12",
+        "x-owner": "Phase-12 Task 12.3.1",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/auth/passkey/assert": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_auth_passkey_assert",
         "responses": {
           "200": {
@@ -11846,15 +12343,14 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-12",
+        "x-owner": "Phase-12 Task 12.3.7",
         "x-rate-tier": "public",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/auth/refresh": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_auth_refresh",
         "responses": {
           "200": {
@@ -11876,15 +12372,14 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-12",
+        "x-owner": "Phase-12 Task 12.3.1",
         "x-rate-tier": "public",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/auth/register": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_auth_register",
         "responses": {
           "200": {
@@ -11894,7 +12389,7 @@
             "$ref": "#/components/responses/Problem"
           }
         },
-        "summary": "Account registration",
+        "summary": "Account registration (bcrypt, verification email)",
         "tags": [
           "auth"
         ],
@@ -11906,9 +12401,67 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-12",
+        "x-owner": "Phase-12 Task 12.3.1",
         "x-rate-tier": "public",
-        "x-status": "stub",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/auth/reset-password": {
+      "post": {
+        "operationId": "post_api_v1_auth_reset_password",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Consume reset token, set new password, revoke sessions",
+        "tags": [
+          "auth"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": false,
+          "role": "",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-12 Task 12.3.1",
+        "x-rate-tier": "public",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/auth/verify-email": {
+      "post": {
+        "operationId": "post_api_v1_auth_verify_email",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Consume the emailed verification token (24h, single-use)",
+        "tags": [
+          "auth"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": false,
+          "role": "",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-12 Task 12.3.1",
+        "x-rate-tier": "public",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -13596,9 +14149,146 @@
         "x-weight": 1
       }
     },
+    "/api/v1/kyc/requirements": {
+      "get": {
+        "operationId": "get_api_v1_kyc_requirements",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "read"
+            ]
+          },
+          {
+            "apiKeyAuth": [
+              "read"
+            ]
+          },
+          {
+            "oauth2": [
+              "read"
+            ]
+          }
+        ],
+        "summary": "Ops-matrix query: tier+jurisdiction → policy, doc grid, cadence, SLA",
+        "tags": [
+          "kyc"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "",
+          "scopes": [
+            "read"
+          ]
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-12 Task 12.3.13",
+        "x-rate-tier": "basic",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/kyc/self-certification": {
+      "get": {
+        "operationId": "get_api_v1_kyc_self_certification",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "read"
+            ]
+          },
+          {
+            "apiKeyAuth": [
+              "read"
+            ]
+          },
+          {
+            "oauth2": [
+              "read"
+            ]
+          }
+        ],
+        "summary": "Own tax self-certification history",
+        "tags": [
+          "kyc"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "",
+          "scopes": [
+            "read"
+          ]
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-12 Task 12.3.13",
+        "x-rate-tier": "basic",
+        "x-status": "live",
+        "x-weight": 1
+      },
+      "post": {
+        "operationId": "post_api_v1_kyc_self_certification",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Tax self-certification intake (W-8BEN/W-8BEN-E/W-9, T1+, TIN validated)",
+        "tags": [
+          "kyc"
+        ],
+        "x-auth": {
+          "methods": [
+            "jwt",
+            "hmac",
+            "oauth2"
+          ],
+          "required": true,
+          "role": "",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-12 Task 12.3.13",
+        "x-rate-tier": "basic",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
     "/api/v1/kyc/status": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_kyc_status",
         "responses": {
           "200": {
@@ -13625,7 +14315,7 @@
             ]
           }
         ],
-        "summary": "KYC verification status",
+        "summary": "KYC verification status (tier, limits, latest submission)",
         "tags": [
           "kyc"
         ],
@@ -13639,15 +14329,14 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-14",
+        "x-owner": "Phase-12 Task 12.3.4",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/kyc/submit": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_kyc_submit",
         "responses": {
           "200": {
@@ -13668,7 +14357,7 @@
             "oauth2": null
           }
         ],
-        "summary": "Submit KYC documents",
+        "summary": "Submit KYC documents (multipart doc_<TYPE> parts; → S3 SSE-KMS)",
         "tags": [
           "kyc"
         ],
@@ -13684,9 +14373,9 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-14",
+        "x-owner": "Phase-12 Task 12.3.4",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },

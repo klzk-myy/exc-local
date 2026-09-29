@@ -647,3 +647,74 @@ Scope: 26 tasks (2.3.1–2.3.26), 67 AC rows. Critical spec correction noted at 
   up/down/re-up clean; dev-DB schema drift repaired.
 - **Error codes:** 173 → **180**; **migrations:** 79 → **85** pairs;
   canonical counts §24 419 / tasks 479 / spec checkpoints 543 unchanged.
+
+## [2026-09-29 09:25 UTC] — PHASE-12 USER SELF-SERVICE — LANDED (5 clusters)
+
+- **Scope:** all 13 tasks — auth-core (registration/verify-email/login/refresh/
+  logout/password-reset on real SessionManager sessions, bcrypt
+  `password_hash` mig 027; TOTP 2FA full lifecycle with spec-mandated
+  non-destructive `2fa:pending:{uid}` 10-min re-enrollment staging, 10
+  single-use backup codes; `RequireTwoFactor` on withdrawal-submit +
+  account- AND developer-API-key create; profile GET/PUT + change-password)
+  · security (WebAuthn Level-2 register/assert/passkey-login via
+  go-webauthn v0.12.3, GETDEL single-use challenges, sign-count
+  GREATEST-guard + CloneWarning→credential-revoke→`SecurityFreezeService`
+  machine freeze, `ElevateAMR`/`amr:["fido2"]` reissue; Lua-atomic
+  brute-force lockout `auth_failures:{uid}` 5-fail/5min→15min/HTTP 423;
+  `login_history` mig 069 keyset-paginated 90d; `anti_phishing_code`
+  mig 070 4–32-char 2FA-gated)
+  · freeze+delegation (self-freeze saga session-only auth: mass-cancel ×3
+  retry → exhausted = login freeze + withdrawal block + P1 alert w/ stuck
+  order IDs; sessions + API keys revoked; account FROZEN/SELF_FREEZE
+  audited; `unfreeze_requests` mig 201 SUBMITTED-only (Phase-14 edges);
+  disjoint `CLIENT_*` delegated RBAC + scope bindings + M-of-N
+  multi-validator policies w/ expiry + anti-self-approval,
+  `WithdrawalApprovalGate` wired into `funding.Create` →
+  `MULTI_VALIDATOR_REQUIRED` 409; mig 074)
+  · notifications (`notifications:pending` Redis reliable queue
+  BRPOPLPUSH+requeue, backoff 1→16s max-5, `notification_deliveries`
+  tracking + `notification_dead_letters` mig 028, prefs matrix +
+  quiet-hours w/ critical-bypass mig 202, interface SES/Twilio/FCM
+  senders + dev/file impls, `private:notifications` WS channel,
+  anti-phish banner seam incl. unset-banner branch)
+  · KYC (MIME-sniffed upload → objectstore SSE-KMS (narrow extension,
+  devs3 echoes headers), T0 default, tier limits live via existing
+  `risk_limits`/`CheckWithdrawal` seam, `reverify_due_at` compute
+  T2+12mo/inst+24mo, `kyc_ops_matrix`+`kyc_tier_policies` mig 204
+  (21 seeds, daily-T2/inst + weekly-T1 rescreen, 24h review SLA,
+  appeal chain), `tax_self_certifications` mig 205 w/ SSN/EIN/ITIN
+  validators + non-US passthrough, FIFO book-of-record + Projection
+  labels + 871(m) N/A).
+- **Checkpoints:** 14/14 P12 PASS (`checks/phase12.go` binds real
+  go-test names + migration files; full corpus re-run pending).
+- **DoD/SDD:** 54 rows verified + ticked, **1 honestly open** —
+  live SES/SendGrid/Twilio/FCM sends credentials-blocked (interfaces +
+  dev senders + retry/DLQ pipeline verified end-to-end; documented, not
+  fabricated).
+- **Emitter coverage (honest):** LIVE — deposit_confirmed,
+  withdrawal_completed, order_filled, security_alert (bridged
+  lockout/clone/passkey events); PHASE-OWNED — kyc_approved/rejected
+  (Phase-14 lifecycle site), liquidation_warning (Phase-19 scanner).
+  `Notify` accepts all 7 events today.
+- **Settle rulings (§27):** `totp_secret` 64→160 widen (sealed-storage
+  contract); `anti_phishing_code` in mig 070 not 069; developer/api-keys
+  2FA-gated; delegated logins never initiate withdrawals (in-hierarchy
+  INTERNAL_TRANSFER only); institutional tier rides requested_tier+
+  policy (enum untouched); USD-par tier caps via risk_limits;
+  `unfreeze_requests` Phase-14 edge boundary; `notification_deliveries`
+  inside mig 028 for §24 #100; WebAuthn handle = u64 user id (opaque);
+  go-webauthn v0.12.3 dep; `delegationUserID`/`freezeFake*` shared-tree
+  reconciliations.
+- **Error codes:** 180 → **181** (`INVALID_CREDENTIALS`, Phase-12 owner);
+  `ACCOUNT_LOCKED_AUTH_FAILURES`/`WEBAUTHN_VERIFICATION_FAILED`/
+  `MULTI_VALIDATOR_REQUIRED` already registered — emitted for the first
+  time. Alert codes SELF_FREEZE_CANCEL_STUCK/_PARTIAL are ops alerts,
+  not §23 codes.
+- **Migrations:** 85 → **96** pairs (027, 028, 068, 069, 070, 074,
+  201–205) — all up/down/re-up verified on both live DBs.
+- **Regenerated:** `docs/openapi/openapi.json` (320 paths, 373 ops),
+  frontend route-contract validators green; typecheck clean.
+- **Verified (orchestrator):** `go build`/`go vet`/`gofmt` clean;
+  `go test -count=1 ./...` all packages green; EXC_PG_TEST=1 +
+  EXC_REDIS_TEST=1 legs for auth/api/notifications/compliance/delegation/
+  accounts/funding/errs/gateway all PASS.

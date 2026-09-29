@@ -22,6 +22,7 @@ const (
 	CodeAsymmetricKeyInvalid   = "ASYMMETRIC_KEY_INVALID"       // 401 — Ed25519/RSA key or signature invalid
 	CodeTwoFactorRequired      = "TWO_FACTOR_REQUIRED"          // 403 — TOTP needed for sensitive op
 	CodeAccountLockedAuthFails = "ACCOUNT_LOCKED_AUTH_FAILURES" // 423 — 5 consecutive auth failures
+	CodeWebAuthnFailed         = "WEBAUTHN_VERIFICATION_FAILED" // 401 — WebAuthn signature/counter check failed (§23, Phase-12)
 
 	// Session/key lifecycle codes pending Task 5.3.21 registration.
 	CodeSessionExpired     = "SESSION_EXPIRED"      // 401 — idle or absolute session timeout
@@ -30,6 +31,12 @@ const (
 	CodeAPIKeyInvalid      = "API_KEY_INVALID"      // 400 — malformed key registration request
 	CodeOAuthClientInvalid = "OAUTH_CLIENT_INVALID" // 400 — bad client registration request
 	CodeAuthInternal       = "AUTH_INTERNAL"        // 500 — auth subsystem failure (fail-closed)
+
+	// Shared §23 codes referenced by auth services (already registered
+	// in errs.Default — declared here so auth code stops borrowing
+	// semantically-wrong cluster codes for request validation).
+	CodeForbidden      = "FORBIDDEN"       // 403 — generic deny
+	CodeInvalidRequest = "INVALID_REQUEST" // 400 — malformed request
 )
 
 // authHTTPStatus maps auth-cluster codes to their spec §23 HTTP status.
@@ -40,7 +47,7 @@ func authHTTPStatus(code string) int {
 	case CodeUnauthorized, CodeInvalidCredentials, CodeInvalidSignature,
 		CodeTimestampOutOfWindow, CodeReplayAttackDetected,
 		CodeAsymmetricKeyInvalid, CodeSessionExpired, CodeSessionRevoked,
-		CodeAPIKeyNotFound:
+		CodeAPIKeyNotFound, CodeWebAuthnFailed:
 		return http.StatusUnauthorized
 	case CodeTokenIPForbidden, CodeInsufficientScope, CodeTwoFactorRequired:
 		return http.StatusForbidden

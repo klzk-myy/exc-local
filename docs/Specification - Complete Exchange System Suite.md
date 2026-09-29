@@ -4237,6 +4237,26 @@ This specification defines a **complete production-grade FOREX exchange system s
   - **Agent date drift corrected:** per-cluster records/meta-doc entries were dated 2026-11-09; the repository clock is 2026-09-29 — all Phase-11 dates amended in place (this also means the committed Phase-10 record's 2026-10-06 stamp postdates the real clock — noted, historical).
   - **Migrations verified:** 040/078/108/198/199/200 up/down/re-up clean on the scratch PG (85 pairs on disk); `journal_sums`/`max_sub_accounts`/`account_freeze_events` drift on the dev DB repaired by replaying the outstanding set.
 
+- **Phase-12 settle record (2026-09-29 — orchestrator verification pass, all 13 tasks):** 14/14 P12 spec checkpoints bound and green (`checks/phase12.go`); 54 DoD/SDD rows verified and ticked, 1 honestly open (Task 12.3.5 DoD #1 — live SES/SendGrid/Twilio/FCM provider sends are credentials-blocked on this host; channel interfaces, dev/file senders, WS push, retry/backoff/dead-letter pipeline all verified end-to-end). Landed via 5 clusters: auth-core (registration/login/refresh/logout/password-reset, TOTP 2FA lifecycle, profile+API-key handlers — mig 027), security (WebAuthn ceremonies, lockout, login-history, anti-phishing, clone-freeze — migs 068/069/070), freeze+delegation (self-freeze saga, client RBAC + M-of-N — migs 074/201), notifications (queue/dispatcher/prefs/quiet-hours/tracking — migs 028/202), KYC (submission→SSE-KMS S3, tier limits via existing risk_limits seam, ops matrix, tax self-certs — migs 203–205).
+  - **Settle rulings/fixes:**
+    - `totp_secret` widened VARCHAR(64)→VARCHAR(160) inside migration 027 — the sealed-storage contract `base64(SecretBox.Seal(seed))` needs 80 chars (deviation recorded in the migration file).
+    - `users.anti_phishing_code` added by migration 070 (4–32 char CHECK) — plan text offered it in 069 or a new file; kept it out of the pinned 069 contract.
+    - `POST /api/v1/developer/api-keys` wrapped with `RequireTwoFactor` at settle — the 12.3.2 "API key creation" gate applies to every create path, not only `/account/api-keys`.
+    - Delegated logins never initiate withdrawals: `CheckWithdrawal` gate consulted in `funding.Create`, emits pre-registered `MULTI_VALIDATOR_REQUIRED` (409) for governed ops; only INTERNAL_TRANSFER allowed within entitled hierarchies. Single REJECT vote is terminal (conservative ruling).
+    - Institutional KYC tier: `kyc_tier_enum` has no INSTITUTIONAL value and migration 003 was left untouched — institutional rides `requested_tier` + policy rows until Phase-14 approval maps it (documented in mig 203 header).
+    - Tier withdrawal caps enforced as USD-par on transaction currency via the existing `risk_limits`/`CheckWithdrawal` seam; cross-currency conversion is the Phase-19.5 oracle seam.
+    - KYC self-cert gate applies to CURRENT tier ≥ T1 (literal "at T1+"); the matrix TAX group is advisory at submit time to avoid a chicken-and-egg with upgrade applicants.
+    - `SecurityFreezeService` (users→SUSPENDED, accounts→FROZEN, audited) is the machine-scoped freeze seam — the dual-control admin `FreezeService` cannot serve unauthenticated automated clone response.
+    - `unfreeze_requests` (mig 201) lands SUBMITTED only; DOCS_VERIFIED/UNFROZEN transitions are Phase-14 admin edges — no fake verification.
+    - `notification_deliveries` table accompanies the plan-cited `notification_dead_letters` inside migration 028 (§24 #100 requires per-notification tracking, not just dead letters).
+    - go-webauthn/webauthn v0.12.3 added (first non-stdlib crypto dep for ceremonies); WebAuthn user handle = 8-byte big-endian `users.id` (opaque, non-PII per §14.6.1).
+    - Live-provider notification sends (SES/SendGrid/Twilio/FCM), GeoIP for login_history, ClamAV virus scanning, and liveness vendors remain honest interface seams (dev implementations) — credentials/infra blocked, recorded not fabricated.
+    - Emitter coverage for notification events: LIVE — deposit_confirmed, withdrawal_completed, order_filled, security_alert; PHASE-OWNED SITES — kyc_approved/rejected (Phase-14 Task 14.3.4 lifecycle), liquidation_warning (Phase-19 scanner). `Notify` accepts all 7 today.
+    - Multi-agent shared-tree churn required two mechanical reconciliations at settle: `delegationUserID` helper rename in `handlers_delegation.go`, `freezeFake*` test-double prefixes in `emergency_test.go` (both self-resolved by the owning clusters).
+    - Migrations verified: 027/028/068/069/070/074/201/202/203/204/205 up/down/re-up clean on both live DBs (96 pairs on disk); `EXC_PUBLIC_BASE_URL`, `EXC_KYC_S3_BUCKET`/`EXC_S3_KMS_KEY_ID`, `EXC_WEBAUTHN_*` envs documented in code.
+    - Error-code registry: `INVALID_CREDENTIALS` (401) registered with Phase-12 Task 12.3.1 owner — registry **181**; `ACCOUNT_LOCKED_AUTH_FAILURES`/`WEBAUTHN_VERIFICATION_FAILED`/`MULTI_VALIDATOR_REQUIRED` were already registered (emitted now for the first time).
+    - Frontend `gen:validators` route-contracts regenerated for the Phase-12 routes (373 operations; `gen:validators:check` green, typecheck clean).
+
 ### 27.1 Operational Domains & High-Level Completeness Matrix
 
 | # | Domain | Core Components | Spec % | Plan % | §24 ACs | Migrations | Code % | Implementation Readiness |

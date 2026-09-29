@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -25,8 +26,10 @@ import (
 	"exchange/internal/api"
 	"exchange/internal/auth"
 	"exchange/internal/cache"
+	"exchange/internal/compliance"
 	"exchange/internal/config"
 	"exchange/internal/db"
+	"exchange/internal/delegation"
 	"exchange/internal/deprecation"
 	"exchange/internal/errs"
 	"exchange/internal/flags"
@@ -37,6 +40,8 @@ import (
 	"exchange/internal/marketapi"
 	"exchange/internal/middleware"
 	"exchange/internal/nats"
+	"exchange/internal/notifications"
+	"exchange/internal/objectstore"
 	"exchange/internal/observability"
 	"exchange/internal/ops"
 	"exchange/internal/orders"
@@ -53,6 +58,7 @@ import (
 	"exchange/internal/utils"
 	"exchange/internal/webhooks"
 	"exchange/internal/ws"
+	"exchange/pkg/decimal"
 	"exchange/pkg/logging"
 )
 
@@ -363,6 +369,41 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("tax service: %w", err)
 	}
+
+	// Phase-12 Tasks 12.3.4/12.3.13: KYC submission intake + ops matrix.
+	// Document bytes go to S3 via internal/objectstore with SSE-KMS
+	// (spec §24 #102) — never PostgreSQL. Env: EXC_KYC_S3_BUCKET
+	// (unset → submit fails closed SERVICE_DEGRADED; status,
+	// requirements and self-certs stay live), EXC_S3_KMS_KEY_ID, and
+	// the shared EXC_S3_* set (Endpoint ≠ "" + non-production selects
+	// the devs3 stub). Virus scanner is the honest clean-pass dev seam —
+	// a production deployment must inject a real engine.
+	kycStore, err := compliance.NewPgStore(pool)
+	if err != nil {
+		return fmt.Errorf("kyc store: %w", err)
+	}
+	var kycObjects objectstore.Client
+	if bucket := os.Getenv("EXC_KYC_S3_BUCKET"); bucket != "" {
+		ocfg := objectstore.ConfigFromEnv(bucket, os.Getenv)
+		var oerr error
+		if cfg.Environment != "production" && ocfg.Endpoint != "" {
+			kycObjects, oerr = objectstore.NewDev(context.Background(), ocfg)
+		} else {
+			kycObjects, oerr = objectstore.NewAWS(context.Background(), ocfg)
+		}
+		if oerr != nil {
+			log.Warn("KYC document store init failed — submit fails closed", "err", oerr)
+			kycObjects = nil
+		}
+	}
+	if cfg.Environment == "production" {
+		log.Warn("KYC virus scanner is the clean-pass dev seam — inject a real engine before production use")
+	}
+	kycSvc := compliance.NewService(kycStore, kycObjects,
+		os.Getenv("EXC_S3_KMS_KEY_ID"),
+		compliance.CleanPassScanner{Log: func(f string, a ...any) {
+			log.Info(fmt.Sprintf(f, a...))
+		}})
 	depStore, err := deprecation.NewStore(pool)
 	if err != nil {
 		return fmt.Errorf("deprecation store: %w", err)
@@ -513,10 +554,92 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("order service: %w", err)
 	}
+
+	// ---- Phase-12 Task 12.3.5 — notification service ----
+	//
+	// PgStore carries §24 #100 delivery tracking (migration 028
+	// notification_deliveries + notification_dead_letters) and the
+	// Task 12.3.6 preference rows (migration 202). Queue is the
+	// coordination-Redis reliable queue (notifications:pending →
+	// processing claim + retry zset, 1s→2s→4s→8s→16s, 5 attempts →
+	// dead letter). Senders: dev LogSenders on email/sms/push (real
+	// SES/Twilio/FCM providers bind behind the same Sender seam when
+	// credentials land) and a WSSender that fans out to the user's
+	// account-scoped "private:notifications" channel on /ws/v1 — the
+	// Phase-10 frontend's notification subscription. wsSrv is assigned
+	// below; the pusher tolerates a nil hub (no subscribers can exist
+	// before the endpoint mounts anyway).
+	var wsSrv *ws.Server
+	notifStore := notifications.NewPgStore(pool)
+	notifSvc, err := notifications.NewService(notifications.Options{
+		Store: notifStore,
+		Queue: notifications.NewQueue(rdb.Client),
+		Senders: []notifications.Sender{
+			&notifications.LogSender{Ch: notifications.ChannelEmail, Log: log},
+			&notifications.LogSender{Ch: notifications.ChannelSMS, Log: log},
+			&notifications.LogSender{Ch: notifications.ChannelPush, Log: log},
+			&notifications.WSSender{Push: notifications.PusherFunc(
+				func(ctx context.Context, userID int64, channel string, data any) error {
+					return wsNotifyPush(ctx, wsSrv, pool, userID, channel, data)
+				})},
+		},
+		// Anti-phish seam: PgAntiPhish reads users.anti_phishing_code —
+		// until the sibling task's column lands it maps the
+		// undefined-column error to "unset" so mail still flows with
+		// the "set your anti-phishing code" banner.
+		Anti: notifications.PgAntiPhish{Pool: pool},
+		Dir:  notifStore,
+		Logf: func(f string, a ...any) { log.Warn(fmt.Sprintf(f, a...)) },
+	})
+	if err != nil {
+		return fmt.Errorf("notifications service: %w", err)
+	}
+	// Dispatcher shares the sweeper lifecycle — a claimed-but-unacked
+	// item is requeued on next boot (RequeueAll), never dropped.
+	go notifSvc.NewDispatcher().Run(sweepCtx)
+	// funding.Notifier seam: account→user resolution then Notify —
+	// post-commit, best-effort (the funding services never see an
+	// error from this adapter).
+	fundNotifier := notifyAdapter{fn: func(ctx context.Context, accountID int64, event string, payload map[string]any) {
+		var userID int64
+		if err := pool.QueryRow(ctx,
+			`SELECT user_id FROM accounts WHERE id = $1`, accountID).Scan(&userID); err != nil {
+			log.Warn("notifications: account→user resolve failed",
+				"account_id", accountID, "event", event, "err", err)
+			return
+		}
+		if _, err := notifSvc.Notify(ctx, userID, event, payload); err != nil {
+			log.Warn("notifications: emit failed",
+				"event", event, "user_id", userID, "err", err)
+		}
+	}}
+	depositSvc.WithNotifier(fundNotifier)
+	dispatchSvc.WithNotifier(fundNotifier)
+
 	// Engine out-ring consumer: cancel echoes + trade fills update the PG
-	// read model; without it pending confirms only time out.
+	// read model; without it pending confirms only time out. The fill
+	// hook is the order_filled emitter (Task 12.3.5) — order→account→user
+	// resolution then Notify, best-effort, panic-guarded by the consumer.
 	go orders.NewConsumer(orderSubmitter, orderStore, orderSvc.Pending()).
-		Run(sweepCtx, shardIDs(shardMap))
+		WithFillHook(func(orderID int64, px, qty decimal.Decimal) {
+			ctx := context.Background()
+			o, oerr := orderStore.GetOrder(ctx, orderID)
+			if oerr != nil || o == nil {
+				return
+			}
+			var userID int64
+			if err := pool.QueryRow(ctx,
+				`SELECT user_id FROM accounts WHERE id = $1`, o.AccountID).Scan(&userID); err != nil {
+				return
+			}
+			_, _ = notifSvc.Notify(ctx, userID, notifications.EventOrderFilled, map[string]any{
+				"order_id":      o.ID,
+				"instrument_id": o.InstrumentID,
+				"side":          o.Side,
+				"price":         px.String(),
+				"quantity":      qty.String(),
+			})
+		}).Run(sweepCtx, shardIDs(shardMap))
 
 	// accounts.OrderDispatcher ← orders.Service (dead-man sweeper,
 	// Task 5.3.33, and close-all, Task 5.3.36, share it). The dispatcher
@@ -560,7 +683,7 @@ func run() error {
 	// (Task 5.3.42); X-Forwarded-For is trusted because Task 5.3.29's
 	// HAProxy front is the only supported client path (the listener is
 	// not directly exposed in the reference deployment).
-	wsSrv := ws.NewServer(ws.Config{
+	wsSrv = ws.NewServer(ws.Config{
 		Issuer:     jwtIssuer,
 		Verifier:   sigVerifier,
 		Dispatcher: ws.NewOrdersDispatcher(orderSvc, orderStore.AccountByID),
@@ -686,6 +809,77 @@ func run() error {
 	if sessErr != nil {
 		return fmt.Errorf("session manager: %w", sessErr)
 	}
+
+	// ---- Phase-12 Tasks 12.3.1/12.3.2/12.3.3 — registration, TOTP 2FA,
+	//      profile & account API keys ----
+	// userStore persists migration-027 credentials + profile columns and
+	// seals totp_secret through the same SecretBox contract
+	// accounts.PgxTOTPSecrets reads; tokenCache stages the ephemeral
+	// single-use tokens (email verify 24h / password reset 1h / TOTP
+	// challenge 5m / pending 2FA candidate 10m) on the coordination
+	// Redis. The mail seam is the dev LogSender — the orchestrator swaps
+	// in the Phase-12 Task 12.3.5 notification pipeline when it lands.
+	// The LoginRecorder seam stays nil until the Task 12.3.9
+	// login-history store (migration 069) is wired — events are dropped,
+	// never guessed.
+	userStore, err := auth.NewUserStore(pool, secretBox)
+	if err != nil {
+		return fmt.Errorf("user store: %w", err)
+	}
+	tokenCache := auth.NewRedisTokenCache(rdb.Client)
+	authnSvc, err := auth.NewAuthnService(userStore, sessMgr, tokenCache,
+		auth.NewLogSender(func(f string, a ...any) { log.Info(fmt.Sprintf(f, a...)) }))
+	if err != nil {
+		return fmt.Errorf("authn service: %w", err)
+	}
+	authnSvc.WithMailBase(os.Getenv("EXC_PUBLIC_BASE_URL")).
+		WithLogger(func(f string, a ...any) { log.Warn(fmt.Sprintf(f, a...)) })
+	twoFactorSvc, err := auth.NewTwoFactorService(userStore, tokenCache, sessMgr, "exc.local")
+	if err != nil {
+		return fmt.Errorf("2fa service: %w", err)
+	}
+	acctKeyCreate, acctKeyList, acctKeyRevoke := api.AccountAPIKeys(keyStore)
+
+	// --- Phase-12 Tasks 12.3.7/12.3.8/12.3.9/12.3.12 — account security ---
+	// Login history sink (migration 069) + Redis brute-force lockout
+	// (Task 12.3.12) plug into the authn seams; security events route
+	// through the notification service's security_alert event.
+	secNotify := securityEventAdapter{svc: notifSvc}
+	loginHistorySvc, err := auth.NewLoginHistoryService(pool)
+	if err != nil {
+		return fmt.Errorf("login history service: %w", err)
+	}
+	lockoutSvc := auth.NewLockoutService(rdb).
+		WithNotifier(secNotify).
+		WithLogger(func(f string, a ...any) { log.Warn(fmt.Sprintf(f, a...)) })
+	authnSvc.WithRecorder(loginHistorySvc).WithLockout(lockoutSvc)
+	antiPhishSvc, err := auth.NewAntiPhishingService(pool)
+	if err != nil {
+		return fmt.Errorf("anti-phishing service: %w", err)
+	}
+	// WebAuthn relying-party identity: EXC_WEBAUTHN_RP_ID /
+	// EXC_WEBAUTHN_ORIGINS override; else derived from EXC_PUBLIC_BASE_URL.
+	waCfg := webAuthnConfig()
+	waStore, err := auth.NewPgWebAuthnStore(pool)
+	if err != nil {
+		return fmt.Errorf("webauthn store: %w", err)
+	}
+	waSvc, err := auth.NewWebAuthnService(waCfg, waStore,
+		auth.NewRedisWebAuthnChallengeStore(rdb))
+	if err != nil {
+		return fmt.Errorf("webauthn service: %w", err)
+	}
+	// Task 12.3.12 part 2: clone detection freezes via the machine seam
+	// (accounts.SecurityFreezeService — the dual-control FreezeService
+	// cannot serve an automated response).
+	waSvc.WithFreezer(accounts.NewSecurityFreezeService(pool)).
+		WithNotifier(secNotify).
+		WithLogger(func(f string, a ...any) { log.Warn(fmt.Sprintf(f, a...)) })
+	passkeyDeps := api.PasskeyDeps{
+		WebAuthn: waSvc, Sessions: sessMgr, Users: userStore,
+		Lockout: lockoutSvc, Recorder: loginHistorySvc,
+	}
+	// --- end Phase-12 authn/2FA/profile/security wiring ---
 	// §8.2b session kill: sessions index on the bound account once one is
 	// selected, else on the user — revoke BOTH indexes.
 	killSessions := func(ctx context.Context, userID int64) error {
@@ -721,6 +915,28 @@ func run() error {
 	adminSvc := admin.NewService(pool, adminStore, killSessions, rbacAlerter)
 	dualSvc := admin.NewDualControlService(pool, adminStore)
 	api.RegisterRoleChangeExecutor(dualSvc, adminSvc)
+
+	// ---- Phase-12 Tasks 12.3.10/12.3.11 + 12.3.12(part 3) ----
+	// Client-side delegation (migration 074): master-account workforce
+	// RBAC (CLIENT_* roles, explicit account/instrument scopes) plus the
+	// M-of-N approval engine. Disjoint from the venue-admin RBAC above —
+	// principal_role_systems (migration 090) enforces the exclusion.
+	// Revocations kill sessions through the shared killSessions helper;
+	// the withdrawal create path consults the M-of-N policy via
+	// flowSvc's approval gate.
+	delegSvc := delegation.NewService(pool,
+		delegatedSessionKiller{kill: killSessions})
+	flowSvc.WithApprovalGate(delegSvc)
+
+	// Self-service emergency freeze (migration 152 + 201): session-only
+	// panic button — mass-cancel (≤3 retries) → FROZEN/SELF_FREEZE →
+	// other sessions + API keys die; on exhausted cancels the owner
+	// login suspends and a P1 alert carries the stuck order ids.
+	emergencyFreezeSvc := accounts.NewEmergencyFreezeService(pool,
+		orderDisp, sessMgr, apiKeyRevoker{ks: keyStore},
+		openOrderLister{store: orderStore},
+		freezeOpsAlerter{pool: pool, page: opsAlerter})
+	unfreezeSvc := accounts.NewUnfreezeService(pool)
 
 	// RBACMiddleware on the registry: every route declaring Auth.Role gets
 	// identity → binding → role → env/scope enforcement — stubs included.
@@ -763,6 +979,13 @@ func run() error {
 					log.Warn("dual-control expiry sweep", "err", err)
 				} else if n > 0 {
 					log.Info("dual-control requests expired", "count", n)
+				}
+				// Task 12.3.11: lapse PENDING client approval requests
+				// past their policy window (audited per row).
+				if n, err := delegSvc.ExpireApprovals(sweepCtx, 500); err != nil {
+					log.Warn("delegation approval expiry sweep", "err", err)
+				} else if n > 0 {
+					log.Info("delegation approval requests expired", "count", n)
 				}
 			}
 		}
@@ -903,7 +1126,11 @@ func run() error {
 		// Task 11.3.2: withdrawal create/confirm run the Phase-11 flow
 		// wrapper — whitelist/cooldown/beneficiary gates at create, the
 		// TOTP step-up at confirm, then nostro-aware dispatch.
-		"POST /api/v1/withdrawals": http.HandlerFunc(api.CreateWithdrawalFlow(flowSvc)),
+		// Task 12.3.2 adds the session-AMR gate on submission: the caller
+		// must have proven the second factor this session (totp/fido2);
+		// confirm then demands the fresh per-withdrawal code.
+		"POST /api/v1/withdrawals": auth.RequireTwoFactor()(
+			http.HandlerFunc(api.CreateWithdrawalFlow(flowSvc))),
 		"POST /api/v1/withdrawals/{id}/confirm": http.HandlerFunc(
 			api.ConfirmWithdrawalStepUp(flowSvc)),
 		"POST /api/v1/admin/withdrawals/{id}/approve": http.HandlerFunc(
@@ -1015,6 +1242,11 @@ func run() error {
 		"POST /api/v1/admin/maintenance-windows":        http.HandlerFunc(api.CreateMaintenance(announceDeps)),
 		"PATCH /api/v1/admin/maintenance-windows/{id}":  http.HandlerFunc(api.UpdateMaintenance(announceDeps)),
 		"DELETE /api/v1/admin/maintenance-windows/{id}": http.HandlerFunc(api.CancelMaintenance(announceDeps)),
+		// Phase-12 Task 12.3.6 — notification preferences (GET/PUT).
+		"GET /api/v1/account/notifications/preferences": http.HandlerFunc(
+			api.NotificationPreferencesGet(notifStore)),
+		"PUT /api/v1/account/notifications/preferences": http.HandlerFunc(
+			api.NotificationPreferencesPut(notifStore)),
 		// --- Wave-3 platform surface ---
 		// Task 5.3.13 test environment.
 		"POST /api/v1/test/reset": http.HandlerFunc(api.TestReset(testSvc)),
@@ -1026,9 +1258,88 @@ func run() error {
 		"POST /api/v1/admin/fees/promo/{id}/reject":  http.HandlerFunc(promoReject),
 		// Task 5.3.16 developer portal (Swagger UI + API-key CRUD).
 		"GET /developer":                         http.HandlerFunc(api.DeveloperPortal()),
-		"POST /api/v1/developer/api-keys":        http.HandlerFunc(keyCreate),
+		// 12.3.2 DoD: "API key creation" is 2FA-gated on every path —
+		// account + developer portal alike.
+		"POST /api/v1/developer/api-keys":        auth.RequireTwoFactor()(http.HandlerFunc(keyCreate)),
 		"GET /api/v1/developer/api-keys":         http.HandlerFunc(keyList),
 		"DELETE /api/v1/developer/api-keys/{id}": http.HandlerFunc(keyRevoke),
+
+		// ---- Phase-12 Task 12.3.1 — registration & password auth ----
+		"POST /api/v1/auth/register":        http.HandlerFunc(api.AuthRegister(authnSvc)),
+		"POST /api/v1/auth/verify-email":    http.HandlerFunc(api.AuthVerifyEmail(authnSvc)),
+		"POST /api/v1/auth/login":           http.HandlerFunc(api.AuthLogin(authnSvc)),
+		"POST /api/v1/auth/refresh":         http.HandlerFunc(api.AuthRefresh(authnSvc)),
+		"POST /api/v1/auth/logout":          http.HandlerFunc(api.AuthLogout(authnSvc)),
+		"POST /api/v1/auth/forgot-password": http.HandlerFunc(api.AuthForgotPassword(authnSvc)),
+		"POST /api/v1/auth/reset-password":  http.HandlerFunc(api.AuthResetPassword(authnSvc)),
+
+		// ---- Phase-12 Task 12.3.2 — TOTP 2FA lifecycle ----
+		"POST /api/v1/auth/2fa/setup":   http.HandlerFunc(api.TwoFactorSetup(twoFactorSvc)),
+		"POST /api/v1/auth/2fa/enroll":  http.HandlerFunc(api.TwoFactorEnroll(twoFactorSvc)),
+		"POST /api/v1/auth/2fa/verify":  http.HandlerFunc(api.TwoFactorVerify(twoFactorSvc)),
+		"POST /api/v1/auth/2fa/disable": http.HandlerFunc(api.TwoFactorDisable(twoFactorSvc)),
+
+		// ---- Phase-12 Task 12.3.7 — WebAuthn/FIDO2 passkeys ----
+		"POST /api/v1/auth/passkey/assert": http.HandlerFunc(api.PasskeyAssert(passkeyDeps)),
+		"POST /api/v1/account/webauthn/register": http.HandlerFunc(
+			api.WebAuthnRegister(waSvc)),
+		"POST /api/v1/account/webauthn/authenticate": http.HandlerFunc(
+			api.WebAuthnAuthenticate(waSvc, sessMgr)),
+
+		// ---- Phase-12 Task 12.3.8 — anti-phishing code (2FA-gated) ----
+		"PUT /api/v1/account/settings/anti-phishing-code": http.HandlerFunc(
+			api.AntiPhishingSet(antiPhishSvc)),
+
+		// ---- Phase-12 Task 12.3.9 — device mgmt & login history ----
+		"GET /api/v1/account/login-history": http.HandlerFunc(
+			api.AccountLoginHistory(loginHistorySvc)),
+		"GET /api/v1/account/sessions": http.HandlerFunc(
+			api.AccountSessions(sessMgr)),
+		"DELETE /api/v1/account/sessions/{id}": http.HandlerFunc(
+			api.AccountSessionDelete(sessMgr)),
+		"DELETE /api/v1/account/sessions": http.HandlerFunc(
+			api.AccountSessionsDeleteAll(sessMgr)),
+
+		// ---- Phase-12 Task 12.3.10 (+12.3.12 part 3) — emergency
+		//      freeze + unfreeze request ----
+		"POST /api/v1/account/emergency-freeze": http.HandlerFunc(
+			api.EmergencyFreeze(emergencyFreezeSvc, true)),
+		"POST /api/v1/account/unfreeze-request": http.HandlerFunc(
+			api.UnfreezeRequest(unfreezeSvc)),
+
+		// ---- Phase-12 Task 12.3.11 — delegated logins + M-of-N ----
+		"GET /api/v1/account/delegated-users": http.HandlerFunc(
+			api.DelegatedUsersList(delegSvc)),
+		"POST /api/v1/account/delegated-users": http.HandlerFunc(
+			api.DelegatedUserCreate(delegSvc)),
+		"PUT /api/v1/account/delegated-users/{id}": http.HandlerFunc(
+			api.DelegatedUserUpdate(delegSvc)),
+		"DELETE /api/v1/account/delegated-users/{id}": http.HandlerFunc(
+			api.DelegatedUserRevoke(delegSvc)),
+		"POST /api/v1/account/delegated-users/revoke-all": http.HandlerFunc(
+			api.DelegatedUsersRevokeAll(delegSvc)),
+		"GET /api/v1/account/approval-policies": http.HandlerFunc(
+			api.ApprovalPoliciesList(delegSvc)),
+		"PUT /api/v1/account/approval-policies": http.HandlerFunc(
+			api.ApprovalPolicySet(delegSvc)),
+		"DELETE /api/v1/account/approval-policies/{id}": http.HandlerFunc(
+			api.ApprovalPolicyDisable(delegSvc)),
+		"GET /api/v1/account/approval-requests": http.HandlerFunc(
+			api.ApprovalRequestsList(delegSvc)),
+		"POST /api/v1/account/approval-requests/{id}/decide": http.HandlerFunc(
+			api.ApprovalRequestDecide(delegSvc)),
+
+		// ---- Phase-12 Task 12.3.3 — profile & account API keys ----
+		// Key creation carries the §12.2 second-factor session gate;
+		// the account surface shares the developer-portal key-store
+		// implementation (already claims-account-scoped).
+		"GET /api/v1/account/profile":          http.HandlerFunc(api.AccountProfileGet(userStore)),
+		"PUT /api/v1/account/profile":          http.HandlerFunc(api.AccountProfileUpdate(userStore)),
+		"POST /api/v1/account/change-password": http.HandlerFunc(api.AccountChangePassword(authnSvc)),
+		"GET /api/v1/account/api-keys":         http.HandlerFunc(acctKeyList),
+		"POST /api/v1/account/api-keys": auth.RequireTwoFactor()(
+			http.HandlerFunc(acctKeyCreate)),
+		"DELETE /api/v1/account/api-keys/{id}": http.HandlerFunc(acctKeyRevoke),
 		// Task 5.3.17 webhooks.
 		"POST /api/v1/webhooks":                    http.HandlerFunc(whRegister),
 		"GET /api/v1/webhooks":                     http.HandlerFunc(whList),
@@ -1038,6 +1349,13 @@ func run() error {
 		// Task 5.3.19 tax reporting (phase + canonical client path).
 		"GET /api/v1/tax/report":         http.HandlerFunc(api.TaxReport(taxSvc)),
 		"GET /api/v1/account/tax-report": http.HandlerFunc(api.TaxReport(taxSvc)),
+		// Phase-12 Tasks 12.3.4/12.3.13 — KYC intake + ops matrix +
+		// tax self-certification (admin approve stays a Phase-14 stub).
+		"POST /api/v1/kyc/submit":             http.HandlerFunc(api.KYCSubmit(kycSvc)),
+		"GET /api/v1/kyc/status":              http.HandlerFunc(api.KYCStatus(kycSvc)),
+		"GET /api/v1/kyc/requirements":        http.HandlerFunc(api.KYCRequirements(kycSvc)),
+		"POST /api/v1/kyc/self-certification": http.HandlerFunc(api.KYCSelfCertSubmit(kycSvc)),
+		"GET /api/v1/kyc/self-certification":  http.HandlerFunc(api.KYCSelfCertList(kycSvc)),
 		// Task 5.3.20 deprecation policy administration + guide.
 		"POST /api/v1/admin/api-deprecations": http.HandlerFunc(depAnnounce),
 		"GET /api/v1/admin/api-deprecations":  http.HandlerFunc(depList),
@@ -1371,6 +1689,44 @@ func readiness(rdb *redis.Client, pool *pgxpool.Pool, nc *nats.Client,
 }
 
 // ---------------------------------------------------------------------------
+// Phase-12 Task 12.3.5 helpers — funding notifier adapter + WS fanout
+// ---------------------------------------------------------------------------
+
+// notifyAdapter adapts a closure to funding.Notifier.
+type notifyAdapter struct {
+	fn func(ctx context.Context, accountID int64, event string, payload map[string]any)
+}
+
+func (a notifyAdapter) Notify(ctx context.Context, accountID int64, event string, payload map[string]any) {
+	a.fn(ctx, accountID, event, payload)
+}
+
+// wsNotifyPush fans a notification payload to every account the user
+// owns: ws private channels are account-scoped (session binding) while
+// notifications are user-scoped, so the adapter expands user→accounts
+// and lets Server.PublishPrivate enforce the per-account subscription.
+func wsNotifyPush(ctx context.Context, srv *ws.Server, pool *pgxpool.Pool,
+	userID int64, channel string, data any) error {
+	if srv == nil {
+		return nil // hub not constructed yet — no subscribers can exist
+	}
+	rows, err := pool.Query(ctx,
+		`SELECT id FROM accounts WHERE user_id = $1`, userID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var acct int64
+		if err := rows.Scan(&acct); err != nil {
+			return err
+		}
+		srv.PublishPrivate(acct, channel, data)
+	}
+	return rows.Err()
+}
+
+// ---------------------------------------------------------------------------
 // Cluster E helpers (Tasks 5.3.26/29/30/31/42)
 // ---------------------------------------------------------------------------
 
@@ -1411,4 +1767,60 @@ func idemResolver(ks *auth.KeyStore) middleware.AccountResolver {
 		}
 		return 0, false
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Phase-12 helpers
+// ---------------------------------------------------------------------------
+
+// securityEventAdapter bridges the narrow auth.SecurityEventNotifier seam
+// (Tasks 12.3.7 clone detection, 12.3.12 lockout) onto the notification
+// service's registered security_alert event.
+type securityEventAdapter struct{ svc *notifications.Service }
+
+func (a securityEventAdapter) NotifySecurityEvent(ctx context.Context, userID int64,
+	event string, attrs map[string]any) error {
+	payload := map[string]any{"kind": event}
+	for k, v := range attrs {
+		payload[k] = v
+	}
+	_, err := a.svc.Notify(ctx, userID, notifications.EventSecurityAlert, payload)
+	return err
+}
+
+// webAuthnConfig derives relying-party identity for Task 12.3.7:
+// EXC_WEBAUTHN_RP_ID / EXC_WEBAUTHN_RP_NAME / EXC_WEBAUTHN_ORIGINS
+// (comma-separated fully-qualified origins) win; otherwise the values
+// derive from EXC_PUBLIC_BASE_URL. WebAuthn fails closed on a bad RP
+// configuration — the ceremony cannot verify without a matching origin.
+func webAuthnConfig() auth.WebAuthnConfig {
+	cfg := auth.WebAuthnConfig{
+		RPID:          os.Getenv("EXC_WEBAUTHN_RP_ID"),
+		RPDisplayName: os.Getenv("EXC_WEBAUTHN_RP_NAME"),
+	}
+	for _, o := range strings.Split(os.Getenv("EXC_WEBAUTHN_ORIGINS"), ",") {
+		if s := strings.TrimSpace(o); s != "" {
+			cfg.RPOrigins = append(cfg.RPOrigins, s)
+		}
+	}
+	if base := strings.TrimRight(os.Getenv("EXC_PUBLIC_BASE_URL"), "/"); base != "" {
+		if u, err := url.Parse(base); err == nil {
+			if cfg.RPID == "" {
+				cfg.RPID = u.Hostname()
+			}
+			if len(cfg.RPOrigins) == 0 && u.Scheme != "" && u.Host != "" {
+				cfg.RPOrigins = []string{u.Scheme + "://" + u.Host}
+			}
+		}
+	}
+	if cfg.RPID == "" {
+		cfg.RPID = "exc.local" // dev default; production must set env
+	}
+	if cfg.RPDisplayName == "" {
+		cfg.RPDisplayName = "Exchange"
+	}
+	if len(cfg.RPOrigins) == 0 {
+		cfg.RPOrigins = []string{"https://" + cfg.RPID}
+	}
+	return cfg
 }

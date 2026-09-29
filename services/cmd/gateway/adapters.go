@@ -18,6 +18,7 @@ import (
 	"exchange/internal/accounts"
 	"exchange/internal/admin"
 	"exchange/internal/api"
+	"exchange/internal/auth"
 	"exchange/internal/config"
 	"exchange/internal/funding"
 	"exchange/internal/marketapi"
@@ -211,6 +212,95 @@ func targetSuffixOf(t string) string {
 		return ""
 	}
 	return " target=" + t
+}
+
+// ---------------------------------------------------------------------------
+// Phase-12 Tasks 12.3.10/12.3.11 — emergency freeze + delegation adapters
+// ---------------------------------------------------------------------------
+
+// apiKeyRevoker binds accounts.CredentialRevoker to auth.KeyStore —
+// the self-freeze saga revokes every live API key on the account.
+type apiKeyRevoker struct {
+	ks *auth.KeyStore
+}
+
+func (a apiKeyRevoker) RevokeAllKeys(ctx context.Context, accountID int64, reason string) (int, error) {
+	keys, err := a.ks.ListByAccount(ctx, accountID)
+	if err != nil {
+		return 0, err
+	}
+	revoked := 0
+	var firstErr error
+	for _, k := range keys {
+		if err := a.ks.Revoke(ctx, k.KeyID, reason); err != nil {
+			// An already-revoked key is a no-op; anything else is a real
+			// failure — keep going (never leave later keys live because
+			// an early one raced) and surface the first error.
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		revoked++
+	}
+	return revoked, firstErr
+}
+
+// openOrderLister binds accounts.OpenOrderLister to orders.PgStore —
+// the still-cancellable set the self-freeze P1 alert carries for manual
+// desk cancellation.
+type openOrderLister struct {
+	store *orders.PgStore
+}
+
+func (l openOrderLister) OpenOrderIDs(ctx context.Context, accountID int64) ([]int64, error) {
+	rows, err := l.store.OpenOrders(ctx, orders.MassCancelScope{AccountID: accountID})
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]int64, 0, len(rows))
+	for _, o := range rows {
+		ids = append(ids, o.ID)
+	}
+	return ids, nil
+}
+
+// delegatedSessionKiller binds delegation.SessionTerminator to the
+// killSessions closure (user + every account index).
+type delegatedSessionKiller struct {
+	kill func(ctx context.Context, userID int64) error
+}
+
+func (k delegatedSessionKiller) KillUserSessions(ctx context.Context, userID int64) error {
+	return k.kill(ctx, userID)
+}
+
+// freezeOpsAlerter implements accounts.FreezeAlerter: the P1 page goes
+// to the shared NATS ops-alerts subject AND a durable
+// funding_ops_alerts row — the alert survives a pager outage.
+type freezeOpsAlerter struct {
+	pool *pgxpool.Pool
+	page funding.OpsAlerter // nil → durable row only
+}
+
+func (a freezeOpsAlerter) Raise(ctx context.Context, al accounts.FreezeAlert) error {
+	detail, _ := json.Marshal(al.Details)
+	_, derr := a.pool.Exec(ctx, `
+		INSERT INTO funding_ops_alerts (code, severity, account_id, summary, detail)
+		VALUES ($1, $2, $3, $4, $5)`,
+		al.Code, al.Severity, al.AccountID, al.Summary, detail)
+	var perr error
+	if a.page != nil {
+		perr = a.page.Raise(ctx, funding.OpsAlert{
+			Severity: al.Severity, Code: al.Code, Summary: al.Summary,
+			Err:     al.Details["error"],
+			Details: al.Details,
+		})
+	}
+	if derr != nil {
+		return derr
+	}
+	return perr
 }
 
 // killSwitchControlPub emits the Task 11.3.12 control message on the

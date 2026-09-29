@@ -24,6 +24,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"exchange/pkg/decimal"
 )
 
 // WithdrawalCooldown is the 30-minute same-bank-account cooldown after a
@@ -66,6 +68,21 @@ type WithdrawalDispatcher interface {
 	Release(ctx context.Context, withdrawalID int64) (*ReleaseResult, error)
 }
 
+// WithdrawalApprovalGate is the Task 12.3.11 client multi-validator
+// (M-of-N) seam consulted at withdrawal create. When the account's
+// active WITHDRAWAL policy covers the amount, the gate records (or
+// replays) the pending approval request and returns approved=false —
+// the withdrawal row is never created and no funds are reserved until
+// the M-of-N quorum decides; a resubmission whose request is APPROVED
+// is consumed and proceeds. Errors fail closed.
+//
+// Implemented by delegation.Service.CheckWithdrawal — the interface
+// lives in funding so the wiring direction stays one-way.
+type WithdrawalApprovalGate interface {
+	CheckWithdrawal(ctx context.Context, accountID, userID int64,
+		currency string, amount decimal.Decimal, destination string) (approved bool, approvalID int64, err error)
+}
+
 // FlowService wraps *WithdrawalService with the Phase-11 gates.
 type FlowService struct {
 	inner    *WithdrawalService
@@ -73,6 +90,7 @@ type FlowService struct {
 	totp     TOTPSecretProvider // nil → 2FA fails closed
 	verify   TOTPVerifier       // nil → fail closed
 	dispatch WithdrawalDispatcher
+	gate     WithdrawalApprovalGate // nil → no M-of-N policy enforcement
 	clock    func() time.Time
 	logf     func(format string, args ...any)
 }
@@ -94,6 +112,13 @@ func (s *FlowService) WithTOTP(p TOTPSecretProvider, v TOTPVerifier) *FlowServic
 // WithDispatcher wires the nostro-aware dispatch hand-off.
 func (s *FlowService) WithDispatcher(d WithdrawalDispatcher) *FlowService {
 	s.dispatch = d
+	return s
+}
+
+// WithApprovalGate wires the Task 12.3.11 delegation M-of-N gate —
+// optional; nil keeps the pre-delegation behaviour.
+func (s *FlowService) WithApprovalGate(g WithdrawalApprovalGate) *FlowService {
+	s.gate = g
 	return s
 }
 
@@ -162,6 +187,13 @@ func (s *FlowService) Create(ctx context.Context, req CreateWithdrawalRequest) (
 				holdUntil = &h.UnlockedAt
 			}
 		}
+		// Task 12.3.11 M-of-N gate — a governed withdrawal records its
+		// approval request and stops here (MULTI_VALIDATOR_REQUIRED);
+		// the resubmission proceeds once the request is APPROVED and the
+		// gate consumes it. Delegated logins are refused outright.
+		if err := s.checkApprovalGate(ctx, req); err != nil {
+			return nil, err
+		}
 		res, err := s.inner.Create(ctx, req)
 		if err != nil {
 			return nil, err
@@ -178,6 +210,32 @@ func (s *FlowService) Create(ctx context.Context, req CreateWithdrawalRequest) (
 		return res, nil
 	}
 	return s.inner.Create(ctx, req)
+}
+
+// checkApprovalGate consults the delegation M-of-N policy for the
+// account (Task 12.3.11). approved=false → MULTI_VALIDATOR_REQUIRED
+// (409) carrying the pending request id; a gate error propagates —
+// never let an unverifiable governance check silently skip policy.
+func (s *FlowService) checkApprovalGate(ctx context.Context, req CreateWithdrawalRequest) error {
+	if s.gate == nil {
+		return nil
+	}
+	amount, err := parseMoney(req.Amount)
+	if err != nil {
+		return err // inner.Create would reject identically — fail early
+	}
+	approved, approvalID, err := s.gate.CheckWithdrawal(ctx, req.AccountID,
+		req.UserID, strings.ToUpper(strings.TrimSpace(req.Currency)),
+		amount, strings.TrimSpace(req.ReferenceAccount))
+	if err != nil {
+		return err
+	}
+	if !approved {
+		return errf("MULTI_VALIDATOR_REQUIRED",
+			"withdrawal requires institutional approval — decision pending on request %d",
+			approvalID)
+	}
+	return nil
 }
 
 // stampHold sets hold_until on the freshly created withdrawal.

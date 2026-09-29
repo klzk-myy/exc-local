@@ -99,14 +99,23 @@ type CurrencySummary struct {
 	NetGain        decimal.Decimal `json:"net_gain"`
 }
 
-// Report is the Task 5.3.19 response shape.
+// Report is the Task 5.3.19 response shape. Method is the requested lot
+// method; BookOfRecordMethod is always FIFO — the filed method (spec
+// §12.7). When Method != FIFO the report is a planning projection, not
+// the book of record: Projection=true and renders carry the label.
+// IRC871m is the §871(m) dividend-equivalent withholding applicability
+// note: "N/A" — a spot-only fiat FX venue has no equity swaps to withhold
+// on (Phase-12 Task 12.3.13 documentation requirement).
 type Report struct {
-	AccountID   int64             `json:"account_id"`
-	Year        int               `json:"year"`
-	Method      Method            `json:"method"`
-	Disposals   []Disposal        `json:"disposals"`
-	Summary     []CurrencySummary `json:"summary"`
-	GeneratedAt time.Time         `json:"generated_at"`
+	AccountID          int64             `json:"account_id"`
+	Year               int               `json:"year"`
+	Method             Method            `json:"method"`
+	BookOfRecordMethod Method            `json:"book_of_record_method"`
+	Projection         bool              `json:"projection"`
+	IRC871m            string            `json:"irc_871m_applicability"`
+	Disposals          []Disposal        `json:"disposals"`
+	Summary            []CurrencySummary `json:"summary"`
+	GeneratedAt        time.Time         `json:"generated_at"`
 }
 
 // ---------------------------------------------------------------------------
@@ -446,11 +455,14 @@ func (s *Service) Report(ctx context.Context, accountID int64, year int, method 
 	}
 	disposals := Compute(fills, method, yearStart, yearEnd)
 	return &Report{
-		AccountID:   accountID,
-		Year:        year,
-		Method:      method,
-		Disposals:   disposals,
-		Summary:     Summarize(disposals),
-		GeneratedAt: s.now().UTC(),
+		AccountID:          accountID,
+		Year:               year,
+		Method:             method,
+		BookOfRecordMethod: MethodFIFO,
+		Projection:         method != MethodFIFO,
+		IRC871m:            "N/A — spot FX venue (no §871(m) dividend-equivalent instruments)",
+		Disposals:          disposals,
+		Summary:            Summarize(disposals),
+		GeneratedAt:        s.now().UTC(),
 	}, nil
 }

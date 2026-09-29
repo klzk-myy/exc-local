@@ -163,6 +163,12 @@ func (c *S3Client) Put(ctx context.Context, in PutInput) (Object, error) {
 			pi.ObjectLockRetainUntilDate = aws.Time(in.ObjectLockRetainUntil)
 		}
 	}
+	if in.ServerSideEncryption != "" {
+		pi.ServerSideEncryption = s3types.ServerSideEncryption(in.ServerSideEncryption)
+		if in.SSEKMSKeyID != "" {
+			pi.SSEKMSKeyId = aws.String(in.SSEKMSKeyID)
+		}
+	}
 	out, err := c.api.PutObject(ctx, pi)
 	if err != nil {
 		return Object{}, fmt.Errorf("objectstore: put %q: %w", in.Key, err)
@@ -214,6 +220,12 @@ func (c *S3Client) Get(ctx context.Context, key string) ([]byte, Object, error) 
 	if out.LastModified != nil {
 		obj.LastModified = *out.LastModified
 	}
+	if out.ServerSideEncryption != "" {
+		obj.ServerSideEncryption = string(out.ServerSideEncryption)
+	}
+	if out.SSEKMSKeyId != nil {
+		obj.SSEKMSKeyID = *out.SSEKMSKeyId
+	}
 	return data, obj, nil
 }
 
@@ -244,6 +256,12 @@ func (c *S3Client) Head(ctx context.Context, key string) (Object, error) {
 	}
 	if out.ObjectLockRetainUntilDate != nil {
 		obj.ObjectLockRetainUntil = *out.ObjectLockRetainUntilDate
+	}
+	if out.ServerSideEncryption != "" {
+		obj.ServerSideEncryption = string(out.ServerSideEncryption)
+	}
+	if out.SSEKMSKeyId != nil {
+		obj.SSEKMSKeyID = *out.SSEKMSKeyId
 	}
 	return obj, nil
 }

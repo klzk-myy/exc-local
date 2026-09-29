@@ -23,7 +23,8 @@
 //   - Response frames: {"type":"response","request_id":..,"action":..,
 //     "status":"ACK"|"NACK","data":{...},"ts_ms":..}.
 //   - Private channels: private:orders | private:executions |
-//     private:positions | private:balances — require authentication.
+//     private:positions | private:balances | private:notifications
+//     (Phase-12 Task 12.3.5) — require authentication.
 //   - protocol_version is mandatory on authenticate; unknown versions are
 //     rejected UNSUPPORTED_PROTOCOL_VERSION (§8.6, Task 5.3.28).
 //   - Subscription cap 200 (WS_MAX_SUBSCRIPTIONS_EXCEEDED); control-rate

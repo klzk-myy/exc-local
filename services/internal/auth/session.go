@@ -71,17 +71,24 @@ func (c *SessionConfig) withDefaults() {
 
 // Session is one active session record as stored under session:{sid}.
 type Session struct {
-	ID           string    `json:"id"`
-	UserID       string    `json:"user_id"`
-	AccountID    int64     `json:"account_id"`
-	Tier         string    `json:"tier"`
-	Device       string    `json:"device,omitempty"`     // client-supplied device label
-	IP           string    `json:"ip,omitempty"`         // login source IP (device tracking)
-	UserAgent    string    `json:"user_agent,omitempty"` // client UA (device tracking)
-	AMR          []string  `json:"amr,omitempty"`        // auth methods ("pwd","totp","fido2")
-	CreatedAt    time.Time `json:"created_at"`
-	LastActiveAt time.Time `json:"last_active_at"`
-	ExpiresAt    time.Time `json:"expires_at"` // absolute cap = CreatedAt + AbsoluteTTL
+	ID        string   `json:"id"`
+	UserID    string   `json:"user_id"`
+	AccountID int64    `json:"account_id"`
+	Tier      string   `json:"tier"`
+	Device    string   `json:"device,omitempty"`     // client-supplied device label
+	IP        string   `json:"ip,omitempty"`         // login source IP (device tracking)
+	UserAgent string   `json:"user_agent,omitempty"` // client UA (device tracking)
+	AMR       []string `json:"amr,omitempty"`        // auth methods ("pwd","totp","fido2")
+	// TwoFactorVerified is the spec §12.6 session-state-elevation flag
+	// (Phase-12 Task 12.3.7): set when a TOTP verify or a successful
+	// FIDO2/passkey assertion ceremony elevates the session. Appended
+	// field — middleware keeps AMR authoritative for downstream gates
+	// (Claims.TwoFactorVerified); this flag is the durable marker the
+	// §12.6 invariant names.
+	TwoFactorVerified bool      `json:"two_factor_verified,omitempty"`
+	CreatedAt         time.Time `json:"created_at"`
+	LastActiveAt      time.Time `json:"last_active_at"`
+	ExpiresAt         time.Time `json:"expires_at"` // absolute cap = CreatedAt + AbsoluteTTL
 
 	refreshHash string // sha256 of the live refresh token; unexported
 }
@@ -96,6 +103,9 @@ type IssueRequest struct {
 	UserAgent string
 	AMR       []string // auth methods already satisfied (e.g. ["pwd","totp"])
 	Scopes    []string // access-token scope grant
+	// TwoFactorVerified marks sessions minted with MFA already satisfied
+	// (passkey login with user verification — Phase-12 Task 12.3.7).
+	TwoFactorVerified bool
 }
 
 // IssuedSession is the bundle returned to the client on login/refresh.
@@ -210,18 +220,19 @@ func (m *SessionManager) Issue(ctx context.Context, req IssueRequest) (*IssuedSe
 		return nil, wrapError(CodeAuthInternal, "refresh token generation", err)
 	}
 	s := Session{
-		ID:           sid,
-		UserID:       req.UserID,
-		AccountID:    req.AccountID,
-		Tier:         req.Tier,
-		Device:       req.Device,
-		IP:           req.IP,
-		UserAgent:    req.UserAgent,
-		AMR:          req.AMR,
-		CreatedAt:    now,
-		LastActiveAt: now,
-		ExpiresAt:    now.Add(m.cfg.AbsoluteTTL),
-		refreshHash:  refreshKey(refresh),
+		ID:                sid,
+		UserID:            req.UserID,
+		AccountID:         req.AccountID,
+		Tier:              req.Tier,
+		Device:            req.Device,
+		IP:                req.IP,
+		UserAgent:         req.UserAgent,
+		AMR:               req.AMR,
+		TwoFactorVerified: req.TwoFactorVerified,
+		CreatedAt:         now,
+		LastActiveAt:      now,
+		ExpiresAt:         now.Add(m.cfg.AbsoluteTTL),
+		refreshHash:       refreshKey(refresh),
 	}
 	if err := m.writeSession(ctx, s); err != nil {
 		return nil, err
@@ -460,6 +471,98 @@ func (m *SessionManager) revokeMany(ctx context.Context, sids []string) error {
 	return nil
 }
 
+// ---------------------------------------------------------------------------
+// Phase-12 additions (Tasks 12.3.7 / 12.3.9) — appended only; the §4.1 hash
+// shape and SessionManager semantics above are unchanged.
+// ---------------------------------------------------------------------------
+
+// Lookup returns a session record without re-arming TTLs or updating
+// last_active — the read-only inspection path for ownership checks
+// (DELETE /api/v1/account/sessions/{id} must never extend the lifetime of
+// the session it is about to kill).
+func (m *SessionManager) Lookup(ctx context.Context, sid string) (Session, bool, error) {
+	s, ok, err := m.store.ReadSession(ctx, sid)
+	if err != nil {
+		return Session{}, false, wrapError(CodeAuthInternal, "session read", err)
+	}
+	return s, ok, nil
+}
+
+// ElevateAMR records a completed second-factor ceremony on the live
+// session (spec §12.6 session-state-elevation invariant, Task 12.3.7):
+// the AMR method is appended (idempotent) and two_factor_verified is
+// asserted for totp/fido2. The session policy is enforced first — a
+// revoked or timed-out session cannot be elevated (fail-closed).
+//
+// Read-modify-write on the session hash: two racing elevations of the
+// same session could lose an AMR entry, but both set the elevation flag
+// so the security outcome is monotone — never a silent downgrade.
+func (m *SessionManager) ElevateAMR(ctx context.Context, sid, method string) (Session, error) {
+	s, err := m.Validate(ctx, sid)
+	if err != nil {
+		return Session{}, err
+	}
+	found := false
+	for _, a := range s.AMR {
+		if a == method {
+			found = true
+			break
+		}
+	}
+	if !found {
+		s.AMR = append(s.AMR, method)
+	}
+	if method == "totp" || method == "fido2" {
+		s.TwoFactorVerified = true
+	}
+	if err := m.writeSession(ctx, s); err != nil {
+		return Session{}, err
+	}
+	return s, nil
+}
+
+// ReissueAccess mints a fresh access token from the stored session —
+// the post-elevation path where the returned JWT must carry the updated
+// AMR claim (amr:["fido2"] after a passkey ceremony) without waiting for
+// the next refresh. The session policy is re-validated before minting.
+func (m *SessionManager) ReissueAccess(ctx context.Context, sid string, scopes []string) (string, time.Time, error) {
+	s, err := m.Validate(ctx, sid)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	return m.issueAccess(s, scopes)
+}
+
+// RevokeAllExcept revokes every session indexed on the principal —
+// the user index and, when bound, the account index — except keepSID
+// (DELETE /api/v1/account/sessions "terminate all but current").
+// Returns the number of sessions revoked.
+func (m *SessionManager) RevokeAllExcept(ctx context.Context, accountID int64, userID, keepSID string) (int, error) {
+	cutoff := float64(m.now().Add(-m.cfg.AbsoluteTTL).UnixNano())
+	seen := map[string]bool{keepSID: true}
+	indexes := []string{userIndex(userID)}
+	if accountID > 0 {
+		indexes = append(indexes, accountIndex(accountID))
+	}
+	var victims []string
+	for _, idx := range indexes {
+		sids, err := m.store.IndexMembers(ctx, idx, cutoff)
+		if err != nil {
+			return 0, wrapError(CodeAuthInternal, "session index read", err)
+		}
+		for _, sid := range sids {
+			if !seen[sid] {
+				seen[sid] = true
+				victims = append(victims, sid)
+			}
+		}
+	}
+	if err := m.revokeMany(ctx, victims); err != nil {
+		return 0, err
+	}
+	return len(victims), nil
+}
+
 // issueAccess mints the 15-minute JWT bound to the session id.
 func (m *SessionManager) issueAccess(s Session, scopes []string) (string, time.Time, error) {
 	tok, claims, err := m.issuer.Issue(s.UserID, IssueOptions{
@@ -483,17 +586,18 @@ func (s Session) hashFields() (map[string]string, error) {
 		return nil, err
 	}
 	f := map[string]string{
-		"user_id":        s.UserID,
-		"account_id":     strconv.FormatInt(s.AccountID, 10),
-		"tier":           s.Tier,
-		"device":         s.Device,
-		"ip":             s.IP,
-		"user_agent":     s.UserAgent,
-		"amr":            string(amr),
-		"created_at":     s.CreatedAt.UTC().Format(time.RFC3339Nano),
-		"last_active_at": s.LastActiveAt.UTC().Format(time.RFC3339Nano),
-		"expires_at":     s.ExpiresAt.UTC().Format(time.RFC3339Nano),
-		"refresh_hash":   s.refreshHash,
+		"user_id":             s.UserID,
+		"account_id":          strconv.FormatInt(s.AccountID, 10),
+		"tier":                s.Tier,
+		"device":              s.Device,
+		"ip":                  s.IP,
+		"user_agent":          s.UserAgent,
+		"amr":                 string(amr),
+		"two_factor_verified": strconv.FormatBool(s.TwoFactorVerified),
+		"created_at":          s.CreatedAt.UTC().Format(time.RFC3339Nano),
+		"last_active_at":      s.LastActiveAt.UTC().Format(time.RFC3339Nano),
+		"expires_at":          s.ExpiresAt.UTC().Format(time.RFC3339Nano),
+		"refresh_hash":        s.refreshHash,
 	}
 	return f, nil
 }
@@ -511,6 +615,11 @@ func sessionFromHash(sid string, f map[string]string) (Session, error) {
 	}
 	if len(f["amr"]) > 0 {
 		if err := json.Unmarshal([]byte(f["amr"]), &s.AMR); err != nil {
+			return Session{}, err
+		}
+	}
+	if v := f["two_factor_verified"]; v != "" {
+		if s.TwoFactorVerified, err = strconv.ParseBool(v); err != nil {
 			return Session{}, err
 		}
 	}

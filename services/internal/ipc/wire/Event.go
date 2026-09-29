@@ -6,7 +6,7 @@ import (
 	flatbuffers "github.com/google/flatbuffers/go"
 )
 
-/// Envelope for every IPC message. `type_type` carries the discriminator.
+// / Envelope for every IPC message. `type_type` carries the discriminator.
 type Event struct {
 	_tab flatbuffers.Table
 }

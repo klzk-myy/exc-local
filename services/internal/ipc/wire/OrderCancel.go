@@ -6,7 +6,7 @@ import (
 	flatbuffers "github.com/google/flatbuffers/go"
 )
 
-/// Inbound: cancel request.
+// / Inbound: cancel request.
 type OrderCancel struct {
 	_tab flatbuffers.Table
 }

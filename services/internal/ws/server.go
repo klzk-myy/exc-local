@@ -27,6 +27,10 @@ var PrivateChannels = map[string]bool{
 	"private:executions": true,
 	"private:positions":  true,
 	"private:balances":   true,
+	// Phase-12 Task 12.3.5: in-platform notification delivery. The
+	// notifications dispatcher pushes via Server.PublishPrivate; the
+	// Phase-10 frontend (Task 10.3.22) subscribes to this channel.
+	"private:notifications": true,
 }
 
 // wsConnCaps is the §8.3 WS-connections column keyed by tier label:

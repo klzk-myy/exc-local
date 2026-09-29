@@ -6,8 +6,8 @@ import (
 	flatbuffers "github.com/google/flatbuffers/go"
 )
 
-/// Inbound: deterministic clock tick (Task 2.3.10). The matching thread turns
-/// each tick into a WAL TIME_TICK entry — the gateway never writes the WAL.
+// / Inbound: deterministic clock tick (Task 2.3.10). The matching thread turns
+// / each tick into a WAL TIME_TICK entry — the gateway never writes the WAL.
 type TimeTick struct {
 	_tab flatbuffers.Table
 }

@@ -16,6 +16,9 @@ func RenderCSV(r *Report) []byte {
 	fmt.Fprintf(&b, "account_id,%d\n", r.AccountID)
 	fmt.Fprintf(&b, "year,%d\n", r.Year)
 	fmt.Fprintf(&b, "method,%s\n", r.Method)
+	fmt.Fprintf(&b, "book_of_record_method,%s\n", r.BookOfRecordMethod)
+	fmt.Fprintf(&b, "projection,%t\n", r.Projection)
+	fmt.Fprintf(&b, "irc_871m_applicability,%s\n", csvField(r.IRC871m))
 	fmt.Fprintf(&b, "generated_at,%s\n", r.GeneratedAt.UTC().Format(time.RFC3339))
 	b.WriteString("\nsymbol,currency,direction,open_trade_id,close_trade_id,opened_at,closed_at,quantity,unit_cost,unit_proceeds,proceeds,cost_basis,gain\n")
 	for _, d := range r.Disposals {
@@ -74,6 +77,10 @@ func RenderPDF(r *Report) []byte {
 
 	emit("Exchange — Realised Gain/Loss Tax Report", 16)
 	emit(fmt.Sprintf("Account %d   Year %d   Method %s", r.AccountID, r.Year, r.Method), 11)
+	if r.Projection {
+		emit(fmt.Sprintf("PLANNING PROJECTION — not the book of record (filed method: %s)", r.BookOfRecordMethod), 10)
+	}
+	emit(fmt.Sprintf("IRC 871(m) applicability: %s", r.IRC871m), 9)
 	emit(fmt.Sprintf("Generated %s UTC", r.GeneratedAt.UTC().Format("2006-01-02 15:04:05")), 9)
 	emit(" ", 8)
 	emit(fmt.Sprintf("%-12s %-4s %-10s %12s %12s %12s %14s %14s",

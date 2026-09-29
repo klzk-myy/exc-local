@@ -186,6 +186,7 @@ var specCodes = []CodeDef{
 	specRow("GATEWAY_TIMEOUT_MATCHING_ENGINE", 504, "Upstream Aeron IPC / matching engine response timeout (>500ms, remediation #15)"),
 	specRow("WS_MAX_SUBSCRIPTIONS_EXCEEDED", 400, "WebSocket connection exceeded maximum 200 subscribed channels (remediation #15)"),
 	specRow("ACCOUNT_LOCKED_AUTH_FAILURES", 423, "Account locked for 15 minutes due to 5 consecutive auth failures (remediation #15)"),
+	specRow("INVALID_CREDENTIALS", 401, "Email/password pair failed authentication (Phase-12 Task 12.3.1 User Registration & Authentication; also current-password verification on change-password/2FA-disable paths; remediation #45)"),
 	specRow("WEBAUTHN_VERIFICATION_FAILED", 401, "WebAuthn/FIDO2 signature verification or sign_count check failed (remediation #15)"),
 	specRow("CROSS_SHARD_MARGIN_TIMEOUT", 504, "Two-phase commit margin reservation timeout (>10ms hard deadline, remediation #15)"),
 	specRow("SANCTIONS_SERVICE_UNAVAILABLE", 503, "External sanctions screening provider unreachable; scoped degradation (remediation #15)"),

@@ -242,6 +242,12 @@ type Consumer struct {
 	store   Store
 	pending *pendingConfirms
 	bufSize int
+	// onFill is the optional Phase-12 Task 12.3.5 order_filled
+	// notification seam — invoked once per order id after each
+	// TradeFill is applied to the read model. It runs inline on the
+	// consumer goroutine; implementations must be cheap, non-blocking
+	// and panic-safe (the hook swallows its own errors).
+	onFill func(orderID int64, price, qty decimal.Decimal)
 	// pollInterval bounds the drain loop cadence; ~50µs production-tight,
 	// larger in tests is fine.
 	pollInterval time.Duration
@@ -252,6 +258,23 @@ func NewConsumer(sub Submitter, store Store, pending *pendingConfirms) *Consumer
 		sub: sub, store: store, pending: pending,
 		bufSize: 64 << 10, pollInterval: 20 * time.Microsecond,
 	}
+}
+
+// WithFillHook wires the optional per-fill observer (notification
+// pipeline). Nil hook → zero overhead.
+func (c *Consumer) WithFillHook(h func(orderID int64, price, qty decimal.Decimal)) *Consumer {
+	c.onFill = h
+	return c
+}
+
+// fireFill invokes the hook under a panic guard — a misbehaving emitter
+// must never kill the read-model consumer.
+func (c *Consumer) fireFill(orderID int64, price, qty decimal.Decimal) {
+	if c.onFill == nil {
+		return
+	}
+	defer func() { _ = recover() }()
+	c.onFill(orderID, price, qty)
 }
 
 // Run polls the given shards' out-rings until ctx is cancelled.
@@ -320,6 +343,8 @@ func (c *Consumer) handle(payload []byte) {
 		px := decimal.NewFromScaled(tf.Price())
 		_ = c.store.ApplyFill(context.Background(), int64(tf.BuyOrderId()), px, qty)
 		_ = c.store.ApplyFill(context.Background(), int64(tf.SellOrderId()), px, qty)
+		c.fireFill(int64(tf.BuyOrderId()), px, qty)
+		c.fireFill(int64(tf.SellOrderId()), px, qty)
 	}
 }
 
