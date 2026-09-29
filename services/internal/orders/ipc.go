@@ -251,6 +251,10 @@ type Consumer struct {
 	// pollInterval bounds the drain loop cadence; ~50µs production-tight,
 	// larger in tests is fine.
 	pollInterval time.Duration
+	// malformed counts frames dropped by the decode panic-guard in
+	// handle (Phase-13.5 pen-test remediation): a corrupt shm slot must
+	// poison one frame, never the consumer goroutine.
+	malformed atomic.Int64
 }
 
 func NewConsumer(sub Submitter, store Store, pending *pendingConfirms) *Consumer {
@@ -319,7 +323,27 @@ func (c *Consumer) Run(ctx context.Context, shards []uint16) {
 	}
 }
 
+// Malformed returns the count of frames dropped by the decode
+// panic-guard — the observability seam for corrupt-ring diagnostics.
+func (c *Consumer) Malformed() int64 { return c.malformed.Load() }
+
 func (c *Consumer) handle(payload []byte) {
+	// Fail-closed decode guard (Phase-13.5 Task 13.5.3.9 pen-test):
+	// ipc.DecodeEvent roots a FlatBuffers accessor without a verifier —
+	// a corrupt or maliciously malformed shm frame panics on slice bounds
+	// inside generated accessors. Every sibling decode site
+	// (marketdata/events.go, settlement/balance_consumer.go,
+	// bridge/bridge.go) already recovers; this consumer must too — one
+	// poisoned frame must not kill the read-model drain loop.
+	defer func() {
+		if r := recover(); r != nil {
+			c.malformed.Add(1)
+		}
+	}()
+	if len(payload) < 8 { // uoffset + minimal table — not a valid Event
+		c.malformed.Add(1)
+		return
+	}
 	ev := ipc.DecodeEvent(payload)
 	if ev == nil {
 		return

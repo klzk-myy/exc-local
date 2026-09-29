@@ -1,0 +1,93 @@
+# deploy/ansible/roles/vault-agent/tasks/main.yml — Phase-13.5
+# Task 13.5.3.6. Provisions the Vault agent sidecar on bare-metal
+# matching hosts: tmpfs secret dir, agent config, hardened unit.
+# The engine-side consumption contract is documented in
+# deploy/security/secrets-policy.md.
+---
+- name: Create Vault config directory
+  ansible.builtin.file:
+    path: /etc/exchange/vault
+    state: directory
+    owner: root
+    group: "{{ vault_agent_group }}"
+    mode: "0750"
+
+# AppRole bootstrap material arrives out-of-band (orchestrator delivers
+# wrapped role_id/secret_id at host provisioning). It must exist before
+# the agent starts; the agent deletes secret_id after first auth
+# (remove_secret_id_file_after_reading).
+- name: Assert AppRole bootstrap files exist (fail closed)
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ vault_agent_role_id_file }}"
+    - "{{ vault_agent_secret_id_file }}"
+  register: approle_files
+
+- name: Fail if AppRole bootstrap is missing
+  ansible.builtin.fail:
+    msg: >-
+      {{ item.stat.path }} is absent — deliver the AppRole role_id/secret_id
+      out-of-band at provisioning; the role never creates them.
+  when: not item.stat.exists
+  loop: "{{ approle_files.results }}"
+
+- name: Pin AppRole bootstrap file permissions
+  ansible.builtin.file:
+    path: "{{ item }}"
+    owner: root
+    group: "{{ vault_agent_group }}"
+    mode: "0640"
+  loop:
+    - "{{ vault_agent_role_id_file }}"
+    - "{{ vault_agent_secret_id_file }}"
+
+- name: Mount tmpfs secret sink
+  ansible.builtin.mount:
+    path: "{{ vault_agent_secret_dir }}"
+    src: tmpfs
+    fstype: tmpfs
+    opts: "rw,nosuid,nodev,noexec,mode=0750,uid={{ vault_agent_owner }},gid={{ vault_agent_group }}"
+    state: mounted
+
+- name: Ensure tmpfs sink exists on disk too (pre-mount dir)
+  ansible.builtin.file:
+    path: "{{ vault_agent_secret_dir }}"
+    state: directory
+    owner: "{{ vault_agent_owner }}"
+    group: "{{ vault_agent_group }}"
+    mode: "0750"
+
+- name: Deploy Vault agent config
+  ansible.builtin.template:
+    src: vault-agent.hcl.j2
+    dest: /etc/exchange/vault-agent.hcl
+    owner: root
+    group: "{{ vault_agent_group }}"
+    mode: "0640"
+  notify: Restart vault-agent
+
+- name: Deploy Vault agent unit
+  ansible.builtin.template:
+    src: vault-agent.service.j2
+    dest: /etc/systemd/system/vault-agent-exchange.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart vault-agent
+
+- name: Order engine units after the agent
+  ansible.builtin.template:
+    src: vault-agent-ordering.conf.j2
+    dest: /etc/systemd/system/matching-engine@.service.d/vault-agent.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart vault-agent
+
+- name: Enable and start vault-agent
+  ansible.builtin.systemd:
+    daemon_reload: true
+    enabled: true
+    state: started
+    name: vault-agent-exchange.service

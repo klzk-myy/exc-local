@@ -79,3 +79,20 @@ to decommission a host: `systemctl disable --now matching-engine@N
 aeronmd exchange-watchdogd`, remove the sysctl.d/journald.d drop-ins, and
 revert the GRUB fragment (reboot). No state leaves the host except the WAL
 archive (`exchange:replay-from-archive` S3 path, spec §3.5).
+
+## Trigger
+
+Run this procedure when a new matching-engine host enters inventory,
+when a host is re-imaged, or when a kernel/firmware baseline change
+requires re-verifying the §19.9 hardware contract. It is not a runtime
+recovery procedure — a degraded-but-provisioned host follows
+`docs/ops/daemon-supervision.md` instead.
+
+## Escalation
+
+A host that cannot pass the verification checklist stays out of the
+fleet (the supervisor keeps it unschedulable — cordon persists).
+Hardware-contract failures escalate to the infrastructure owner (P2 —
+capacity reserve) per `docs/runbooks/incident-escalation.md`; a host
+discovered non-conforming *after* serving traffic escalates to P1 and
+is cordoned immediately (`docs/ops/daemon-supervision.md` §4).

@@ -1,0 +1,132 @@
+table,column,type,pii_class,encryption,access_path,retention
+users,email,VARCHAR(255),CONTACT,plaintext (normalized lowercase),POST /api/v1/auth/register · UserByEmail login lookup · notifications Recipient,account lifetime → pseudonymized at closure (runbook §3)
+users,phone,VARCHAR(32),CONTACT,plaintext,notifications Recipient (SMS channel) · PUT /account/profile,account lifetime → pseudonymized at closure
+users,totp_secret,VARCHAR(160),AUTH_SECRET,AES-256-GCM SecretBox (base64 nonce‖ct),"auth TOTP verify/disable (auth.UserStore, PgxTOTPSecrets)",until 2FA disabled/closure
+users,kyc_status,kyc_status_enum,LINKAGE,plaintext,"auth gates, compliance review",account lifetime
+users,password_hash,VARCHAR(128),AUTH_SECRET,bcrypt cost-12,auth login/change-password compare only,rotation on change; erased at closure
+users,country,VARCHAR(2),DIRECT_ID,plaintext,POST /auth/register · residency/geo gates,account lifetime
+users,full_name,VARCHAR(128),DIRECT_ID,plaintext,PUT /account/profile (self-declared),account lifetime
+users,address,VARCHAR(255),DIRECT_ID,plaintext,PUT /account/profile (self-declared),account lifetime
+users,email_verified_at,TIMESTAMPTZ,LINKAGE,plaintext,verification ceremony timestamp,account lifetime
+users,totp_backup_codes,TEXT[],AUTH_SECRET,SHA-256 digests (10),auth backup-code consume,until 2FA disabled/closure
+users,anti_phishing_code,VARCHAR(32),FREE_TEXT,plaintext (by design — rendered into outbound mail),notifications anti-phish banner,until changed
+accounts,user_id,BIGINT,LINKAGE,n/a (FK),every account-scoped read joins here,account lifetime + financial-record floor
+orders,account_id,BIGINT,LINKAGE,n/a (FK),all order paths,MiFID 5y — Art.17(3)(b) immutable
+orders,client_order_id,VARCHAR(64),FREE_TEXT,plaintext,client-supplied id; may embed identifiers,MiFID 5y
+trades,buyer_account_id,BIGINT,LINKAGE,n/a (FK),execution record,MiFID 5y — immutable
+trades,seller_account_id,BIGINT,LINKAGE,n/a (FK),execution record,MiFID 5y — immutable
+funding_transactions,account_id,BIGINT,LINKAGE,n/a (FK),funding lifecycle,financial record floor (7y)
+funding_transactions,reference,VARCHAR(128),FINANCIAL,plaintext,bank reference / reconciliation,financial record floor
+funding_transactions,reference_account,VARCHAR(64),FINANCIAL,plaintext,deposit source account,financial record floor
+funding_transactions,originator_name,VARCHAR(255),DIRECT_ID,plaintext,third-party deposit screen,financial record floor
+withdrawal_confirmations,confirmed_by,BIGINT,PSEUDONYMOUS,n/a (user id),confirm attribution,audit floor
+withdrawal_confirmations,token_hash,CHAR(64),AUTH_SECRET,SHA-256,confirm-token compare,15-min window + audit
+admin_audit_log,admin_user_id,BIGINT,PSEUDONYMOUS,n/a (admin id),who-did-what,7y audit floor (in policy)
+admin_audit_log,before_state,JSONB,FREE_TEXT,plaintext JSONB — snapshots may embed PII,mutation audit,7y audit floor
+admin_audit_log,after_state,JSONB,FREE_TEXT,plaintext JSONB — snapshots may embed PII,mutation audit,7y audit floor
+admin_audit_log,ip_address,INET,PSEUDONYMOUS,plaintext INET,actor attribution,7y audit floor
+kyc_documents,account_id,BIGINT,LINKAGE,n/a (FK),"KYC review, support view",account close +5y (AML)
+kyc_documents,type,VARCHAR(32),FREE_TEXT,plaintext,document type label,account close +5y
+kyc_documents,file_url,VARCHAR(512),GOV_ID,pointer — object bytes are SSE-KMS,S3 key kyc/<acct>/<sub>/<type>-<sha16>.<ext> (upload.go:274),account close +5y; object deleted with doc
+kyc_documents,submission_id,BIGINT,LINKAGE,n/a (FK),submission join,account close +5y
+kyc_documents,sha256,VARCHAR(64),LINKAGE,integrity digest,integrity verify,account close +5y
+settlement_instructions,account_id,BIGINT,LINKAGE,n/a (FK),settlement dispatch,financial record floor
+settlement_instructions,swift_message_id,VARCHAR(64),FINANCIAL,plaintext,MT202/pacs.009 ref,financial record floor
+api_keys,user_id,BIGINT,LINKAGE,n/a (FK),auth forensics,key lifetime + audit floor
+api_keys,key_hash,VARCHAR(64),AUTH_SECRET,SHA-256,auth lookup,key lifetime
+api_keys,secret_enc,BYTEA,AUTH_SECRET,AES-256-GCM SecretBox,HMAC verify (sealed),key lifetime
+api_keys,label,VARCHAR(128),FREE_TEXT,plaintext,user-chosen key label,key lifetime
+api_keys,ip_allowlist,TEXT[],PSEUDONYMOUS,plaintext,auth allowlist check,key lifetime
+api_keys,last_used_ip,INET,PSEUDONYMOUS,plaintext,usage telemetry,key lifetime
+notification_deliveries,user_id,BIGINT,LINKAGE,n/a (FK),delivery tracking,operational
+notification_deliveries,payload,JSONB,FREE_TEXT,plaintext JSONB — event data (amounts/refs); recipient address NOT persisted,dispatch record,operational
+notification_dead_letters,payload,JSONB,FREE_TEXT,plaintext JSONB — as deliveries,DLQ review,operational
+bank_accounts,account_id,BIGINT,LINKAGE,n/a (FK),beneficiary registry,financial record floor
+bank_accounts,iban,VARCHAR(34),FINANCIAL,plaintext — FINDING PII-F2 (justified for rails; audit gap PII-F3),"withdrawal allowlist gate, SWIFT/SEPA dispatch",financial record floor
+bank_accounts,account_number,VARCHAR(64),FINANCIAL,plaintext — FINDING PII-F2,"withdrawal allowlist gate, ACH/FedNow dispatch",financial record floor
+bank_accounts,swift_bic,VARCHAR(16),FINANCIAL,plaintext,rail routing,financial record floor
+bank_accounts,bic_routing,VARCHAR(32),FINANCIAL,plaintext,rail routing,financial record floor
+bank_accounts,bank_name,VARCHAR(128),FINANCIAL,plaintext,registry view,financial record floor
+bank_accounts,beneficiary_name,VARCHAR(255),DIRECT_ID,plaintext — must match KYC legal name (finding PII-F2),name-match screen + admin verify,financial record floor
+support_tickets,account_id,BIGINT,LINKAGE,n/a (FK),support/compliance queues,"complaints record floor (5y, in policy)"
+support_tickets,subject,VARCHAR(255),FREE_TEXT,plaintext,client-authored,complaints floor
+support_tickets,body,TEXT,FREE_TEXT,plaintext — may embed PII,client-authored,complaints floor
+support_tickets,adr_reference,VARCHAR(128),LINKAGE,plaintext,ADR routing,complaints floor
+ticket_notes,body,TEXT,FREE_TEXT,plaintext — may embed PII,admin/client notes,complaints floor
+webauthn_credentials,user_id,BIGINT,LINKAGE,n/a (FK),passkey ceremonies,credential lifetime; revoked≠deleted (forensic)
+webauthn_credentials,credential_id,BYTEA,AUTH_SECRET,public credential id,assertion lookup,credential lifetime
+webauthn_credentials,public_key,BYTEA,AUTH_SECRET,public key (not secret),assertion verify,credential lifetime
+webauthn_credentials,name,VARCHAR(128),FREE_TEXT,plaintext,user-chosen device label,credential lifetime
+login_history,user_id,BIGINT,LINKAGE,n/a (FK),device/security page,security telemetry (see report — retention class gap)
+login_history,ip,INET,PSEUDONYMOUS,plaintext INET,"login audit, anomaly detection",security telemetry
+login_history,user_agent,TEXT,PSEUDONYMOUS,plaintext,device management view,security telemetry
+login_history,device_fingerprint,TEXT,PSEUDONYMOUS,plaintext,device management view,security telemetry
+login_history,geo_city,VARCHAR(128),PSEUDONYMOUS,plaintext,login audit,security telemetry
+login_history,geo_country,VARCHAR(2),PSEUDONYMOUS,plaintext,login audit,security telemetry
+login_history,session_id,VARCHAR(128),PSEUDONYMOUS,plaintext,session correlation,security telemetry
+client_delegated_users,user_id,BIGINT,LINKAGE,n/a (FK),delegation binding,delegation lifetime + audit floor
+client_delegated_users,display_name,VARCHAR(128),DIRECT_ID,plaintext,client workforce label,delegation lifetime + audit floor
+client_delegated_users,suspend_reason,VARCHAR(128),FREE_TEXT,plaintext,ops note,audit floor
+client_delegated_users,revoke_reason,TEXT,FREE_TEXT,plaintext,ops note,audit floor
+client_approval_requests,payload,JSONB,FREE_TEXT,plaintext JSONB — operation payload (e.g. beneficiary refs),M-of-N approval,audit floor
+client_approval_requests,requested_by_user,BIGINT,PSEUDONYMOUS,n/a (user id),approval attribution,audit floor
+client_approval_decisions,approver_user_id,BIGINT,PSEUDONYMOUS,n/a (user id),vote attribution,audit floor
+client_approval_decisions,note,TEXT,FREE_TEXT,plaintext,vote note,audit floor
+client_delegation_events,actor_user_id,BIGINT,PSEUDONYMOUS,n/a (user id),delegation audit,audit floor
+client_delegation_events,detail,JSONB,FREE_TEXT,plaintext JSONB,delegation audit,audit floor
+vulnerability_disclosures,reproduction,TEXT,FREE_TEXT,plaintext — PoC may embed user data,triage,disclosure lifetime
+vulnerability_disclosures,reporter_handle,VARCHAR(128),CONTACT,plaintext (pseudonymous ok),VDP correspondence,disclosure lifetime
+vulnerability_disclosures,contact_email,VARCHAR(320),CONTACT,plaintext,VDP correspondence,disclosure lifetime
+vulnerability_disclosures,resolution_summary,TEXT,FREE_TEXT,plaintext,triage,disclosure lifetime
+vulnerability_disclosures,dispute_reason,TEXT,FREE_TEXT,plaintext,VDP dispute handling,disclosure lifetime
+admin_role_bindings,user_id,BIGINT,LINKAGE,n/a (FK),RBAC,binding lifetime + audit floor
+admin_dual_control_requests,payload,JSONB,FREE_TEXT,plaintext JSONB — operation payload,dual-control review,audit floor
+admin_dual_control_requests,reason,TEXT,FREE_TEXT,plaintext,dual-control request,audit floor
+admin_recert_decisions,decided_by,BIGINT,PSEUDONYMOUS,n/a (admin id),recert attribution,audit floor
+admin_break_glass_grants,review_notes,TEXT,FREE_TEXT,plaintext,break-glass review,audit floor
+server_actions,payload,JSONB,FREE_TEXT,plaintext JSONB — fleet command payload,fleet ops,ops log floor
+releases,notes,TEXT,FREE_TEXT,plaintext — release notes,release mgmt,ops log floor
+listing_proposals,proposer_id,BIGINT,LINKAGE,n/a (FK→users),instrument listing pipeline,audit floor
+listing_proposals,reason,TEXT,FREE_TEXT,plaintext — reviewer-entered text,listing review,audit floor
+suspense_account_mappings,originator_name,VARCHAR(255),DIRECT_ID,plaintext,quarantine routing screen,financial record floor
+suspense_account_mappings,originator_account,VARCHAR(64),FINANCIAL,plaintext,quarantine routing screen,financial record floor
+suspense_account_mappings,resolution_notes,TEXT,FREE_TEXT,plaintext,ops resolution note,financial record floor
+oauth_clients,client_secret_hash,VARCHAR(100),AUTH_SECRET,bcrypt-12,client-credentials grant,client lifetime
+oauth_clients,name,VARCHAR(128),FREE_TEXT,plaintext,client display label,client lifetime
+account_freeze_events,reason,TEXT,FREE_TEXT,plaintext,freeze rationale,audit floor
+account_freeze_events,initiated_by,BIGINT,PSEUDONYMOUS,n/a (admin id),dual-control attribution,audit floor
+account_freeze_events,metadata,JSONB,FREE_TEXT,plaintext JSONB,freeze context,audit floor
+order_audit,account_id,BIGINT,LINKAGE,n/a (FK),order lifecycle audit,MiFID 5y — immutable
+order_audit,modified_by,VARCHAR(128),PSEUDONYMOUS,plaintext (user sub / key id / system),actor attribution,MiFID 5y
+order_audit,ip_address,VARCHAR(64),PSEUDONYMOUS,plaintext,actor attribution,MiFID 5y
+idempotency_keys,response_body,JSONB,FREE_TEXT,cached response JSON — may embed account-scoped fields,safe-retry replay,7d purge (in policy)
+chargebacks,reason,TEXT,FREE_TEXT,plaintext,dispute record,financial record floor
+chargebacks,resolution_note,TEXT,FREE_TEXT,plaintext,dispute record,financial record floor
+chargeback_evidence,payload,JSONB,FREE_TEXT,plaintext JSONB — may embed account/trade linkage,evidence bundle,financial record floor
+webhook_endpoints,url,TEXT,FREE_TEXT,plaintext — client-supplied endpoint,delivery target,endpoint lifetime
+webhook_endpoints,secret_enc,BYTEA,AUTH_SECRET,AES-256-GCM sealed,HMAC signing,endpoint lifetime
+webhook_deliveries,payload,JSONB,FREE_TEXT,plaintext JSONB — event data,delivery log,90d purge (in policy)
+liquidity_providers,name,VARCHAR(128),ORG_CONTACT,plaintext (institution),LP registry,LP lifetime
+liquidity_providers,contact,JSONB,ORG_CONTACT,plaintext JSONB (desk email/phone),LP management,LP lifetime
+deposit_confirmations,sender_name,VARCHAR(255),DIRECT_ID,plaintext,dual-source bank verify,financial record floor
+deposit_confirmations,sender_account,VARCHAR(64),FINANCIAL,plaintext,dual-source bank verify,financial record floor
+deposit_confirmations,payload_sha256,CHAR(64),LINKAGE,sha256 of source payload,dedup,financial record floor
+withdrawal_destination_holds,destination,VARCHAR(64),FINANCIAL,plaintext (normalized),first-seen destination hold,financial record floor
+trading_suspensions,reason,TEXT,FREE_TEXT,plaintext,suspension rationale,audit floor
+trading_suspensions,client_ip,VARCHAR(64),PSEUDONYMOUS,plaintext,suspension evidence,audit floor
+unfreeze_requests,user_id,BIGINT,LINKAGE,n/a (FK),unfreeze workflow,audit floor
+unfreeze_requests,id_document_ref,VARCHAR(255),GOV_ID,plaintext ref (object pointer),re-verification evidence,audit floor
+unfreeze_requests,liveness_ref,VARCHAR(255),GOV_ID,plaintext ref,re-verification evidence,audit floor
+unfreeze_requests,note,TEXT,FREE_TEXT,plaintext,request note,audit floor
+notification_preferences,user_id,BIGINT,LINKAGE,n/a (PK=FK),dispatch policy,until changed
+kyc_submissions,account_id,BIGINT,LINKAGE,n/a (FK),review pipeline,account close +5y
+kyc_submissions,jurisdiction,CHAR(2),DIRECT_ID,plaintext (ISO country),risk/tier policy,account close +5y
+kyc_submissions,risk_score,SMALLINT,LINKAGE,plaintext,intake scoring,account close +5y
+kyc_submissions,reviewer_id,BIGINT,PSEUDONYMOUS,n/a (admin id),review attribution,account close +5y
+kyc_submissions,reject_reason,TEXT,FREE_TEXT,plaintext,reviewer note,account close +5y
+tax_self_certifications,account_id,BIGINT,LINKAGE,n/a (FK),CRS/FATCA reporting (Phase-21),statutory tax retention
+tax_self_certifications,tin,VARCHAR(32),GOV_ID,deprecated plaintext — migration-210 read-fallback window only; NULL post-backfill (PII-F1 remediated),legacy read fallback only (compliance.ListSelfCerts); never written,statutory tax retention
+tax_self_certifications,tin_country,CHAR(2),GOV_ID,plaintext,TIN validation,statutory tax retention
+tax_self_certifications,fields,JSONB,GOV_ID,deprecated plaintext JSONB — migration-210 read-fallback window only; '{}' post-backfill (PII-F1 remediated),legacy read fallback only; never written,statutory tax retention
+tax_self_certifications,tin_sealed,BYTEA,GOV_ID,AES-256-GCM SecretBox nonce‖ct (secrets.data_key; Vault/KMS prod),compliance.InsertSelfCert writes; ListSelfCerts unseals; CRS/FATCA seam reads via box,statutory tax retention
+tax_self_certifications,fields_sealed,BYTEA,GOV_ID,AES-256-GCM SecretBox nonce‖ct of the whole fields document (legal_name/address/entity/treaty),compliance.InsertSelfCert writes; ListSelfCerts unseals; Phase-21 reporting via box,statutory tax retention

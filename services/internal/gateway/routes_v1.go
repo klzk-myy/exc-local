@@ -882,8 +882,10 @@ func SeedRoutes() []Route {
 			"House own-funds balances", adminAuth(RoleFinanceOps)),
 		v1(http.MethodPost, "/api/v1/admin/treasury/contingent-capital", TierBasic, "Phase-24 Task 24.3.17",
 			"Manage contingent-capital commitments", adminAuth(RoleFinanceOps)),
-		v1(http.MethodPost, "/api/v1/admin/settlement-exceptions/{id}/resolve", TierBasic, "Phase-24",
-			"Resolve settlement exception", adminAuth(RoleFinanceOps)),
+		{Method: http.MethodPost, Path: "/api/v1/admin/settlement-exceptions/{id}/resolve", Version: "v1",
+			Auth: adminAuth(RoleFinanceOps), RateTier: TierBasic, Weight: 1,
+			Owner: "Phase-24", Status: StatusStub, DualControl: true,
+			Description: "Resolve settlement exception (money-moving — four-eyes on Phase-24 implementation)"},
 		v1(http.MethodPost, "/api/v1/admin/client-money/audits", TierBasic, "Phase-24 Task 24.3.11",
 			"Run client-money safeguarding audit", adminAuth(RoleFinanceOps)),
 		v1(http.MethodPost, "/api/v1/admin/client-money/audits/{id}/evidence-pack", TierBasic, "Phase-24 Task 24.3.11",
@@ -957,8 +959,10 @@ func SeedRoutes() []Route {
 			"Operational health export (components, uptime, events)", adminAuth(RoleReadOnlyAuditor)),
 		v1(http.MethodPut, "/api/v1/admin/fix-sessions/{id}", TierBasic, "Phase-18 Task 18.3.9",
 			"FIX session entitlement/throttle update", adminAuth(RoleSuperAdmin)),
-		v1live(http.MethodPut, "/api/v1/admin/api-keys/{id}/extend-expiry", TierBasic, "Phase-13 Task 13.3.8",
-			"Extend API-key privilege-expiry deadline (dual-control)", adminAuth(RoleSuperAdmin)),
+		{Method: http.MethodPut, Path: "/api/v1/admin/api-keys/{id}/extend-expiry", Version: "v1",
+			Auth: adminAuth(RoleSuperAdmin), RateTier: TierBasic, Weight: 1,
+			Owner: "Phase-13 Task 13.3.8", Status: StatusLive, DualControl: true,
+			Description: "Extend API-key privilege-expiry deadline (dual-control)"},
 		v1live(http.MethodGet, "/api/v1/admin/liquidity-providers", TierBasic, "Phase-07 Task 7.3.9",
 			"LP entity list (?status=)", adminAuth(RoleRiskManager)),
 		v1live(http.MethodPost, "/api/v1/admin/liquidity-providers", TierBasic, "Phase-07 Task 7.3.9",
@@ -995,6 +999,31 @@ func SeedRoutes() []Route {
 			"MiFID complaint-handling register (COMPLAINT+DISPUTE)", adminAuth(RoleComplianceOfficer)),
 		v1live(http.MethodGet, "/api/v1/admin/support/accounts/{id}", TierBasic, "Phase-07 Task 7.3.7",
 			"Read-only support-view (audit-logged; no impersonation)", adminAuth(RoleSupportAgent)),
+
+		// ---- Phase-13.5 Task 13.5.3.8/13.5.3.9 — Vulnerability Disclosure
+		// Program (spec §19.11.2, §24 #332). Public submission +
+		// policy page are anonymous (TierPublic per-IP bucket; honeypot +
+		// 64KB cap in the handler). Admin rows declare RoleAnyAdmin: the
+		// §8.2 canon has no dedicated security-engineer role, so the
+		// service gates writes to Compliance Officer|Super Admin and
+		// reads to +Read-Only Auditor. DualControl=false by decision —
+		// VDP transitions are incident-response-time-critical; integrity
+		// comes from write-once milestone timestamps + hash-chained
+		// admin_audit_log, not four-eyes.
+		v1live(http.MethodPost, "/api/v1/security/disclosures", TierPublic, "Phase-13.5 Task 13.5.3.8",
+			"Researcher vulnerability report (idempotent report_id; honeypot `website`)", authPublic),
+		v1live(http.MethodGet, "/api/v1/security/policy", TierPublic, "Phase-13.5 Task 13.5.3.8",
+			"Published VDP policy: scope/safe-harbor/SLAs/bounty tiers (markdown)", authPublic),
+		v1live(http.MethodPost, "/api/v1/admin/security/disclosures/intake", TierBasic, "Phase-13.5 Task 13.5.3.8",
+			"Pentest/internal finding intake — same register, same SLA clock", adminAuth(RoleAnyAdmin)),
+		v1live(http.MethodGet, "/api/v1/admin/security/disclosures", TierBasic, "Phase-13.5 Task 13.5.3.8",
+			"VDP register list (?status=&severity=&source=&bulletin=&assignee=&breached=)", adminAuth(RoleAnyAdmin)),
+		v1live(http.MethodGet, "/api/v1/admin/security/disclosures/{id}", TierBasic, "Phase-13.5 Task 13.5.3.8",
+			"Disclosure detail incl. milestone SLA evidence", adminAuth(RoleAnyAdmin)),
+		v1live(http.MethodPost, "/api/v1/admin/security/disclosures/{id}/triage", TierBasic, "Phase-13.5 Task 13.5.3.8/13.5.3.9",
+			"Triage: severity + CVSS 3.1 + fix-ETA assignment (Critical 7d/High 30d/Medium 90d/Low 180d)", adminAuth(RoleAnyAdmin)),
+		v1live(http.MethodPut, "/api/v1/admin/security/disclosures/{id}", TierBasic, "Phase-13.5 Task 13.5.3.8",
+			"Transition/metadata update (status, assignee, bulletin, patch_ref, attribution, re-grade)", adminAuth(RoleAnyAdmin)),
 	}
 	return r
 }

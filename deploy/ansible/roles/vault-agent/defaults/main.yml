@@ -1,0 +1,50 @@
+# deploy/ansible/roles/vault-agent/defaults/main.yml
+# Phase-13.5 Task 13.5.3.6 — Vault agent sidecar for the bare-metal C++
+# matching engine (spec §24 #213). The agent authenticates once via
+# AppRole, keeps a live token in a tmpfs sink, and renders secrets to
+# tmpfs files the engine reads at open + watches for reload (the
+# file-watch contract lives in deploy/security/secrets-policy.md).
+---
+# Vault cluster address. MUST be https:// off-loopback — the Go-side
+# VaultSource enforces the same rule (rotation.go NewVaultSource).
+vault_agent_addr: "https://vault.exchange.internal:8200"
+
+# Deployment environment namespace — secrets resolve under
+# secret/data/exchange/{{ vault_env }}/... only; the path prefix is
+# policy-pinned so a host can never read another env's material.
+vault_env: production
+
+# AppRole auth. role_id/secret_id are delivered out-of-band at host
+# provisioning (never in inventory, never committed); the agent reads
+# them once from these paths and deletes them after first auth
+# (remove_secret_id_file_after_reading in the template).
+vault_agent_role_id_file: /etc/exchange/vault/role_id
+vault_agent_secret_id_file: /etc/exchange/vault/secret_id
+
+# tmpfs sink root — RAM-backed, mode 0750, owner exchange:exchange.
+# Nothing under this path survives reboot or reaches disk.
+vault_agent_secret_dir: /run/exchange-secrets
+vault_agent_token_sink: "{{ vault_agent_secret_dir }}/.token"
+
+# Secrets the engine host actually needs rendered. Keep minimal — every
+# entry is a template stanza in vault-agent.hcl.j2.
+#   aeron-token   — IPC channel admission token (ShmChannel/Aeron auth)
+#   redis-pass    — coordination Redis AUTH for the -redis halt latch
+#   engine-env    — /etc/exchange/engine.env-compatible K=V file
+vault_agent_templates:
+  # vault_path is the KV-v2 READ path (mount/data/<path>) — the consul-
+  # template `secret` function wants the full versioned path.
+  - name: aeron-token
+    vault_path: "secret/data/exchange/{{ vault_env }}/aeron"
+    field: auth_token
+    dest: "{{ vault_agent_secret_dir }}/aeron-token"
+    perms: "0640"
+  - name: redis-pass
+    vault_path: "secret/data/exchange/{{ vault_env }}/redis"
+    field: password
+    dest: "{{ vault_agent_secret_dir }}/redis-password"
+    perms: "0640"
+
+# Owner of rendered material — must match the matching-engine unit user.
+vault_agent_owner: exchange
+vault_agent_group: exchange

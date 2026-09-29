@@ -1,0 +1,5 @@
+# DEV FIXTURE ONLY — not a real OFAC list. Fictitious names for the
+# Phase-13.5 sanctions-screening validation. Field 2 = party name
+# (OFAC SDN.CSV convention). See README.md.
+9001,"SANCTIONOVICH, SANCTIONED",Individual,"DEV","-0- ",,"TESTPROGRAM"
+9002,"BLOCKED HOLDINGS LTD",Entity,"DEV","-0- ",,"TESTPROGRAM"

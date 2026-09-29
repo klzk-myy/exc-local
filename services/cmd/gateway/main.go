@@ -11,6 +11,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -51,6 +52,7 @@ import (
 	"exchange/internal/reconciliation"
 	"exchange/internal/redis"
 	"exchange/internal/risk"
+	"exchange/internal/security"
 	"exchange/internal/settlement"
 	"exchange/internal/support"
 	"exchange/internal/tax"
@@ -295,6 +297,28 @@ func run() error {
 		}
 		dlqCancel()
 	}
+	// Phase-13.5 Task 13.5.3.3 — file-backed sanctions screener.
+	// EXC_SANCTIONS_LIST_DIR points at a directory of OFAC SDN CSV /
+	// EU / UN consolidated XML / plain-text lists (dev fixture:
+	// deploy/security/sanctions-dev; production vendor feeds are
+	// Phase-21). A configured-but-unloadable directory is a boot
+	// failure — fail closed rather than screening against nothing.
+	// Unset keeps the documented residual: STANDARD-tier deposits and
+	// withdrawals escalate to PENDING_REVIEW (SANCTIONS_UNAVAILABLE)
+	// instead of screening.
+	var screener *compliance.ListScreener
+	if dir := strings.TrimSpace(os.Getenv("EXC_SANCTIONS_LIST_DIR")); dir != "" {
+		screener, err = compliance.NewListScreener(dir)
+		if err != nil {
+			return fmt.Errorf("sanctions screener: %w", err)
+		}
+		lists, n, _ := screener.Stats()
+		log.Info("sanctions screener loaded",
+			"dir", dir, "lists", lists, "entries", n)
+	} else {
+		log.Warn("EXC_SANCTIONS_LIST_DIR unset — sanctions seam unwired; " +
+			"STANDARD-tier funding reviews fail closed to PENDING_REVIEW")
+	}
 	withdrawalSvc, err := funding.NewWithdrawalService(fundStore, ledgerSvc, freezeSvc)
 	if err != nil {
 		return fmt.Errorf("withdrawal service: %w", err)
@@ -312,7 +336,11 @@ func run() error {
 	withdrawalSvc.WithLimits(riskLimits).WithUSDConverter(usdConv).
 		WithAlerter(opsAlerter).
 		WithBeneficiaries(bankAcctSvc).WithRailController(killResolver).
+		WithBeneficiaryResolver(fundStore).
 		WithLogger(func(f string, a ...any) { log.Error(fmt.Sprintf(f, a...)) })
+	if screener != nil {
+		withdrawalSvc.WithSanctions(screener)
+	}
 	transferSvc, err := funding.NewTransferService(fundStore, ledgerSvc, freezeSvc)
 	if err != nil {
 		return fmt.Errorf("transfer service: %w", err)
@@ -438,9 +466,19 @@ func run() error {
 	// the shared EXC_S3_* set (Endpoint ≠ "" + non-production selects
 	// the devs3 stub). Virus scanner is the honest clean-pass dev seam —
 	// a production deployment must inject a real engine.
-	kycStore, err := compliance.NewPgStore(pool)
+	// Self-certification PII (TIN + fields document) seals through the
+	// same SecretBox (migration 210, PII-F1). The boot-time backfill
+	// re-encrypts pre-migration plaintext rows; failure is logged, not
+	// fatal — sealed writes/reads still work and the next boot retries.
+	kycStore, err := compliance.NewPgStore(pool, secretBox)
 	if err != nil {
 		return fmt.Errorf("kyc store: %w", err)
+	}
+	if n, berr := kycStore.SealTaxPIIBackfill(context.Background()); berr != nil {
+		log.Error("tax PII seal backfill failed — plaintext fallback rows remain",
+			"err", berr, "sealed", n)
+	} else if n > 0 {
+		log.Info("tax PII seal backfill complete", "rows", n)
 	}
 	var kycObjects objectstore.Client
 	if bucket := os.Getenv("EXC_KYC_S3_BUCKET"); bucket != "" {
@@ -497,6 +535,9 @@ func run() error {
 	}
 	depositSvc.WithUSDConverter(usdConv).WithAlerter(opsAlerter).
 		WithLogger(func(f string, a ...any) { log.Error(fmt.Sprintf(f, a...)) })
+	if screener != nil {
+		depositSvc.WithSanctions(screener)
+	}
 	flowSvc, err := funding.NewFlowService(withdrawalSvc, fundStore)
 	if err != nil {
 		return fmt.Errorf("withdrawal flow service: %w", err)
@@ -763,23 +804,29 @@ func run() error {
 
 	// WS auth seams: API-key path via the HMAC/Ed25519/RSA verifier
 	// (Task 5.3.38) + Redis replay guard; JWT verify via the kid keyring
-	// (Task 5.3.1). JWT key material arrives from
-	// EXC_JWT_HS256_KEY_B64 (dev/ops bootstrap) — absent keys fail closed
-	// to UNAUTHORIZED on the JWT path until the Vault/KMS keyring wiring
-	// lands (Phase-13.5 Task 13.5.3.5).
+	// (Task 5.3.1). JWT key material resolves through the Phase-13.5
+	// secret-source seam (Task 13.5.3.5): when EXC_SECRETS_SOURCE is set
+	// (or production semantics require it) the issuer loads
+	// exchange/<env>/jwt/signing via security.SourceFromEnv + LoadSecrets
+	// — Vault KV in production, labeled dev adapters otherwise. The
+	// legacy EXC_JWT_HS256_KEY_B64 env var remains the dev/ops bootstrap
+	// when no source is configured. Absent or unreachable material fails
+	// closed (CONFIG_LOAD_FAILED / no-key error).
 	sigVerifier, err := auth.NewSignatureVerifier(keyStore, auth.NewRedisReplayGuard(rdb))
 	if err != nil {
 		return fmt.Errorf("signature verifier: %w", err)
 	}
 	jwtIssuer := auth.NewIssuer("exc.local", "exc-api", 0)
-	if raw := os.Getenv("EXC_JWT_HS256_KEY_B64"); raw != "" {
+	if os.Getenv("EXC_SECRETS_SOURCE") != "" || cfg.IsProduction() {
+		if err := loadJWTFromSecretSource(context.Background(), cfg, jwtIssuer, log); err != nil {
+			return err
+		}
+	} else if raw := os.Getenv("EXC_JWT_HS256_KEY_B64"); raw != "" {
 		kb, derr := base64.StdEncoding.DecodeString(raw)
 		if derr != nil || jwtIssuer.AddHMACKey("v1", kb, true) != nil {
 			return fmt.Errorf("EXC_JWT_HS256_KEY_B64 invalid")
 		}
 		log.Info("jwt verify keyring: 1 key (EXC_JWT_HS256_KEY_B64)")
-	} else if cfg.IsProduction() {
-		return fmt.Errorf("no JWT key material configured (EXC_JWT_HS256_KEY_B64)")
 	} else {
 		log.Warn("no JWT key material — /ws/v1 JWT authenticate fails closed (dev)")
 	}
@@ -1202,6 +1249,42 @@ func run() error {
 	}
 	flagList, flagCreate, flagGet, flagUpdate, flagToggle, flagDel, flagAdvance :=
 		api.FlagHandlers(flagStore)
+
+	// ---- Phase-13.5 Tasks 13.5.3.8/13.5.3.9 — Vulnerability Disclosure
+	//      Program (spec §19.11.2, §24 #332) ----
+	// Register: migration 081. Role resolution shares the Phase-07
+	// admin-role store seam — nil fails closed UNAUTHORIZED_ROLE. The
+	// change-freeze probe reads the `vdp_change_freeze` feature flag:
+	// ops sets it during deploy freeze windows; a CRITICAL disclosure
+	// triaged inside one is flagged expedited_path + P1 notice (the
+	// documented emergency-change lane, policy.md §SLAs).
+	vdpSvc := security.NewService(pool,
+		security.RoleResolver(adminRoleResolver),
+		vdpAlerter{nc: natsClient}).
+		WithChangeFreeze(func(ctx context.Context) bool {
+			return flagStore.Enabled(ctx, "vdp_change_freeze", flags.EvalContext{})
+		})
+	vdpPolicy := loadVDPPolicy(log)
+	go func() {
+		// VDP SLA sweeper — same 60s cadence as the support sweep:
+		// claims each breached milestone clock once and pages
+		// VDP_SLA_BREACH (P2, Security/DevOps) on ops.alerts.security.
+		tick := time.NewTicker(60 * time.Second)
+		defer tick.Stop()
+		for {
+			select {
+			case <-sweepCtx.Done():
+				return
+			case <-tick.C:
+				if n, err := vdpSvc.SweepAlerts(sweepCtx, time.Now().UTC()); err != nil {
+					log.Warn("vdp SLA sweep", "err", err)
+				} else if n > 0 {
+					log.Warn("vdp SLA breaches flagged", "disclosures", n)
+				}
+			}
+		}
+	}()
+	// --- end VDP wiring ---
 
 	// Cache warming (9.3.8): boot-time "deploy" pass plus the warm:trigger
 	// pub/sub funnel the watchdog/DR coordinator publish on recovery and
@@ -1627,17 +1710,25 @@ func run() error {
 		"POST /api/v1/admin/support/tickets/{id}/notes": api.AdminSupportTicketNote(ticketSvc, true),
 		"GET /api/v1/admin/support/complaints/register": http.HandlerFunc(api.AdminComplaintRegister(ticketSvc)),
 		"GET /api/v1/admin/support/accounts/{id}":       api.AdminSupportView(supportViewSvc, adminRoleResolver, true),
+		// --- Phase-13.5 Tasks 13.5.3.8/13.5.3.9: vulnerability disclosure ---
+		"POST /api/v1/security/disclosures":                   http.HandlerFunc(api.VDPDisclosureSubmit(vdpSvc)),
+		"GET /api/v1/security/policy":                         http.HandlerFunc(api.VDPPolicy(vdpPolicy)),
+		"POST /api/v1/admin/security/disclosures/intake":      api.AdminVDPIntake(vdpSvc, true),
+		"GET /api/v1/admin/security/disclosures":              http.HandlerFunc(api.AdminVDPList(vdpSvc)),
+		"GET /api/v1/admin/security/disclosures/{id}":         http.HandlerFunc(api.AdminVDPGet(vdpSvc)),
+		"POST /api/v1/admin/security/disclosures/{id}/triage": api.AdminVDPTriage(vdpSvc, true),
+		"PUT /api/v1/admin/security/disclosures/{id}":         api.AdminVDPUpdate(vdpSvc, true),
 		// --- Phase-07 Task 7.3.9: LP management ---
-		"GET  /api/v1/admin/liquidity-providers":                http.HandlerFunc(api.AdminLPList(lpSvc, true)),
-		"POST /api/v1/admin/liquidity-providers":                http.HandlerFunc(api.AdminLPCreate(lpSvc, true)),
-		"GET  /api/v1/admin/liquidity-providers/{id}":           http.HandlerFunc(api.AdminLPGet(lpSvc, true)),
-		"PUT  /api/v1/admin/liquidity-providers":                http.HandlerFunc(api.AdminLPUpdate(lpSvc, true)),
-		"PUT  /api/v1/admin/liquidity-providers/{id}":           http.HandlerFunc(api.AdminLPUpdate(lpSvc, true)),
-		"GET  /api/v1/admin/liquidity-providers/{id}/scorecard": http.HandlerFunc(api.AdminLPScorecard(lpSvc, true)),
-		"GET  /api/v1/admin/liquidity-providers/{id}/alerts":    http.HandlerFunc(api.AdminLPAlerts(lpSvc, true)),
+		"GET /api/v1/admin/liquidity-providers":                http.HandlerFunc(api.AdminLPList(lpSvc, true)),
+		"POST /api/v1/admin/liquidity-providers":               http.HandlerFunc(api.AdminLPCreate(lpSvc, true)),
+		"GET /api/v1/admin/liquidity-providers/{id}":           http.HandlerFunc(api.AdminLPGet(lpSvc, true)),
+		"PUT /api/v1/admin/liquidity-providers":                http.HandlerFunc(api.AdminLPUpdate(lpSvc, true)),
+		"PUT /api/v1/admin/liquidity-providers/{id}":           http.HandlerFunc(api.AdminLPUpdate(lpSvc, true)),
+		"GET /api/v1/admin/liquidity-providers/{id}/scorecard": http.HandlerFunc(api.AdminLPScorecard(lpSvc, true)),
+		"GET /api/v1/admin/liquidity-providers/{id}/alerts":    http.HandlerFunc(api.AdminLPAlerts(lpSvc, true)),
 		// --- Phase-07 Tasks 7.3.13/7.3.14: governance packs ---
-		"GET  /api/v1/admin/governance-packs":              http.HandlerFunc(api.AdminPackList(packSvc, true)),
-		"GET  /api/v1/admin/governance-packs/{id}":         http.HandlerFunc(api.AdminPackGet(packSvc, true)),
+		"GET /api/v1/admin/governance-packs":               http.HandlerFunc(api.AdminPackList(packSvc, true)),
+		"GET /api/v1/admin/governance-packs/{id}":          http.HandlerFunc(api.AdminPackGet(packSvc, true)),
 		"POST /api/v1/admin/governance-packs/generate":     http.HandlerFunc(api.AdminPackGenerate(packSvc, true)),
 		"POST /api/v1/admin/governance-packs/{id}/release": http.HandlerFunc(api.AdminPackRelease(packSvc, true)),
 		// --- Phase-05 Wave-2 Cluster E live handlers ---
@@ -2050,4 +2141,38 @@ func webAuthnConfig() auth.WebAuthnConfig {
 		cfg.RPOrigins = []string{"https://" + cfg.RPID}
 	}
 	return cfg
+}
+
+// ---------------------------------------------------------------------------
+// Phase-13.5 helpers
+// ---------------------------------------------------------------------------
+
+// loadVDPPolicy reads the canonical vulnerability-disclosure policy
+// (content/security/policy.md, Task 13.5.3.8) for the public
+// GET /api/v1/security/policy route. Resolution order:
+// EXC_VDP_POLICY_PATH → ./content/security/policy.md → parent-dir
+// fallbacks for binaries run from a subdirectory. A missing document is
+// a startup warning + SERVICE_DEGRADED route, never a fabricated policy.
+func loadVDPPolicy(log *slog.Logger) *api.VDPPolicyDoc {
+	candidates := []string{}
+	if p := os.Getenv("EXC_VDP_POLICY_PATH"); p != "" {
+		candidates = append(candidates, p)
+	}
+	candidates = append(candidates,
+		"content/security/policy.md",
+		"../content/security/policy.md",
+		"../../content/security/policy.md")
+	for _, p := range candidates {
+		b, err := os.ReadFile(p)
+		if err == nil && len(b) > 0 {
+			log.Info("VDP policy loaded", "path", p, "bytes", len(b))
+			return &api.VDPPolicyDoc{
+				ContentType: "text/markdown; charset=utf-8",
+				Body:        b,
+			}
+		}
+	}
+	log.Warn("VDP policy document not found — /api/v1/security/policy will serve SERVICE_DEGRADED",
+		"candidates", candidates)
+	return nil
 }

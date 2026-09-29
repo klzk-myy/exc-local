@@ -115,3 +115,23 @@ lands at the expected sequence. *pending-infra until dc2 exists.*
 | S3 CRR rule applied to the live bucket | needs production bucket ARNs |
 | End-to-end failover timing (RTO proof) | first monthly drill |
 | Edge anycast reroute config | provider account (see deploy/cloudflare/) |
+
+## Trigger / decision to fail over
+
+Failover is initiated on one of: (a) primary-region loss confirmed by two
+independent signals (health endpoints + control plane unreachability,
+per `docs/runbooks/postgres-failover.md` and `docs/runbooks/engine-halt-failover.md`);
+(b) sustained primary degradation exceeding the §18.3 RTO window for a
+P0 service; (c) a declared regional-evacuation event. The decision is
+dual-control: Risk Manager declares, Super Admin approves, per
+`docs/runbooks/incident-escalation.md` P0 war-room protocol.
+
+## Escalation
+
+DR execution is P0 — page the on-call chain
+(`docs/runbooks/incident-escalation.md` §2 matrix) and open the war
+room immediately; Compliance Officer is pulled in at declaration time
+(DORA major-incident clocks start on detection — §19 DORA reporting
+workflow in `docs/ops/dora-incident-reporting.md`). If the failover
+procedure itself stalls or diverges, halt at the last safe checkpoint
+and escalate to P0 leadership — never improvise past a failed step.

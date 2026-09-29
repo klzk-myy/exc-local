@@ -24,7 +24,8 @@ Subcommands here are the operator/runbook paths referenced by the spec
 }
 
 func init() {
-	rootCmd.AddCommand(verifyAuditCmd, merkleCmd, cacheShardMapCmd, warmCacheCmd)
+	rootCmd.AddCommand(verifyAuditCmd, merkleCmd, cacheShardMapCmd, warmCacheCmd,
+		sealTaxPIICmd)
 }
 
 // parseDate parses a strict YYYY-MM-DD UTC calendar date.

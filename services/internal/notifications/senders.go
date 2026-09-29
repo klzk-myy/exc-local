@@ -20,6 +20,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -89,7 +90,8 @@ type LogSender struct {
 // Channel implements Sender.
 func (s *LogSender) Channel() string { return s.Ch }
 
-// Send implements Sender.
+// Send implements Sender. The recipient is masked — the dev log sink
+// must not persist raw email/phone PII (Task 13.5.3.2 finding PII-F4).
 func (s *LogSender) Send(_ context.Context, msg Message) error {
 	log := s.Log
 	if log == nil {
@@ -98,8 +100,18 @@ func (s *LogSender) Send(_ context.Context, msg Message) error {
 	log.Info("notification send",
 		"channel", msg.Channel, "event", msg.Event,
 		"user_id", msg.UserID, "delivery_id", msg.DeliveryID,
-		"to", msg.To, "subject", msg.Subject)
+		"to", maskRecipient(msg.To), "subject", msg.Subject)
 	return nil
+}
+
+// maskRecipient redacts a delivery address for log lines: the routing
+// domain stays for deliverability debugging, the identifying local part
+// never does. Non-address forms (phone, push tokens) mask fully.
+func maskRecipient(to string) string {
+	if i := strings.LastIndex(to, "@"); i > 0 {
+		return "***@" + to[i+1:]
+	}
+	return "***"
 }
 
 // ---------------------------------------------------------------------------

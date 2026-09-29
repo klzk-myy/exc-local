@@ -128,3 +128,21 @@ decision table (add shard / add storage / add host). Report template:
 3. `wal_encode_entry` ~5.5 µs/entry optimization path (perf §11.3).
 4. Settlement ingest 5.7k fills/s must scale if engine headroom rises
    (perf §11.4).
+
+## Trigger / alert response
+
+This document is the target of the capacity alert pack
+(`deploy/monitoring/capacity-alerts.yml`): `CapacityCPUHeadroom`,
+`CapacityMemoryHeadroom`, `CapacityDiskHeadroom`, `CapacityNetworkHeadroom`
+and the quarterly capacity-review alerts resolve here. The measured baselines
+and sizing profiles above are the diagnosis reference — compare the
+alerting metric against the §2 baseline and §4 headroom thresholds.
+
+## Escalation
+
+Capacity alerts are P2/P3 by severity label; a headroom breach on a
+money-path component (matching engine, settlement ingest) inside one
+sprint of the projected ceiling escalates to P1 — see
+`docs/runbooks/incident-escalation.md`. Sustained host pressure is
+already mitigated live by `docs/runbooks/host-resource-pressure.md`;
+this document governs the capacity decision, not the live response.

@@ -816,3 +816,111 @@ open. Landed via 5 disjoint clusters.
   incomplete coverage = INCONCLUSIVE, never pass.
 - Live GPG cold-storage key unprovisioned (Phase-13.5 secrets task) — dev-HMAC
   labelled signer active in dev.
+
+## [2026-09-29 — Phase-13.5] — SECURITY & COMPLIANCE AUDIT
+
+**Phase-13.5: 9/9 tasks, 9/9 P13.5 spec checkpoints PASS (`checks/phase135.go`),
+57/57 DoD/SDD rows verified + ticked.** Commit pending final verification below.
+
+### Landed (6 clusters)
+- **Internal penetration test** (`tests/pentest/`): registry-driven black-box
+  harness — **976 probes** across 375+ routes: 0 auth-boundary violations
+  (472 forged-credential classes incl. wrong-kid, alg-confusion, alg=none,
+  expired, post-logout reuse), 0 IDOR cross-account serves, 68
+  injection/malformed probes → 0 5xx, WS fuzz clean, 2FA/lockout bypass denied.
+  **Two real vulns found + fixed in-session:**
+  - `F-IPC-1` (High): malformed IPC frames panicked the orders consumer
+    (260/262 corpus inputs) → decode guard + `Malformed()` counter +
+    `malformed_decode_test.go` regression.
+  - `F-WS-TRACING-1` (Medium): `statusRecorder` lacked `Hijack()`/`Unwrap()`
+    → every WS upgrade 500'd → fixed in `tracing/http.go`, 7 WS endpoints live.
+  Report `docs/security/pentest-report.md` (machine findings `findings.json`
+  with `cvss_vector` + severity); cadence doc `pentest-cadence.md` schedules
+  quarterly external + annual red-team with placeholder vendor fields —
+  **external engagement honestly procurement-blocked, not fabricated**.
+- **PII audit + GDPR** (`scripts/security/gen-pii-inventory.py`): mechanical
+  inventory 1,482 cols/134 tables → **131 PII-bearing columns/46 tables**,
+  `--check` drift gate; per-table DSR runbook with `data_retention_holds`
+  legal-hold blocks + 30-day SLA + pseudonymize-vs-delete split. **Two real
+  log leaks fixed**: `notifications.LogSender` + `auth.LogSender` logged raw
+  recipient emails → `maskRecipient` + tests.
+- **Secret rotation + bare-metal + drills** (`internal/security/rotation.go`,
+  1,362 lines): `SecretSource` abstraction — real `VaultSource` (KV-v2,
+  dynamic creds, renew/revoke, HTTPS-required off-loopback), labelled dev
+  adapters (`dev-file`/`dev-env`) **refused when production required**;
+  fail-closed `CONFIG_LOAD_FAILED`; `JWTKeyring` atomic issuer swap + 24h
+  dual-key overlap + NotAfter clamp; `Swapper[T]`/`LeaseRenewal` no-restart
+  DB/Redis rotation; scheduler + expiry gauge → 4 new P2 alert rules
+  (**99 total**). Deploy: `rotate-secrets.sh`, `secret-inventory.md`,
+  `secrets-policy.md`, vault-agent ansible role (tmpfs/AppRole),
+  `harden-ipc-perms.sh` (found **16 real 0600 violations** on dev),
+  `provision-fix-mtls.sh`, `no-plaintext-secrets.sh`. **6 `-race` drills
+  pass**: 32-worker rotation flood (0 valid rejections / 0 forged incl.
+  alg-confusion), expired+revoked replay uniform-401 no-leakage, Vault
+  partition → `CONFIG_LOAD_FAILED` ×3.
+- **Compliance + tabletops**: **real defect closed** — `WithSanctions` was
+  never wired in production; new `compliance.ListScreener` (file-backed
+  OFAC/EU/UN-style lists, fuzzy threshold, fail-closed) now wired onto
+  deposit + withdrawal paths in gateway; dual-control matrix verified +
+  `OpInstrumentMaintenance` gap fixed; live `exchange verify-audit` tamper
+  proof; Phase-21 regulatory deferrals documented
+  (`compliance-deferred-phase21.md`). Tabletops: trading halt, security
+  incident, reconciliation mismatch executable on live PG+Redis; **DR
+  failover simulated** (no secondary/Sentinel env — documented);
+  `check_runbooks.py` → **48 conforming runbooks**.
+- **Vulnerability disclosure program** (`internal/security/vdp.go`, mig
+  **081**): full state machine (INTAKED→TRIAGED→IN_PROGRESS→FIXED/DISPUTED/
+  REJECTED + rebuttal), DB-trigger immutable milestone timestamps, CVSS→ETA
+  contract (7d/30d/90d/180d), `VDP_SLA_BREACH` P2 sweep via
+  `ops.alerts.security`, bulletin grouping, change-freeze expedited lane,
+  pentest+researcher same queue; 7 routes (2 public: honeypot + 64KB cap +
+  idempotent `report_id`); `content/security/policy.md` scope/safe-harbor/
+  bounty tiers; CycloneDX `gen_sbom.sh` + nightly rescan cron.
+- **PII-F1 remediation** (mig **210**): `tax_self_certifications.tin` +
+  `fields` sealed at rest via `auth.SecretBox` AES-256-GCM into
+  `tin_sealed`/`fields_sealed` BYTEA; plaintext columns deprecated
+  read-fallback; `exchange seal-tax-pii` backfill (+ gateway boot retry,
+  `--restore` for down-migration prep); fail-closed decrypt reads.
+
+### Settle-pass fixes (orchestrator)
+- **Gateway JWT secret-source wiring** (`cmd/gateway/secrets.go`): boot now
+  resolves JWT material through `security.SourceFromEnv`/`LoadSecrets` when
+  `EXC_SECRETS_SOURCE` is set or `cfg.IsProduction()`; legacy
+  `EXC_JWT_HS256_KEY_B64` remains a development-only bootstrap; dev-env
+  adapter payloads normalize to kid `v1` HS256. Verified live: dev-env boot
+  loads keyring via secret source; production env label fails closed on dev
+  adapter.
+- **Migration 211** (`211_ops_status_down`): `ops_status_events.to_state`
+  CHECK widened to admit per-component word `down` — Phase-09 component
+  transition events were silently constraint-dropped (verified: event writes
+  now succeed post-migration).
+- **8 dead routes fixed**: Phase-07 LP/governance live-map keys used two
+  spaces after the HTTP method while `Route.key()` joins with one →
+  `unwiredHandler` responses; normalized.
+- `checks/phase135.go` registered (9 bindings); `pyscript` gained variadic
+  args; new `dirtest`/`shscript` step kinds.
+- PII inventory regenerated post-mig-211 (drift-check-clean);
+  frontend `route-contracts.ts` regenerated (382 ops).
+
+### Verified (orchestrator, independent re-run)
+- `go build ./...`, `go vet ./...` green; security/api/compliance/admin/auth/
+  orders/pentest legs pass incl. PG/Redis-gated + `-race` drills.
+- Migration 211 up/down/re-up round-trip on dev PG (pgx applier — no psql).
+- openapi **382** ops regenerated; `gen:validators:check` current.
+- §27 Phase-13.5 settle record; AGENTS/CLAUDE/CONTEXT/MEMORY synced —
+  codes 181→**182**, migrations 101→**104**, spec counts unchanged
+  (§24 419 / tasks 479 / checkpoints 543).
+
+### Honest opens (annotated, not fabricated)
+- External pen-test vendor not engaged (procurement-blocked; cadence doc).
+- Live Vault production execution unavailable (mocked + drills only).
+- Multi-region DR failover simulated (no secondary environment).
+- Production NATS ACL verification open (dev bus proven unauthenticated —
+  F-NATS-1 accepted-risk for dev; verify prod ACLs).
+- FIX acceptor remains scaffold-only.
+- PII-F3: some admin PII *reads* unaudited (mutations audited).
+- Documented plaintext banking-field exceptions (IBAN/beneficiary) remain
+  by design in `pii-audit-report.md`.
+- `secrets_inventory` (migration 089) remains doc-pending; deploy inventory +
+  Vault audit are the records of record.
+- Phase-21 regulatory features (MiFID II/EMIR/FinCEN/SAR/travel rule) deferred.

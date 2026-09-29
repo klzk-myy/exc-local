@@ -728,3 +728,60 @@ groups:
           summary: "Admin funding ops endpoints erroring ({{ $value }}/s)"
           description: "Deposit review / nostro replenishment / quarantine endpoints failing — ops staff cannot clear the manual-review queue."
           runbook: docs/runbooks/funding-path-errors.md#admin-ops
+
+  # ── Domain: secrets (Phase-13.5 Task 13.5.3.5, spec §24 #111) ──────────
+  # Not one of the 12 Task 13.3.3 domains — secrets lifecycle is a
+  # security control plane; kept in this file so the pack travels with
+  # the domain rules. Metrics are pull-based gauges exported by
+  # services/internal/security (Scheduler.RegisterMetrics): computed at
+  # scrape time, so a wedged scheduler can never report a stale "ok".
+  - name: exchange.domain.secrets
+    interval: 60s
+    rules:
+      # Spec AC: P2 alert within 14 days of any secret's rotation
+      # deadline. deadline = RotatedAt + class MaxAge (90d ceiling).
+      - alert: SecretRotationDueSoon
+        expr: |
+          secret_rotation_seconds_until_expiry < 1209600
+          and secret_rotation_seconds_until_expiry > 0
+        for: 1h
+        labels: {severity: p2, team: security, domain: secrets}
+        annotations:
+          summary: "Secret {{ $labels.secret }} ({{ $labels.class }}) hits rotation deadline in <14d"
+          description: "{{ $value }}s remain. Rotate per deploy/security/secret-inventory.md row and deploy/scripts/rotate-secrets.sh before the deadline; once overdue the secret is out of policy."
+          runbook: docs/runbooks/secret-rotation-overdue.md
+
+      # Past the deadline — rotation SLA breached. Still P2 (ticket) per
+      # the runbook severity ladder; >30d escalates below.
+      - alert: SecretRotationOverdue
+        expr: secret_rotation_seconds_until_expiry < 0
+        for: 1h
+        labels: {severity: p2, team: security, domain: secrets}
+        annotations:
+          summary: "Secret {{ $labels.secret }} is OVERDUE for rotation"
+          description: "Deadline breached by {{ $value }}s (negative). Rotate now and mark last_rotated; the procedure failing chronically is itself the defect."
+          runbook: docs/runbooks/secret-rotation-overdue.md
+
+      # Runbook escalation: >30 days overdue pages P1 — an unrotated
+      # money-path credential (banking API keys, FIX mTLS) is a systemic
+      # exposure, not a process ticket.
+      - alert: SecretRotationCriticallyOverdue
+        expr: secret_rotation_seconds_until_expiry < -2592000
+        for: 15m
+        labels: {severity: p1, team: security, domain: secrets}
+        annotations:
+          summary: "Secret {{ $labels.secret }} >30d overdue — P1 escalation"
+          description: "Rotation SLA breached by more than 30 days. Emergency-rotate per the runbook's leak-triggered path and file a security incident."
+          runbook: docs/runbooks/secret-rotation-overdue.md
+
+      # EMITTER-GAP twin of the telemetry-contract rules above: the
+      # family renders no samples until a service registers the
+      # scheduler — absence is itself a monitoring gap.
+      - alert: SecretRotationTelemetryAbsent
+        expr: absent(secret_rotation_seconds_until_expiry)
+        for: 15m
+        labels: {severity: p3, team: security, domain: secrets}
+        annotations:
+          summary: "Secret rotation telemetry absent"
+          description: "secret_rotation_seconds_until_expiry emits no samples — no service has registered the rotation scheduler (services/internal/security Scheduler.RegisterMetrics). Secret-expiry alerting is blind until a feeder is wired."
+          runbook: docs/runbooks/secret-rotation-overdue.md

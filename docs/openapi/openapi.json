@@ -312,6 +312,12 @@
         "owner": "Phase-02 Task 2.3.6"
       },
       {
+        "code": "DISCLOSURE_NOT_FOUND",
+        "description": "Vulnerability disclosure identifier does not resolve (Phase-13.5 Task 13.5.3.8 Vulnerability Disclosure Program; §19.11.2 intake register — VDP_SLA_BREACH stays an internal ops alert per §23 internal-only list)",
+        "http_status": 404,
+        "owner": "Phase-13.5 Task 13.5.3.8"
+      },
+      {
         "code": "DISCRETIONARY_OFFSET_INVALID",
         "description": "Discretionary price offset negative, exceeds maximum spread band, or attached to non-LIMIT/TIF order (Phase-02 Task 2.3.26; remediation #37 — registered)",
         "http_status": 400,
@@ -10967,6 +10973,239 @@
         "x-weight": 1
       }
     },
+    "/api/v1/admin/security/disclosures": {
+      "get": {
+        "operationId": "get_api_v1_admin_security_disclosures",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "VDP register list (?status=&severity=&source=&bulletin=&assignee=&breached=)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "*",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-13.5 Task 13.5.3.8",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "*",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/security/disclosures/intake": {
+      "post": {
+        "operationId": "post_api_v1_admin_security_disclosures_intake",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Pentest/internal finding intake — same register, same SLA clock",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "*",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-13.5 Task 13.5.3.8",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "*",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/security/disclosures/{id}": {
+      "get": {
+        "operationId": "get_api_v1_admin_security_disclosures_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Disclosure detail incl. milestone SLA evidence",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "*",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-13.5 Task 13.5.3.8",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "*",
+        "x-status": "live",
+        "x-weight": 1
+      },
+      "put": {
+        "operationId": "put_api_v1_admin_security_disclosures_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Transition/metadata update (status, assignee, bulletin, patch_ref, attribution, re-grade)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "*",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-13.5 Task 13.5.3.8",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "*",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/security/disclosures/{id}/triage": {
+      "post": {
+        "operationId": "post_api_v1_admin_security_disclosures_id_triage",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Triage: severity + CVSS 3.1 + fix-ETA assignment (Critical 7d/High 30d/Medium 90d/Low 180d)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "*",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-13.5 Task 13.5.3.8/13.5.3.9",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "*",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
     "/api/v1/admin/settlement-exceptions/{id}/resolve": {
       "post": {
         "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
@@ -16531,6 +16770,64 @@
         "x-owner": "Phase-05 Task 5.3.7",
         "x-rate-tier": "exempt",
         "x-rbac-role": "Super Admin",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/security/disclosures": {
+      "post": {
+        "operationId": "post_api_v1_security_disclosures",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Researcher vulnerability report (idempotent report_id; honeypot `website`)",
+        "tags": [
+          "security"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": false,
+          "role": "",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-13.5 Task 13.5.3.8",
+        "x-rate-tier": "public",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/security/policy": {
+      "get": {
+        "operationId": "get_api_v1_security_policy",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Published VDP policy: scope/safe-harbor/SLAs/bounty tiers (markdown)",
+        "tags": [
+          "security"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": false,
+          "role": "",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-13.5 Task 13.5.3.8",
+        "x-rate-tier": "public",
         "x-status": "live",
         "x-weight": 1
       }

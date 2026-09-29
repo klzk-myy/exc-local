@@ -81,3 +81,18 @@ the same window.
 | Synthetic order timeout | engine health first — `scripts/deploy/verify-shard.sh <shard>` |
 | WAL recovery halt on a shard | `docs/runbooks/wal-recovery-halt.md` (per engine FATAL output) |
 | Region loss | spec §18.3 DR + Task 9.3.21 quarterly drill |
+
+## Trigger / when to run
+
+Every production deploy of a matching-engine-adjacent Go service runs
+this procedure. The deploy is aborted (before the map flip) when the
+canary gate fails, when the venue is inside a declared freeze window,
+or when a P0/P1 incident is open — the "Canary symptom" table above
+covers post-flip aborts.
+
+## Escalation
+
+A failed canary or a rollback that does not restore clean health pages
+P1 per `docs/runbooks/incident-escalation.md` (deploy regression).
+Never force-promote past a failing canary — escalate to the release
+owner and Risk Manager instead.

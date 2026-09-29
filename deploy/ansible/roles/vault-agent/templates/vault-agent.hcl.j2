@@ -1,0 +1,61 @@
+# vault-agent.hcl — rendered by deploy/ansible/roles/vault-agent.
+# Phase-13.5 Task 13.5.3.6: agent sidecar for the bare-metal engine host.
+#
+# CONTRACT (deploy/security/secrets-policy.md §engine-contract):
+#   * token + rendered secrets land on tmpfs ({{ vault_agent_secret_dir }})
+#     — RAM-only, no disk persistence, gone on reboot;
+#   * rendered files are {{ vault_agent_owner }}:{{ vault_agent_group }}
+#     mode 0640 — readable by the engine and nothing else;
+#   * the engine reads a file at open and re-reads on change
+#     (CLOSE_WRITE on the tmpfs file = new version). A failed reload is
+#     fail-closed: the engine keeps running on the previous material
+#     until it becomes invalid, never fabricates credentials.
+
+exit_after_auth = false
+pid_file        = "/run/vault-agent-exchange.pid"
+
+vault {
+  address = "{{ vault_agent_addr }}"
+}
+
+auto_auth {
+  method "approle" {
+    mount_path = "auth/approle"
+    config = {
+      role_id_file_path                   = "{{ vault_agent_role_id_file }}"
+      secret_id_file_path                 = "{{ vault_agent_secret_id_file }}"
+      # One-shot bootstrap: the secret_id is consumed on first auth and
+      # deleted — the host does not retain a long-lived login secret.
+      remove_secret_id_file_after_reading = true
+    }
+  }
+
+  sink "file" {
+    config = {
+      path = "{{ vault_agent_token_sink }}"
+      mode = 0640
+    }
+  }
+}
+
+# Template stanzas render one file per managed secret. The agent
+# re-renders on KV version change (default lease/metadata watch), which
+# produces the CLOSE_WRITE event the engine's file-watch consumes.
+{% for t in vault_agent_templates %}
+template {
+  # index accessor — hyphenated KV field names stay legal.
+  contents    = "{{ "{{" }} with secret \"{{ t.vault_path }}\" {{ "}}" }}{{ "{{" }} index .Data.data \"{{ t.field }}\" {{ "}}" }}{{ "{{" }} end {{ "}}" }}"
+  destination = "{{ t.dest }}"
+  perms       = "{{ t.perms }}"
+  user        = "{{ vault_agent_owner }}"
+  group       = "{{ vault_agent_group }}"
+  # Render fails closed: error_on_missing_key means a deleted/missing
+  # secret produces a render error (agent retries, alert fires) rather
+  # than an empty file the engine would read as an empty credential.
+  error_on_missing_key = true
+}
+
+{% endfor %}
+# Render-error visibility: the Go monitor surfaces template failures as
+# the SecretRotation* / VAULT_AGENT_* alert family; silent render failure
+# is how stale credentials go unnoticed.

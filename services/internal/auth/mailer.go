@@ -60,12 +60,24 @@ func NewLogSender(logf func(format string, args ...any)) LogSender {
 }
 
 // Send logs the envelope (To/Kind/Subject + body) and reports success.
+// The recipient is masked — a dev log line must not persist raw PII
+// (Task 13.5.3.2 finding PII-F5).
 func (s LogSender) Send(_ context.Context, m Message) error {
 	if s.Logf != nil {
 		s.Logf("auth mailer(dev): to=%s kind=%s subject=%q body=%q",
-			m.To, m.Kind, m.Subject, m.Body)
+			maskRecipient(m.To), m.Kind, m.Subject, m.Body)
 	}
 	return nil
+}
+
+// maskRecipient redacts a delivery address for log lines: the routing
+// domain stays for deliverability debugging, the identifying local part
+// never does. Non-address forms (push tokens, phone strings) mask fully.
+func maskRecipient(to string) string {
+	if i := strings.LastIndex(to, "@"); i > 0 {
+		return "***@" + to[i+1:]
+	}
+	return "***"
 }
 
 // normalizeEmail canonicalizes a login/registration address: trimmed,

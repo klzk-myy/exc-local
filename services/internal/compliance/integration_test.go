@@ -1,7 +1,8 @@
-// PostgreSQL-gated integration tests for PgStore + migrations 203–205.
-// Convention matches internal/funding: EXC_PG_TEST=1 enables, each run
-// builds a scratch schema with minimal anchor fixtures plus the real
-// migration files (017 kyc_documents; 203–205 owned by this task).
+// PostgreSQL-gated integration tests for PgStore + migrations 203–205,
+// 210. Convention matches internal/funding: EXC_PG_TEST=1 enables, each
+// run builds a scratch schema with minimal anchor fixtures plus the real
+// migration files (017 kyc_documents; 203–205 owned by this task; 210 is
+// the PII-F1 sealing migration).
 package compliance
 
 import (
@@ -10,11 +11,27 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"exchange/internal/auth"
 )
+
+// testBox builds a real AES-256-GCM SecretBox on a fixed test key —
+// sealing assertions must exercise the production crypto path, not a
+// stub.
+func testBox(t *testing.T) *auth.SecretBox {
+	t.Helper()
+	box, err := auth.NewSecretBox([]byte("0123456789abcdef0123456789abcdef"))
+	if err != nil {
+		t.Fatalf("secret box: %v", err)
+	}
+	return box
+}
 
 func itPool(t *testing.T) (context.Context, *pgxpool.Pool) {
 	t.Helper()
@@ -86,6 +103,7 @@ func applyKYCSchema(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 		"203_kyc_submission.up.sql",
 		"204_kyc_ops_matrix.up.sql",
 		"205_tax_self_certifications.up.sql",
+		"210_tax_pii_seal.up.sql",
 	} {
 		execSQLFile(t, ctx, pool, m)
 	}
@@ -123,11 +141,13 @@ func TestITMigrationRoundTrip(t *testing.T) {
 		"203_kyc_submission.up.sql",
 		"204_kyc_ops_matrix.up.sql",
 		"205_tax_self_certifications.up.sql",
+		"210_tax_pii_seal.up.sql",
 	} {
 		execSQLFile(t, ctx, pool, m)
 	}
 	// Down in reverse order, then re-up — both directions must be clean.
 	for _, m := range []string{
+		"210_tax_pii_seal.down.sql",
 		"205_tax_self_certifications.down.sql",
 		"204_kyc_ops_matrix.down.sql",
 		"203_kyc_submission.down.sql",
@@ -149,6 +169,7 @@ func TestITMigrationRoundTrip(t *testing.T) {
 		"203_kyc_submission.up.sql",
 		"204_kyc_ops_matrix.up.sql",
 		"205_tax_self_certifications.up.sql",
+		"210_tax_pii_seal.up.sql",
 	} {
 		execSQLFile(t, ctx, pool, m)
 	}
@@ -158,7 +179,7 @@ func TestITSubmissionLifecycle(t *testing.T) {
 	ctx, pool := itPool(t)
 	applyKYCSchema(t, ctx, pool)
 	acct := mkAccount(t, ctx, pool, "T0")
-	store, err := NewPgStore(pool)
+	store, err := NewPgStore(pool, testBox(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -224,7 +245,7 @@ func TestITSelfCerts(t *testing.T) {
 	ctx, pool := itPool(t)
 	applyKYCSchema(t, ctx, pool)
 	acct := mkAccount(t, ctx, pool, "T1")
-	store, err := NewPgStore(pool)
+	store, err := NewPgStore(pool, testBox(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -256,5 +277,186 @@ func TestITSelfCerts(t *testing.T) {
 		TINCountry: "US", Fields: []byte(`{"legal_name":"B"}`)})
 	if err == nil {
 		t.Fatal("T0 self-cert must fail closed")
+	}
+}
+
+// ssnShape matches a US SSN/EIN/ITIN-shaped digit run — what a pg_dump /
+// raw-row reader would see if PII leaked.
+var ssnShape = regexp.MustCompile(`\d{9}`)
+
+// TestITSelfCertSealedAtRest is the PII-F1 proof: after a submit through
+// the real service the raw row carries no plaintext TIN and no plaintext
+// fields document — everything sensitive lives in the BYTEA blobs.
+func TestITSelfCertSealedAtRest(t *testing.T) {
+	ctx, pool := itPool(t)
+	applyKYCSchema(t, ctx, pool)
+	acct := mkAccount(t, ctx, pool, "T1")
+	store, err := NewPgStore(pool, testBox(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := NewService(store, &fakeObjects{}, "kms", nil)
+
+	if _, err := svc.SubmitSelfCert(ctx, SelfCertInput{
+		AccountID: acct, FormType: "W-9", TIN: "123-45-6789",
+		TINCountry: "US", TINKind: "SSN",
+		Fields: []byte(`{"legal_name":"Jane Doe","address":"1 Main St"}`)}); err != nil {
+		t.Fatalf("self-cert: %v", err)
+	}
+
+	// Raw-row inspection — what pg_dump surfaces.
+	var tin *string
+	var fieldsText string
+	var tinSealed, fieldsSealed []byte
+	if err := pool.QueryRow(ctx, `
+		SELECT tin, fields::text, tin_sealed, fields_sealed
+		  FROM tax_self_certifications WHERE account_id=$1`, acct).
+		Scan(&tin, &fieldsText, &tinSealed, &fieldsSealed); err != nil {
+		t.Fatalf("raw row: %v", err)
+	}
+	if tin != nil {
+		t.Fatalf("plaintext tin persisted: %q", *tin)
+	}
+	if fieldsText != "{}" {
+		t.Fatalf("plaintext fields persisted: %q", fieldsText)
+	}
+	if tinSealed == nil || fieldsSealed == nil {
+		t.Fatal("sealed columns must be populated")
+	}
+	// The blobs themselves must not contain the SSN or the legal name —
+	// GCM ciphertext is opaque, but assert it anyway (guards a future
+	// "seal" regression that just copies bytes).
+	if ssnShape.Match(tinSealed) {
+		t.Fatal("tin_sealed contains an SSN-shaped digit run")
+	}
+	if string(fieldsSealed) == "" || len(fieldsSealed) < 30 {
+		t.Fatalf("fields_sealed too small for nonce‖ct: %d bytes", len(fieldsSealed))
+	}
+
+	// Read path unseals — API contract unchanged for the owner.
+	list, err := store.ListSelfCerts(ctx, acct)
+	if err != nil || len(list) != 1 {
+		t.Fatalf("list: %v", err)
+	}
+	if list[0].TIN != "123456789" {
+		t.Fatalf("unsealed tin: %q", list[0].TIN)
+	}
+	if string(list[0].Fields) == "" ||
+		!strings.Contains(string(list[0].Fields), "Jane Doe") {
+		t.Fatalf("unsealed fields: %s", list[0].Fields)
+	}
+}
+
+// TestITSelfCertBackfill seeds a legacy plaintext row (the pre-210
+// shape), runs SealTaxPIIBackfill, and asserts the row is sealed and the
+// plaintext columns cleared — the exact migration-window transition.
+func TestITSelfCertBackfill(t *testing.T) {
+	ctx, pool := itPool(t)
+	applyKYCSchema(t, ctx, pool)
+	acct := mkAccount(t, ctx, pool, "T1")
+	store, err := NewPgStore(pool, testBox(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Legacy row — what migration 205 wrote before 210 existed.
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO tax_self_certifications
+		    (account_id, form_type, tin, tin_country, tin_kind,
+		     fields, status, tin_validated_at)
+		VALUES ($1,'W-9','123456789','US','SSN',
+		        '{"legal_name":"Legacy Name","address":"9 Old Rd"}'::jsonb,
+		        'VALIDATED', now())`, acct); err != nil {
+		t.Fatalf("seed legacy row: %v", err)
+	}
+	// And a second legacy row with no TIN (W-8BEN minimal).
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO tax_self_certifications
+		    (account_id, form_type, fields, status)
+		VALUES ($1,'W-8BEN','{"legal_name":"No TIN"}'::jsonb,'SUBMITTED')`, acct); err != nil {
+		t.Fatalf("seed legacy row 2: %v", err)
+	}
+
+	n, err := store.SealTaxPIIBackfill(ctx)
+	if err != nil || n != 2 {
+		t.Fatalf("backfill: n=%d err=%v", n, err)
+	}
+	// Idempotent — second run touches nothing.
+	if n, err := store.SealTaxPIIBackfill(ctx); err != nil || n != 0 {
+		t.Fatalf("second backfill: n=%d err=%v", n, err)
+	}
+
+	// No plaintext left anywhere on the table.
+	var leaks int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM tax_self_certifications
+		 WHERE (tin IS NOT NULL AND tin <> '') OR fields <> '{}'::jsonb`).Scan(&leaks); err != nil {
+		t.Fatal(err)
+	}
+	if leaks != 0 {
+		t.Fatalf("%d rows still carry plaintext PII", leaks)
+	}
+	list, err := store.ListSelfCerts(ctx, acct)
+	if err != nil || len(list) != 2 {
+		t.Fatalf("list: %v", err)
+	}
+	// Newest first: [0] is the W-8BEN (id 2), [1] the W-9 (id 1).
+	if list[0].TIN != "" ||
+		!strings.Contains(string(list[0].Fields), "No TIN") {
+		t.Fatalf("backfilled no-TIN row: %+v", list[0])
+	}
+	if list[1].TIN != "123456789" ||
+		!strings.Contains(string(list[1].Fields), "Legacy Name") {
+		t.Fatalf("backfilled row unreadable: %+v", list[1])
+	}
+	// pg_dump-visibility assertion: no SSN-shaped digits in the raw row.
+	var tinSealed []byte
+	if err := pool.QueryRow(ctx, `
+		SELECT tin_sealed FROM tax_self_certifications
+		 WHERE form_type='W-9'`).Scan(&tinSealed); err != nil {
+		t.Fatal(err)
+	}
+	if ssnShape.Match(tinSealed) {
+		t.Fatal("tin_sealed exposes SSN-shaped digits")
+	}
+}
+
+// TestITSelfCertUnseal covers the 210-down-migration pre-step:
+// UnsealTaxPII restores the plaintext columns from the sealed blobs.
+func TestITSelfCertUnseal(t *testing.T) {
+	ctx, pool := itPool(t)
+	applyKYCSchema(t, ctx, pool)
+	acct := mkAccount(t, ctx, pool, "T1")
+	store, err := NewPgStore(pool, testBox(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := NewService(store, &fakeObjects{}, "kms", nil)
+	if _, err := svc.SubmitSelfCert(ctx, SelfCertInput{
+		AccountID: acct, FormType: "W-9", TIN: "123-45-6789",
+		TINCountry: "US", TINKind: "SSN",
+		Fields: []byte(`{"legal_name":"Jane Doe"}`)}); err != nil {
+		t.Fatalf("self-cert: %v", err)
+	}
+	n, err := store.UnsealTaxPII(ctx)
+	if err != nil || n != 1 {
+		t.Fatalf("unseal: n=%d err=%v", n, err)
+	}
+	var tin string
+	var fieldsText string
+	if err := pool.QueryRow(ctx, `
+		SELECT COALESCE(tin,''), fields::text
+		  FROM tax_self_certifications WHERE account_id=$1`, acct).
+		Scan(&tin, &fieldsText); err != nil {
+		t.Fatal(err)
+	}
+	if tin != "123456789" || !strings.Contains(fieldsText, "Jane Doe") {
+		t.Fatalf("restored plaintext wrong: tin=%q fields=%s", tin, fieldsText)
+	}
+	// Sealed columns remain (the down migration owns their drop) and the
+	// read path still prefers them.
+	list, err := store.ListSelfCerts(ctx, acct)
+	if err != nil || len(list) != 1 || list[0].TIN != "123456789" {
+		t.Fatalf("list after unseal: %+v err=%v", list, err)
 	}
 }

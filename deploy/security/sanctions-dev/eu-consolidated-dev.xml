@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- DEV FIXTURE ONLY — not a real EU consolidated sanctions list.
+     Fictitious entries for the Phase-13.5 sanctions-screening
+     validation. Structure mimics the EU FSF consolidated list
+     (NAME / WHOLENAME under SUBJECT). See README.md. -->
+<CONSOLIDATED_LIST dateGenerated="2026-01-01">
+  <SUBJECT>
+    <NAME>
+      <WHOLENAME>Maximilian Powers</WHOLENAME>
+    </NAME>
+  </SUBJECT>
+  <SUBJECT>
+    <NAME>
+      <WHOLENAME>Embargoed Trading Company</WHOLENAME>
+    </NAME>
+  </SUBJECT>
+</CONSOLIDATED_LIST>

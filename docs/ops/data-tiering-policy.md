@@ -84,3 +84,27 @@ Cold archives are `csv+zstd` + manifest under
 - **Stray warm tables:** tables found in the warm schema without
   `partition_tier_state` rows are adopted with unknown `range_end` and
   are never auto-exported (SKIPPED until an operator fixes the record).
+
+## Mitigation — operator response
+
+When a tiering stage fails (non-zero cron exit pages P2): the failed
+stage is idempotent — re-run the wrapper after fixing the cause; check
+`partition_tier_state` for the stage row that did not advance. A
+stray-table adoption (§7) is resolved by inserting the missing
+`partition_tier_state` row, never by dropping the table.
+
+## Escalation
+
+Tiering failures page P2 (data growth, not correctness). Escalate to P1
+only when a failed export would push a PG volume past the §2.7.3 WAL
+watermark or when a compliance-hold block exposes a missing legal hold —
+route to Finance Ops + Compliance via `docs/runbooks/incident-escalation.md`.
+
+## Trigger
+
+This runbook is the response target for `HotTierGrowthAnomaly` and
+`RetentionPolicyViolation` (`deploy/monitoring/capacity-alerts.yml`),
+for a non-zero exit on any `deploy/crons/*tiering*`/`archive` wrapper
+(the P2 page), and for operator-initiated tier moves. It is also the
+reference when §6 monitoring shows a partition stuck in a tier
+transition.

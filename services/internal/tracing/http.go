@@ -8,7 +8,10 @@
 package tracing
 
 import (
+	"bufio"
 	"context"
+	"fmt"
+	"net"
 	"net/http"
 	"strconv"
 
@@ -45,6 +48,21 @@ func (r *statusRecorder) Flush() {
 	if f, ok := r.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
 	}
+}
+
+// Unwrap exposes the underlying ResponseWriter for http.ResponseController
+// and any middleware that walks the writer chain.
+func (r *statusRecorder) Unwrap() http.ResponseWriter { return r.ResponseWriter }
+
+// Hijack forwards WS-upgrade hijacking to the wrapped writer — gorilla's
+// Upgrader asserts http.Hijacker on the writer it receives, so a recorder
+// without Hijack silently breaks every upgrade downstream (500).
+func (r *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	h, ok := r.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("tracing: response writer does not support hijack")
+	}
+	return h.Hijack()
 }
 
 // Middleware returns an http middleware that opens a SERVER span per

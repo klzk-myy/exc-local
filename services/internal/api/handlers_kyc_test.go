@@ -302,6 +302,11 @@ func TestKYCSelfCertHappyPath(t *testing.T) {
 	if cert["tin_kind"] != "SSN" || cert["status"] != "VALIDATED" {
 		t.Fatalf("cert: %v", cert)
 	}
+	// PII-F1: sealing is a storage property — the API contract still
+	// returns the normalized TIN to the owning authenticated user.
+	if cert["tin"] != "123456789" {
+		t.Fatalf("tin must echo normalized for the owner: %v", cert["tin"])
+	}
 }
 
 func TestKYCSelfCertBadTIN(t *testing.T) {

@@ -152,9 +152,9 @@ func ckP13BreakerReset(ctx context.Context, env *spec.Env) spec.Result {
 }
 
 // pyscript runs a repo-root python validator script as checkpoint evidence.
-func pyscript(env *spec.Env, rel string) step {
+func pyscript(env *spec.Env, rel string, args ...string) step {
 	return func(ctx context.Context, _ *spec.Env) spec.Result {
-		c := exec.CommandContext(ctx, "python3", env.Path(rel))
+		c := exec.CommandContext(ctx, "python3", append([]string{env.Path(rel)}, args...)...)
 		c.Dir = env.Path(".")
 		c.Env = os.Environ()
 		out, err := c.CombinedOutput()

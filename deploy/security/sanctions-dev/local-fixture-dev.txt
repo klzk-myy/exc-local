@@ -1,0 +1,5 @@
+# DEV FIXTURE ONLY — not a real sanctions list.
+# One party name per line for the Phase-13.5 sanctions-screening
+# validation. See README.md.
+Blocked Beneficiary Trading
+Quarantined Holdings

@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"exchange/internal/objectstore"
 )
 
@@ -524,5 +526,39 @@ func TestSubmitSelfCertTierGate(t *testing.T) {
 		TINKind: "SSN", Fields: json.RawMessage(`{"legal_name":"A"}`)})
 	if err != nil || cert.ID == 0 {
 		t.Fatalf("T1 self-cert: cert=%+v err=%v", cert, err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// PII-F1 sealing (migration 210) — fail-closed box semantics, no PG needed
+// ---------------------------------------------------------------------------
+
+type failBox struct{}
+
+func (failBox) Seal([]byte) ([]byte, error) { return nil, errors.New("seal engine down") }
+func (failBox) Open([]byte) ([]byte, error) { return nil, errors.New("seal engine down") }
+
+func TestPgStoreNilBoxFailsClosed(t *testing.T) {
+	// A zero-value pool pointer is enough to reach the box check.
+	if _, err := NewPgStore(&pgxpool.Pool{}, nil); err == nil {
+		t.Fatal("nil box must fail closed at construction")
+	}
+}
+
+func TestInsertSelfCertSealFailureFailsClosed(t *testing.T) {
+	// Seal failure must abort before any INSERT — plaintext PII never
+	// reaches the table (the pool is never touched).
+	s := &PgStore{box: failBox{}}
+	err := s.InsertSelfCert(context.Background(), &SelfCert{
+		AccountID: 1, FormType: "W-9", TIN: "123456789",
+		Fields: json.RawMessage(`{"legal_name":"A"}`)})
+	if err == nil {
+		t.Fatal("seal failure must fail the insert")
+	}
+	// Nil box on a hand-built store is also an error, not a panic.
+	s = &PgStore{}
+	if err := s.InsertSelfCert(context.Background(), &SelfCert{
+		Fields: json.RawMessage(`{"legal_name":"A"}`)}); err == nil {
+		t.Fatal("nil box must fail the insert")
 	}
 }

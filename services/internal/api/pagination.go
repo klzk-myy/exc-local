@@ -75,6 +75,12 @@ var ListSpecs = []ListSpec{
 	{Path: "/api/v1/admin/support/complaints/register", Default: 100, Max: 500,
 		Sortable:   []string{"created_at", "id"},
 		Filterable: []string{"status"}},
+	// Phase-13.5 Task 13.5.3.8 VDP register.
+	{Path: "/api/v1/admin/security/disclosures", Default: 100, Max: 500,
+		Sortable: []string{"created_at", "id"},
+		Filterable: []string{
+			"status", "severity", "source", "bulletin",
+			"assignee", "unassigned", "breached"}},
 	// Phase-07 Task 7.3.3 audit query (both paths share the handler).
 	{Path: "/api/v1/admin/audit-log", Default: 100, Max: 1000,
 		Sortable: []string{"created_at", "id"},

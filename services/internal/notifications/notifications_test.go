@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -541,5 +542,42 @@ func TestAntiPhishUnsetBanner(t *testing.T) {
 	}
 	if !strings.Contains(msg.Body, "have not set an anti-phishing code") {
 		t.Fatalf("expected unset-code banner: %q", msg.Body)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// LogSender PII masking (Task 13.5.3.2 finding PII-F4)
+// ---------------------------------------------------------------------------
+
+func TestLogSenderMasksRecipient(t *testing.T) {
+	var buf strings.Builder
+	log := slog.New(slog.NewTextHandler(&buf, nil))
+	s := &LogSender{Ch: ChannelEmail, Log: log}
+	if err := s.Send(context.Background(), Message{
+		Channel: ChannelEmail, Event: EventDepositConfirmed,
+		UserID: 42, DeliveryID: 9,
+		To: "trader.jane@example.com", Subject: "Deposit confirmed",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if strings.Contains(out, "trader.jane@example.com") {
+		t.Fatalf("log line leaks raw recipient: %q", out)
+	}
+	if !strings.Contains(out, "***@example.com") {
+		t.Fatalf("log line missing masked recipient: %q", out)
+	}
+}
+
+func TestMaskRecipient(t *testing.T) {
+	cases := map[string]string{
+		"trader.jane@example.com": "***@example.com",
+		"+15551234567":            "***",
+		"":                        "***",
+	}
+	for in, want := range cases {
+		if got := maskRecipient(in); got != want {
+			t.Fatalf("maskRecipient(%q) = %q, want %q", in, got, want)
+		}
 	}
 }

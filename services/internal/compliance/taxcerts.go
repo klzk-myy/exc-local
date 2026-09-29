@@ -16,6 +16,11 @@
 //     submitted with tin_kind empty and a PASSTHROUGH_NON_US marker in
 //     fields["tin_validation"]. Jurisdiction-specific format rules are a
 //     Phase-21 concern; this intake never fabricates a validation claim.
+//
+// Storage posture (PII-F1, migration 210): TIN and the whole fields
+// document are AES-256-GCM sealed at rest in tin_sealed/fields_sealed —
+// see PgStore in store.go. Validation above runs on plaintext in memory
+// before sealing; the SelfCert API surface is unchanged.
 package compliance
 
 import (

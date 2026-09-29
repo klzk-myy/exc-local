@@ -202,7 +202,12 @@ func TestLogSenderDelivers(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(got, "u@x.io") {
-		t.Fatalf("log line missing recipient: %q", got)
+	// PII masking (Task 13.5.3.2 finding PII-F5): the raw address must
+	// never reach the log line; the routing domain does.
+	if strings.Contains(got, "u@x.io") {
+		t.Fatalf("log line leaks raw recipient: %q", got)
+	}
+	if !strings.Contains(got, "***@x.io") {
+		t.Fatalf("log line missing masked recipient: %q", got)
 	}
 }

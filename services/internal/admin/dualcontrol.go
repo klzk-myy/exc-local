@@ -66,7 +66,8 @@ func SensitiveOperation(op string) bool {
 	case OpKillSwitch, OpBalanceAdjustment, OpManualLiquidation,
 		OpWithdrawalOverride, OpAdminRoleChange, OpFeeTierChange,
 		OpReleaseSuspendedAcct, OpDeployToProduction, OpBreakGlass,
-		OpAPIKeyExpiryExtend, OpCircuitBreakerReset:
+		OpAPIKeyExpiryExtend, OpCircuitBreakerReset,
+		OpInstrumentMaintenance:
 		return true
 	}
 	return false

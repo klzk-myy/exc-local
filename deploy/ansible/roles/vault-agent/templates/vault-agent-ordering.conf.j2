@@ -1,0 +1,8 @@
+# Drop-in for matching-engine@.service — boot ordering only.
+# Deployed by deploy/ansible/roles/vault-agent (Task 13.5.3.6):
+# the engine's secret files must exist before it opens them; absent
+# material is a fail-closed boot error per spec §2.7, but ordering
+# avoids the flap on every reboot.
+[Unit]
+After=vault-agent-exchange.service
+Wants=vault-agent-exchange.service

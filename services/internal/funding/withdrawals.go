@@ -35,16 +35,18 @@ import (
 // poster + checker are required (fail closed on nil); limits, usd and
 // alerter are optional enrichments wired at composition root.
 type WithdrawalService struct {
-	store   Store
-	poster  JournalPoster
-	checker MutableChecker
-	limits  WithdrawalLimiter // nil = cap enforcement not wired
-	usd     UsdConverter      // nil = every withdrawal tiers PENDING_REVIEW
-	alerter OpsAlerter        // nil = alerts skipped (logged)
-	bens    BeneficiaryGate   // nil = registry check not wired
-	rails   RailController    // nil = rail-suspension check not wired
-	clock   func() time.Time
-	logf    func(format string, args ...any)
+	store     Store
+	poster    JournalPoster
+	checker   MutableChecker
+	limits    WithdrawalLimiter   // nil = cap enforcement not wired
+	usd       UsdConverter        // nil = every withdrawal tiers PENDING_REVIEW
+	alerter   OpsAlerter          // nil = alerts skipped (logged)
+	bens      BeneficiaryGate     // nil = registry check not wired
+	rails     RailController      // nil = rail-suspension check not wired
+	sanctions WithdrawalScreener  // nil = STANDARD tier escalates to review (fail closed)
+	resolver  BeneficiaryResolver // nil = screen the raw destination reference
+	clock     func() time.Time
+	logf      func(format string, args ...any)
 }
 
 // BeneficiaryGate is the Task 11.3.7 verified-beneficiary check —
@@ -53,6 +55,27 @@ type WithdrawalService struct {
 // beneficiary inside its 24h hold → BENEFICIARY_HOLD_ACTIVE (422).
 type BeneficiaryGate interface {
 	AssertWithdrawable(ctx context.Context, accountID int64, reference string) error
+}
+
+// WithdrawalScreener is the sanctions seam for outbound flows — the
+// symmetric counterpart to SanctionsScreener on deposits (Phase-13.5
+// Task 13.5.3.3; production vendor binding remains Phase-21). A hit is
+// not a hard reject: the withdrawal parks in PENDING_REVIEW with the
+// SANCTIONS_HIT flag for compliance disposition — the documented
+// review/halt path. A screener error surfaces
+// SANCTIONS_SERVICE_UNAVAILABLE and leaves the withdrawal PENDING
+// (fail closed — outbound funds never move on an unavailable screen).
+type WithdrawalScreener interface {
+	ScreenWithdrawal(ctx context.Context, accountID int64,
+		beneficiaryName, destination string) (hit bool, err error)
+}
+
+// BeneficiaryResolver maps a destination reference to the registered
+// beneficiary so the screen runs against the beneficiary legal name —
+// *PgStore satisfies it (bank_accounts lookup, migration 040). Nil
+// keeps the screen on the raw destination reference.
+type BeneficiaryResolver interface {
+	BeneficiaryByDestination(ctx context.Context, accountID int64, destination string) (*BeneficiaryRow, error)
 }
 
 // NewWithdrawalService wires the service; store/poster/checker are
@@ -99,6 +122,25 @@ func (s *WithdrawalService) WithRailController(c RailController) *WithdrawalServ
 	return s
 }
 
+// WithSanctions wires the outbound sanctions screen (Phase-13.5 Task
+// 13.5.3.3). Production wiring is mandatory — a nil screener fails the
+// STANDARD tier closed to PENDING_REVIEW (mirroring the deposit seam),
+// and a screener error at confirm surfaces SANCTIONS_SERVICE_UNAVAILABLE
+// leaving the withdrawal PENDING (outbound funds never move unscreened
+// past the STANDARD tier).
+func (s *WithdrawalService) WithSanctions(sc WithdrawalScreener) *WithdrawalService {
+	s.sanctions = sc
+	return s
+}
+
+// WithBeneficiaryResolver wires the bank_accounts lookup that resolves
+// the destination reference to the beneficiary legal name for the
+// screen. PgStore satisfies it; nil keeps the raw reference.
+func (s *WithdrawalService) WithBeneficiaryResolver(r BeneficiaryResolver) *WithdrawalService {
+	s.resolver = r
+	return s
+}
+
 // WithLogger wires a log sink for best-effort diagnostics.
 func (s *WithdrawalService) WithLogger(f func(format string, args ...any)) *WithdrawalService {
 	s.logf = f
@@ -141,6 +183,7 @@ type WithdrawalResult struct {
 	ExpiresAt       *time.Time `json:"expires_at,omitempty"`
 	Replayed        bool       `json:"replayed,omitempty"`
 	DispatchPending bool       `json:"dispatch_pending,omitempty"` // journal committed, event dispatch failed
+	Flags           []string   `json:"flags,omitempty"`            // e.g. SANCTIONS_HIT / SANCTIONS_UNAVAILABLE
 }
 
 // bankMethodDomain is the bank_method_enum domain (migration 007).
@@ -450,6 +493,30 @@ func (s *WithdrawalService) Confirm(ctx context.Context, req ConfirmWithdrawalRe
 		d := now.Add(ReviewWindow)
 		deadline = &d
 	}
+
+	// Phase-13.5 Task 13.5.3.3 — outbound sanctions screen. A wired
+	// screener screens every tier at confirm (the last point before the
+	// funds move); a hit parks the withdrawal in PENDING_REVIEW with the
+	// SANCTIONS_HIT flag — the documented review/halt disposition, same
+	// queue the >$50K tier lands in. A screener error fails closed with
+	// SANCTIONS_SERVICE_UNAVAILABLE and leaves the row PENDING. With no
+	// screener wired, the STANDARD tier escalates to PENDING_REVIEW
+	// flagged SANCTIONS_UNAVAILABLE — mirroring the deposit seam's
+	// fail-closed posture.
+	var flags []string
+	flag, serr := s.screenSanctions(ctx, w, tier)
+	if serr != nil {
+		return nil, serr
+	}
+	if flag != "" {
+		flags = append(flags, flag)
+		newStatus = FundingPendingReview
+		if deadline == nil {
+			d := now.Add(ReviewWindow)
+			deadline = &d
+		}
+	}
+
 	if err := s.store.SetConfirmationStatus(ctx, tx, conf.ID, "confirmed", req.UserID, method); err != nil {
 		return nil, err
 	}
@@ -461,15 +528,24 @@ func (s *WithdrawalService) Confirm(ctx context.Context, req ConfirmWithdrawalRe
 	}
 
 	if newStatus == FundingPendingReview && s.alerter != nil {
+		code, summary := "WITHDRAWAL_PENDING_REVIEW",
+			fmt.Sprintf("withdrawal %d entered PENDING_REVIEW (> $50K tier, 4h deadline)", w.ID)
+		for _, f := range flags {
+			if f == "SANCTIONS_HIT" {
+				code = "SANCTIONS_HIT"
+				summary = fmt.Sprintf("withdrawal %d held by sanctions screen — PENDING_REVIEW, 4h deadline", w.ID)
+			}
+		}
 		if aerr := s.alerter.Raise(ctx, OpsAlert{
 			Severity: "P1",
-			Code:     "WITHDRAWAL_PENDING_REVIEW",
-			Summary:  fmt.Sprintf("withdrawal %d entered PENDING_REVIEW (> $50K tier, 4h deadline)", w.ID),
+			Code:     code,
+			Summary:  summary,
 			Details: map[string]string{
 				"withdrawal_id": fmt.Sprintf("%d", w.ID),
 				"account_id":    fmt.Sprintf("%d", w.AccountID),
 				"currency":      w.Currency,
 				"amount":        w.Amount.String(),
+				"flags":         strings.Join(flags, ","),
 			},
 		}); aerr != nil {
 			s.log("funding: ops alert for withdrawal %d failed: %v", w.ID, aerr)
@@ -484,7 +560,50 @@ func (s *WithdrawalService) Confirm(ctx context.Context, req ConfirmWithdrawalRe
 		USDAmount:      decPtr(w.USDAmount),
 		ReviewTier:     w.ReviewTier,
 		ReviewDeadline: deadline,
+		Flags:          flags,
 	}, nil
+}
+
+// screenSanctions runs the outbound sanctions leg for Confirm. The
+// beneficiary legal name resolves through the bank_accounts registry
+// when the resolver seam is wired; the raw destination reference is
+// always a second candidate. Returns the review flag to stamp (""
+// = clear) or an error — screener outage maps to
+// SANCTIONS_SERVICE_UNAVAILABLE (fail closed, withdrawal stays
+// PENDING); an internal lookup fault maps to INTERNAL_ERROR.
+func (s *WithdrawalService) screenSanctions(ctx context.Context,
+	w *WithdrawalRow, tier string) (string, error) {
+	if s.sanctions == nil {
+		// Symmetric with DepositService.standardChecks: the STANDARD
+		// tier cannot silently pass without its sanctions leg.
+		if tier == ReviewTierStandard {
+			return "SANCTIONS_UNAVAILABLE", nil
+		}
+		return "", nil
+	}
+	name := ""
+	dest := strVal(w.ReferenceAccount)
+	if s.resolver != nil && dest != "" {
+		ben, err := s.resolver.BeneficiaryByDestination(ctx, w.AccountID, dest)
+		if err != nil {
+			return "", wrapCode("INTERNAL_ERROR", "beneficiary lookup", err)
+		}
+		if ben != nil {
+			name = ben.BeneficiaryName
+		}
+	}
+	hit, err := s.sanctions.ScreenWithdrawal(ctx, w.AccountID, name, dest)
+	if err != nil {
+		s.log("funding: sanctions screen for withdrawal %d unavailable: %v", w.ID, err)
+		return "", errf("SANCTIONS_SERVICE_UNAVAILABLE",
+			"sanctions screening unavailable for withdrawal %d", w.ID)
+	}
+	if hit {
+		s.log("funding: withdrawal %d sanctions screen hit (account %d dest %q)",
+			w.ID, w.AccountID, dest)
+		return "SANCTIONS_HIT", nil
+	}
+	return "", nil
 }
 
 // ---------------------------------------------------------------------------

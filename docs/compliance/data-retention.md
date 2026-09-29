@@ -57,3 +57,14 @@ Data types bound to a *lifecycle* rather than a wall-clock window (KYC =
 account close + 5y) are listed for completeness and enforced by the
 offboarding workflow; the nightly enforcer logs them SKIPPED with the
 owning flow named — the schedule still governs.
+
+## Trigger / escalation
+
+The nightly retention enforcer surfaces `RetentionPolicyViolation` and
+`HotTierGrowthAnomaly` alerts (`deploy/monitoring/capacity-alerts.yml`
+runbook annotations point here).
+A SKIPPED row with `legal_hold` needs Compliance Officer review; a
+repeatedly-failing table page P2 via the on-call chain
+(`docs/runbooks/incident-escalation.md`). Regulatory-request escalations
+(DSR, supervisory letters) go to Compliance + legal per the GDPR erasure
+runbook (`docs/security/gdpr-erasure-runbook.md`).

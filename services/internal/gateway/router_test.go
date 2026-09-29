@@ -97,10 +97,10 @@ func TestErrorsEndpoint(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if body.SpecCount != 181 {
-		t.Fatalf("spec_count %d, want 181", body.SpecCount)
+	if body.SpecCount != 182 {
+		t.Fatalf("spec_count %d, want 182", body.SpecCount)
 	}
-	if body.Count != len(body.Codes) || body.Count < 181 {
+	if body.Count != len(body.Codes) || body.Count < 182 {
 		t.Fatalf("error dump mismatch: count=%d len=%d", body.Count, len(body.Codes))
 	}
 }

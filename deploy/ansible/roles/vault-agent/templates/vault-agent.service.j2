@@ -1,0 +1,39 @@
+# vault-agent-exchange.service — Vault agent sidecar for the bare-metal
+# matching-engine host (Phase-13.5 Task 13.5.3.6).
+# Boots BEFORE the engine: matching-engine@.service must not see an
+# empty {{ vault_agent_secret_dir }} (its file-open fails closed anyway,
+# but ordering prevents a flap on every reboot).
+[Unit]
+Description=HashiCorp Vault agent (exchange secrets → tmpfs)
+After=network-online.target
+Wants=network-online.target
+Before=matching-engine.target
+ConditionPathExists=/etc/exchange/vault-agent.hcl
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/vault agent -config=/etc/exchange/vault-agent.hcl
+Restart=always
+RestartSec=2s
+# The agent's failure must not silently strand the engine on stale
+# secrets — systemd restart + the render-error alert cover it.
+WatchdogSec=30s
+
+User={{ vault_agent_owner }}
+Group={{ vault_agent_group }}
+
+# Render destination is tmpfs — the only writable path the agent needs.
+ReadWritePaths={{ vault_agent_secret_dir }} /run
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+NoNewPrivileges=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+LockPersonality=yes
+MemoryMax=256M
+
+SyslogIdentifier=vault-agent
+
+[Install]
+WantedBy=multi-user.target

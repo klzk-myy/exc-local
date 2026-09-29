@@ -103,6 +103,30 @@ func (a supportAlerter) Raise(_ context.Context, severity, code, message string)
 	return a.nc.Conn().Publish("ops.alerts.support", payload)
 }
 
+// vdpAlerter routes VDP SLA-breach / expedite alerts to the ops alert
+// channel (Phase-13.5 Task 13.5.3.8 — VDP_SLA_BREACH is an internal ops
+// alert per the §23 internal-only list, never an API error). NATS
+// publish is best-effort; an absent or disconnected bus degrades to
+// logging by the caller, never an error — alerts must not wedge the
+// disclosure register. Implements security.Alerter.
+type vdpAlerter struct {
+	nc *nats.Client
+}
+
+func (a vdpAlerter) Raise(_ context.Context, severity, code, message string) error {
+	payload, err := json.Marshal(map[string]string{
+		"severity": severity, "code": code, "message": message,
+		"source": "vdp",
+	})
+	if err != nil {
+		return err
+	}
+	if a.nc == nil || !a.nc.Connected() {
+		return nil
+	}
+	return a.nc.Conn().Publish("ops.alerts.security", payload)
+}
+
 // orderDispatchAdapter binds accounts.OrderDispatcher (dead-man sweeper,
 // close-all) to orders.Service — the single dispatch path, never a
 // direct engine call.

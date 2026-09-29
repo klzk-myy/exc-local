@@ -8,8 +8,9 @@ import (
 )
 
 func TestSpecTableSizeAndUniqueness(t *testing.T) {
-	if got := len(specCodes); got != 181 {
-		t.Fatalf("spec §23 table must carry 181 codes, got %d", got)
+	// 182 = 181 + DISCLOSURE_NOT_FOUND (Phase-13.5 Task 13.5.3.8).
+	if got := len(specCodes); got != 182 {
+		t.Fatalf("spec §23 table must carry 182 codes, got %d", got)
 	}
 	seen := map[string]bool{}
 	for _, d := range specCodes {
