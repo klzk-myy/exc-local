@@ -29,6 +29,7 @@
 #include "election/LeaderElection.hpp"
 #include "health/HealthChecker.hpp"
 #include "ipc/EnginePump.hpp"
+#include "ipc/L3Publisher.hpp"
 #include "ipc/SharedMemChannel.hpp"
 #include "matching/EngineLoop.hpp"
 #include "matching/IpcPublisher.hpp"
@@ -442,10 +443,16 @@ int main(int argc, char** argv) {
     // Sinks outlive the engine (declaration order = reverse destruction).
     exch::WalWriter wal_writer(&wal);            // ORDER_*/TRADE journal
     exch::IpcPublisher publisher(&core_chan);    // fills/book fan-out
+    // Phase-17 Task 17.3.1 (spec §11): L3 order-level stream on the same
+    // outbound channel — the engine stamps every emitted event with the
+    // exact WAL seq via journal_seq(), so L3 <-> journal correlation is
+    // 1:1 verifiable (§24 #318 engine half).
+    exch::L3Publisher l3_pub(&core_chan);
     // Outbound is journal-first; publisher drops are channel backpressure —
     // EnginePump::note_outbound_drop accounting is wired when the pump owns
     // the outbound path (Phase-03 bridge consumes the same channel).
-    exch::MatchingEngine engine(shard, book, orders, &wal_writer, &publisher);
+    exch::MatchingEngine engine(shard, book, orders, &wal_writer, &publisher,
+                                &l3_pub);
 
     // In-process pre-trade risk (Task 2.3.3): 14 checks, <10µs, codes surface
     // verbatim as engine last_reject(). now_ns_source reads the engine's

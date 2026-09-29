@@ -1205,3 +1205,31 @@ pairs (consumed 038/066/071/075/077/224/225 — all round-tripped on dev PG) ·
 openapi **430** ops · PII **147** cols. Honest seams recorded in spec §27:
 LP fixing-residual leg, MARK/INDEX oracle pending Phase-19.5 (fail-closed),
 `trades.fee=0` on fix crosses, VWAP flat-profile fallback.
+
+## [2026-10-08] — PHASE-17 SETTLE (L3 order-level data — all 4 tasks)
+
+**4/4 P17 spec checkpoints bound and green** (`tests/spec/checks/phase17.go`);
+29 DoD/SDD rows ticked; §17.7's 17 AC rows checkbox-free. Corpus: **571 total
+/ 0 fail / 2 env skips**. Traceability strict: 0 defects.
+
+- **C++ (`L3Publisher` + `exchange.fbs` union-9 `L3OrderEvent`):** every order
+  lifecycle mutation emits an order-level event (add/modify/cancel/fill incl.
+  taker/maker legs, IOC remainder reason, peg reprice-as-modify, hidden flag);
+  per-symbol seq consumed even on send failure (consumer-detectable gaps);
+  salted FNV-1a `account_hash` pseudonym; `wal_seq` journal correlation —
+  feedless replay reproduces the identical stream. `test_l3` 14/14 green.
+- **Go (`marketdata/l3.go` + `l3_snapshot.go` + `api/handlers_l3.go`):**
+  premium-tier `/ws/v1/l3/{symbol}` (5-sub cap, no conflation, `last_seq`
+  replay from 100k-event ring); `GET /api/v1/market-data/l3-snapshot/{symbol}`
+  WAL-marker + snapshot+tail replay on dedicated reader, cursor pages,
+  ≤500ms staleness fail-closed, 413 `L3_SNAPSHOT_TOO_LARGE` >100k; gap →
+  `L3_SEQUENCE_GAP_DETECTED` + snapshot re-sync; >5,000-lag or >1.5s
+  saturation → `L3_CONSUMER_OVERRUN`.
+- **Surveillance (`internal/surveillance` + mig 029 `surveillance_signals`):**
+  7 detectors (spoofing, layering, wash, marking-the-close, momentum ignition,
+  front-running, insider dealing) on the `compliance-l3` durable JetStream
+  consumer; deterministic `dedup_key` + ON CONFLICT DO NOTHING; Phase-21
+  owns enforcement.
+
+Counts: error registry **192** unchanged · migrations **128** pairs (029
+round-tripped) · openapi **430** ops · PII 147 cols / 170 tables.

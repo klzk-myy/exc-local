@@ -1,6 +1,6 @@
 # PII Inventory — GDPR Art. 30 Record + Encryption/Access Map
 
-**Generated:** 2026-09-29 18:44 UTC by `scripts/security/gen-pii-inventory.py` (Task 13.5.3.2) from 127 `*.up.sql` migrations (169 tables, 1951 columns). Do not hand-edit; update the generator's ANNOTATIONS map and re-run. Companion artifacts: `pii-catalog.csv` (same rows, machine-checkable), `pii-audit-report.md` (verification evidence), `gdpr-erasure-runbook.md` (Art. 17 procedure).
+**Generated:** 2026-09-29 19:47 UTC by `scripts/security/gen-pii-inventory.py` (Task 13.5.3.2) from 128 `*.up.sql` migrations (170 tables, 1968 columns). Do not hand-edit; update the generator's ANNOTATIONS map and re-run. Companion artifacts: `pii-catalog.csv` (same rows, machine-checkable), `pii-audit-report.md` (verification evidence), `gdpr-erasure-runbook.md` (Art. 17 procedure).
 
 PII classes: **DIRECT_ID** (name/address/residency) · **CONTACT** (email/phone) · **GOV_ID** (TIN/ID documents) · **FINANCIAL** (bank identifiers) · **AUTH_SECRET** (credentials — hashed/sealed, tracked for erasure) · **PSEUDONYMOUS** (IP/UA/fingerprint/geo/actor ids) · **LINKAGE** (user_id/account_id re-identification joins) · **FREE_TEXT** (may embed incidental PII) · **ORG_CONTACT** (institutional contacts).
 
@@ -459,10 +459,10 @@ None — every PII-name-pattern column carries a curated classification.
 Schema-verified by the generator (no PII-name-pattern column and no curated annotation). Venue-owned operational/financial state: balances, positions, instruments, GL, nostro, margin, market data, fleet/ops, pricing config.
 
 `instruments` `balances` `audit_hash_chain` `risk_limits` `fee_tiers` `margin_accounts` `positions` `liquidation_auctions`
-`insurance_fund` `nostro_accounts` `audit_merkle_roots` `processed_trades` `book_snapshots` `chart_of_accounts`
-`journal_entries` `ledger_lines` `appropriateness_assessments` `recovery_reports` `grid_bots` `grid_bot_orders`
-`prevented_matches` `client_role_bindings` `client_approval_policies` `order_list_legs` `strategies`
-`withdrawal_whitelist_settings` `vip_tier_schedule` `account_equity_snapshots` `account_vip_history`
+`insurance_fund` `nostro_accounts` `audit_merkle_roots` `processed_trades` `book_snapshots` `surveillance_signals`
+`chart_of_accounts` `journal_entries` `ledger_lines` `appropriateness_assessments` `recovery_reports`
+`grid_bots` `grid_bot_orders` `prevented_matches` `client_role_bindings` `client_approval_policies` `order_list_legs`
+`strategies` `withdrawal_whitelist_settings` `vip_tier_schedule` `account_equity_snapshots` `account_vip_history`
 `instruments_reference` `auction_calendar` `currency_day_counts` `swap_markup_policies` `non_trading_fee_schedule`
 `swap_accrual_records` `principal_role_systems` `admin_recert_campaigns` `environments` `fleet_hosts`
 `release_promotions` `deploy_windows` `recovery_digests` `account_product_profiles` `copy_follows` `copy_child_orders`

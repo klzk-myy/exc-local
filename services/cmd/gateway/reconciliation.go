@@ -59,6 +59,23 @@ func reconciliationWalDirs(shardMap *config.ShardMap) []string {
 	return out
 }
 
+// walDirsForSymbol resolves the WAL dir(s) owning the symbol's shard —
+// Phase-17 Task 17.3.2 L3 snapshot reader's WalDirs seam. Under the
+// EXC_WAL_ROOT convention it is exactly root/<shard>; under the explicit
+// EXC_WAL_DIRS list the full set is returned and the reader's
+// per-segment shard filter picks the matching dir (a foreign-shard dir
+// is skipped, not an error).
+func walDirsForSymbol(shardMap *config.ShardMap, symbol string) []string {
+	if strings.TrimSpace(os.Getenv("EXC_WAL_DIRS")) != "" {
+		return reconciliationWalDirs(shardMap)
+	}
+	root := strings.TrimSpace(os.Getenv("EXC_WAL_ROOT"))
+	if root == "" {
+		root = "/wal"
+	}
+	return []string{root + "/" + strconv.Itoa(shardMap.GetShard(symbol))}
+}
+
 // reconciliationInterval reads EXC_RECON_INTERVAL (default 1h).
 func reconciliationInterval() time.Duration {
 	if raw := strings.TrimSpace(os.Getenv("EXC_RECON_INTERVAL")); raw != "" {

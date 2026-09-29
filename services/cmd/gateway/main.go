@@ -10,6 +10,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -43,6 +44,7 @@ import (
 	"exchange/internal/instruments"
 	"exchange/internal/ipc"
 	"exchange/internal/marketapi"
+	"exchange/internal/marketdata"
 	"exchange/internal/middleware"
 	"exchange/internal/nats"
 	"exchange/internal/notifications"
@@ -1215,6 +1217,78 @@ func run() error {
 	// "admin.circuit_breaker" WS admin-monitor channel (documented seam —
 	// no pre-existing admin monitor channel in ws.Server).
 	breakerSvc.WithPublisher(wsSrv)
+
+	// ---- Phase-17 Tasks 17.3.2/17.3.4 — L3 order-level surface ----
+	//
+	// The dedicated /ws/v1/l3/{symbol} endpoint shares ws.Server's auth
+	// seams (JWT keyring, API-key HMAC/Ed25519 verifier, fee_tiers
+	// resolver) but runs its own hub: a 100,000-event per-symbol replay
+	// ring, NO conflation (every order event forwards), non-blocking
+	// per-subscriber outboxes (5,000-msg lag or 1.5s socket saturation
+	// ⇒ L3_CONSUMER_OVERRUN), last_seq resume and gap→snapshot recovery
+	// (L3_SEQUENCE_GAP_DETECTED).
+	l3Journal := marketdata.NewRedisGapJournal(rdb.Client)
+	l3Hub := marketdata.NewL3Hub(marketdata.L3HubConfig{
+		Logger: log, Journal: l3Journal})
+	l3Srv := marketdata.NewL3Server(marketdata.L3ServerConfig{
+		Hub: l3Hub, Issuer: jwtIssuer, Verifier: sigVerifier,
+		Logger: log, TrustProxy: true,
+		TierResolver: func(ctx context.Context, sess *ws.Session) ratelimit.Tier {
+			var name *string
+			if err := pool.QueryRow(ctx, `
+				SELECT t.tier_name FROM accounts a
+				LEFT JOIN fee_tiers t ON t.id = a.fee_tier_id
+				WHERE a.id = $1`, sess.AccountID).Scan(&name); err != nil || name == nil {
+				return ratelimit.TierBasic
+			}
+			return ratelimit.ParseTier(*name)
+		},
+	})
+	// Feed pump: the bridge republishes L3OrderEvent rows on the
+	// JetStream "l3" stream (l3.{shard}.{symbol}); the SPSC _out ring
+	// keeps its single consumer (bridge), the gateway rides the durable
+	// republish. Absent NATS the hub idles — the endpoint still answers
+	// control frames honestly (empty snapshot/resync).
+	if natsClient != nil {
+		l3Symbols := marketdata.SubjectSymbol{}
+		if insts, ierr := marketStore.ListInstruments(context.Background()); ierr == nil {
+			for _, in := range insts {
+				l3Symbols[strings.ReplaceAll(in.Symbol, "/", "-")] = in.Symbol
+			}
+		}
+		l3src := marketdata.NewJetStreamL3Source(
+			marketdata.JetStreamMsgSource(natsClient, "l3", "gateway-l3", "l3.>", log),
+			l3Symbols, log)
+		go func() {
+			if err := l3Hub.Run(sweepCtx, l3src); err != nil &&
+				!errors.Is(err, context.Canceled) {
+				log.Error("l3 feed pump exited", "err", err)
+			}
+		}()
+	} else {
+		log.Warn("nats unavailable — L3 order-level feed idle (endpoint serves resync)")
+	}
+
+	// WAL snapshot REST: the dedicated reader prescans the symbol's
+	// shard dir for a WAL position marker, replays BOOK_SNAPSHOT+tail
+	// forward to it and cursor-paginates — the matching loop is never
+	// touched (spec §11.1 asynchronous reconstruction).
+	l3SnapReader := marketdata.NewL3SnapshotReader(marketdata.L3SnapshotDeps{
+		WalDirs: func(symbol string) []string {
+			return walDirsForSymbol(shardMap, symbol)
+		},
+		InstrumentID: func(symbol string) (uint32, bool) {
+			inst, ierr := marketStore.InstrumentBySymbol(context.Background(), symbol)
+			if ierr != nil || inst == nil {
+				return 0, false
+			}
+			return uint32(inst.ID), true
+		},
+		Shard: func(symbol string) (int, bool) {
+			return shardMap.GetShard(symbol), true
+		},
+	})
+	l3SnapDeps := &api.L3SnapshotDeps{Reader: l3SnapReader}
 	// Task 13.3.9 sweeper: 1s cadence advances OPEN→HALF_OPEN at hold
 	// expiry and resolves 30s probe windows (HALF_OPEN→CLOSED/OPEN).
 	go breakerSvc.Run(sweepCtx, time.Second)
@@ -2651,6 +2725,11 @@ func run() error {
 		// --- Phase-05 Wave-2 Cluster E live handlers ---
 		// Tasks 5.3.26/5.3.31: unified WS endpoint.
 		"WS /ws/v1": wsSrv,
+		// Phase-17 Task 17.3.2 — dedicated premium L3 order-level stream
+		// + WAL-reconstructed point-in-time snapshot.
+		"WS /ws/v1/l3/{symbol}": l3Srv,
+		"GET /api/v1/market-data/l3-snapshot/{symbol}": http.HandlerFunc(
+			api.MarketDataL3Snapshot(l3SnapDeps)),
 		// Task 5.3.30: dual-control manual liquidation.
 		"POST /api/v1/admin/liquidation/manual": api.ManualLiquidationHandler(liqSvc, true),
 		// Task 5.3.42: published hardening contracts.
@@ -2917,6 +2996,12 @@ func run() error {
 					Reason:     "maintenance",
 					RetryAfter: 2 * time.Second,
 				})
+			}},
+			// Phase-17: the L3 surface drains beside the unified endpoint —
+			// its conns close 1001 with the drain reason.
+			{Name: "l3_drain", Timeout: 15 * time.Second, Fn: func(c context.Context) error {
+				l3Srv.Drain()
+				return nil
 			}},
 			{Name: "http_drain", Timeout: 30 * time.Second, Fn: srv.Shutdown},
 		})

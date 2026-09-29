@@ -6700,16 +6700,17 @@ export const ROUTE_CONTRACTS: Readonly<Record<string, RouteContract>> = {
   'GET /api/v1/market-data/l3-snapshot/{symbol}': {
     method: 'GET',
     path: '/api/v1/market-data/l3-snapshot/{symbol}',
-    status: 'stub',
+    status: 'live',
     authRequired: true,
     scopes: ['read'],
     role: null,
     methods: null,
-    rateTier: 'public',
+    rateTier: 'professional',
     weight: 1,
     dualControl: false,
     owner: 'Phase-17 Task 17.3.2',
-    summary: 'L3 order-level snapshot (≤100k-order ceiling)',
+    summary:
+      'L3 order-level snapshot — WAL marker + replay (≤100k-order ceiling, cursor-paginated, ≤500ms staleness)',
     params: [
       {
         name: 'symbol',
@@ -8592,7 +8593,7 @@ export const ROUTE_CONTRACTS: Readonly<Record<string, RouteContract>> = {
   'GET /ws/v1/l3/{symbol}': {
     method: 'GET',
     path: '/ws/v1/l3/{symbol}',
-    status: 'stub',
+    status: 'live',
     authRequired: true,
     scopes: [],
     role: null,
@@ -8600,8 +8601,9 @@ export const ROUTE_CONTRACTS: Readonly<Record<string, RouteContract>> = {
     rateTier: 'professional',
     weight: 1,
     dualControl: false,
-    owner: 'Phase-17',
-    summary: 'L3 order-level data stream (authenticated, premium tier)',
+    owner: 'Phase-17 Task 17.3.2',
+    summary:
+      'L3 order-level data stream (authenticated, premium tier; max 5 subs; 100k-event replay ring)',
     params: [
       {
         name: 'symbol',

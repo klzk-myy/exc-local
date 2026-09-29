@@ -16,6 +16,7 @@ const (
 	EventTypeOrderAmend   EventType = 6
 	EventTypeOcoLink      EventType = 7
 	EventTypeAuctionEvent EventType = 8
+	EventTypeL3OrderEvent EventType = 9
 )
 
 var EnumNamesEventType = map[EventType]string{
@@ -28,6 +29,7 @@ var EnumNamesEventType = map[EventType]string{
 	EventTypeOrderAmend:   "OrderAmend",
 	EventTypeOcoLink:      "OcoLink",
 	EventTypeAuctionEvent: "AuctionEvent",
+	EventTypeL3OrderEvent: "L3OrderEvent",
 }
 
 var EnumValuesEventType = map[string]EventType{
@@ -40,6 +42,7 @@ var EnumValuesEventType = map[string]EventType{
 	"OrderAmend":   EventTypeOrderAmend,
 	"OcoLink":      EventTypeOcoLink,
 	"AuctionEvent": EventTypeAuctionEvent,
+	"L3OrderEvent": EventTypeL3OrderEvent,
 }
 
 func (v EventType) String() string {

@@ -351,8 +351,8 @@ func SeedRoutes() []Route {
 			Status:      StatusStub,
 			Description: "Combined stream path (?streams=a@x,b@y; subscription multiplexing)"},
 		{Method: "WS", Path: "/ws/v1/l3/{symbol}", Version: "v1", Auth: authUser,
-			RateTier: TierProfessional, Weight: 1, Owner: "Phase-17",
-			Status: StatusStub, Description: "L3 order-level data stream (authenticated, premium tier)"},
+			RateTier: TierProfessional, Weight: 1, Owner: "Phase-17 Task 17.3.2",
+			Status: StatusLive, Description: "L3 order-level data stream (authenticated, premium tier; max 5 subs; 100k-event replay ring)"},
 
 		// ---- Task 5.3.29 gateway health probes (R9 schema live via
 		//      internal/api/health.go) ----
@@ -731,8 +731,8 @@ func SeedRoutes() []Route {
 			"Taker buy/sell volume split", authPublic),
 		v1(http.MethodGet, "/api/v1/market-data/snapshot", TierPublic, "Phase-06",
 			"Full L2/L3 snapshot fallback for WS gap recovery", authPublic),
-		v1(http.MethodGet, "/api/v1/market-data/l3-snapshot/{symbol}", TierPublic, "Phase-17 Task 17.3.2",
-			"L3 order-level snapshot (≤100k-order ceiling)", authRead),
+		v1live(http.MethodGet, "/api/v1/market-data/l3-snapshot/{symbol}", TierProfessional, "Phase-17 Task 17.3.2",
+			"L3 order-level snapshot — WAL marker + replay (≤100k-order ceiling, cursor-paginated, ≤500ms staleness)", authRead),
 		v1(http.MethodGet, "/api/v1/instruments/{symbol}/pip-value", TierPublic, "Phase-03 Task 3.3.12",
 			"Pip value calculator (cross-currency, JPY-aware)", authPublic),
 		v1(http.MethodGet, "/api/v1/instruments/{symbol}/swap-rates", TierPublic, "Phase-03 Task 3.3.11",

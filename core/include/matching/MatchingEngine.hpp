@@ -53,15 +53,21 @@
 namespace exch {
 
 class IpcPublisher;
+class L3Publisher;      // ipc/L3Publisher.hpp (Phase-17 Task 17.3.1)
 class InstrumentFeed;   // risk/InstrumentFeed.hpp (Phase-15 control feed)
 class PriceOracleFeed;  // risk/PriceOracleFeed.hpp (Phase-16 mark/index)
 
 class MatchingEngine : public IEngineIngress {
 public:
-    // wal / publisher may be nullptr -> journal/publish degrade to no-ops.
+    // wal / publisher / l3 may be nullptr -> journal/publish degrade to
+    // no-ops. l3 is the Phase-17 order-level stream (spec §11) — it must be
+    // bound BEFORE any wal-journal bookkeeping so L3 events can carry the
+    // exact WAL seq (journal_seq()); journal-free engines emit a
+    // deterministic virtual cursor (replay, unit tests).
     MatchingEngine(uint32_t shard_id, OrderBook& book,
                    MemoryPool<Order>& orders, WalWriter* wal = nullptr,
-                   IpcPublisher* publisher = nullptr) noexcept;
+                   IpcPublisher* publisher = nullptr,
+                   L3Publisher* l3 = nullptr) noexcept;
     ~MatchingEngine() override;
 
     MatchingEngine(const MatchingEngine&) = delete;
@@ -538,6 +544,13 @@ public:
         return pegs_live_;
     }
 
+    // --- L3 journal correlation (Phase-17 Task 17.3.1, spec §11/§24 #318) --
+    // RecoveryManager re-anchors the virtual WAL cursor per replayed WAL
+    // entry so the replayed engine's emitted L3 wal_seq stream is
+    // bit-identical to live. Consumed by journal_seq() at every journal
+    // site (live engines read wal_->tail_seq() instead).
+    void set_replay_wal_seq(uint64_t seq) noexcept;
+
 private:
     // Per-order aux side table: trade_group_id (STP, migration 072) and
     // GTD/DAY expiry for resting book orders AND pending stops. Only orders
@@ -590,8 +603,34 @@ private:
     // --- helpers --------------------------------------------------------------
 
     void reject(const Order* order, const char* code) noexcept;
+    // WAL ORDER_CANCEL + L3 Cancel + L2 OrderCancel. `detail` lets the L3
+    // row carry side/price/remaining when the caller holds the node; when
+    // nullptr the emit path resolves book->stops->parked itself.
     void emit_cancel_event(uint64_t order_id, uint64_t account_id,
-                           uint8_t wal_reason) noexcept;
+                           uint8_t wal_reason, const Order* detail = nullptr) noexcept;
+
+    // --- L3 journal correlation (Phase-17 Task 17.3.1, spec §11/§24 #318) --
+    // The exact sequence the NEXT journaled row will commit with. Live:
+    // wal_->tail_seq() — the committed seq is captured BEFORE the append so
+    // it cannot be confused with a later tail. Journal-free (wal==nullptr,
+    // replay + unit tests): a virtual cursor consumed at every journal site
+    // so derived rows land on the same consecutive seqs the single writer
+    // stamped live. Call journal_seq() exactly once per journal site,
+    // unconditionally, before the write guard.
+    [[nodiscard]] uint64_t journal_seq() noexcept;
+    // Emit helpers — no-ops when l3_ is unbound. flags come from the order
+    // (hidden/peg/iceberg bits); callers pass scalars where the node may
+    // already be dead.
+    [[nodiscard]] uint8_t l3_flags_of(const Order& o) const noexcept;
+    const Order* l3_order_detail(uint64_t order_id) noexcept;
+    void l3_emit_ev(uint8_t kind, uint64_t order_id, uint64_t account_id,
+                    Side side, uint32_t instrument_id, int64_t price_ticks,
+                    int64_t ref_price_ticks, int64_t qty_units,
+                    int64_t qty_delta, uint64_t trade_id, uint8_t fill_role,
+                    uint8_t flags, uint8_t cancel_reason,
+                    uint64_t wal_seq) noexcept;
+    void l3_cancel(uint64_t order_id, uint64_t account_id, uint8_t wal_reason,
+                   uint64_t wal_seq, const Order* detail) noexcept;
     // Locate-and-terminate an order wherever it lives: pending stop queue,
     // resting book node (incl. iceberg slices + hidden remainder), or
     // nowhere (idempotent no-op). WAL ORDER_CANCEL precedes the mutation.
@@ -834,6 +873,10 @@ private:
     MemoryPool<Order>& orders_;
     WalWriter* wal_;
     IpcPublisher* publisher_;
+    L3Publisher* l3_ = nullptr;             // Phase-17 L3 stream (spec §11)
+    // Journal-free WAL-seq cursor for replay/anchor semantics — see
+    // journal_seq()/set_replay_wal_seq() above.
+    uint64_t replay_wal_seq_ = 0;
 
     StopOrderTrigger stops_;
     IcebergManager icebergs_;

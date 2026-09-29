@@ -72,6 +72,7 @@ add_library(exch_core STATIC
     src/ipc/AeronChannel.cpp
     src/ipc/AeronDriverConfig.cpp
     src/ipc/IpcChannel.cpp
+    src/ipc/L3Publisher.cpp
     src/ipc/SharedMemChannel.cpp
     src/ipc/EnginePump.cpp
     src/matching/MatchingEngine.cpp
@@ -198,7 +199,8 @@ if(EXCH_BUILD_TESTS)
             test_snapshot_manager
             test_lifecycle_auction
             test_oco
-            test_phase16)
+            test_phase16
+            test_l3)
         add_executable(${t} tests/${t}.cpp)
         target_link_libraries(${t} PRIVATE exch_core gtest_main)
         add_test(NAME ${t} COMMAND ${t})

@@ -36,6 +36,9 @@ struct BookSnapshotBuilder;
 struct AuctionEvent;
 struct AuctionEventBuilder;
 
+struct L3OrderEvent;
+struct L3OrderEventBuilder;
+
 struct Event;
 struct EventBuilder;
 
@@ -153,6 +156,81 @@ inline const char *EnumNameTimeInForce(TimeInForce e) {
   return EnumNamesTimeInForce()[index];
 }
 
+/// Outbound: one order-level (L3) lifecycle event — Phase-17 Task 17.3.1,
+/// spec §11. Emitted by the matching core ONLY after the triggering
+/// mutation is WAL-committed: wal_seq is that row's sequence, giving the
+/// read model a 1:1-verifiable L3 <-> journal correlation (spec §24 #318).
+/// A single WAL row may produce multiple L3 events sharing its wal_seq
+/// (e.g. a TRADE row yields maker + taker Fill events; an ingress row may
+/// yield Add + Fill + remainder Cancel); every emitted event then carries
+/// the seq of the row that caused it.
+///
+///   account_hash: stable pseudonym, NEVER the raw account id — salted
+///                 FNV-1a-64, see exch::L3Publisher::hash_account
+///                 (salt literal "exc.l3.account.v1").
+///   qty:          order-level remaining qty AFTER the event (scaled 1e8;
+///                 Cancel -> 0; for ICEBERG orders this is the full hidden
+///                 reserve remaining, not the visible slice).
+///   qty_delta:    signed remaining-qty change applied by this event:
+///                 +qty on Add, -fill on Fill, -cancelled remainder on
+///                 Cancel, signed delta on a qty Modify, 0 on a
+///                 price-only Modify / PEG reprice.
+///   price:        order price after the event (scaled 1e8); the fill
+///                 print on Fill; the new resting price on a PEG reprice.
+///   ref_price:    pending conditional trigger price (stop/trailing-arm
+///                 orders) when carried by the triggering WAL row; else 0.
+///   seq:          per-instrument monotonic L3 sequence (spec §11.1) —
+///                 assigned at emission and consumed even when transport
+///                 send fails, so consumers detect loss as a gap and
+///                 resync via snapshot.
+///   fill_role:    Fill only: 1 = taker leg, 2 = maker leg, 3 = auction
+///                 uncross leg; 0 elsewhere.
+///   flags:        bit0 hidden (not L2-visible: hidden flag or PEG),
+///                 bit1 pegged, bit2 synthetic venue leg (GSLO paired),
+///                 bit3 iceberg order, bit4 detail present (side/price/
+///                 qty populated; a Cancel may legitimately carry 0 when
+///                 the order context is unresolvable).
+///   cancel_reason: Cancel only — kWalCancelReason* code (0 user,
+///                 1 expired, 2 STP, 3 FOK unfilled, 4 IOC remainder,
+///                 5 slippage, 6 exec-rule, 7 OCO sibling); 0 elsewhere.
+///   kind + per-symbol seq + wal_seq let consumers and the §24 #318 audit
+///   reconcile L3 against the journal without trusting timestamps.
+enum L3EventKind {
+  L3EventKind_Add = 0,
+  L3EventKind_Modify = 1,
+  L3EventKind_Cancel = 2,
+  L3EventKind_Fill = 3,
+  L3EventKind_MIN = L3EventKind_Add,
+  L3EventKind_MAX = L3EventKind_Fill
+};
+
+inline const L3EventKind (&EnumValuesL3EventKind())[4] {
+  static const L3EventKind values[] = {
+    L3EventKind_Add,
+    L3EventKind_Modify,
+    L3EventKind_Cancel,
+    L3EventKind_Fill
+  };
+  return values;
+}
+
+inline const char * const *EnumNamesL3EventKind() {
+  static const char * const names[5] = {
+    "Add",
+    "Modify",
+    "Cancel",
+    "Fill",
+    nullptr
+  };
+  return names;
+}
+
+inline const char *EnumNameL3EventKind(L3EventKind e) {
+  if (flatbuffers::IsOutRange(e, L3EventKind_Add, L3EventKind_Fill)) return "";
+  const size_t index = static_cast<size_t>(e);
+  return EnumNamesL3EventKind()[index];
+}
+
 enum EventType {
   EventType_NONE = 0,
   EventType_OrderNew = 1,
@@ -163,11 +241,12 @@ enum EventType {
   EventType_OrderAmend = 6,
   EventType_OcoLink = 7,
   EventType_AuctionEvent = 8,
+  EventType_L3OrderEvent = 9,
   EventType_MIN = EventType_NONE,
-  EventType_MAX = EventType_AuctionEvent
+  EventType_MAX = EventType_L3OrderEvent
 };
 
-inline const EventType (&EnumValuesEventType())[9] {
+inline const EventType (&EnumValuesEventType())[10] {
   static const EventType values[] = {
     EventType_NONE,
     EventType_OrderNew,
@@ -177,13 +256,14 @@ inline const EventType (&EnumValuesEventType())[9] {
     EventType_TimeTick,
     EventType_OrderAmend,
     EventType_OcoLink,
-    EventType_AuctionEvent
+    EventType_AuctionEvent,
+    EventType_L3OrderEvent
   };
   return values;
 }
 
 inline const char * const *EnumNamesEventType() {
-  static const char * const names[10] = {
+  static const char * const names[11] = {
     "NONE",
     "OrderNew",
     "OrderCancel",
@@ -193,13 +273,14 @@ inline const char * const *EnumNamesEventType() {
     "OrderAmend",
     "OcoLink",
     "AuctionEvent",
+    "L3OrderEvent",
     nullptr
   };
   return names;
 }
 
 inline const char *EnumNameEventType(EventType e) {
-  if (flatbuffers::IsOutRange(e, EventType_NONE, EventType_AuctionEvent)) return "";
+  if (flatbuffers::IsOutRange(e, EventType_NONE, EventType_L3OrderEvent)) return "";
   const size_t index = static_cast<size_t>(e);
   return EnumNamesEventType()[index];
 }
@@ -238,6 +319,10 @@ template<> struct EventTypeTraits<exc::wire::OcoLink> {
 
 template<> struct EventTypeTraits<exc::wire::AuctionEvent> {
   static const EventType enum_value = EventType_AuctionEvent;
+};
+
+template<> struct EventTypeTraits<exc::wire::L3OrderEvent> {
+  static const EventType enum_value = EventType_L3OrderEvent;
 };
 
 bool VerifyEventType(flatbuffers::Verifier &verifier, const void *obj, EventType type);
@@ -1230,6 +1315,187 @@ inline flatbuffers::Offset<AuctionEvent> CreateAuctionEvent(
   return builder_.Finish();
 }
 
+struct L3OrderEvent FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef L3OrderEventBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_INSTRUMENT_ID = 4,
+    VT_KIND = 6,
+    VT_ORDER_ID = 8,
+    VT_ACCOUNT_HASH = 10,
+    VT_SIDE = 12,
+    VT_PRICE = 14,
+    VT_REF_PRICE = 16,
+    VT_QTY = 18,
+    VT_QTY_DELTA = 20,
+    VT_SEQ = 22,
+    VT_WAL_SEQ = 24,
+    VT_TRADE_ID = 26,
+    VT_FILL_ROLE = 28,
+    VT_FLAGS = 30,
+    VT_CANCEL_REASON = 32
+  };
+  uint32_t instrument_id() const {
+    return GetField<uint32_t>(VT_INSTRUMENT_ID, 0);
+  }
+  exc::wire::L3EventKind kind() const {
+    return static_cast<exc::wire::L3EventKind>(GetField<uint8_t>(VT_KIND, 0));
+  }
+  uint64_t order_id() const {
+    return GetField<uint64_t>(VT_ORDER_ID, 0);
+  }
+  uint64_t account_hash() const {
+    return GetField<uint64_t>(VT_ACCOUNT_HASH, 0);
+  }
+  exc::wire::Side side() const {
+    return static_cast<exc::wire::Side>(GetField<uint8_t>(VT_SIDE, 0));
+  }
+  int64_t price() const {
+    return GetField<int64_t>(VT_PRICE, 0);
+  }
+  int64_t ref_price() const {
+    return GetField<int64_t>(VT_REF_PRICE, 0);
+  }
+  int64_t qty() const {
+    return GetField<int64_t>(VT_QTY, 0);
+  }
+  int64_t qty_delta() const {
+    return GetField<int64_t>(VT_QTY_DELTA, 0);
+  }
+  uint64_t seq() const {
+    return GetField<uint64_t>(VT_SEQ, 0);
+  }
+  uint64_t wal_seq() const {
+    return GetField<uint64_t>(VT_WAL_SEQ, 0);
+  }
+  uint64_t trade_id() const {
+    return GetField<uint64_t>(VT_TRADE_ID, 0);
+  }
+  uint8_t fill_role() const {
+    return GetField<uint8_t>(VT_FILL_ROLE, 0);
+  }
+  uint8_t flags() const {
+    return GetField<uint8_t>(VT_FLAGS, 0);
+  }
+  uint8_t cancel_reason() const {
+    return GetField<uint8_t>(VT_CANCEL_REASON, 0);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<uint32_t>(verifier, VT_INSTRUMENT_ID) &&
+           VerifyField<uint8_t>(verifier, VT_KIND) &&
+           VerifyField<uint64_t>(verifier, VT_ORDER_ID) &&
+           VerifyField<uint64_t>(verifier, VT_ACCOUNT_HASH) &&
+           VerifyField<uint8_t>(verifier, VT_SIDE) &&
+           VerifyField<int64_t>(verifier, VT_PRICE) &&
+           VerifyField<int64_t>(verifier, VT_REF_PRICE) &&
+           VerifyField<int64_t>(verifier, VT_QTY) &&
+           VerifyField<int64_t>(verifier, VT_QTY_DELTA) &&
+           VerifyField<uint64_t>(verifier, VT_SEQ) &&
+           VerifyField<uint64_t>(verifier, VT_WAL_SEQ) &&
+           VerifyField<uint64_t>(verifier, VT_TRADE_ID) &&
+           VerifyField<uint8_t>(verifier, VT_FILL_ROLE) &&
+           VerifyField<uint8_t>(verifier, VT_FLAGS) &&
+           VerifyField<uint8_t>(verifier, VT_CANCEL_REASON) &&
+           verifier.EndTable();
+  }
+};
+
+struct L3OrderEventBuilder {
+  typedef L3OrderEvent Table;
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_instrument_id(uint32_t instrument_id) {
+    fbb_.AddElement<uint32_t>(L3OrderEvent::VT_INSTRUMENT_ID, instrument_id, 0);
+  }
+  void add_kind(exc::wire::L3EventKind kind) {
+    fbb_.AddElement<uint8_t>(L3OrderEvent::VT_KIND, static_cast<uint8_t>(kind), 0);
+  }
+  void add_order_id(uint64_t order_id) {
+    fbb_.AddElement<uint64_t>(L3OrderEvent::VT_ORDER_ID, order_id, 0);
+  }
+  void add_account_hash(uint64_t account_hash) {
+    fbb_.AddElement<uint64_t>(L3OrderEvent::VT_ACCOUNT_HASH, account_hash, 0);
+  }
+  void add_side(exc::wire::Side side) {
+    fbb_.AddElement<uint8_t>(L3OrderEvent::VT_SIDE, static_cast<uint8_t>(side), 0);
+  }
+  void add_price(int64_t price) {
+    fbb_.AddElement<int64_t>(L3OrderEvent::VT_PRICE, price, 0);
+  }
+  void add_ref_price(int64_t ref_price) {
+    fbb_.AddElement<int64_t>(L3OrderEvent::VT_REF_PRICE, ref_price, 0);
+  }
+  void add_qty(int64_t qty) {
+    fbb_.AddElement<int64_t>(L3OrderEvent::VT_QTY, qty, 0);
+  }
+  void add_qty_delta(int64_t qty_delta) {
+    fbb_.AddElement<int64_t>(L3OrderEvent::VT_QTY_DELTA, qty_delta, 0);
+  }
+  void add_seq(uint64_t seq) {
+    fbb_.AddElement<uint64_t>(L3OrderEvent::VT_SEQ, seq, 0);
+  }
+  void add_wal_seq(uint64_t wal_seq) {
+    fbb_.AddElement<uint64_t>(L3OrderEvent::VT_WAL_SEQ, wal_seq, 0);
+  }
+  void add_trade_id(uint64_t trade_id) {
+    fbb_.AddElement<uint64_t>(L3OrderEvent::VT_TRADE_ID, trade_id, 0);
+  }
+  void add_fill_role(uint8_t fill_role) {
+    fbb_.AddElement<uint8_t>(L3OrderEvent::VT_FILL_ROLE, fill_role, 0);
+  }
+  void add_flags(uint8_t flags) {
+    fbb_.AddElement<uint8_t>(L3OrderEvent::VT_FLAGS, flags, 0);
+  }
+  void add_cancel_reason(uint8_t cancel_reason) {
+    fbb_.AddElement<uint8_t>(L3OrderEvent::VT_CANCEL_REASON, cancel_reason, 0);
+  }
+  explicit L3OrderEventBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  flatbuffers::Offset<L3OrderEvent> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<L3OrderEvent>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<L3OrderEvent> CreateL3OrderEvent(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    uint32_t instrument_id = 0,
+    exc::wire::L3EventKind kind = exc::wire::L3EventKind_Add,
+    uint64_t order_id = 0,
+    uint64_t account_hash = 0,
+    exc::wire::Side side = exc::wire::Side_Buy,
+    int64_t price = 0,
+    int64_t ref_price = 0,
+    int64_t qty = 0,
+    int64_t qty_delta = 0,
+    uint64_t seq = 0,
+    uint64_t wal_seq = 0,
+    uint64_t trade_id = 0,
+    uint8_t fill_role = 0,
+    uint8_t flags = 0,
+    uint8_t cancel_reason = 0) {
+  L3OrderEventBuilder builder_(_fbb);
+  builder_.add_trade_id(trade_id);
+  builder_.add_wal_seq(wal_seq);
+  builder_.add_seq(seq);
+  builder_.add_qty_delta(qty_delta);
+  builder_.add_qty(qty);
+  builder_.add_ref_price(ref_price);
+  builder_.add_price(price);
+  builder_.add_account_hash(account_hash);
+  builder_.add_order_id(order_id);
+  builder_.add_instrument_id(instrument_id);
+  builder_.add_cancel_reason(cancel_reason);
+  builder_.add_flags(flags);
+  builder_.add_fill_role(fill_role);
+  builder_.add_side(side);
+  builder_.add_kind(kind);
+  return builder_.Finish();
+}
+
 /// Envelope for every IPC message. `type_type` carries the discriminator.
 struct Event FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   typedef EventBuilder Builder;
@@ -1276,6 +1542,9 @@ struct Event FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const exc::wire::AuctionEvent *type_as_AuctionEvent() const {
     return type_type() == exc::wire::EventType_AuctionEvent ? static_cast<const exc::wire::AuctionEvent *>(type()) : nullptr;
   }
+  const exc::wire::L3OrderEvent *type_as_L3OrderEvent() const {
+    return type_type() == exc::wire::EventType_L3OrderEvent ? static_cast<const exc::wire::L3OrderEvent *>(type()) : nullptr;
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<uint64_t>(verifier, VT_SEQ) &&
@@ -1317,6 +1586,10 @@ template<> inline const exc::wire::OcoLink *Event::type_as<exc::wire::OcoLink>()
 
 template<> inline const exc::wire::AuctionEvent *Event::type_as<exc::wire::AuctionEvent>() const {
   return type_as_AuctionEvent();
+}
+
+template<> inline const exc::wire::L3OrderEvent *Event::type_as<exc::wire::L3OrderEvent>() const {
+  return type_as_L3OrderEvent();
 }
 
 struct EventBuilder {
@@ -1395,6 +1668,10 @@ inline bool VerifyEventType(flatbuffers::Verifier &verifier, const void *obj, Ev
     }
     case EventType_AuctionEvent: {
       auto ptr = reinterpret_cast<const exc::wire::AuctionEvent *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case EventType_L3OrderEvent: {
+      auto ptr = reinterpret_cast<const exc::wire::L3OrderEvent *>(obj);
       return verifier.VerifyTable(ptr);
     }
     default: return true;

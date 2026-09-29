@@ -1,7 +1,7 @@
 {
   "tool": "exchange-testspec/validator trace",
   "version": "1.0.0",
-  "generated_at": "2026-09-29T18:51:43.119494422Z",
+  "generated_at": "2026-09-29T19:52:33.242062765Z",
   "repo_root": "/www/wwwroot/exc.local",
   "docs": "/www/wwwroot/exc.local/docs",
   "spec": "Specification - Complete Exchange System Suite.md",
@@ -20,7 +20,7 @@
       "spec_components": 101,
       "task_ac": 56
     },
-    "checkpoint_edges_implemented": 169,
+    "checkpoint_edges_implemented": 170,
     "fail_defects": 0,
     "warn_defects": 0
   },
@@ -739,14 +739,14 @@
               "exists": true,
               "cites_criterion": false,
               "text": "C++ core publishes all order events (add, modify, cancel, fill)",
-              "line": 153
+              "line": 154
             },
             {
               "row": 2,
               "exists": true,
               "cites_criterion": false,
               "text": "Each L3 event has order_id, side, price, qty, timestamp, seq",
-              "line": 154
+              "line": 155
             }
           ],
           "resolved": true
@@ -9861,7 +9861,7 @@
               "exists": true,
               "cites_criterion": true,
               "text": "L3 snapshot generated via async WAL replay (never blocks matching loop); REST endpoint with pagination; staleness ≤ 500ms; \u003e 100K orders returns 413 (§24 #244)",
-              "line": 168
+              "line": 169
             }
           ],
           "resolved": true
@@ -13346,7 +13346,7 @@
               "exists": true,
               "cites_criterion": true,
               "text": "L3 sequence gaps trigger automated TCP snapshot re-sync; slow consumers exceeding buffer limits disconnect with L3_CONSUMER_OVERRUN (§24 #318)",
-              "line": 169
+              "line": 170
             }
           ],
           "resolved": true
@@ -13360,8 +13360,8 @@
         "checkpoints": [
           {
             "id": "P17-T17.3.4-C1",
-            "implemented": false,
-            "checked": false,
+            "implemented": true,
+            "checked": true,
             "text": "L3 monotonic gap recovery and buffer overrun throttling (§24 #318)"
           }
         ]

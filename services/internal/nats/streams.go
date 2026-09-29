@@ -19,6 +19,10 @@ var Streams = []string{
 	"funding",
 	"margin-events",
 	"surveillance",
+	// Phase-17 Task 17.3.2 — premium order-level feed republished by the
+	// bridge (l3.{shard}.{symbol}). Distinct from "analytics" because its
+	// retention cadence and premium-tier consumers differ.
+	"l3",
 }
 
 const (

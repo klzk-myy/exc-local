@@ -16161,7 +16161,6 @@
     },
     "/api/v1/market-data/l3-snapshot/{symbol}": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_market_data_l3_snapshot_symbol",
         "parameters": [
           {
@@ -16198,7 +16197,7 @@
             ]
           }
         ],
-        "summary": "L3 order-level snapshot (≤100k-order ceiling)",
+        "summary": "L3 order-level snapshot — WAL marker + replay (≤100k-order ceiling, cursor-paginated, ≤500ms staleness)",
         "tags": [
           "market-data"
         ],
@@ -16213,8 +16212,8 @@
         "x-dual-control": false,
         "x-env": "",
         "x-owner": "Phase-17 Task 17.3.2",
-        "x-rate-tier": "public",
-        "x-status": "stub",
+        "x-rate-tier": "professional",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -20531,7 +20530,6 @@
     },
     "/ws/v1/l3/{symbol}": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "ws_ws_v1_l3_symbol",
         "parameters": [
           {
@@ -20562,7 +20560,7 @@
             "oauth2": null
           }
         ],
-        "summary": "L3 order-level data stream (authenticated, premium tier)",
+        "summary": "L3 order-level data stream (authenticated, premium tier; max 5 subs; 100k-event replay ring)",
         "tags": [
           "ws"
         ],
@@ -20578,9 +20576,9 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-17",
+        "x-owner": "Phase-17 Task 17.3.2",
         "x-rate-tier": "professional",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },

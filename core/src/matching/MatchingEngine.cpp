@@ -22,6 +22,7 @@
 #include <new>
 
 #include "book/Instrument.hpp"
+#include "ipc/L3Publisher.hpp"
 #include "matching/IpcPublisher.hpp"
 #include "risk/InstrumentFeed.hpp"
 #include "risk/PriceOracleFeed.hpp"
@@ -105,12 +106,14 @@ namespace {
 
 MatchingEngine::MatchingEngine(uint32_t shard_id, OrderBook& book,
                                MemoryPool<Order>& orders, WalWriter* wal,
-                               IpcPublisher* publisher) noexcept
+                               IpcPublisher* publisher,
+                               L3Publisher* l3) noexcept
     : shard_id_(shard_id),
       book_(book),
       orders_(orders),
       wal_(wal),
       publisher_(publisher),
+      l3_(l3),
       stops_(orders.capacity() < StopOrderTrigger::kDefaultCapacity
                  ? orders.capacity()
                  : StopOrderTrigger::kDefaultCapacity),
@@ -392,6 +395,7 @@ void MatchingEngine::on_oco_link_received(uint64_t link_id,
     p.order_id_b = order_id_b;
     p.account_id = account_id;
     p.instrument_id = instrument_id;
+    (void)journal_seq();   // consume the link row's seq (no L3 side)
     if (wal_ != nullptr &&
         wal_->write_oco_link(p, now_ns_) != WalStatus::Ok) {
         wal_fault_ = true;
@@ -546,12 +550,107 @@ void MatchingEngine::reject(const Order* order, const char* code) noexcept {
     if (order != nullptr) oco_on_dead(order->id, /*by_fill=*/false);
 }
 
+// --- L3 journal correlation + emission (Phase-17 Task 17.3.1, spec §11) ---
+//
+// journal_seq() is the seq the NEXT journaled row will commit with: the
+// real WAL tail in live mode (WalWriter assigns seq == tail_seq() at call
+// time), or the virtual cursor in journal-free replay — consumed at EVERY
+// journal site so derived rows keep the consecutive seqs the single
+// writer stamped live. RecoveryManager re-anchors the cursor per replayed
+// entry via set_replay_wal_seq(); unanchored journal-free engines (unit
+// tests) simply count from 0.
+uint64_t MatchingEngine::journal_seq() noexcept {
+    return wal_ != nullptr ? wal_->tail_seq() : replay_wal_seq_++;
+}
+
+void MatchingEngine::set_replay_wal_seq(uint64_t seq) noexcept {
+    replay_wal_seq_ = seq;
+}
+
+uint8_t MatchingEngine::l3_flags_of(const Order& o) const noexcept {
+    uint8_t f = kL3FlagDetail;
+    if (!l2_visible(o)) f |= kL3FlagHidden;
+    if (o.type == OrderType::PEG) f |= kL3FlagPegged;
+    if (o.type == OrderType::ICEBERG) f |= kL3FlagIceberg;
+    return f;
+}
+
+const Order* MatchingEngine::l3_order_detail(uint64_t order_id) noexcept {
+    if (const Order* o = book_.find_order(order_id)) return o;
+    if (const StopOrderTrigger::Pending* s = stops_.find(order_id))
+        return s->order;
+    if (const Order* p = parked_find(order_id)) return p;
+    return nullptr;
+}
+
+void MatchingEngine::l3_emit_ev(uint8_t kind, uint64_t order_id,
+                                uint64_t account_id, Side side,
+                                uint32_t instrument_id, int64_t price_ticks,
+                                int64_t ref_price_ticks, int64_t qty_units,
+                                int64_t qty_delta, uint64_t trade_id,
+                                uint8_t fill_role, uint8_t flags,
+                                uint8_t cancel_reason,
+                                uint64_t wal_seq) noexcept {
+    if (l3_ == nullptr) return;
+    L3Event ev{};
+    ev.instrument_id = instrument_id;
+    ev.kind = kind;
+    ev.order_id = order_id;
+    ev.account_id = account_id;
+    ev.side = side;
+    ev.price_ticks = price_ticks;
+    ev.ref_price_ticks = ref_price_ticks;
+    ev.qty_units = qty_units;
+    ev.qty_delta = qty_delta;
+    ev.trade_id = trade_id;
+    ev.fill_role = fill_role;
+    ev.flags = flags;
+    ev.cancel_reason = cancel_reason;
+    ev.wal_seq = wal_seq;
+    ev.ts_ns = now_ns_;
+    (void)l3_->publish(ev);
+}
+
+void MatchingEngine::l3_cancel(uint64_t order_id, uint64_t account_id,
+                               uint8_t wal_reason, uint64_t wal_seq,
+                               const Order* detail) noexcept {
+    if (l3_ == nullptr) return;
+    if (detail != nullptr) {
+        // qty = post-event remaining (0); delta = -(remaining removed).
+        // Order-level accounting for icebergs uses the hidden-reserve
+        // effective remaining, not the visible slice.
+        const int64_t rem = effective_remaining_units(detail);
+        l3_emit_ev(static_cast<uint8_t>(L3Kind::Cancel), order_id,
+                   detail->account_id, detail->side,
+                   instrument_id_of(OrderAux{}), detail->price_ticks,
+                   /*ref_price*/ 0, /*qty*/ 0, /*qty_delta*/ -rem,
+                   /*trade_id*/ 0, kL3RoleNone, l3_flags_of(*detail),
+                   wal_reason, wal_seq);
+        return;
+    }
+    // Detail unresolvable (never-admitted / already-torn-down id): emit the
+    // minimal honest row — kL3FlagDetail left clear.
+    l3_emit_ev(static_cast<uint8_t>(L3Kind::Cancel), order_id, account_id,
+               Side::BUY, instrument_id_of(OrderAux{}), 0, 0, 0, 0, 0,
+               kL3RoleNone, 0, wal_reason, wal_seq);
+}
+
 void MatchingEngine::emit_cancel_event(uint64_t order_id, uint64_t account_id,
-                                       uint8_t wal_reason) noexcept {
+                                       uint8_t wal_reason,
+                                       const Order* detail) noexcept {
+    const uint64_t wseq = journal_seq();
+    bool journaled = true;   // journal-free: vacuously committed
     if (wal_ != nullptr &&
         wal_->write_order_cancel(order_id, account_id, wal_reason, now_ns_) !=
             WalStatus::Ok) {
         wal_fault_ = true;
+        journaled = false;
+    }
+    // L3 Cancel only once the row is durable — wal_seq must point at a
+    // committed journal row (§24 #318).
+    if (journaled) {
+        if (detail == nullptr) detail = l3_order_detail(order_id);
+        l3_cancel(order_id, account_id, wal_reason, wseq, detail);
     }
     if (publisher_ != nullptr) {
         (void)publisher_->publish_order_cancel(order_id, account_id, now_ns_,
@@ -614,12 +713,14 @@ bool MatchingEngine::cancel_internal(uint64_t order_id, uint64_t account_id,
         const uint64_t acct = s->account_id;
         const int64_t gslo_n = p->gslo_notional_units;  // read before remove
         if (check_account && acct != account_id) return false;
+        const uint64_t wseq = journal_seq();
         if (wal_ != nullptr &&
             wal_->write_order_cancel(order_id, acct, wal_reason, now_ns_) !=
                 WalStatus::Ok) {
             wal_fault_ = true;
             return false;
         }
+        l3_cancel(order_id, acct, wal_reason, wseq, s);  // pending detail
         s = stops_.remove(order_id);
         gslo_release(gslo_n);  // Task 16.3.16 — exposure released on cancel
         meta_erase(order_id);
@@ -651,12 +752,14 @@ bool MatchingEngine::cancel_internal(uint64_t order_id, uint64_t account_id,
             ++reject_count_;
             return true;  // handled: refused — the order stays parked
         }
+        const uint64_t wseq = journal_seq();
         if (wal_ != nullptr &&
             wal_->write_order_cancel(order_id, acct, wal_reason, now_ns_) !=
                 WalStatus::Ok) {
             wal_fault_ = true;
             return false;
         }
+        l3_cancel(order_id, acct, wal_reason, wseq, pk);  // parked detail
         Order* prev = nullptr;
         for (Order* c = parked_head_; c != nullptr && c != pk;
              c = c->next) {
@@ -681,12 +784,14 @@ bool MatchingEngine::cancel_internal(uint64_t order_id, uint64_t account_id,
     if (o == nullptr) return false;
     if (check_account && o->account_id != account_id) return false;
     const uint64_t acct = o->account_id;
+    const uint64_t wseq = journal_seq();
     if (wal_ != nullptr &&
         wal_->write_order_cancel(order_id, acct, wal_reason, now_ns_) !=
             WalStatus::Ok) {
         wal_fault_ = true;
         return false;
     }
+    l3_cancel(order_id, acct, wal_reason, wseq, o);  // resting detail
     if (book_.cancel_order(order_id) != BookError::OK) {
         wal_fault_ = true;  // journaled cancel could not apply — halt
         return false;
@@ -770,6 +875,7 @@ void MatchingEngine::emit_prevented_match(
     p.trade_group_id = taker_group != 0 ? taker_group : maker_group;
     p.mode = static_cast<uint8_t>(StpAction::TRANSFER);
     p.ts_ns = now_ns_;
+    (void)journal_seq();   // consume the audit row's seq (no L3 side)
     if (wal_ != nullptr &&
         wal_->write_prevented_match(p, now_ns_) != WalStatus::Ok) {
         wal_fault_ = true;
@@ -822,10 +928,16 @@ bool MatchingEngine::apply_stp(Order& taker, uint32_t taker_group,
             const int64_t maker_price = maker->price_ticks;
             const uint64_t maker_ts = maker->timestamp_ns;
             const uint64_t maker_seq = maker->ingress_seq;
+            // L3 detail captured pre-mutation — the node may be pool-freed.
+            const Side maker_side = maker->side;
+            const uint8_t maker_flags = l3_flags_of(*maker);
             bool maker_died = false;
             bool applied = true;
+            bool stp_journaled = false;   // a CANCEL/MODIFY row committed
+            uint64_t stp_wseq = 0;
             if (new_node_qty <= maker->filled_qty_units) {
                 // Slice fully consumed by the decrement -> cancel it.
+                stp_wseq = journal_seq();
                 if (wal_ != nullptr &&
                     wal_->write_order_cancel(maker_id, maker_acct,
                                              kWalCancelReasonStp, now_ns_) !=
@@ -837,6 +949,7 @@ bool MatchingEngine::apply_stp(Order& taker, uint32_t taker_group,
                     applied = false;
                 } else {
                     maker_died = true;
+                    stp_journaled = true;
                     if (publisher_ != nullptr) {
                         (void)publisher_->publish_order_cancel(maker_id, maker_acct,
                                                          now_ns_);
@@ -844,6 +957,7 @@ bool MatchingEngine::apply_stp(Order& taker, uint32_t taker_group,
                 }
             } else if (node_take > 0) {
                 // qty-down at the same price preserves queue priority.
+                stp_wseq = journal_seq();
                 if (wal_ != nullptr &&
                     wal_->write_order_modify(maker_id, maker_price,
                                              new_node_qty, 0, now_ns_) !=
@@ -855,6 +969,8 @@ bool MatchingEngine::apply_stp(Order& taker, uint32_t taker_group,
                                               maker_seq) != BookError::OK) {
                     wal_fault_ = true;
                     applied = false;
+                } else {
+                    stp_journaled = true;
                 }
             }
             if (!applied) {
@@ -898,6 +1014,30 @@ bool MatchingEngine::apply_stp(Order& taker, uint32_t taker_group,
                 note_prevented(maker_id, dec);
             } else {
                 prevented_qty_total_ += dec;
+            }
+            // L3 (Task 17.3.1): order-level view of the suppression —
+            // Cancel when the order died, Modify of the order-level
+            // remaining when it survives (iceberg slice collapse or a
+            // qty-decremented live node). wal_seq correlates to the
+            // committed ORDER_CANCEL/ORDER_MODIFY row above.
+            if (l3_ != nullptr && stp_journaled) {
+                const bool order_dead =
+                    book_.find_order(maker_id) == nullptr &&
+                    icebergs_.find(maker_id) == nullptr;
+                if (maker_died && order_dead) {
+                    l3_emit_ev(static_cast<uint8_t>(L3Kind::Cancel),
+                               maker_id, maker_acct, maker_side,
+                               instrument_id_of(OrderAux{}), maker_price, 0,
+                               /*qty*/ 0, /*delta*/ -eff_rem, 0,
+                               kL3RoleNone, maker_flags,
+                               kWalCancelReasonStp, stp_wseq);
+                } else {
+                    l3_emit_ev(static_cast<uint8_t>(L3Kind::Modify),
+                               maker_id, maker_acct, maker_side,
+                               instrument_id_of(OrderAux{}), maker_price, 0,
+                               /*qty*/ eff_rem - dec, /*delta*/ -dec, 0,
+                               kL3RoleNone, maker_flags, 0, stp_wseq);
+                }
             }
             if (book_.find_order(maker_id) == nullptr &&
                 icebergs_.find(maker_id) == nullptr) {
@@ -1018,8 +1158,17 @@ MatchingEngine::TakerResult MatchingEngine::walk_match(
             taker.side == Side::BUY ? taker.id : maker_id;
         const uint64_t sell_id =
             taker.side == Side::BUY ? maker_id : taker.id;
+        // L3 pre-mutation capture — apply_fill may free the maker node.
+        // Order-level remaining for an iceberg maker is the hidden reserve.
+        const Side maker_side = maker->side;
+        const uint8_t maker_flags =
+            l3_ != nullptr ? l3_flags_of(*maker) : 0;
+        const int64_t maker_rem_pre =
+            l3_ != nullptr ? effective_remaining_units(maker) : 0;
 
-        // WAL BEFORE mutation; publish after.
+        // WAL BEFORE mutation; publish after. The committed seq is
+        // captured pre-append so L3 Fill events correlate exactly.
+        const uint64_t wseq = journal_seq();
         if (wal_ != nullptr &&
             wal_->write_trade(tid, buy_id, sell_id, instr, px, fill,
                               now_ns_) != WalStatus::Ok) {
@@ -1046,6 +1195,17 @@ MatchingEngine::TakerResult MatchingEngine::walk_match(
             (void)publisher_->publish_trade(tid, buy_id, sell_id, px, fill,
                                       book_.book_seq(), now_ns_);
         }
+        // L3 Fill — both legs of the same TRADE row share wal_seq:
+        // taker post-fill remaining + maker post-fill remaining.
+        l3_emit_ev(static_cast<uint8_t>(L3Kind::Fill), taker.id,
+                   taker.account_id, taker.side, instr, px, /*ref*/ 0,
+                   remaining_qty_units(taker), /*delta*/ -fill, tid,
+                   kL3RoleTaker, l3_ != nullptr ? l3_flags_of(taker) : 0,
+                   0, wseq);
+        l3_emit_ev(static_cast<uint8_t>(L3Kind::Fill), maker_id, maker_acct,
+                   maker_side, instr, px, /*ref*/ 0,
+                   maker_rem_pre - fill, /*delta*/ -fill, tid,
+                   kL3RoleMaker, maker_flags, 0, wseq);
 
         // Task 2.3.16 surveillance flag (§24 #274): the pair only reached
         // the fill path because resolved stp_mode == NONE — flag every such
@@ -1128,9 +1288,11 @@ void MatchingEngine::replenish_iceberg(IcebergManager::Record* rec) noexcept {
     const BookError e = book_.add_order(tmpl, &node);
     if (e != BookError::OK) {
         // Fail-closed: the hidden remainder cannot rest -> terminal cancel.
+        // Journal + L3 emit precede the teardown so the iceberg record is
+        // still resolvable for order-level remaining-qty accounting.
+        emit_cancel_event(rid, account, kWalCancelReasonUser, &rec->tmpl);
         icebergs_.erase(rid);
         meta_erase(rid);
-        emit_cancel_event(rid, account, kWalCancelReasonUser);
         last_reject_ = kRejectBookCapacity;
         ++reject_count_;
     }
@@ -1209,14 +1371,14 @@ void MatchingEngine::finish_taker(Order& taker, const OrderAux& aux,
                                   TakerResult r, int64_t display) noexcept {
     if (wal_fault_) {
         // Engine halted — a remainder cannot rest unjournaled.
-        emit_cancel_event(taker.id, taker.account_id, kWalCancelReasonUser);
+        emit_cancel_event(taker.id, taker.account_id, kWalCancelReasonUser, &taker);
         last_reject_ = kRejectBookCapacity;
         ++reject_count_;
         meta_erase(taker.id);  // a prevented-qty slot may exist (2.3.18)
         return;
     }
     if (r.dead) {
-        emit_cancel_event(taker.id, taker.account_id, r.dead_reason);
+        emit_cancel_event(taker.id, taker.account_id, r.dead_reason, &taker);
         if (r.dead_code != nullptr) {
             last_reject_ = r.dead_code;
             ++reject_count_;
@@ -1244,7 +1406,7 @@ void MatchingEngine::finish_taker(Order& taker, const OrderAux& aux,
         emit_cancel_event(
             taker.id, taker.account_id,
             taker.tif == TimeInForce::FOK ? kWalCancelReasonFokUnfilled
-                                        : kWalCancelReasonIocRemainder);
+                                        : kWalCancelReasonIocRemainder, &taker);
         if (taker.tif == TimeInForce::FOK) {
             last_reject_ = kRejectFokUnfilled;
             ++reject_count_;
@@ -1267,7 +1429,7 @@ void MatchingEngine::rest_remainder(Order& taker, const OrderAux& aux,
         rec = icebergs_.register_order(tmpl, taker.filled_qty_units, display);
         if (rec == nullptr) {
             emit_cancel_event(taker.id, taker.account_id,
-                              kWalCancelReasonUser);
+                              kWalCancelReasonUser, &taker);
             last_reject_ = kRejectBookCapacity;
             ++reject_count_;
             meta_erase(taker.id);
@@ -1282,7 +1444,7 @@ void MatchingEngine::rest_remainder(Order& taker, const OrderAux& aux,
     const BookError e = book_.add_order(tmpl, &node);
     if (e != BookError::OK) {
         if (rec != nullptr) icebergs_.erase(taker.id);
-        emit_cancel_event(taker.id, taker.account_id, kWalCancelReasonUser);
+        emit_cancel_event(taker.id, taker.account_id, kWalCancelReasonUser, &taker);
         last_reject_ = e == BookError::DUPLICATE_ID ? kRejectDuplicateId
                                                   : kRejectBookCapacity;
         ++reject_count_;
@@ -1295,7 +1457,7 @@ void MatchingEngine::rest_remainder(Order& taker, const OrderAux& aux,
     if (!track_meta(taker.id, aux)) {
         (void)book_.cancel_order(taker.id);
         if (rec != nullptr) icebergs_.erase(taker.id);
-        emit_cancel_event(taker.id, taker.account_id, kWalCancelReasonUser);
+        emit_cancel_event(taker.id, taker.account_id, kWalCancelReasonUser, &taker);
         last_reject_ = kRejectBookCapacity;
         ++reject_count_;
         meta_erase(taker.id);
@@ -1414,6 +1576,7 @@ void MatchingEngine::trail_eval(
 void MatchingEngine::journal_triggered(
     const Order* node, const StopOrderTrigger::TriggeredInfo& info,
     const OrderAux& aux) noexcept {
+    (void)journal_seq();   // consume the trigger row's seq (no L3 side)
     if (wal_ == nullptr) return;
     WalOrderTriggeredPayload p{};
     p.order_id = node->id;
@@ -1478,6 +1641,7 @@ void MatchingEngine::gslo_fill(Order* node, const OrderAux& aux,
         node->side == Side::BUY ? node->id : kGsloVenueOrderId;
     const uint64_t sell_id =
         node->side == Side::BUY ? kGsloVenueOrderId : node->id;
+    const uint64_t wseq = journal_seq();
     if (wal_ != nullptr &&
         wal_->write_trade(tid, buy_id, sell_id, instrument_id_of(aux),
                           stop_ticks, fill, now_ns_) != WalStatus::Ok) {
@@ -1492,6 +1656,18 @@ void MatchingEngine::gslo_fill(Order* node, const OrderAux& aux,
         (void)publisher_->publish_trade(tid, buy_id, sell_id, stop_ticks,
                                         fill, book_.book_seq(), now_ns_);
     }
+    // L3 Fill — the guaranteed stop fills the taker leg in full; the venue
+    // leg is a synthetic counterparty (flags bit2), never a client order.
+    l3_emit_ev(static_cast<uint8_t>(L3Kind::Fill), node->id,
+               node->account_id, node->side, instrument_id_of(aux),
+               stop_ticks, /*ref*/ 0, /*qty*/ 0, /*delta*/ -fill, tid,
+               kL3RoleTaker, l3_flags_of(*node), 0, wseq);
+    l3_emit_ev(static_cast<uint8_t>(L3Kind::Fill), kGsloVenueOrderId,
+               /*account_id*/ 0,
+               node->side == Side::BUY ? Side::SELL : Side::BUY,
+               instrument_id_of(aux), stop_ticks, /*ref*/ 0, /*qty*/ 0,
+               /*delta*/ -fill, tid, kL3RoleMaker,
+               kL3FlagSynthetic | kL3FlagDetail, 0, wseq);
     oco_on_dead(node->id, /*by_fill=*/true);
 }
 
@@ -1610,7 +1786,9 @@ bool MatchingEngine::repeg_pass() noexcept {
         rec.priced_ok = 1;
         if (target == o->price_ticks) continue;
         // Journal BEFORE mutation: the committed price is the replay
-        // divergence anchor (PEG_REPRICE row).
+        // divergence anchor (PEG_REPRICE row). The seq is consumed
+        // unconditionally so journal-free replay counts identically.
+        const uint64_t wseq = journal_seq();
         if (wal_ != nullptr) {
             WalPegRepricePayload wp{};
             wp.order_id = rec.order_id;
@@ -1633,6 +1811,13 @@ bool MatchingEngine::repeg_pass() noexcept {
             return any;
         }
         ++peg_repriced_total_;
+        // L3 MODIFY (Task 17.3.1): PEG_REPRICE surfaces as a price-change
+        // modify — qty delta 0, price carries the new resting price,
+        // ref_price carries the peg reference for auditability.
+        l3_emit_ev(static_cast<uint8_t>(L3Kind::Modify), rec.order_id,
+                   o->account_id, o->side, instrument_id_of(OrderAux{}),
+                   target, /*ref_price*/ ref, remaining_qty_units(*o),
+                   /*delta*/ 0, 0, kL3RoleNone, l3_flags_of(*o), 0, wseq);
         any = true;
     }
     return any;
@@ -1744,7 +1929,7 @@ void MatchingEngine::process_triggered(Order* node,
         const TtVerdict v = trade_through_.check(tin);
         if (v.decision == TtDecision::REJECT) {
             emit_cancel_event(node->id, node->account_id,
-                              kWalCancelReasonUser);
+                              kWalCancelReasonUser, node);
             last_reject_ = v.code;
             ++reject_count_;
             const uint64_t nid0 = node->id;
@@ -1762,11 +1947,11 @@ void MatchingEngine::process_triggered(Order* node,
                 trade_through_.on_remainder_cancelled(node->id, node->side,
                                                       r.remaining, now_ns_);
                 emit_cancel_event(node->id, node->account_id,
-                                  kWalCancelReasonSlippageExceeded);
+                                  kWalCancelReasonSlippageExceeded, node);
                 last_reject_ = kRejectSlippageExceeded;
                 ++reject_count_;
             } else if (r.dead) {
-                emit_cancel_event(node->id, node->account_id, r.dead_reason);
+                emit_cancel_event(node->id, node->account_id, r.dead_reason, node);
                 if (r.dead_code != nullptr) {
                     last_reject_ = r.dead_code;
                     ++reject_count_;
@@ -1783,7 +1968,7 @@ void MatchingEngine::process_triggered(Order* node,
         !fok_feasible(*node, aux.trade_group_id, has_limit,
                       node->price_ticks, cb)) {
         emit_cancel_event(node->id, node->account_id,
-                          kWalCancelReasonFokUnfilled);
+                          kWalCancelReasonFokUnfilled, node);
         last_reject_ = kRejectFokUnfilled;
         ++reject_count_;
     } else {
@@ -1965,7 +2150,7 @@ void MatchingEngine::on_order_received(Order* order,
     if (const OcoMember* om = oco_find(order->id)) {
         if (om->state == kOcoDoomed) {
             emit_cancel_event(order->id, order->account_id,
-                              kWalCancelReasonOcoLink);
+                              kWalCancelReasonOcoLink, order);
             last_reject_ = kRejectOcoSiblingRace;
             ++reject_count_;
             orders_.free(order);
@@ -2086,6 +2271,7 @@ void MatchingEngine::on_order_received(Order* order,
                                                 order->display_qty_units,
                                                 book_.instrument());
     }
+    const uint64_t wseq = journal_seq();   // the ORDER_NEW row's seq
     if (wal_ != nullptr &&
         wal_->write_order_new(*order, aux, instrument_id_of(aux), display,
                               now_ns_) != WalStatus::Ok) {
@@ -2094,6 +2280,18 @@ void MatchingEngine::on_order_received(Order* order,
         orders_.free(order);
         return;
     }
+    // L3 ADD (Task 17.3.1): emitted post-commit at the head of the
+    // lifecycle — the order's own row in every downstream path (matching
+    // fills, parked rests, pending conditionals all hang off this seq).
+    // qty carries the order TOTAL (iceberg display slicing is internal);
+    // ref_price carries the pending-conditional trigger when present.
+    l3_emit_ev(static_cast<uint8_t>(L3Kind::Add), order->id,
+               order->account_id, order->side, instrument_id_of(aux),
+               order->price_ticks,
+               /*ref_price*/ aux.stop_price_ticks > 0
+                               ? aux.stop_price_ticks : 0,
+               order->qty_units, /*delta*/ order->qty_units, 0,
+               kL3RoleNone, l3_flags_of(*order), 0, wseq);
 
     // --- CALL accumulation (Task 15.3.6) -------------------------------------
     // Acceptance is journaled; instead of the continuous dispatch the
@@ -2153,7 +2351,7 @@ void MatchingEngine::on_order_received(Order* order,
                 const TtVerdict v = trade_through_.check(tin);
                 if (v.decision == TtDecision::REJECT) {
                     emit_cancel_event(order->id, order->account_id,
-                                      kWalCancelReasonUser);
+                                      kWalCancelReasonUser, order);
                     last_reject_ = v.code;
                     ++reject_count_;
                     break;
@@ -2163,7 +2361,7 @@ void MatchingEngine::on_order_received(Order* order,
                 !fok_feasible(*order, aux.trade_group_id, true,
                               walk_bound, cb)) {
                 emit_cancel_event(order->id, order->account_id,
-                                  kWalCancelReasonFokUnfilled);
+                                  kWalCancelReasonFokUnfilled, order);
                 last_reject_ = kRejectFokUnfilled;
                 ++reject_count_;
                 break;
@@ -2204,7 +2402,7 @@ void MatchingEngine::on_order_received(Order* order,
                 const TtVerdict v = trade_through_.check(tin);
                 if (v.decision == TtDecision::REJECT) {
                     emit_cancel_event(order->id, order->account_id,
-                                      kWalCancelReasonUser);
+                                      kWalCancelReasonUser, order);
                     last_reject_ = v.code;
                     ++reject_count_;
                     break;
@@ -2222,7 +2420,7 @@ void MatchingEngine::on_order_received(Order* order,
                 !fok_feasible(*order, aux.trade_group_id, market_protected,
                               protection_price_ticks, cb)) {
                 emit_cancel_event(order->id, order->account_id,
-                                  kWalCancelReasonFokUnfilled);
+                                  kWalCancelReasonFokUnfilled, order);
                 last_reject_ = kRejectFokUnfilled;
                 ++reject_count_;
                 break;
@@ -2251,7 +2449,7 @@ void MatchingEngine::on_order_received(Order* order,
                 // fills outside the collar and never rests.
                 if (!r.dead && r.remaining > 0 && !wal_fault_) {
                     emit_cancel_event(order->id, order->account_id,
-                                      kWalCancelReasonSlippageExceeded);
+                                      kWalCancelReasonSlippageExceeded, order);
                     last_reject_ = kRejectSlippageExceeded;
                     ++reject_count_;
                     break;
@@ -2285,7 +2483,7 @@ void MatchingEngine::on_order_received(Order* order,
             // Track group/expiry/source alongside the pending stop.
             if (!track_meta(order->id, aux)) {
                 emit_cancel_event(order->id, order->account_id,
-                                  kWalCancelReasonUser);
+                                  kWalCancelReasonUser, order);
                 last_reject_ = kRejectBookCapacity;
                 ++reject_count_;
                 break;
@@ -2303,7 +2501,7 @@ void MatchingEngine::on_order_received(Order* order,
             if (!stops_.enqueue(order, aux.stop_price_ticks, pm)) {
                 meta_erase(order->id);
                 emit_cancel_event(order->id, order->account_id,
-                                  kWalCancelReasonUser);
+                                  kWalCancelReasonUser, order);
                 last_reject_ = kRejectBookCapacity;
                 ++reject_count_;
                 break;
@@ -2337,7 +2535,7 @@ void MatchingEngine::on_order_received(Order* order,
             if (armed && ref0 <= 0 && wal_ != nullptr &&
                 aux.trigger_source != kTriggerSourceLast) {
                 emit_cancel_event(order->id, order->account_id,
-                                  kWalCancelReasonUser);
+                                  kWalCancelReasonUser, order);
                 last_reject_ = kRejectConditionalOracleStale;
                 ++reject_count_;
                 break;
@@ -2367,7 +2565,7 @@ void MatchingEngine::on_order_received(Order* order,
             }
             if (!track_meta(order->id, aux)) {
                 emit_cancel_event(order->id, order->account_id,
-                                  kWalCancelReasonUser);
+                                  kWalCancelReasonUser, order);
                 last_reject_ = kRejectBookCapacity;
                 ++reject_count_;
                 break;
@@ -2387,7 +2585,7 @@ void MatchingEngine::on_order_received(Order* order,
             if (!stops_.enqueue(order, stop, pm)) {
                 meta_erase(order->id);
                 emit_cancel_event(order->id, order->account_id,
-                                  kWalCancelReasonUser);
+                                  kWalCancelReasonUser, order);
                 last_reject_ = kRejectBookCapacity;
                 ++reject_count_;
                 break;
@@ -2409,7 +2607,7 @@ void MatchingEngine::on_order_received(Order* order,
             const BookError e = book_.add_order(tmpl, &node);
             if (e != BookError::OK) {
                 emit_cancel_event(order->id, order->account_id,
-                                  kWalCancelReasonUser);
+                                  kWalCancelReasonUser, order);
                 last_reject_ = e == BookError::DUPLICATE_ID
                                    ? kRejectDuplicateId
                                    : kRejectBookCapacity;
@@ -2419,7 +2617,7 @@ void MatchingEngine::on_order_received(Order* order,
             if (!track_meta(order->id, aux)) {
                 (void)book_.cancel_order(order->id);
                 emit_cancel_event(order->id, order->account_id,
-                                  kWalCancelReasonUser);
+                                  kWalCancelReasonUser, order);
                 last_reject_ = kRejectBookCapacity;
                 ++reject_count_;
                 break;
@@ -2435,7 +2633,7 @@ void MatchingEngine::on_order_received(Order* order,
             // CALL and auction_accumulate() claims them there. Fail closed
             // if one ever reaches the dispatch table.
             emit_cancel_event(order->id, order->account_id,
-                              kWalCancelReasonUser);
+                              kWalCancelReasonUser, order);
             last_reject_ = kRejectOrderInvalid;
             ++reject_count_;
             break;
@@ -2659,6 +2857,8 @@ void MatchingEngine::amend_pending_stop(StopOrderTrigger::Pending& p,
         return;
     }
 
+    const int64_t old_rem = s->qty_units - s->filled_qty_units;
+    const uint64_t wseq = journal_seq();
     if (wal_ != nullptr &&
         wal_->write_order_modify(p.order_id, price, qty, stop, now_ns_) !=
             WalStatus::Ok) {
@@ -2671,6 +2871,15 @@ void MatchingEngine::amend_pending_stop(StopOrderTrigger::Pending& p,
     s->qty_units = qty;
     s->quantity = Decimal::from_mantissa(qty);
     if (s->type == OrderType::STOP_LIMIT) s->price_ticks = price;
+    // L3 MODIFY (Task 17.3.1): pending-conditional amend — price carries
+    // the (stop-limit) limit price, ref_price the new trigger. qty delta
+    // is the change in remaining, 0 when only the trigger moved.
+    l3_emit_ev(static_cast<uint8_t>(L3Kind::Modify), p.order_id,
+               s->account_id, s->side, instrument_id_of(OrderAux{}),
+               s->type == OrderType::STOP_LIMIT ? s->price_ticks : 0,
+               /*ref_price*/ stop, s->qty_units - s->filled_qty_units,
+               /*delta*/ (s->qty_units - s->filled_qty_units) - old_rem,
+               0, kL3RoleNone, l3_flags_of(*s), 0, wseq);
     if (stop != p.stop_price_ticks) {
         // Trigger-price change loses priority (§6.9 #5): the pending chain
         // sorts strictly by stop price, so a re-stamp + resort re-parks the
@@ -2816,6 +3025,11 @@ void MatchingEngine::amend_resting(Order& o, const AmendRequest& req,
         return;
     }
 
+    // L3 captures the pre-mutation order-level remaining for qty_delta.
+    const int64_t old_rem =
+        rec != nullptr ? rec->total_qty_units - rec->filled_total_units
+                       : o.qty_units - o.filled_qty_units;
+    const uint64_t wseq = journal_seq();
     if (wal_ != nullptr &&
         wal_->write_order_modify(o.id, price,
                                  rec != nullptr ? want_total : qty, 0,
@@ -2842,6 +3056,18 @@ void MatchingEngine::amend_resting(Order& o, const AmendRequest& req,
         rec->tmpl.display_qty_units = ndisplay;
         o.display_qty_units = ndisplay;  // book-node informational mirror
     }
+    // L3 MODIFY (Task 17.3.1): covers keep-priority qty-down and atomic
+    // cancel-replace amends alike — the post-mutation price + order-level
+    // remaining (iceberg: total less filled, not the visible slice).
+    {
+        const int64_t new_rem =
+            rec != nullptr ? rec->total_qty_units - rec->filled_total_units
+                           : o.qty_units - o.filled_qty_units;
+        l3_emit_ev(static_cast<uint8_t>(L3Kind::Modify), o.id,
+                   o.account_id, o.side, instrument_id_of(OrderAux{}),
+                   price, /*ref_price*/ 0, new_rem, /*delta*/ new_rem - old_rem,
+                   0, kL3RoleNone, l3_flags_of(o), 0, wseq);
+    }
     m.amend_seq = req.ingress_seq;
     m.amend_seen = true;
     if (expiry_change) {
@@ -2853,6 +3079,9 @@ void MatchingEngine::amend_resting(Order& o, const AmendRequest& req,
 
 void MatchingEngine::on_time_tick(uint64_t now_ns) noexcept {
     const uint64_t seq0 = book_.book_seq();
+    // The TIME_TICK row occupies a seq in every mode — consume it
+    // unconditionally so journal-free replay keeps journal alignment.
+    (void)journal_seq();
     if (wal_ != nullptr &&
         wal_->write_time_tick(now_ns) != WalStatus::Ok) {
         wal_fault_ = true;  // unjournaled clock must not drive mutations
@@ -2972,6 +3201,8 @@ bool MatchingEngine::auction_journal(uint8_t phase, uint8_t reason,
     p.deadline_ns = auction_deadline_ns_;
     p.cleared_price_ticks = price_ticks;
     p.cleared_qty_units = qty_units;
+    (void)journal_seq();   // consume the phase row's seq (no L3 side —
+                           // uncross fills/cancels journal their own rows)
     if (wal_ != nullptr &&
         wal_->write_auction_phase(p, now_ns_) != WalStatus::Ok) {
         wal_fault_ = true;
@@ -3236,7 +3467,7 @@ bool MatchingEngine::auction_accumulate(Order* order,
             // post-uncross settle wave.
             if (!track_meta(order->id, aux)) {
                 emit_cancel_event(order->id, order->account_id,
-                                  kWalCancelReasonUser);
+                                  kWalCancelReasonUser, order);
                 last_reject_ = kRejectBookCapacity;
                 ++reject_count_;
                 return false;
@@ -3255,7 +3486,7 @@ bool MatchingEngine::auction_accumulate(Order* order,
             if (!stops_.enqueue(order, aux.stop_price_ticks, pm)) {
                 meta_erase(order->id);
                 emit_cancel_event(order->id, order->account_id,
-                                  kWalCancelReasonUser);
+                                  kWalCancelReasonUser, order);
                 last_reject_ = kRejectBookCapacity;
                 ++reject_count_;
                 return false;
@@ -3272,7 +3503,7 @@ bool MatchingEngine::auction_accumulate(Order* order,
             // resumes in the post-uncross settle wave.
             if (pegs_ == nullptr || pegs_live_ >= pegs_cap_) {
                 emit_cancel_event(order->id, order->account_id,
-                                  kWalCancelReasonUser);
+                                  kWalCancelReasonUser, order);
                 last_reject_ = kRejectBookCapacity;
                 ++reject_count_;
                 return false;
@@ -3283,7 +3514,7 @@ bool MatchingEngine::auction_accumulate(Order* order,
                 !track_meta(order->id, aux)) {
                 (void)book_.cancel_order(order->id);
                 emit_cancel_event(order->id, order->account_id,
-                                  kWalCancelReasonUser);
+                                  kWalCancelReasonUser, order);
                 last_reject_ = kRejectBookCapacity;
                 ++reject_count_;
                 return false;
@@ -3305,7 +3536,7 @@ bool MatchingEngine::auction_accumulate(Order* order,
         if (!track_meta(order->id, aux) || !parked_push(order)) {
             meta_erase(order->id);
             emit_cancel_event(order->id, order->account_id,
-                              kWalCancelReasonUser);
+                              kWalCancelReasonUser, order);
             last_reject_ = kRejectBookCapacity;
             ++reject_count_;
             return false;
@@ -3324,7 +3555,7 @@ bool MatchingEngine::auction_accumulate(Order* order,
         rec = icebergs_.register_order(tmpl, 0, display);
         if (rec == nullptr) {
             emit_cancel_event(order->id, order->account_id,
-                              kWalCancelReasonUser);
+                              kWalCancelReasonUser, order);
             last_reject_ = kRejectBookCapacity;
             ++reject_count_;
             return false;
@@ -3338,7 +3569,7 @@ bool MatchingEngine::auction_accumulate(Order* order,
     if (e != BookError::OK) {
         if (rec != nullptr) icebergs_.erase(order->id);
         emit_cancel_event(order->id, order->account_id,
-                          kWalCancelReasonUser);
+                          kWalCancelReasonUser, order);
         last_reject_ = e == BookError::DUPLICATE_ID ? kRejectDuplicateId
                                                   : kRejectBookCapacity;
         ++reject_count_;
@@ -3348,7 +3579,7 @@ bool MatchingEngine::auction_accumulate(Order* order,
         (void)book_.cancel_order(order->id);
         if (rec != nullptr) icebergs_.erase(order->id);
         emit_cancel_event(order->id, order->account_id,
-                          kWalCancelReasonUser);
+                          kWalCancelReasonUser, order);
         last_reject_ = kRejectBookCapacity;
         ++reject_count_;
         return false;
@@ -3677,7 +3908,7 @@ int64_t MatchingEngine::auction_uncross(int64_t price_ticks,
                                ? next_book(b_book, Side::BUY) : nullptr;
             if (!dry_run) {
                 emit_cancel_event(b->id, b->account_id,
-                                  kWalCancelReasonFokUnfilled);
+                                  kWalCancelReasonFokUnfilled, b);
                 if (b != b_book) {
                     // Mark consumed — the terminal drain frees the node
                     // without re-journaling a second cancel.
@@ -3697,7 +3928,7 @@ int64_t MatchingEngine::auction_uncross(int64_t price_ticks,
                                ? next_book(s_book, Side::SELL) : nullptr;
             if (!dry_run) {
                 emit_cancel_event(s->id, s->account_id,
-                                  kWalCancelReasonFokUnfilled);
+                                  kWalCancelReasonFokUnfilled, s);
                 if (s != s_book) {
                     s->filled_qty_units = s->qty_units;
                 } else {
@@ -3724,6 +3955,18 @@ int64_t MatchingEngine::auction_uncross(int64_t price_ticks,
             const uint64_t sid = s->id;
             const uint64_t tid = next_trade_id_++;
             const uint32_t instr = instrument_id_of(OrderAux{});
+            // L3 pre-mutation capture — apply_fill may free either leg.
+            const Side b_side = b->side;
+            const Side s_side = s->side;
+            const uint64_t b_acct = b->account_id;
+            const uint64_t s_acct = s->account_id;
+            const uint8_t b_flags = l3_ != nullptr ? l3_flags_of(*b) : 0;
+            const uint8_t s_flags = l3_ != nullptr ? l3_flags_of(*s) : 0;
+            const int64_t b_rem_pre =
+                l3_ != nullptr ? effective_remaining_units(b) : 0;
+            const int64_t s_rem_pre =
+                l3_ != nullptr ? effective_remaining_units(s) : 0;
+            const uint64_t wseq = journal_seq();
             if (wal_ != nullptr &&
                 wal_->write_trade(tid, bid, sid, instr, price_ticks,
                                   fill, now_ns_) != WalStatus::Ok) {
@@ -3776,6 +4019,16 @@ int64_t MatchingEngine::auction_uncross(int64_t price_ticks,
                                                 price_ticks, fill,
                                                 book_.book_seq(), now_ns_);
             }
+            // L3 Fill — one TRADE row, both uncross legs share wal_seq;
+            // role 3 marks auction fills vs continuous 1/2 (spec §11.3).
+            l3_emit_ev(static_cast<uint8_t>(L3Kind::Fill), bid, b_acct,
+                       b_side, instr, price_ticks, /*ref*/ 0,
+                       b_rem_pre - fill, /*delta*/ -fill, tid,
+                       kL3RoleAuction, b_flags, 0, wseq);
+            l3_emit_ev(static_cast<uint8_t>(L3Kind::Fill), sid, s_acct,
+                       s_side, instr, price_ticks, /*ref*/ 0,
+                       s_rem_pre - fill, /*delta*/ -fill, tid,
+                       kL3RoleAuction, s_flags, 0, wseq);
         }
         cleared += fill;
         pool_b -= fill;
@@ -3810,7 +4063,7 @@ void MatchingEngine::parked_drain(uint8_t wal_reason) noexcept {
             emit_cancel_event(o->id, o->account_id,
                               o->tif == TimeInForce::FOK
                                   ? kWalCancelReasonFokUnfilled
-                                  : wal_reason);
+                                  : wal_reason, o);
         }
         meta_erase(o->id);
         oco_on_dead(o->id, /*by_fill=*/rem <= 0);

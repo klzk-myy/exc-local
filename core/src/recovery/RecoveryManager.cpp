@@ -903,7 +903,16 @@ RecoveryResult RecoveryManager::recover(
                 // monotone no-op on real streams and a deterministic clock
                 // on tick-free journals (expiry/trigger sweeps re-derive at
                 // the journaled time — never a wall clock).
+                //
+                // Phase-17 Task 17.3.1 (spec §24 #318): each drive also
+                // re-anchors the journal-free engine's virtual WAL cursor
+                // to this entry's seq — every journal site consumed during
+                // the drive then lands on the seq its live counterpart
+                // stamped, keeping the L3 wal_seq stream bit-identical
+                // across replay. The dispatch arms below re-anchor again
+                // per row semantics.
                 for (auto& b : states) {
+                    b.engine->set_replay_wal_seq(ev.seq);
                     b.engine->on_time_tick(ev.timestamp_ns);
                 }
                 if (ev.timestamp_ns > max_ts) max_ts = ev.timestamp_ns;
@@ -923,6 +932,9 @@ RecoveryResult RecoveryManager::recover(
                         WalTimeTickPayload tt;
                         std::memcpy(&tt, ev.payload, sizeof(tt));
                         for (auto& b : states) {
+                            // The tick row IS this entry — anchor so the
+                            // journal site consumes ev.seq itself.
+                            b.engine->set_replay_wal_seq(ev.seq);
                             b.engine->on_time_tick(tt.tick_ns);
                         }
                     }
@@ -1123,6 +1135,9 @@ RecoveryResult RecoveryManager::recover(
                         // (dies with the replay engine's stop queue), and
                         // resting remainders are cloned into the book's own
                         // pool before the scratch node is freed.
+                        // L3 anchor: the replayed ORDER_NEW row occupies
+                        // ev.seq; derived fills/cancels consume next.
+                        bs.engine->set_replay_wal_seq(ev.seq);
                         bs.engine->on_order_received_ex(o, aux);
                         order_owner[p.order_id] = &bs;
                         if (bs.book->book_seq() != seq_before ||
@@ -1143,6 +1158,7 @@ RecoveryResult RecoveryManager::recover(
                         std::memcpy(&p, ev.payload, sizeof(p));
                         const bool was_pending =
                             bs.engine->stops().pending(p.order_id);
+                        bs.engine->set_replay_wal_seq(ev.seq);  // cancel row
                         bs.engine->on_cancel_received(p.order_id,
                                                     p.account_id);
                         if (bs.book->book_seq() != seq_before || was_pending) {
@@ -1165,6 +1181,7 @@ RecoveryResult RecoveryManager::recover(
                         // Resolved payload values + the entry seq as the
                         // §6.9 amend fence input — WAL order is strictly
                         // increasing seqs.
+                        bs.engine->set_replay_wal_seq(ev.seq);  // modify row
                         bs.engine->on_amend_received(p.order_id,
                                                      p.new_price_ticks,
                                                      p.new_qty_units,
@@ -1190,6 +1207,7 @@ RecoveryResult RecoveryManager::recover(
                         // leg for its replayed ORDER_NEW to reject).
                         const uint64_t members_before =
                             bs.engine->oco_member_count();
+                        bs.engine->set_replay_wal_seq(ev.seq);  // link row
                         bs.engine->on_oco_link_received(
                             p.link_id, p.order_id_a, p.order_id_b,
                             p.account_id, p.instrument_id);
@@ -1215,6 +1233,14 @@ RecoveryResult RecoveryManager::recover(
                         // CALL, engine wal_fault) fails closed.
                         WalAuctionPhasePayload p;
                         std::memcpy(&p, ev.payload, sizeof(p));
+                        // L3 anchor: UNCROSS re-journals the phase row
+                        // inside auction_resolve_deadline (ev.seq);
+                        // verbatim-applied phases' derived rows occupied
+                        // ev.seq+1 onward live.
+                        bs.engine->set_replay_wal_seq(
+                            ev.seq +
+                            (p.phase == MatchingEngine::kAuctionPhaseUncross
+                                 ? 0 : 1));
                         if (!bs.engine->on_auction_phase_replay(p)) {
                             set_fail(res, RecoveryStatus::ApplyFailed,
                                      ev.seq, bs.instrument_id,
@@ -1235,6 +1261,10 @@ RecoveryResult RecoveryManager::recover(
                         std::memcpy(&p, ev.payload, sizeof(p));
                         const bool was_pending =
                             bs.engine->stops().pending(p.order_id);
+                        // The trigger row is applied verbatim — the derived
+                        // fill/cancel rows it spawned live occupied ev.seq+1
+                        // onward.
+                        bs.engine->set_replay_wal_seq(ev.seq + 1);
                         bs.engine->on_order_triggered_replay(p);
                         if (bs.book->book_seq() != seq_before || was_pending) {
                             ++res.mutations_applied;
