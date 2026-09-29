@@ -44,6 +44,35 @@ enum class StpMode : uint8_t {
 // spec §6.5 execution flags (bitfield on Order::flags; §3.3 check #13).
 inline constexpr uint8_t kOrderFlagPostOnly = 1u << 0;   // reject if marketable
 inline constexpr uint8_t kOrderFlagReduceOnly = 1u << 1; // may only reduce
+// (bits 2/3 = market-with-protection / STP-transfer — MatchingEngine.hpp /
+//  SelfTradeGuard.hpp hold those definitions.)
+// Phase-16 Task 16.3.13 (spec §24 #197): fully-hidden limit order — rests on
+// the book normally but is excluded from public L2/L3 projection and fills
+// at the visible-BBO midpoint instead of its level price.
+inline constexpr uint8_t kOrderFlagHidden = 1u << 4;
+// Phase-16 Task 16.3.16 (spec §24 #321): guaranteed stop-loss — on trigger
+// the engine executes the full remaining qty at the armed stop price as a
+// self-trade (no book walk), absorbing gap risk into the GSLO exposure
+// pool. Only meaningful on conditional types.
+inline constexpr uint8_t kOrderFlagGslo = 1u << 5;
+
+// Phase-16 trigger-source selector (spec §6.2a; orders.trigger_source
+// migration 066; evaluation values are also the WAL ORDER_TRIGGERED bytes).
+inline constexpr uint8_t kTriggerSourceLast  = 0;
+inline constexpr uint8_t kTriggerSourceMark  = 1;
+inline constexpr uint8_t kTriggerSourceIndex = 2;
+
+// Phase-16 peg modes (Task 16.3.11; orders.peg_mode migration 038).
+inline constexpr uint8_t kPegNone    = 0;
+inline constexpr uint8_t kPegMid     = 1;  // midpoint of book BBO
+inline constexpr uint8_t kPegPrimary = 2;  // same-side best
+inline constexpr uint8_t kPegMarket  = 3;  // opposite-side best
+
+// Phase-16 trailing-stop distance units (Tasks 16.3.3/16.3.15).
+inline constexpr uint8_t kTrailUnitNone       = 0;
+inline constexpr uint8_t kTrailUnitPips       = 1;  // distance = N pips
+inline constexpr uint8_t kTrailUnitPercentage = 2;  // distance = N/100 % of anchor
+inline constexpr uint8_t kTrailUnitAbsolute   = 3;  // distance = N ticks
 
 struct Order {
     uint64_t id;
@@ -82,6 +111,12 @@ inline constexpr std::size_t kOrderPoolCapacity = 1'000'000;
 }
 [[nodiscard]] inline bool is_filled(const Order& o) noexcept {
     return o.filled_qty_units >= o.qty_units;
+}
+
+// True when the order may appear in public L2 depth. Pegged orders are
+// L2-hidden by spec §6.2/Task 16.3.11; kOrderFlagHidden covers Task 16.3.13.
+[[nodiscard]] constexpr bool l2_visible(const Order& o) noexcept {
+    return o.type != OrderType::PEG && (o.flags & kOrderFlagHidden) == 0;
 }
 
 // Cold-path Decimal views — identity scale (mantissa == ticks), zero math.

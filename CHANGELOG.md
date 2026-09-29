@@ -1048,3 +1048,160 @@ open. Landed via 5 disjoint clusters.
   WS emitted today); fixing `PriceSource` Phase-19.5 (records SKIPPED);
   downstream-hedge reversal out-of-scope (separate trades); live-Redis
   feed poll leg is env-shaped.
+
+---
+
+## [2026-09-29] — PHASE-16 ALGO ORDER FRAMEWORK CLUSTER (in-progress phase landing)
+
+- **Tasks landed:** 16.3.8 framework · 16.3.1 TWAP · 16.3.2 VWAP ·
+  16.3.6 spread · 16.3.7 scaled · 16.3.12 anti-gaming · 16.3.18 VP ·
+  16.3.23 algo list/cancel-all — DoD/SDD rows ticked in
+  `docs/Phase-16-Advanced-Order-Types.md` with file/test evidence.
+- **Schema:** migration 224 (`algo_orders` + `algo_order_children`,
+  up/down) — 8-state parent machine
+  (NEW→PENDING→RUNNING→PAUSED→COMPLETED|CANCELLED|EXPIRED|FAILED),
+  derived `algo:{parent}:{seq}` child cids (§8.7 idempotent dispatch),
+  indexes for account/status, pending-start sweeper, restart adoption,
+  child order_id lookup.
+- **Engine (`services/internal/algo/`):** durable parent insert →
+  PENDING-arm or immediate driver spawn; `CASStatus`-guarded
+  transitions; `Engine.Run` sweeper adopts non-terminal parents on
+  restart and fires due delayed dispatches; children persisted PENDING
+  before dispatch so a crash leaves replayable intent; monitor refreshes
+  child state via `ChildStatusSource` on the orders read model;
+  pause quiesces live children through `orders.Service.Cancel`.
+- **Children never bypass the pipeline:** production `ChildExecutor` is
+  `algoChildExecutor` → `orders.Service.Submit`/`Cancel` (admission,
+  risk, balance, dedup, Aeron dispatch all intact).
+- **Strategies:** TWAP equal slices at mid ± pip discretion, unfilled
+  slices cancelled and remainder rolled; VWAP weights from
+  `VolumeProfileSource` (PG trailing-24h bucketed tape; ClickHouse seam
+  in Phase-23; flat fallback documented); VP sizes each 5s window at
+  `participation_rate ∈ [1%,50%]` of observed volume — source is
+  `TradeVolumeTracker` on JetStream `trades.>` with `PgVolumeSource`
+  fallback, fail-closed when unwired; scaled ≤20 EQUAL/LINEAR/CUSTOM
+  levels with exact quantity conservation; spread = precheck on
+  `mid(leg1)−mid(leg2)` vs `spread_price` (SPREAD_ORDER_REJECTED before
+  parent insert) then leg-A-first IOC with UNWIND compensation on
+  partial — cross-instrument atomicity deviation recorded at
+  16.3.6 (per-shard engine cannot guarantee same-atomic legs).
+- **Anti-gaming:** ±30% TWAP/VWAP timing jitter, ±15%/VP ±20% size
+  perturbation preserving total exactly, 0–3 pip price discretion,
+  VWAP σ=5% profile smoothing; per-parent `math/rand/v2` seeded from
+  crypto entropy (seed never persisted; materialized schedule persisted
+  in `algo_orders.state` for restart continuity — doc.go reconciled).
+- **API/routes:** `handlers_algo.go` (orderAuth + ScopeTrade/ScopeRead,
+  202 submits, standard error envelopes); 10 routes stub→live in
+  routes_v1 (twap/vwap/scaled/spread/algo submits, pause/resume/cancel,
+  algo-orders list + cancel-all); `GET /algo-orders` merges grid bots
+  into the unified surface when the bots engine is wired.
+- **Verification:** `go test ./internal/algo/` 17 tests green incl.
+  PG-gated lifecycle/cid/read-seam ITs; `go build ./...` clean;
+  `go vet ./...` clean; full suite green except sibling-owned
+  `internal/bots` `TestGridLevelsGeometric` (8-dp bound vs 6-dp tick in
+  the test fixture — flagged to the grid-bot owner).
+- **Sibling co-landings absorbed:** `RaceGuard` (Task 16.3.22) wired via
+  `Options.Race`; `AlgoDeps.Bots` merge + `?symbol=` cancel-all scope;
+  `CancelAll(ctx, acct, symbol)` signature widened (test updated).
+
+---
+
+## [2026-10-08] — PHASE-16 C++ MATCHING-CORE CLUSTER (in-progress phase landing)
+
+- **Tasks landed (engine half):** 16.3.3 trailing stop · 16.3.4 peg-to-best
+  (alias) · 16.3.11 pegged orders · 16.3.13 dark/hidden · 16.3.15 trailing
+  distance units · 16.3.16 GSLO engine guarantee · 16.3.17 conditional
+  trigger sources + ORDER_TRIGGERED WAL · 16.3.22 engine-side race/stale
+  guards · 16.3.25 MOO/MOC engine half — engine-owned DoD/SDD rows ticked
+  in `docs/Phase-16-Advanced-Order-Types.md` with file/test evidence.
+- **Order model (`core/include/book/Order.hpp`):** `kTriggerSourceLast/
+  Mark/Index`, `kPegMid/Primary/Market`, `kTrailUnitPips/Percentage/
+  Absolute`, `kOrderFlagHidden` (bit4) / `kOrderFlagGslo` (bit5), and
+  `l2_visible()` — pegged + hidden orders excluded from public L2.
+- **Matching (`MatchingEngine`/`StopOrderTrigger`):** trailing stops arm
+  an anchor on the selected reference and ratchet favorable-only
+  (PIPS via `pip_size_ticks`, PERCENTAGE `ref×d/10'000`, ABSOLUTE ticks);
+  optional `activation_price` gate; pegged orders re-price on every
+  committed BBO mutation with signed offset + `peg_limit` collar
+  (fail-closed `PEGGED_PRICING_UNAVAILABLE` when no reference and no
+  collar); hidden makers fill at the visible midpoint only; GSLO pops
+  fill at the armed stop via a synthetic venue id with `qty×stop/1e8`
+  exposure reserve/release and cap rejection; MOO/MOC park during an
+  armed CALL and freeze-window cancels are rejected; oracle-sourced
+  triggers freeze per-source on missing/stale (>5s) data.
+- **WAL contracts:** `ORDER_NEW_EX` (`WalOrderNewExPayload`, 124B —
+  extends the legacy row with trigger/peg/trail/expiry/instrument aux;
+  plain orders still journal `ORDER_NEW`), `ORDER_TRIGGERED`
+  (`WalOrderTriggeredPayload`, 48B — id + source + reference/stop),
+  `PEG_REPRICE` (`WalPegRepricePayload`, 48B — old→new price audit).
+  `wal_audit` names + size-pins all three.
+- **Recovery:** `RecoveryManager` maps extended wire order types,
+  restores Phase-16 `OrderAux` verbatim from `ORDER_NEW_EX`, replays
+  `ORDER_TRIGGERED` authoritatively for MARK/INDEX sources (LAST
+  re-derives), treats `PEG_REPRICE` as audit (price re-derived from
+  references) — feedless replay converges bit-for-bit
+  (`Phase16Wal.OrderNewExAndAdvancedRowsRoundTrip` whole-book fingerprint).
+- **IPC (`exchange.fbs` + `proto/gen` + `services/internal/ipc/wire`):**
+  `OrderNew` gains `peg_mode`, `peg_offset`, `peg_limit`,
+  `trigger_source`, `trailing_offset`, `trailing_offset_unit`,
+  `activation_price`; wire flags bit2=hidden / bit3=gslo translate to
+  engine bits 4/5 in `EnginePump::translate_flags`; `OrderType` gains
+  `Peg=5` / `Fixing=6`; a `StopMarket` + nonzero `trailing_offset_unit`
+  decodes `OrderType::TRAILING_STOP`. Go wire mirrors regenerated.
+- **Oracle feed (`risk/PriceOracleFeed.{hpp,cpp}` + `main.cpp`):**
+  control-thread `PriceOracleFeedRefresher` MGETs
+  `oracle:{mark,index}:{symbol}[:ts]` (decimal int64, 1e8 scale + unix-ns
+  stamps) into an immutable snapshot; transport/parse failure marks the
+  feed unverifiable (fail closed) — the matching thread never touches
+  Redis. Bound only when `-redis`+`-symbol` are supplied; joined before
+  WAL close on shutdown.
+- **Market data:** `BookSerializer::emit_side` + `IpcPublisher::
+  publish_book_snapshot` aggregate only `l2_visible()` members; a
+  hidden-only level is omitted entirely (no structure leak).
+- **Tests:** new `core/tests/test_phase16.cpp` — 33 tests / 8 suites
+  (trailing units + ratchet + activation gate, MARK/INDEX/stale
+  triggers, peg modes/collar/unavailable/L2 hiding, hidden midpoint,
+  GSLO exposure/exact-fill, MOO/MOC call/freeze/reject, WAL extended-row
+  round-trip + feedless replay convergence, EnginePump decode/flag
+  translation). `test_phase16` 33/33 green; full core ctest 32/32 green.
+- **Deviations recorded:** no public L3 stream exists — `peg_mode`
+  visibility rides `ORDER_NEW_EX` + snapshot order extensions instead;
+  spread cross-instrument atomicity stays the sibling-side UNWIND seam
+  (per-shard engine, unchanged).
+
+## [2026-10-08] — PHASE-16 SETTLE (advanced order types — all 25 tasks)
+
+**25/25 P16 spec checkpoints bound and green** (`tests/spec/checks/phase16.go`
+— registered in `checks/register.go`); **141 DoD/SDD rows ticked**, 1 honestly
+open (Task 16.3.9 residual-imbalance AC — internal fix-rate crossing verified;
+the external LP residual leg is the documented `FIXING_IMBALANCE` queued seam).
+Full corpus: **571 total / 411 pass / 0 fail / 2 env skips / 158 pending**.
+Traceability regenerated via `trace --write` — strict pass, 0 defects.
+
+Cluster landings: C++ core (`test_phase16` 33/33 — trailing PIPS/PERCENTAGE/
+ABSOLUTE + activation gate, kPegMid/Primary/Market + collar + `PEG_REPRICE`,
+hidden `l2_visible()` L2 suppression + midpoint matching, trigger_source
+LAST/MARK/INDEX + `oracle:{mark,index}:{symbol}[:ts]` staleness fail-closed,
+GSLO exact-stop + exposure cap, MOO/MOC queue/freeze/uncross; WAL
+`ORDER_NEW_EX`/`ORDER_TRIGGERED`/`PEG_REPRICE` + feedless replay convergence),
+algo framework (TWAP/VWAP/scaled/spread/VP + state machine + delayed dispatch +
+anti-gaming — mig 224), composites (bracket/OTO on Phase-14 OCO — mig 225;
+OPO/OPOCO locked net-proceeds — mig 075; MOO/MOC queue + WS lifecycle;
+`algo-orders` + `order-lists` queries), grid+strategies (mig 071 grid bots ≤5/
+account + adjacent-level fill response; mig 077 recurring conversion /
+rebalancing / marketplace — firm-CLOB, suitability-gated), exec-params+fixing
+(mig 038 residual exec columns, mig 066 `trigger_source`; serializable
+fixing-exec cross settlement; GSLO premium → `2210_INSURANCE_FUND_LIABILITY`;
+`RaceGuard`/`TriggerGuard`).
+
+Settle fixes: `error_scenarios` `MarkReserved` fake seam (Store interface
+growth); mig-038 forbidden-pattern check scoped to DDL (provenance comment
+names `oco_group_id`); PII inventory regenerated + 7 columns classified
+(147 cols / 169 tables); frontend route-contracts regenerated (430 ops);
+`internal/bots` tick-fixture aligned to 1e-8.
+
+Counts: error registry **192** (+7; §23 table synced) · migrations **127**
+pairs (consumed 038/066/071/075/077/224/225 — all round-tripped on dev PG) ·
+openapi **430** ops · PII **147** cols. Honest seams recorded in spec §27:
+LP fixing-residual leg, MARK/INDEX oracle pending Phase-19.5 (fail-closed),
+`trades.fee=0` on fix crosses, VWAP flat-profile fallback.

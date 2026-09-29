@@ -36,6 +36,9 @@ func MustFromString(s string) Decimal { return decimal.RequireFromString(s) }
 // against the shopspring surface compile against the facade unchanged.
 func RequireFromString(s string) Decimal { return decimal.RequireFromString(s) }
 
+// New is the shopspring New(value, exp) passthrough — d = v · 10^exp.
+func New(v int64, exp int32) Decimal { return decimal.New(v, exp) }
+
 // NewFromInt returns v as a Decimal.
 func NewFromInt(v int64) Decimal { return decimal.NewFromInt(v) }
 

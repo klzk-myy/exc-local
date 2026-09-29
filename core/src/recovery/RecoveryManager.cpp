@@ -164,6 +164,11 @@ uint32_t expected_payload_len(WalEventType t) noexcept {
         case WalEventType::PREVENTED_MATCH:return sizeof(WalPreventedMatchPayload);
         case WalEventType::OCO_LINK:      return sizeof(WalOcoLinkPayload);
         case WalEventType::AUCTION_PHASE: return sizeof(WalAuctionPhasePayload);
+        // Phase-16 (Tasks 16.3.3/11/15/17): extended admission, conditional
+        // activation audit and peg reprice rows.
+        case WalEventType::ORDER_NEW_EX:  return sizeof(WalOrderNewExPayload);
+        case WalEventType::ORDER_TRIGGERED: return sizeof(WalOrderTriggeredPayload);
+        case WalEventType::PEG_REPRICE:   return sizeof(WalPegRepricePayload);
         default:                           return 0;  // BOOK_SNAPSHOT/MARGIN_*
     }
 }
@@ -927,7 +932,10 @@ RecoveryResult RecoveryManager::recover(
                 // --- dispatch to the target book ------------------------------
                 BookState* target = nullptr;
                 uint64_t order_id = 0;
-                if (ev.type == WalEventType::ORDER_NEW) {
+                if (ev.type == WalEventType::ORDER_NEW ||
+                    ev.type == WalEventType::ORDER_NEW_EX) {
+                    // ORDER_NEW_EX opens with a verbatim WalOrderNewPayload —
+                    // routing reads the shared head only.
                     WalOrderNewPayload p;
                     std::memcpy(&p, ev.payload, sizeof(p));
                     const auto it = by_instrument.find(p.instrument_id);
@@ -962,6 +970,27 @@ RecoveryResult RecoveryManager::recover(
                     WalAuctionPhasePayload p;
                     std::memcpy(&p, ev.payload, sizeof(p));
                     const auto it = by_instrument.find(p.instrument_id);
+                    if (it == by_instrument.end()) {
+                        ++res.foreign_entries;
+                        continue;
+                    }
+                    target = it->second;
+                } else if (ev.type == WalEventType::ORDER_TRIGGERED ||
+                           ev.type == WalEventType::PEG_REPRICE) {
+                    // Phase-16 — both payloads carry instrument_id; route to
+                    // exactly one book like ORDER_NEW/TRADE (the layouts
+                    // differ, so decode by type).
+                    uint32_t iid = 0;
+                    if (ev.type == WalEventType::ORDER_TRIGGERED) {
+                        WalOrderTriggeredPayload p;
+                        std::memcpy(&p, ev.payload, sizeof(p));
+                        iid = p.instrument_id;
+                    } else {
+                        WalPegRepricePayload p;
+                        std::memcpy(&p, ev.payload, sizeof(p));
+                        iid = p.instrument_id;
+                    }
+                    const auto it = by_instrument.find(iid);
                     if (it == by_instrument.end()) {
                         ++res.foreign_entries;
                         continue;
@@ -1002,9 +1031,18 @@ RecoveryResult RecoveryManager::recover(
                 const uint64_t seq_before = bs.book->book_seq();
 
                 switch (ev.type) {
-                    case WalEventType::ORDER_NEW: {
+                    case WalEventType::ORDER_NEW:
+                    case WalEventType::ORDER_NEW_EX: {
                         WalOrderNewPayload p;
                         std::memcpy(&p, ev.payload, sizeof(p));
+                        // Phase-16 extension fields (only meaningful when
+                        // the record is ORDER_NEW_EX — length-pinned above).
+                        WalOrderNewExPayload px{};
+                        const bool has_ex =
+                            ev.type == WalEventType::ORDER_NEW_EX;
+                        if (has_ex) {
+                            std::memcpy(&px, ev.payload, sizeof(px));
+                        }
                         OrderType otype = OrderType::LIMIT;
                         switch (p.type) {
                             case 0: otype = OrderType::MARKET; break;
@@ -1013,6 +1051,14 @@ RecoveryResult RecoveryManager::recover(
                             case 3: otype = OrderType::STOP_LIMIT; break;
                             case kWalOrderTypeIceberg:
                                 otype = OrderType::ICEBERG; break;
+                            case kWalOrderTypeTrailingStop:
+                                otype = OrderType::TRAILING_STOP; break;
+                            case kWalOrderTypePeg:
+                                otype = OrderType::PEG; break;
+                            case kWalOrderTypeMoo:
+                                otype = OrderType::MOO; break;
+                            case kWalOrderTypeMoc:
+                                otype = OrderType::MOC; break;
                             default:
                                 set_fail(res, RecoveryStatus::ApplyFailed,
                                          ev.seq, bs.instrument_id,
@@ -1059,6 +1105,19 @@ RecoveryResult RecoveryManager::recover(
                         aux.gtd_expiry_ns = p.gtd_expiry_ns;
                         aux.trade_group_id = p.trade_group_id;
                         aux.instrument_id = p.instrument_id;
+                        if (has_ex) {
+                            // Phase-16 aux verbatim from the extension
+                            // record — trigger source, peg and trailing
+                            // metadata replay identically to admission.
+                            aux.trigger_source = px.trigger_source;
+                            aux.peg_mode = px.peg_mode;
+                            aux.trail_unit = px.trail_unit;
+                            aux.peg_offset_ticks = px.peg_offset_ticks;
+                            aux.peg_limit_ticks = px.peg_limit_ticks;
+                            aux.trail_distance = px.trail_distance;
+                            aux.activation_price_ticks =
+                                px.activation_price_ticks;
+                        }
                         // The engine owns the node from here: terminal paths
                         // free it to the replay pool, pending stops adopt it
                         // (dies with the replay engine's stop queue), and
@@ -1164,6 +1223,36 @@ RecoveryResult RecoveryManager::recover(
                         }
                         ++res.mutations_applied;
                         ++bs.mutations_applied;
+                        break;
+                    }
+                    case WalEventType::ORDER_TRIGGERED: {
+                        // Phase-16 Task 16.3.17 — conditional activation.
+                        // LAST-sourced triggers re-derive inside the
+                        // replayed settle wave (the row is informational);
+                        // MARK/INDEX rows are authoritative — the feedless
+                        // replay engine cannot re-evaluate the oracle.
+                        WalOrderTriggeredPayload p;
+                        std::memcpy(&p, ev.payload, sizeof(p));
+                        const bool was_pending =
+                            bs.engine->stops().pending(p.order_id);
+                        bs.engine->on_order_triggered_replay(p);
+                        if (bs.book->book_seq() != seq_before || was_pending) {
+                            ++res.mutations_applied;
+                            ++bs.mutations_applied;
+                        } else {
+                            ++res.dedup_skips;
+                            ++bs.dedup_skips;
+                        }
+                        break;
+                    }
+                    case WalEventType::PEG_REPRICE: {
+                        // Phase-16 Task 16.3.11 — audit row only: the
+                        // replaying engine re-derives every committed
+                        // reprice inside its own settle wave from the
+                        // replayed book references. Consumed, never applied
+                        // verbatim (a double-apply would diverge).
+                        ++res.dedup_skips;
+                        ++bs.dedup_skips;
                         break;
                     }
                     case WalEventType::TRADE: {

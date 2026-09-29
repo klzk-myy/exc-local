@@ -8,10 +8,11 @@ import (
 )
 
 func TestSpecTableSizeAndUniqueness(t *testing.T) {
-	// 185 = 182 + PAMM_{MIN_INVESTMENT_NOT_MET,INVESTOR_LOCKED,ALLOCATION_MISMATCH}
-	// (Phase-14 Task 14.3.8 — §27.1 PAMM matrix codes registered on landing).
-	if got := len(specCodes); got != 185 {
-		t.Fatalf("spec §23 table must carry 185 codes, got %d", got)
+	// 192 = 185 + 6 concurrent Phase-16 sibling registrations +
+	// GSLO_EXPOSURE_EXCEEDED (Phase-16 Task 16.3.16 — §24 matrix code
+	// tabled 2026-09-29 during implementation; spec §23 history noted).
+	if got := len(specCodes); got != 192 {
+		t.Fatalf("spec §23 table must carry 192 codes, got %d", got)
 	}
 	seen := map[string]bool{}
 	for _, d := range specCodes {

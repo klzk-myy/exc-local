@@ -38,13 +38,31 @@ namespace exch {
 // reach the WAL record (stop trigger price, GTD/DAY expiry, STP group).
 // Populated by ingress (EngineLoop/gateway decode) next to the Order.
 struct OrderAux {
-    int64_t  stop_price_ticks = 0;  // >0 for STOP / STOP_LIMIT orders
+    int64_t  stop_price_ticks = 0;  // >0 for STOP / STOP_LIMIT / TRAILING_STOP
     int64_t  gtd_expiry_ns    = 0;  // TIF=GTD/DAY absolute expiry (gateway
                                     // computes DAY session close; 0 = none)
     uint32_t trade_group_id   = 0;  // migration 072 STP group; 0 = none
     uint32_t instrument_id    = 0;  // WAL stamping when book has no instrument
     int64_t  discretionary_offset_pips = 0;  // Task 2.3.26 (§6.11, migration
                                            // 103); whole pips, 0 = plain limit
+    // --- Phase-16 extensions (Tasks 16.3.3/11/15/16/17; spec §6.2/§6.2a) ----
+    // All default-0 — a zeroed aux replays through the plain-ORDER_NEW path
+    // byte-for-byte identical to pre-16 journals.
+    uint8_t  trigger_source = kTriggerSourceLast;  // kTriggerSource*
+    uint8_t  peg_mode       = kPegNone;            // kPeg* (OrderType::PEG only)
+    uint8_t  trail_unit     = kTrailUnitNone;      // kTrailUnit*
+    int64_t  peg_offset_ticks        = 0;  // signed offset off the reference
+    int64_t  peg_limit_ticks         = 0;  // collar; 0 = none
+    int64_t  trail_distance          = 0;  // pips | pct*100 | ticks per unit
+    int64_t  activation_price_ticks  = 0;  // trailing gate; 0 = armed
+    // True when the aux carries Phase-16 fields that force an ORDER_NEW_EX
+    // record instead of the legacy ORDER_NEW payload.
+    [[nodiscard]] constexpr bool has_phase16_fields() const noexcept {
+        return trigger_source != kTriggerSourceLast ||
+               peg_mode != kPegNone || trail_unit != kTrailUnitNone ||
+               peg_offset_ticks != 0 || peg_limit_ticks != 0 ||
+               trail_distance != 0 || activation_price_ticks != 0;
+    }
 };
 
 // Cancel/terminal reasons — values of WalOrderCancelPayload.reason.
@@ -57,10 +75,20 @@ inline constexpr uint8_t kWalCancelReasonIocRemainder = 4;  // also MARKET rest
 // (MatchingEngine.hpp — Wave-B header). 7 = OCO sibling: journaled on the
 // atomic one-cancels-other cancel (Phase-14 Task 14.3.1, spec §6.5).
 inline constexpr uint8_t kWalCancelReasonOcoLink     = 7;
+// 8 = auction-cancelled: journaled when a parked auction-scope order
+// (MARKET/IOC/FOK from Phase-15 and MOO/MOC from Phase-16 Task 16.3.25,
+// spec §6.2b) is swept out of the auction queue on CANCEL/QUARANTINE or
+// left unfilled after the uncross — the wire rejection surfaces as
+// AUCTION_CANCELLED (spec §6.2b, §23).
+inline constexpr uint8_t kWalCancelReasonAuctionCancelled = 8;
 
-// Internal OrderType::ICEBERG marker for WalOrderNewPayload.type — the
+// Internal OrderType markers for WalOrderNewPayload.type — the
 // wire::OrderType enum tops out at StopLimit=3.
-inline constexpr uint8_t kWalOrderTypeIceberg = 4;
+inline constexpr uint8_t kWalOrderTypeIceberg      = 4;
+inline constexpr uint8_t kWalOrderTypeTrailingStop = 5;
+inline constexpr uint8_t kWalOrderTypePeg          = 6;
+inline constexpr uint8_t kWalOrderTypeMoo          = 7;
+inline constexpr uint8_t kWalOrderTypeMoc          = 8;
 
 // internal Side -> wire::Side (identity today; one mapping site).
 [[nodiscard]] constexpr uint8_t wal_side_wire(Side s) noexcept {
@@ -74,6 +102,10 @@ inline constexpr uint8_t kWalOrderTypeIceberg = 4;
         case OrderType::STOP:       return 2;  // wire::OrderType_StopMarket
         case OrderType::STOP_LIMIT: return 3;  // wire::OrderType_StopLimit
         case OrderType::ICEBERG:    return kWalOrderTypeIceberg;
+        case OrderType::TRAILING_STOP: return kWalOrderTypeTrailingStop;
+        case OrderType::PEG:        return kWalOrderTypePeg;
+        case OrderType::MOO:        return kWalOrderTypeMoo;
+        case OrderType::MOC:        return kWalOrderTypeMoc;
         default:                    return 0xFF;  // not encodable (rejected upstream)
     }
 }
@@ -129,6 +161,15 @@ public:
     // the auction state machine deterministically.
     [[nodiscard]] WalStatus write_auction_phase(
         const WalAuctionPhasePayload& p, uint64_t ts_ns) noexcept;
+    // Phase-16 Task 16.3.17 — conditional activation audit row
+    // (WalOrderTriggeredPayload). Journaled when a pending conditional
+    // order converts to a live taker or a GSLO guaranteed fill.
+    [[nodiscard]] WalStatus write_order_triggered(
+        const WalOrderTriggeredPayload& p, uint64_t ts_ns) noexcept;
+    // Phase-16 Task 16.3.11 — pegged-order reprice audit row
+    // (WalPegRepricePayload), one per committed peg transition.
+    [[nodiscard]] WalStatus write_peg_reprice(
+        const WalPegRepricePayload& p, uint64_t ts_ns) noexcept;
 
     // Durability barrier passthrough (batch fsync).
     [[nodiscard]] WalStatus flush() noexcept;

@@ -92,6 +92,16 @@ var ListSpecs = []ListSpec{
 		Filterable: []string{
 			"admin_user_id", "action", "action_prefix",
 			"target_type", "target_id", "from", "to"}},
+	// Phase-16 Task 16.3.23/.24 — algo status + composite-list surfaces.
+	{Path: "/api/v1/algo-orders", Default: 50, Max: 200,
+		Sortable:   []string{"created_at", "id"},
+		Filterable: []string{"type", "symbol", "status"}},
+	{Path: "/api/v1/order-lists", Default: 50, Max: 200,
+		Sortable:   []string{"created_at", "id"},
+		Filterable: []string{}},
+	{Path: "/api/v1/order-lists/history", Default: 50, Max: 200,
+		Sortable:   []string{"created_at", "id"},
+		Filterable: []string{"from", "to"}},
 }
 
 // ListSpecFor resolves the spec row for a route path ("" key tolerated).

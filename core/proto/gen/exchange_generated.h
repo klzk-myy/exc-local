@@ -33,6 +33,9 @@ struct PriceLevelBuilder;
 struct BookSnapshot;
 struct BookSnapshotBuilder;
 
+struct AuctionEvent;
+struct AuctionEventBuilder;
+
 struct Event;
 struct EventBuilder;
 
@@ -72,35 +75,41 @@ enum OrderType {
   OrderType_StopMarket = 2,
   OrderType_StopLimit = 3,
   OrderType_Iceberg = 4,
+  OrderType_Peg = 5,
+  OrderType_Fixing = 6,
   OrderType_MIN = OrderType_Market,
-  OrderType_MAX = OrderType_Iceberg
+  OrderType_MAX = OrderType_Fixing
 };
 
-inline const OrderType (&EnumValuesOrderType())[5] {
+inline const OrderType (&EnumValuesOrderType())[7] {
   static const OrderType values[] = {
     OrderType_Market,
     OrderType_Limit,
     OrderType_StopMarket,
     OrderType_StopLimit,
-    OrderType_Iceberg
+    OrderType_Iceberg,
+    OrderType_Peg,
+    OrderType_Fixing
   };
   return values;
 }
 
 inline const char * const *EnumNamesOrderType() {
-  static const char * const names[6] = {
+  static const char * const names[8] = {
     "Market",
     "Limit",
     "StopMarket",
     "StopLimit",
     "Iceberg",
+    "Peg",
+    "Fixing",
     nullptr
   };
   return names;
 }
 
 inline const char *EnumNameOrderType(OrderType e) {
-  if (flatbuffers::IsOutRange(e, OrderType_Market, OrderType_Iceberg)) return "";
+  if (flatbuffers::IsOutRange(e, OrderType_Market, OrderType_Fixing)) return "";
   const size_t index = static_cast<size_t>(e);
   return EnumNamesOrderType()[index];
 }
@@ -153,11 +162,12 @@ enum EventType {
   EventType_TimeTick = 5,
   EventType_OrderAmend = 6,
   EventType_OcoLink = 7,
+  EventType_AuctionEvent = 8,
   EventType_MIN = EventType_NONE,
-  EventType_MAX = EventType_OcoLink
+  EventType_MAX = EventType_AuctionEvent
 };
 
-inline const EventType (&EnumValuesEventType())[8] {
+inline const EventType (&EnumValuesEventType())[9] {
   static const EventType values[] = {
     EventType_NONE,
     EventType_OrderNew,
@@ -166,13 +176,14 @@ inline const EventType (&EnumValuesEventType())[8] {
     EventType_BookSnapshot,
     EventType_TimeTick,
     EventType_OrderAmend,
-    EventType_OcoLink
+    EventType_OcoLink,
+    EventType_AuctionEvent
   };
   return values;
 }
 
 inline const char * const *EnumNamesEventType() {
-  static const char * const names[9] = {
+  static const char * const names[10] = {
     "NONE",
     "OrderNew",
     "OrderCancel",
@@ -181,13 +192,14 @@ inline const char * const *EnumNamesEventType() {
     "TimeTick",
     "OrderAmend",
     "OcoLink",
+    "AuctionEvent",
     nullptr
   };
   return names;
 }
 
 inline const char *EnumNameEventType(EventType e) {
-  if (flatbuffers::IsOutRange(e, EventType_NONE, EventType_OcoLink)) return "";
+  if (flatbuffers::IsOutRange(e, EventType_NONE, EventType_AuctionEvent)) return "";
   const size_t index = static_cast<size_t>(e);
   return EnumNamesEventType()[index];
 }
@@ -224,6 +236,10 @@ template<> struct EventTypeTraits<exc::wire::OcoLink> {
   static const EventType enum_value = EventType_OcoLink;
 };
 
+template<> struct EventTypeTraits<exc::wire::AuctionEvent> {
+  static const EventType enum_value = EventType_AuctionEvent;
+};
+
 bool VerifyEventType(flatbuffers::Verifier &verifier, const void *obj, EventType type);
 bool VerifyEventTypeVector(flatbuffers::Verifier &verifier, const flatbuffers::Vector<flatbuffers::Offset<void>> *values, const flatbuffers::Vector<uint8_t> *types);
 
@@ -248,7 +264,14 @@ struct OrderNew FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
     VT_GTD_EXPIRY_NS = 28,
     VT_DISPLAY_QTY = 30,
     VT_TRADE_GROUP_ID = 32,
-    VT_DISCRETIONARY_OFFSET_PIPS = 34
+    VT_DISCRETIONARY_OFFSET_PIPS = 34,
+    VT_PEG_MODE = 36,
+    VT_PEG_OFFSET = 38,
+    VT_PEG_LIMIT = 40,
+    VT_TRIGGER_SOURCE = 42,
+    VT_TRAILING_OFFSET = 44,
+    VT_TRAILING_OFFSET_UNIT = 46,
+    VT_ACTIVATION_PRICE = 48
   };
   uint64_t order_id() const {
     return GetField<uint64_t>(VT_ORDER_ID, 0);
@@ -298,6 +321,27 @@ struct OrderNew FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   int64_t discretionary_offset_pips() const {
     return GetField<int64_t>(VT_DISCRETIONARY_OFFSET_PIPS, 0);
   }
+  uint8_t peg_mode() const {
+    return GetField<uint8_t>(VT_PEG_MODE, 0);
+  }
+  int64_t peg_offset() const {
+    return GetField<int64_t>(VT_PEG_OFFSET, 0);
+  }
+  int64_t peg_limit() const {
+    return GetField<int64_t>(VT_PEG_LIMIT, 0);
+  }
+  uint8_t trigger_source() const {
+    return GetField<uint8_t>(VT_TRIGGER_SOURCE, 0);
+  }
+  int64_t trailing_offset() const {
+    return GetField<int64_t>(VT_TRAILING_OFFSET, 0);
+  }
+  uint8_t trailing_offset_unit() const {
+    return GetField<uint8_t>(VT_TRAILING_OFFSET_UNIT, 0);
+  }
+  int64_t activation_price() const {
+    return GetField<int64_t>(VT_ACTIVATION_PRICE, 0);
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<uint64_t>(verifier, VT_ORDER_ID) &&
@@ -317,6 +361,13 @@ struct OrderNew FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
            VerifyField<int64_t>(verifier, VT_DISPLAY_QTY) &&
            VerifyField<uint32_t>(verifier, VT_TRADE_GROUP_ID) &&
            VerifyField<int64_t>(verifier, VT_DISCRETIONARY_OFFSET_PIPS) &&
+           VerifyField<uint8_t>(verifier, VT_PEG_MODE) &&
+           VerifyField<int64_t>(verifier, VT_PEG_OFFSET) &&
+           VerifyField<int64_t>(verifier, VT_PEG_LIMIT) &&
+           VerifyField<uint8_t>(verifier, VT_TRIGGER_SOURCE) &&
+           VerifyField<int64_t>(verifier, VT_TRAILING_OFFSET) &&
+           VerifyField<uint8_t>(verifier, VT_TRAILING_OFFSET_UNIT) &&
+           VerifyField<int64_t>(verifier, VT_ACTIVATION_PRICE) &&
            verifier.EndTable();
   }
 };
@@ -373,6 +424,27 @@ struct OrderNewBuilder {
   void add_discretionary_offset_pips(int64_t discretionary_offset_pips) {
     fbb_.AddElement<int64_t>(OrderNew::VT_DISCRETIONARY_OFFSET_PIPS, discretionary_offset_pips, 0);
   }
+  void add_peg_mode(uint8_t peg_mode) {
+    fbb_.AddElement<uint8_t>(OrderNew::VT_PEG_MODE, peg_mode, 0);
+  }
+  void add_peg_offset(int64_t peg_offset) {
+    fbb_.AddElement<int64_t>(OrderNew::VT_PEG_OFFSET, peg_offset, 0);
+  }
+  void add_peg_limit(int64_t peg_limit) {
+    fbb_.AddElement<int64_t>(OrderNew::VT_PEG_LIMIT, peg_limit, 0);
+  }
+  void add_trigger_source(uint8_t trigger_source) {
+    fbb_.AddElement<uint8_t>(OrderNew::VT_TRIGGER_SOURCE, trigger_source, 0);
+  }
+  void add_trailing_offset(int64_t trailing_offset) {
+    fbb_.AddElement<int64_t>(OrderNew::VT_TRAILING_OFFSET, trailing_offset, 0);
+  }
+  void add_trailing_offset_unit(uint8_t trailing_offset_unit) {
+    fbb_.AddElement<uint8_t>(OrderNew::VT_TRAILING_OFFSET_UNIT, trailing_offset_unit, 0);
+  }
+  void add_activation_price(int64_t activation_price) {
+    fbb_.AddElement<int64_t>(OrderNew::VT_ACTIVATION_PRICE, activation_price, 0);
+  }
   explicit OrderNewBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -401,8 +473,19 @@ inline flatbuffers::Offset<OrderNew> CreateOrderNew(
     int64_t gtd_expiry_ns = 0,
     int64_t display_qty = 0,
     uint32_t trade_group_id = 0,
-    int64_t discretionary_offset_pips = 0) {
+    int64_t discretionary_offset_pips = 0,
+    uint8_t peg_mode = 0,
+    int64_t peg_offset = 0,
+    int64_t peg_limit = 0,
+    uint8_t trigger_source = 0,
+    int64_t trailing_offset = 0,
+    uint8_t trailing_offset_unit = 0,
+    int64_t activation_price = 0) {
   OrderNewBuilder builder_(_fbb);
+  builder_.add_activation_price(activation_price);
+  builder_.add_trailing_offset(trailing_offset);
+  builder_.add_peg_limit(peg_limit);
+  builder_.add_peg_offset(peg_offset);
   builder_.add_discretionary_offset_pips(discretionary_offset_pips);
   builder_.add_display_qty(display_qty);
   builder_.add_gtd_expiry_ns(gtd_expiry_ns);
@@ -414,6 +497,9 @@ inline flatbuffers::Offset<OrderNew> CreateOrderNew(
   builder_.add_trade_group_id(trade_group_id);
   builder_.add_client_order_id(client_order_id);
   builder_.add_instrument_id(instrument_id);
+  builder_.add_trailing_offset_unit(trailing_offset_unit);
+  builder_.add_trigger_source(trigger_source);
+  builder_.add_peg_mode(peg_mode);
   builder_.add_flags(flags);
   builder_.add_stp_mode(stp_mode);
   builder_.add_tif(tif);
@@ -439,7 +525,14 @@ inline flatbuffers::Offset<OrderNew> CreateOrderNewDirect(
     int64_t gtd_expiry_ns = 0,
     int64_t display_qty = 0,
     uint32_t trade_group_id = 0,
-    int64_t discretionary_offset_pips = 0) {
+    int64_t discretionary_offset_pips = 0,
+    uint8_t peg_mode = 0,
+    int64_t peg_offset = 0,
+    int64_t peg_limit = 0,
+    uint8_t trigger_source = 0,
+    int64_t trailing_offset = 0,
+    uint8_t trailing_offset_unit = 0,
+    int64_t activation_price = 0) {
   auto client_order_id__ = client_order_id ? _fbb.CreateString(client_order_id) : 0;
   return exc::wire::CreateOrderNew(
       _fbb,
@@ -458,7 +551,14 @@ inline flatbuffers::Offset<OrderNew> CreateOrderNewDirect(
       gtd_expiry_ns,
       display_qty,
       trade_group_id,
-      discretionary_offset_pips);
+      discretionary_offset_pips,
+      peg_mode,
+      peg_offset,
+      peg_limit,
+      trigger_source,
+      trailing_offset,
+      trailing_offset_unit,
+      activation_price);
 }
 
 /// Inbound: cancel request.
@@ -999,6 +1099,137 @@ inline flatbuffers::Offset<BookSnapshot> CreateBookSnapshotDirect(
       asks__);
 }
 
+/// Outbound: auction phase transition / indicative update — Phase-15
+/// (spec §7.3 reopening call auction). Emitted on every committed phase
+/// transition and when the indicative clearing pair (price,qty) changes
+/// during CALL accumulation.
+///   phase:  0=CALL 1=EXTEND 2=UNCROSS 3=CANCEL 4=QUARANTINE
+///           5=STRIKE_FAILED (deadline struck, no clearing price formed)
+///   signal: 0=indicative update, 1=uncross committed, 2=deadline extended,
+///           3=clearing failed/quarantined, 4=crossed-book quarantine
+///   auction_id: opaque id of the armed CALL (the armed deadline ns value).
+///   imbalance: signed buy-minus-sell eligible qty at the indicative price.
+struct AuctionEvent FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef AuctionEventBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_INSTRUMENT_ID = 4,
+    VT_AUCTION_ID = 6,
+    VT_PHASE = 8,
+    VT_SIGNAL = 10,
+    VT_INDICATIVE_PRICE = 12,
+    VT_INDICATIVE_QTY = 14,
+    VT_IMBALANCE = 16,
+    VT_DEADLINE_NS = 18,
+    VT_CLEARED_QTY = 20
+  };
+  uint32_t instrument_id() const {
+    return GetField<uint32_t>(VT_INSTRUMENT_ID, 0);
+  }
+  uint64_t auction_id() const {
+    return GetField<uint64_t>(VT_AUCTION_ID, 0);
+  }
+  uint8_t phase() const {
+    return GetField<uint8_t>(VT_PHASE, 0);
+  }
+  uint8_t signal() const {
+    return GetField<uint8_t>(VT_SIGNAL, 0);
+  }
+  int64_t indicative_price() const {
+    return GetField<int64_t>(VT_INDICATIVE_PRICE, 0);
+  }
+  int64_t indicative_qty() const {
+    return GetField<int64_t>(VT_INDICATIVE_QTY, 0);
+  }
+  int64_t imbalance() const {
+    return GetField<int64_t>(VT_IMBALANCE, 0);
+  }
+  int64_t deadline_ns() const {
+    return GetField<int64_t>(VT_DEADLINE_NS, 0);
+  }
+  int64_t cleared_qty() const {
+    return GetField<int64_t>(VT_CLEARED_QTY, 0);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<uint32_t>(verifier, VT_INSTRUMENT_ID) &&
+           VerifyField<uint64_t>(verifier, VT_AUCTION_ID) &&
+           VerifyField<uint8_t>(verifier, VT_PHASE) &&
+           VerifyField<uint8_t>(verifier, VT_SIGNAL) &&
+           VerifyField<int64_t>(verifier, VT_INDICATIVE_PRICE) &&
+           VerifyField<int64_t>(verifier, VT_INDICATIVE_QTY) &&
+           VerifyField<int64_t>(verifier, VT_IMBALANCE) &&
+           VerifyField<int64_t>(verifier, VT_DEADLINE_NS) &&
+           VerifyField<int64_t>(verifier, VT_CLEARED_QTY) &&
+           verifier.EndTable();
+  }
+};
+
+struct AuctionEventBuilder {
+  typedef AuctionEvent Table;
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_instrument_id(uint32_t instrument_id) {
+    fbb_.AddElement<uint32_t>(AuctionEvent::VT_INSTRUMENT_ID, instrument_id, 0);
+  }
+  void add_auction_id(uint64_t auction_id) {
+    fbb_.AddElement<uint64_t>(AuctionEvent::VT_AUCTION_ID, auction_id, 0);
+  }
+  void add_phase(uint8_t phase) {
+    fbb_.AddElement<uint8_t>(AuctionEvent::VT_PHASE, phase, 0);
+  }
+  void add_signal(uint8_t signal) {
+    fbb_.AddElement<uint8_t>(AuctionEvent::VT_SIGNAL, signal, 0);
+  }
+  void add_indicative_price(int64_t indicative_price) {
+    fbb_.AddElement<int64_t>(AuctionEvent::VT_INDICATIVE_PRICE, indicative_price, 0);
+  }
+  void add_indicative_qty(int64_t indicative_qty) {
+    fbb_.AddElement<int64_t>(AuctionEvent::VT_INDICATIVE_QTY, indicative_qty, 0);
+  }
+  void add_imbalance(int64_t imbalance) {
+    fbb_.AddElement<int64_t>(AuctionEvent::VT_IMBALANCE, imbalance, 0);
+  }
+  void add_deadline_ns(int64_t deadline_ns) {
+    fbb_.AddElement<int64_t>(AuctionEvent::VT_DEADLINE_NS, deadline_ns, 0);
+  }
+  void add_cleared_qty(int64_t cleared_qty) {
+    fbb_.AddElement<int64_t>(AuctionEvent::VT_CLEARED_QTY, cleared_qty, 0);
+  }
+  explicit AuctionEventBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  flatbuffers::Offset<AuctionEvent> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<AuctionEvent>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<AuctionEvent> CreateAuctionEvent(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    uint32_t instrument_id = 0,
+    uint64_t auction_id = 0,
+    uint8_t phase = 0,
+    uint8_t signal = 0,
+    int64_t indicative_price = 0,
+    int64_t indicative_qty = 0,
+    int64_t imbalance = 0,
+    int64_t deadline_ns = 0,
+    int64_t cleared_qty = 0) {
+  AuctionEventBuilder builder_(_fbb);
+  builder_.add_cleared_qty(cleared_qty);
+  builder_.add_deadline_ns(deadline_ns);
+  builder_.add_imbalance(imbalance);
+  builder_.add_indicative_qty(indicative_qty);
+  builder_.add_indicative_price(indicative_price);
+  builder_.add_auction_id(auction_id);
+  builder_.add_instrument_id(instrument_id);
+  builder_.add_signal(signal);
+  builder_.add_phase(phase);
+  return builder_.Finish();
+}
+
 /// Envelope for every IPC message. `type_type` carries the discriminator.
 struct Event FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   typedef EventBuilder Builder;
@@ -1042,6 +1273,9 @@ struct Event FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const exc::wire::OcoLink *type_as_OcoLink() const {
     return type_type() == exc::wire::EventType_OcoLink ? static_cast<const exc::wire::OcoLink *>(type()) : nullptr;
   }
+  const exc::wire::AuctionEvent *type_as_AuctionEvent() const {
+    return type_type() == exc::wire::EventType_AuctionEvent ? static_cast<const exc::wire::AuctionEvent *>(type()) : nullptr;
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<uint64_t>(verifier, VT_SEQ) &&
@@ -1079,6 +1313,10 @@ template<> inline const exc::wire::OrderAmend *Event::type_as<exc::wire::OrderAm
 
 template<> inline const exc::wire::OcoLink *Event::type_as<exc::wire::OcoLink>() const {
   return type_as_OcoLink();
+}
+
+template<> inline const exc::wire::AuctionEvent *Event::type_as<exc::wire::AuctionEvent>() const {
+  return type_as_AuctionEvent();
 }
 
 struct EventBuilder {
@@ -1153,6 +1391,10 @@ inline bool VerifyEventType(flatbuffers::Verifier &verifier, const void *obj, Ev
     }
     case EventType_OcoLink: {
       auto ptr = reinterpret_cast<const exc::wire::OcoLink *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case EventType_AuctionEvent: {
+      auto ptr = reinterpret_cast<const exc::wire::AuctionEvent *>(obj);
       return verifier.VerifyTable(ptr);
     }
     default: return true;

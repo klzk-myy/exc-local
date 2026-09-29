@@ -123,6 +123,34 @@ func stpModeByte(mode string) byte {
 	}
 }
 
+// pegModeByte maps the §5.4 peg_mode vocabulary onto the Phase-16 wire
+// ordinals (exchange.fbs OrderNew.peg_mode).
+func pegModeByte(mode string) byte {
+	switch mode {
+	case PegModeMid:
+		return 1
+	case PegModePrimary:
+		return 2
+	case PegModeMarket:
+		return 3
+	default:
+		return 0
+	}
+}
+
+// triggerSourceByte maps migration-066 trigger_source onto the wire
+// ordinals; the empty string means LAST_PRICE (column default).
+func triggerSourceByte(src string) byte {
+	switch src {
+	case TriggerSourceMark:
+		return 1
+	case TriggerSourceIndex:
+		return 2
+	default:
+		return 0 // "" / LAST_PRICE
+	}
+}
+
 // orderNewMsg maps a validated submit onto wire.OrderNewMsg. req carries
 // the request-only fields the orders row doesn't materialize (gtd_expiry);
 // the persisted Order supplies the rest.
@@ -140,7 +168,9 @@ func orderNewMsg(o *Order, acct *Account, req *SubmitRequest) ipc.OrderNewMsg {
 		m.Side = wire.SideBuy
 	}
 	switch o.OrderType {
-	case TypeMarket:
+	case TypeMarket, TypeMOO, TypeMOC:
+		// MOO/MOC reach the wire only through the auction injector —
+		// they uncross as plain MARKET orders in the armed CALL book.
 		m.Type = wire.OrderTypeMarket
 	case TypeLimit:
 		m.Type = wire.OrderTypeLimit
@@ -150,6 +180,8 @@ func orderNewMsg(o *Order, acct *Account, req *SubmitRequest) ipc.OrderNewMsg {
 		m.Type = wire.OrderTypeStopLimit
 	case TypeIceberg:
 		m.Type = wire.OrderTypeIceberg
+	case TypePeg:
+		m.Type = wire.OrderTypePeg
 	}
 	switch o.TimeInForce {
 	case TIFIOC:
@@ -180,6 +212,25 @@ func orderNewMsg(o *Order, acct *Account, req *SubmitRequest) ipc.OrderNewMsg {
 	if o.ReduceOnly {
 		m.Flags |= 2
 	}
+	// Phase-16 Task 16.3.13/16.3.16 flags ride bits 2/3 (schema comment).
+	if o.Hidden {
+		m.Flags |= 4
+	}
+	if o.GSLO {
+		m.Flags |= 8
+	}
+	// Phase-16 Task 16.3.10/.11/.17 aux — the engine sibling decodes;
+	// zeros are the wire "unset" convention.
+	if o.PegMode != nil {
+		m.PegMode = pegModeByte(*o.PegMode)
+	}
+	if o.PegOffset != nil {
+		m.PegOffset = decimal.Scaled(*o.PegOffset)
+	}
+	if o.PegLimit != nil {
+		m.PegLimit = decimal.Scaled(*o.PegLimit)
+	}
+	m.TriggerSource = triggerSourceByte(o.TriggerSource)
 	if acct != nil && acct.TradeGroupID != nil {
 		m.TradeGroupID = uint32(*acct.TradeGroupID)
 	}
@@ -332,6 +383,17 @@ type Consumer struct {
 	// consumer goroutine; implementations must be cheap, non-blocking
 	// and panic-safe (the hook swallows its own errors).
 	onFill func(orderID int64, price, qty decimal.Decimal)
+	// onGSLOFill is the Phase-16 Task 16.3.16 gap-absorption seam —
+	// invoked per order id on every TradeFill; *algo.GSLOService.OnFill
+	// detects gslo orders filled worse than their guaranteed stop and
+	// posts the insurance-fund compensation journal. Same inline/
+	// panic-safe contract as onFill.
+	onGSLOFill func(orderID int64, price, qty decimal.Decimal)
+	// onCancel is the Phase-16 composite-lifecycle seam — invoked once
+	// per outbound OrderCancel echo after ApplyCancel lands. The
+	// bracket/order-list/auction state machines fan out from it
+	// (Service.OnCancel). Same inline/panic-safe contract as onFill.
+	onCancel func(orderID int64, reason uint8)
 	// pollInterval bounds the drain loop cadence; ~50µs production-tight,
 	// larger in tests is fine.
 	pollInterval time.Duration
@@ -355,14 +417,44 @@ func (c *Consumer) WithFillHook(h func(orderID int64, price, qty decimal.Decimal
 	return c
 }
 
-// fireFill invokes the hook under a panic guard — a misbehaving emitter
+// WithGSLOHook wires the Phase-16 Task 16.3.16 guaranteed-stop fill
+// observer (insurance-fund gap absorption). Nil hook → zero overhead.
+func (c *Consumer) WithGSLOHook(h func(orderID int64, price, qty decimal.Decimal)) *Consumer {
+	c.onGSLOFill = h
+	return c
+}
+
+// WithCancelHook wires the Phase-16 composite/auction cancel observer —
+// fired once per engine OrderCancel echo (reason = the wire cancel
+// code: 0 user, 1 expired, 7 OCO sibling, …). Nil hook → zero overhead.
+func (c *Consumer) WithCancelHook(h func(orderID int64, reason uint8)) *Consumer {
+	c.onCancel = h
+	return c
+}
+
+// fireFill invokes the hooks under a panic guard — a misbehaving emitter
 // must never kill the read-model consumer.
 func (c *Consumer) fireFill(orderID int64, price, qty decimal.Decimal) {
-	if c.onFill == nil {
+	if c.onFill == nil && c.onGSLOFill == nil {
 		return
 	}
 	defer func() { _ = recover() }()
-	c.onFill(orderID, price, qty)
+	if c.onFill != nil {
+		c.onFill(orderID, price, qty)
+	}
+	if c.onGSLOFill != nil {
+		c.onGSLOFill(orderID, price, qty)
+	}
+}
+
+// fireCancel invokes the cancel hook under the same panic guard —
+// a misbehaving observer must never kill the read-model consumer.
+func (c *Consumer) fireCancel(orderID int64, reason uint8) {
+	if c.onCancel == nil {
+		return
+	}
+	defer func() { _ = recover() }()
+	c.onCancel(orderID, reason)
 }
 
 // Run polls the given shards' out-rings until ctx is cancelled.
@@ -455,6 +547,7 @@ func (c *Consumer) handle(payload []byte) {
 			}})
 		}
 		c.pending.resolve(oc.OrderId())
+		c.fireCancel(int64(oc.OrderId()), oc.Reason())
 	case wire.EventTypeTradeFill:
 		tf := ipc.EventTradeFill(ev)
 		if tf == nil {

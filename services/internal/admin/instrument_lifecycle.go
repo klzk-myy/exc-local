@@ -367,6 +367,36 @@ func (f RedisStatusFeed) GetAuctionResult(ctx context.Context, symbol string) (s
 	return v, err
 }
 
+// AuctionArmed returns the armed auction state —
+// "CALL:{deadline_unix_ns}" | "EXTEND:{deadline_unix_ns}" — or "" when
+// no call is armed. The Phase-16 Task 16.3.25 freeze gate + order
+// injector read it (armed ⇒ queued MOO/MOC are immutable).
+func (f RedisStatusFeed) AuctionArmed(ctx context.Context, symbol string) (string, error) {
+	v, err := f.C.Get(ctx, instrumentAuctionKey(symbol)).Result()
+	if errors.Is(err, goredis.Nil) {
+		return "", nil
+	}
+	return v, err
+}
+
+// AuctionQueue returns the scheduler-published order-id list the armed
+// uncross consumes ("" / empty when no scheduler queue exists — e.g. a
+// reopening CALL). Read seam for the Task 16.3.25 injector.
+func (f RedisStatusFeed) AuctionQueue(ctx context.Context, symbol string) ([]int64, error) {
+	v, err := f.C.Get(ctx, instrumentAuctionKey(symbol)+":queue").Result()
+	if errors.Is(err, goredis.Nil) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var ids []int64
+	if err := json.Unmarshal([]byte(v), &ids); err != nil {
+		return nil, err
+	}
+	return ids, nil
+}
+
 // SetFixing publishes the benchmark-fixing key the engine's FIXING-order
 // machinery consumes (Task 15.3.13/16.3.9):
 // "FIXING:{benchmark}:{rate}:{scheduled_unix_ns}".

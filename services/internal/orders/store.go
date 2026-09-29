@@ -6,6 +6,7 @@ package orders
 
 import (
 	"context"
+	"encoding/json"
 	stderrors "errors"
 	"fmt"
 	"strings"
@@ -49,6 +50,9 @@ type Store interface {
 	ApplyCancel(ctx context.Context, orderID int64) error
 	ApplyFill(ctx context.Context, orderID int64, price, qty decimal.Decimal) error
 	MarkActive(ctx context.Context, orderID int64) error
+	// MarkReserved flips a PENDING FIXING order into its queued state
+	// (Phase-16 Task 16.3.9 — fixing orders never touch the engine).
+	MarkReserved(ctx context.Context, orderID int64) error
 	MarkRejected(ctx context.Context, orderID int64) error
 	// AmendCAS applies an amend + its audit rows atomically with the
 	// order_seq compare-and-swap (STALE_MODIFY fencing). ok=false means
@@ -130,6 +134,17 @@ type InsertParams struct {
 	// OcoGroupID links both legs of an OCO pair (migration 218); nil =
 	// standalone order.
 	OcoGroupID *int64
+	// ---- Phase-16 Task 16.3.10 exec-param columns (migration 038) +
+	// Task 16.3.17 trigger source (migration 066) ----
+	PegMode         *string
+	PegOffset       *decimal.Decimal
+	PegLimit        *decimal.Decimal
+	TriggerSource   string // "" persists the column default LAST_PRICE
+	Hidden          bool
+	GSLO            bool
+	FixingBenchmark *string
+	AlgoType        *string
+	AlgoParams      json.RawMessage // nil ⇒ NULL
 }
 
 // ListQuery is the §8.8 cursor-paginated history query. The filterable
@@ -306,20 +321,28 @@ const orderCols = `
 	filled_qty::text, avg_fill_price::text, shard_id, book_seq, order_seq,
 	post_only, reduce_only, COALESCE(stp_mode,''), COALESCE(session_id,''),
 	oco_group_id,
-	created_at, updated_at`
+	created_at, updated_at,
+	peg_mode, peg_offset::text, peg_limit::text,
+	COALESCE(trigger_source,''), hidden, gslo, fixing_benchmark,
+	algo_type, algo_params`
 
 func scanOrder(row pgx.Row) (*Order, error) {
 	var (
 		o                                     Order
 		qty, tif, status, filled, side, otype string
 		quote, price, stop, display, avg      *string
+		pegOff, pegLim                        *string
+		algoParams                            []byte
 	)
 	err := row.Scan(&o.ID, &o.AccountID, &o.InstrumentID, &o.ClientOrderID,
 		&side, &otype, &qty, &quote, &price, &stop, &display, &tif, &status,
 		&filled, &avg, &o.ShardID, &o.BookSeq, &o.OrderSeq,
 		&o.PostOnly, &o.ReduceOnly, &o.STPMode, &o.SessionID,
 		&o.OcoGroupID,
-		&o.CreatedAt, &o.UpdatedAt)
+		&o.CreatedAt, &o.UpdatedAt,
+		&o.PegMode, &pegOff, &pegLim,
+		&o.TriggerSource, &o.Hidden, &o.GSLO, &o.FixingBenchmark,
+		&o.AlgoType, &algoParams)
 	if err != nil {
 		return nil, err
 	}
@@ -331,6 +354,11 @@ func scanOrder(row pgx.Row) (*Order, error) {
 	o.StopPrice = mustParseDecPtr(stop)
 	o.DisplayQty = mustParseDecPtr(display)
 	o.AvgFillPrice = mustParseDecPtr(avg)
+	o.PegOffset = mustParseDecPtr(pegOff)
+	o.PegLimit = mustParseDecPtr(pegLim)
+	if len(algoParams) > 0 {
+		o.AlgoParams = append(json.RawMessage(nil), algoParams...)
+	}
 	return &o, nil
 }
 
@@ -436,6 +464,17 @@ func (s *PgStore) RevertAmend(ctx context.Context, prev *Order) error {
 	return err
 }
 
+// MarkReserved flips a freshly-inserted FIXING order into its queued
+// state (Phase-16 Task 16.3.9): RESERVED = "balance reservation posted,
+// waiting for the benchmark fix". Only PENDING can queue — anything else
+// means a race won first.
+func (s *PgStore) MarkReserved(ctx context.Context, orderID int64) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE orders SET status='RESERVED', updated_at=now()
+		WHERE id=$1 AND status='PENDING'`, orderID)
+	return err
+}
+
 func (s *PgStore) MarkActive(ctx context.Context, orderID int64) error {
 	_, err := s.pool.Exec(ctx, `
 		UPDATE orders SET status='ACTIVE', updated_at=now()
@@ -487,20 +526,34 @@ func insertOrderInTx(ctx context.Context, tx pgx.Tx, p InsertParams) (int64, err
 	}
 
 	var id int64
+	var algoParams any
+	if len(p.AlgoParams) > 0 {
+		// string — never []byte: under simple-protocol transports a
+		// []byte arg encodes as bytea and the ::jsonb cast fails.
+		algoParams = string(p.AlgoParams)
+	}
 	err := tx.QueryRow(ctx, `
 		INSERT INTO orders (account_id, instrument_id, client_order_id,
 		    side, order_type, quantity, quote_quantity, price, stop_price,
 		    display_qty, time_in_force, status, shard_id, order_seq,
-		    post_only, reduce_only, stp_mode, session_id, oco_group_id)
+		    post_only, reduce_only, stp_mode, session_id, oco_group_id,
+		    peg_mode, peg_offset, peg_limit, trigger_source, hidden, gslo,
+		    fixing_benchmark, algo_type, algo_params)
 		VALUES ($1,$2,NULLIF($3,''),$4,$5,$6::numeric,$7::numeric,$8::numeric,
 		        $9::numeric,$10::numeric,$11,'PENDING',$12,$13,$14,$15,
-		        NULLIF($16,''),NULLIF($17,''),$18)
+		        NULLIF($16,''),NULLIF($17,''),$18,
+		        NULLIF($19,''),$20::numeric,$21::numeric,
+		        COALESCE(NULLIF($22,''),'LAST_PRICE'),$23,$24,
+		        NULLIF($25,''),NULLIF($26,''),$27::jsonb)
 		RETURNING id`,
 		p.AccountID, p.InstrumentID, p.ClientOrderID, p.Side, p.OrderType,
 		p.Quantity.String(), decPtrStr(p.QuoteQuantity), decPtrStr(p.Price),
 		decPtrStr(p.StopPrice), decPtrStr(p.DisplayQty), p.TimeInForce,
 		p.ShardID, p.OrderSeq, p.PostOnly, p.ReduceOnly, p.STPMode,
-		p.SessionID, p.OcoGroupID).
+		p.SessionID, p.OcoGroupID,
+		p.PegMode, decPtrStr(p.PegOffset), decPtrStr(p.PegLimit),
+		p.TriggerSource, p.Hidden, p.GSLO,
+		p.FixingBenchmark, p.AlgoType, algoParams).
 		Scan(&id)
 	if err != nil {
 		var pgErr *pgconn.PgError

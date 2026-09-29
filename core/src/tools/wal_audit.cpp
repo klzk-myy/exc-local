@@ -61,6 +61,9 @@ using exch::WalBookSnapshotHeader;
 using exch::WalEntryView;
 using exch::WalEventType;
 using exch::WalOrderNewPayload;
+using exch::WalOrderNewExPayload;
+using exch::WalOrderTriggeredPayload;
+using exch::WalPegRepricePayload;
 using exch::WalReader;
 using exch::WalScanStep;
 using exch::WalStatus;
@@ -124,11 +127,14 @@ const char* type_name(WalEventType t) noexcept {
         case WalEventType::PREVENTED_MATCH: return "PREVENTED_MATCH";
         case WalEventType::OCO_LINK:      return "OCO_LINK";
         case WalEventType::AUCTION_PHASE: return "AUCTION_PHASE";
+        case WalEventType::ORDER_NEW_EX:  return "ORDER_NEW_EX";
+        case WalEventType::ORDER_TRIGGERED: return "ORDER_TRIGGERED";
+        case WalEventType::PEG_REPRICE:   return "PEG_REPRICE";
     }
     return "?";
 }
 constexpr std::size_t kTypeCount =
-    static_cast<std::size_t>(WalEventType::AUCTION_PHASE) + 1;
+    static_cast<std::size_t>(WalEventType::PEG_REPRICE) + 1;
 
 void json_escape(FILE* f, const std::string& s) {
     for (const char c : s) {
@@ -329,6 +335,28 @@ void scan_segments(const std::vector<Segment>& segs, Audit& a) {
                 } else {
                     ++a.bad_payloads;
                     defect(a, "ORDER_NEW payload size mismatch");
+                }
+            } else if (ev.type == WalEventType::ORDER_NEW_EX) {
+                // Phase-16 extended admission — the head is a verbatim
+                // WalOrderNewPayload, so the instrument hits ledger reads
+                // the same offset as ORDER_NEW.
+                if (ev.payload_len == sizeof(WalOrderNewExPayload)) {
+                    WalOrderNewExPayload p{};
+                    std::memcpy(&p, ev.payload, sizeof(p));
+                    ++a.instrument_hits[p.base.instrument_id];
+                } else {
+                    ++a.bad_payloads;
+                    defect(a, "ORDER_NEW_EX payload size mismatch");
+                }
+            } else if (ev.type == WalEventType::ORDER_TRIGGERED) {
+                if (ev.payload_len != sizeof(WalOrderTriggeredPayload)) {
+                    ++a.bad_payloads;
+                    defect(a, "ORDER_TRIGGERED payload size mismatch");
+                }
+            } else if (ev.type == WalEventType::PEG_REPRICE) {
+                if (ev.payload_len != sizeof(WalPegRepricePayload)) {
+                    ++a.bad_payloads;
+                    defect(a, "PEG_REPRICE payload size mismatch");
                 }
             }
         }

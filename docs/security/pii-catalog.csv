@@ -76,6 +76,10 @@ client_approval_decisions,approver_user_id,BIGINT,PSEUDONYMOUS,n/a (user id),vot
 client_approval_decisions,note,TEXT,FREE_TEXT,plaintext,vote note,audit floor
 client_delegation_events,actor_user_id,BIGINT,PSEUDONYMOUS,n/a (user id),delegation audit,audit floor
 client_delegation_events,detail,JSONB,FREE_TEXT,plaintext JSONB,delegation audit,audit floor
+order_lists,fail_reason,VARCHAR(64),FREE_TEXT,plaintext,list-leg validation text — may echo client params,order record floor
+strategy_templates,name,VARCHAR(128),FREE_TEXT,plaintext,manager-chosen public label,template lifetime
+strategy_templates,reject_reason,VARCHAR(255),FREE_TEXT,plaintext,approver-entered review note,template lifetime
+strategy_runs,skip_reason,VARCHAR(64),FREE_TEXT,plaintext,machine/officer skip note,run record
 vulnerability_disclosures,reproduction,TEXT,FREE_TEXT,plaintext — PoC may embed user data,triage,disclosure lifetime
 vulnerability_disclosures,reporter_handle,VARCHAR(128),CONTACT,plaintext (pseudonymous ok),VDP correspondence,disclosure lifetime
 vulnerability_disclosures,contact_email,VARCHAR(320),CONTACT,plaintext,VDP correspondence,disclosure lifetime

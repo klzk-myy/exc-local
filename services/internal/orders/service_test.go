@@ -225,6 +225,12 @@ func (s *fakeStore) MarkActive(_ context.Context, id int64) error {
 	}
 	return nil
 }
+func (s *fakeStore) MarkReserved(_ context.Context, id int64) error {
+	if o := s.orders[id]; o != nil && o.Status == "PENDING" {
+		o.Status = "RESERVED"
+	}
+	return nil
+}
 func (s *fakeStore) MarkRejected(_ context.Context, id int64) error {
 	if o := s.orders[id]; o != nil && isOpen(o.Status) {
 		o.Status = "REJECTED"

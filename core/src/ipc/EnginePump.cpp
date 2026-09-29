@@ -71,9 +71,35 @@ bool map_order_type(exc::wire::OrderType t, OrderType* out) noexcept {
         case exc::wire::OrderType_StopLimit:
             *out = OrderType::STOP_LIMIT;
             return true;
+        case exc::wire::OrderType_Iceberg:
+            *out = OrderType::ICEBERG;
+            return true;
+        case exc::wire::OrderType_Peg:
+            // Phase-16 Task 16.3.11 — aux.peg_mode selects the reference.
+            *out = OrderType::PEG;
+            return true;
+        case exc::wire::OrderType_Fixing:
+            // Phase-16 Task 16.3.9 — FIXING orders are never dispatched to
+            // the engine (the fixing executor crosses them off-wire); a
+            // stray frame maps through and the engine rejects it
+            // ORDER_INVALID — fail closed, never silent-drop.
+            *out = OrderType::FIXING;
+            return true;
         default:
             return false;
     }
+}
+
+// Phase-16 Tasks 16.3.13/16.3.16 — wire flag bits differ from the engine
+// bitfield: the wire uses bit2=hidden/bit3=gslo while the engine reserves
+// bits 2/3 for internal markers (market-with-protection, STP transfer) and
+// keeps hidden/gslo on bits 4/5. Translate rather than memcpy so a wire
+// bit can never masquerade as an internal marker.
+[[nodiscard]] constexpr uint8_t translate_flags(uint8_t wire_flags) noexcept {
+    uint8_t f = wire_flags & (kOrderFlagPostOnly | kOrderFlagReduceOnly);
+    if ((wire_flags & 0x4u) != 0) f |= kOrderFlagHidden;
+    if ((wire_flags & 0x8u) != 0) f |= kOrderFlagGslo;
+    return f;
 }
 
 bool map_tif(exc::wire::TimeInForce t, TimeInForce* out) noexcept {
@@ -394,12 +420,35 @@ void EnginePump::dispatch(const uint8_t* data, uint32_t len) noexcept {
                 Side side;
                 OrderType type;
                 TimeInForce tif;
+                const uint8_t trail_unit = m->trailing_offset_unit();
                 if (!map_side(m->side(), &side) || !map_order_type(m->type(), &type) ||
                     !map_tif(m->tif(), &tif) || m->qty() <= 0 ||
-                    (type != OrderType::MARKET && m->price() <= 0)) {
+                    m->trigger_source() > kTriggerSourceIndex ||
+                    m->peg_mode() > kPegMarket ||
+                    trail_unit > kTrailUnitAbsolute ||
+                    // price is required unless the type derives/lacks a
+                    // limit (MARKET, PEG) or never rests at a wire price
+                    // (TRAILING_STOP via trailing_offset_unit, FIXING —
+                    // engine rejects it regardless).
+                    (type != OrderType::MARKET && type != OrderType::PEG &&
+                     type != OrderType::FIXING && trail_unit == 0 &&
+                     m->price() <= 0)) {
                     decode_errors_.fetch_add(1, std::memory_order_relaxed);
                     report("DECODE_ERROR", "OrderNew field validation failed; frame rejected");
                     break;
+                }
+                // Phase-16 Tasks 16.3.3/16.3.15 — the wire has no trailing
+                // order type: StopMarket + trailing_offset_unit != 0 IS the
+                // trailing-stop encoding. Any other base type carrying a
+                // trail distance is malformed.
+                if (trail_unit != kTrailUnitNone) {
+                    if (type != OrderType::STOP) {
+                        decode_errors_.fetch_add(1, std::memory_order_relaxed);
+                        report("DECODE_ERROR",
+                               "trailing_offset_unit set on non-StopMarket OrderNew");
+                        break;
+                    }
+                    type = OrderType::TRAILING_STOP;
                 }
                 if (engine_ == nullptr || orders_ == nullptr) {
                     unrouted_drops_.fetch_add(1, std::memory_order_relaxed);
@@ -422,7 +471,10 @@ void EnginePump::dispatch(const uint8_t* data, uint32_t len) noexcept {
                 // stp_mode: 0xFF wire sentinel = unset -> resolve order ->
                 // account default -> CANCEL_NEWEST in pre-trade (2.3.21).
                 o->stp_mode = static_cast<StpMode>(m->stp_mode());
-                o->flags = m->flags();  // bit0 post_only, bit1 reduce_only
+                // bit0 post_only, bit1 reduce_only pass through verbatim;
+                // wire bit2/3 (hidden/gslo) translate to engine bits 4/5 —
+                // engine bits 2/3 are internal-only markers.
+                o->flags = translate_flags(m->flags());
                 o->price_ticks = m->price();
                 o->qty_units = m->qty();
                 o->filled_qty_units = 0;
@@ -449,20 +501,26 @@ void EnginePump::dispatch(const uint8_t* data, uint32_t len) noexcept {
                 aux.trade_group_id = m->trade_group_id();
                 aux.instrument_id = m->instrument_id();
                 aux.discretionary_offset_pips = m->discretionary_offset_pips();
+                // Phase-16 aux (Tasks 16.3.3/11/15/17): the wire ordinals
+                // are the engine kTriggerSource*/kPeg*/kTrailUnit* values
+                // verbatim — ranged above, so a plain assignment is safe.
+                aux.trigger_source = m->trigger_source();
+                aux.peg_mode = m->peg_mode();
+                aux.trail_unit = trail_unit;
+                aux.peg_offset_ticks = m->peg_offset();
+                aux.peg_limit_ticks = m->peg_limit();
+                aux.trail_distance = m->trailing_offset();
+                aux.activation_price_ticks = m->activation_price();
 
                 if (wal_ != nullptr && opts_.wal_log_commands) {
-                    WalOrderNewPayload p{};
-                    p.order_id = m->order_id();
-                    p.account_id = m->account_id();
-                    p.instrument_id = m->instrument_id();
-                    p.side = static_cast<uint8_t>(m->side());
-                    p.type = static_cast<uint8_t>(m->type());
-                    p.tif = static_cast<uint8_t>(m->tif());
-                    p.price_ticks = m->price();
-                    p.qty_units = m->qty();
-                    p.visible_qty_units = m->qty();
-                    if (wal_->append(WalEventType::ORDER_NEW, &p,
-                                     static_cast<uint32_t>(sizeof(p))) != WalStatus::Ok) {
+                    // Route through WalWriter so the command log emits the
+                    // ORDER_NEW_EX extension payload whenever the aux
+                    // carries Phase-16 fields — a hand-rolled legacy
+                    // ORDER_NEW would drop them and diverge on replay.
+                    WalWriter cmd_log(wal_);
+                    const WalStatus ws = cmd_log.write_order_new(
+                        *o, aux, m->instrument_id(), m->qty(), ev->ts());
+                    if (ws != WalStatus::Ok) {
                         wal_failures_.fetch_add(1, std::memory_order_relaxed);
                         orders_->free(o);
                         report("WAL_APPEND_FAILED", "ORDER_NEW append failed; command not applied");

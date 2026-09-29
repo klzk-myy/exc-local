@@ -10,18 +10,51 @@ namespace exch {
 
 namespace {
 
+// Emit up to `count` levels carrying VISIBLE depth (Phase-16 Tasks
+// 16.3.11/16.3.13): a level's record aggregates only l2_visible members —
+// pegged and flag-hidden orders contribute neither qty nor count, and a
+// level with no visible member is skipped (never leaks structure).
 [[nodiscard]] std::size_t emit_side(const OrderBook& book, Side side,
                                     uint16_t count, uint8_t* dst) noexcept {
     std::size_t off = 0;
-    for (uint16_t i = 0; i < count; ++i) {
+    uint16_t emitted = 0;
+    for (uint32_t i = 0; emitted < count; ++i) {
         const PriceLevel* lvl = book.level(side, i);
-        if (lvl == nullptr) break;  // populated <= count by construction
-        const L2LevelRecord rec{lvl->price_ticks, lvl->total_qty_units,
-                                lvl->order_count, {0}};
+        if (lvl == nullptr) break;
+        int64_t q = 0;
+        uint32_t c = 0;
+        for (const Order* o = lvl->head; o != nullptr; o = o->next) {
+            if (!l2_visible(*o)) continue;
+            q += remaining_qty_units(*o);
+            ++c;
+        }
+        if (c == 0) continue;
+        const L2LevelRecord rec{lvl->price_ticks, q,
+                                static_cast<int32_t>(c), {0}};
         std::memcpy(dst + off, &rec, sizeof(rec));
         off += sizeof(rec);
+        ++emitted;
     }
     return off;
+}
+
+// Count levels with at least one l2_visible member, capped at max_depth —
+// the header counts MUST match what emit_side writes (hidden-only levels
+// are omitted, so raw bid_count()/ask_count() would over-report).
+[[nodiscard]] uint16_t count_visible_side(const OrderBook& book, Side side,
+                                          uint16_t max_depth) noexcept {
+    uint16_t n = 0;
+    for (uint32_t i = 0; n < max_depth; ++i) {
+        const PriceLevel* lvl = book.level(side, i);
+        if (lvl == nullptr) break;
+        for (const Order* o = lvl->head; o != nullptr; o = o->next) {
+            if (l2_visible(*o) && remaining_qty_units(*o) > 0) {
+                ++n;
+                break;
+            }
+        }
+    }
+    return n;
 }
 
 }  // namespace
@@ -31,8 +64,8 @@ std::size_t serialize_l2_snapshot(const OrderBook& book,
                                   uint8_t* dst, std::size_t dst_cap,
                                   uint16_t max_depth) noexcept {
     if (dst == nullptr) return 0;
-    const uint16_t nb = l2_levels_emitted(book.bid_count(), max_depth);
-    const uint16_t na = l2_levels_emitted(book.ask_count(), max_depth);
+    const uint16_t nb = count_visible_side(book, Side::BUY, max_depth);
+    const uint16_t na = count_visible_side(book, Side::SELL, max_depth);
     const std::size_t need = l2_wire_size(nb, na);
     if (dst_cap < need) return 0;  // fail-closed: never a torn frame
 

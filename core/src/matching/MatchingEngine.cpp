@@ -5,10 +5,14 @@
 // on_time_tick), fail-closed on WAL/table/book-structural faults.
 //
 // WAL logging discipline: externally-caused events are journaled —
-// ORDER_NEW (acceptance), ORDER_CANCEL (user/expiry/STP/FOK/IOC-remainder),
-// ORDER_MODIFY (amends + STP decrements), TRADE (per fill), TIME_TICK.
-// Internally-DERIVED transitions — iceberg slice refresh, stop trigger
-// activation — are NOT journaled: they are deterministic functions of the
+// ORDER_NEW/ORDER_NEW_EX (acceptance), ORDER_CANCEL (user/expiry/STP/
+// FOK/IOC-remainder), ORDER_MODIFY (amends + STP decrements), TRADE (per
+// fill), TIME_TICK, ORDER_TRIGGERED (conditional activation — committed
+// so MARK/INDEX-sourced triggers replay with the exact observed
+// reference and deterministic sequence, the GSLO branch never re-arms),
+// PEG_REPRICE (committed reprice — anchor for replay divergence checks).
+// Internally-DERIVED transitions — iceberg slice refresh, trailing-stop
+// re-anchor — are NOT journaled: they are deterministic functions of the
 // logged stream and re-derive identically on replay (single source of
 // truth; a derived entry would double-apply under verbatim replay).
 
@@ -20,9 +24,67 @@
 #include "book/Instrument.hpp"
 #include "matching/IpcPublisher.hpp"
 #include "risk/InstrumentFeed.hpp"
+#include "risk/PriceOracleFeed.hpp"
 #include "utils/safe_math.hpp"
 
 namespace exch {
+
+namespace {
+
+// Phase-16 Tasks 16.3.3/16.3.15 — trailing distance in ticks:
+//   PIPS/PIPETTE-ish units convert through the instrument pip lattice
+//   (distance is in pips, i.e. integer pip count);
+//   PERCENTAGE is the fractional-percentage integer convention — distance
+//   25 means 0.25% of the reference (25 / 10'000 of the price), computed
+//   via the 128-bit safe path and clamped to i64 on overflow;
+//   ABSOLUTE is the raw tick distance verbatim.
+[[nodiscard]] int64_t trail_distance_ticks(int64_t distance,
+                                           uint8_t unit,
+                                           int64_t ref_ticks,
+                                           const Instrument& inst) noexcept {
+    if (distance <= 0) return 0;
+    switch (unit) {
+    case kTrailUnitPips:
+        return pips_to_ticks(static_cast<uint64_t>(distance), inst);
+    case kTrailUnitPercentage: {
+        const safe_math::int128_t w =
+            safe_math::mul_wide_i64(ref_ticks, distance) / 10'000;
+        int64_t t = 0;
+        if (!safe_math::try_narrow_i128(w, t)) return 0;
+        return t < 0 ? 0 : t;
+    }
+    case kTrailUnitAbsolute:
+    default:
+        return distance;
+    }
+}
+
+// Signed arithmetic: clamp the unsigned i128 square root to INT64_MAX
+// before ± application so a degenerate distance cannot wrap.
+[[nodiscard]] int64_t trail_stop_from_anchor(bool buy,
+                                             int64_t anchor_ticks,
+                                             int64_t distance,
+                                             uint8_t unit,
+                                             const Instrument& inst) noexcept {
+    const int64_t dist =
+        trail_distance_ticks(distance, unit, anchor_ticks, inst);
+    if (buy) {
+        const safe_math::int128_t w = anchor_ticks;
+        int64_t t = 0;
+        (void)safe_math::try_narrow_i128(w + dist, t);
+        return t;
+    }
+    return anchor_ticks - dist;  // degenerate dist > anchor clamps <= 0
+}
+
+// MOO/MOC participate in the indicative cross as MARKET liquidity; a
+// pending-at-auction close trailed-in stop keeps its trigger semantics.
+[[nodiscard]] bool auction_market_like(OrderType t) noexcept {
+    return t == OrderType::MARKET || t == OrderType::MOO ||
+           t == OrderType::MOC;
+}
+
+}  // namespace
 
 namespace {
 
@@ -71,12 +133,18 @@ MatchingEngine::MatchingEngine(uint32_t shard_id, OrderBook& book,
     // link install to a fail-closed reject (oco_ensure returns nullptr).
     oco_ = new (std::nothrow) OcoMember[cap]();
     oco_cap_ = oco_ != nullptr ? cap : 0;
+    // Phase-16 Task 16.3.11 — pegged-order record table: fixed compact
+    // array (order_id key, linear scans). A null table degrades pegged
+    // admission to fail-closed ORDER_INVALID (never an untracked peg).
+    pegs_ = new (std::nothrow) PegRec[kPegsCap];
+    pegs_cap_ = pegs_ != nullptr ? kPegsCap : 0;
 }
 
 MatchingEngine::~MatchingEngine() {
     delete[] heap_;
     delete[] meta_;
     delete[] oco_;
+    delete[] pegs_;
 }
 
 // ---------------------------------------------------------------------------
@@ -360,13 +428,19 @@ bool MatchingEngine::expiry_track(OrderMeta& m) noexcept {
 
 bool MatchingEngine::track_meta(uint64_t order_id,
                                 const OrderAux& aux) noexcept {
-    if (aux.trade_group_id == 0 && aux.gtd_expiry_ns <= 0) return true;
+    if (aux.trade_group_id == 0 && aux.gtd_expiry_ns <= 0 &&
+        aux.trigger_source == kTriggerSourceLast &&
+        aux.instrument_id == 0) {
+        return true;
+    }
     // An expiring order without heap storage would silently miss its GTD —
     // fail closed instead of tracking only half the metadata.
     if (aux.gtd_expiry_ns > 0 && heap_ == nullptr) return false;
     OrderMeta* m = meta_ensure(order_id);
     if (m == nullptr) return false;
     m->trade_group_id = aux.trade_group_id;
+    m->trigger_source = aux.trigger_source;
+    m->instrument_id = aux.instrument_id;
     if (aux.gtd_expiry_ns > 0) {
         m->expiry_ns = aux.gtd_expiry_ns;
         if (m->heap_index < 0 && !expiry_track(*m)) return false;
@@ -538,6 +612,7 @@ bool MatchingEngine::cancel_internal(uint64_t order_id, uint64_t account_id,
     if (auto* p = stops_.find(order_id)) {
         Order* s = p->order;
         const uint64_t acct = s->account_id;
+        const int64_t gslo_n = p->gslo_notional_units;  // read before remove
         if (check_account && acct != account_id) return false;
         if (wal_ != nullptr &&
             wal_->write_order_cancel(order_id, acct, wal_reason, now_ns_) !=
@@ -546,6 +621,7 @@ bool MatchingEngine::cancel_internal(uint64_t order_id, uint64_t account_id,
             return false;
         }
         s = stops_.remove(order_id);
+        gslo_release(gslo_n);  // Task 16.3.16 — exposure released on cancel
         meta_erase(order_id);
         if (publisher_ != nullptr) {
             (void)publisher_->publish_order_cancel(order_id, acct, now_ns_,
@@ -561,6 +637,20 @@ bool MatchingEngine::cancel_internal(uint64_t order_id, uint64_t account_id,
     if (Order* pk = parked_find(order_id)) {
         const uint64_t acct = pk->account_id;
         if (check_account && acct != account_id) return false;
+        // Task 16.3.25 (spec §6.2b): inside the T-30s freeze before an
+        // armed deadline a USER cancel of a parked MOO/MOC is refused — the
+        // order is committed to the uncross. Engine-driven drains pass a
+        // non-user reason and are never frozen.
+        if ((pk->type == OrderType::MOO || pk->type == OrderType::MOC) &&
+            wal_reason == kWalCancelReasonUser &&
+            auction_phase_ == kAuctionPhaseCall &&
+            auction_deadline_ns_ > 0 &&
+            now_ns_ + kAuctionFreezeNs >=
+                static_cast<uint64_t>(auction_deadline_ns_)) {
+            last_reject_ = kRejectAmendInAuction;  // freeze code
+            ++reject_count_;
+            return true;  // handled: refused — the order stays parked
+        }
         if (wal_ != nullptr &&
             wal_->write_order_cancel(order_id, acct, wal_reason, now_ns_) !=
                 WalStatus::Ok) {
@@ -603,6 +693,7 @@ bool MatchingEngine::cancel_internal(uint64_t order_id, uint64_t account_id,
     }
     meta_erase(order_id);
     icebergs_.erase(order_id);  // releases hidden remainder if iceberg
+    peg_erase(order_id);        // drops a live peg record (no-op otherwise)
     if (publisher_ != nullptr) {
         (void)publisher_->publish_order_cancel(order_id, acct, now_ns_,
                                                wal_reason);
@@ -853,21 +944,46 @@ MatchingEngine::TakerResult MatchingEngine::walk_match(
         const PriceLevel* lvl = opp == Side::SELL ? book_.best_ask()
                                                   : book_.best_bid();
         if (lvl == nullptr) break;
+        // Phase-16 Task 16.3.13 — hidden/dark makers print at the
+        // visible-BBO midpoint rather than the level price. An
+        // unmatchable hidden member (no mid, mid beyond the taker limit,
+        // or collar-blocked) yields its slot to the next member of the
+        // level — visible members behind it still fill at the level.
+        // When no member of the best level is fillable the sweep halts:
+        // mid is bounded by the visible BBO, so no deeper visible level
+        // can cross either.
+        Order* maker = lvl->head;
+        int64_t eff_px = lvl->price_ticks;
+        while (maker != nullptr) {
+            if ((maker->flags & kOrderFlagHidden) != 0) {
+                const int64_t m2 = visible_midpoint();
+                if (m2 > 0 &&
+                    (!has_limit ||
+                     crosses(taker.side, limit_ticks, m2)) &&
+                    ExecutionCollar::price_allowed(cb, m2)) {
+                    eff_px = m2;
+                    break;
+                }
+                maker = maker->next;
+                continue;
+            }
+            break;  // visible/pegged maker fills at the level price
+        }
+        if (maker == nullptr) break;  // level unfillable — sweep halts
         if (has_limit &&
-            !crosses(taker.side, limit_ticks, lvl->price_ticks)) {
+            !crosses(taker.side, limit_ticks, eff_px)) {
             break;
         }
         // §22.2 execution collar (Task 2.3.17): the phase-entry CollarBounds
         // snapshot gates every maker — the first out-of-range level stops
         // the sweep and the remainder expires with the persisted reason.
-        if (!ExecutionCollar::price_allowed(cb, lvl->price_ticks)) {
+        // The effective price gates (midpoint for hidden makers).
+        if (!ExecutionCollar::price_allowed(cb, eff_px)) {
             res.dead = true;
             res.dead_reason = kWalCancelReasonExecRuleRange;
             res.dead_code = ExecutionCollar::kExpiryReason;
             break;
         }
-        Order* maker = lvl->head;
-        if (maker == nullptr) break;  // structural divergence — bail
 
         // Self-trade prevention (Tasks 2.3.11/2.3.16/2.3.18): same account,
         // or same nonzero STP group (the maker's group resolves through the
@@ -894,7 +1010,7 @@ MatchingEngine::TakerResult MatchingEngine::walk_match(
         const int64_t m_rem = remaining_qty_units(*maker);
         const int64_t fill =
             res.remaining < m_rem ? res.remaining : m_rem;
-        const int64_t px = lvl->price_ticks;
+        const int64_t px = eff_px;  // midpoint for hidden makers (16.3.13)
         const uint64_t maker_id = maker->id;
         const uint64_t maker_acct = maker->account_id;
         const uint64_t tid = next_trade_id_++;
@@ -1030,6 +1146,7 @@ bool MatchingEngine::fok_feasible(const Order& taker, uint32_t taker_group,
                                   const CollarBounds& cb) const noexcept {
     int64_t rem = remaining_qty_units(taker);
     const Side opp = taker.side == Side::BUY ? Side::SELL : Side::BUY;
+    int64_t mid = -1;  // lazy visible-midpoint cache (16.3.13)
     for (std::size_t d = 0; rem > 0; ++d) {
         const PriceLevel* lvl = book_.level(opp, d);
         if (lvl == nullptr) break;
@@ -1037,14 +1154,27 @@ bool MatchingEngine::fok_feasible(const Order& taker, uint32_t taker_group,
             !crosses(taker.side, limit_ticks, lvl->price_ticks)) {
             break;
         }
-        // §22.2 collar mirror (Task 2.3.17): the feasibility verdict must
-        // agree with the sweep — an out-of-range maker makes FOK
-        // infeasible (the remainder would expire, not fill).
-        if (!ExecutionCollar::price_allowed(cb, lvl->price_ticks)) {
-            return false;
-        }
         for (const Order* m = lvl->head; m != nullptr && rem > 0;
              m = m->next) {
+            // Phase-16 Task 16.3.13 — hidden makers fill at the visible
+            // midpoint: contributes nothing when the mid is absent or
+            // beyond the taker limit; other makers still count.
+            if ((m->flags & kOrderFlagHidden) != 0) {
+                if (mid < 0) mid = visible_midpoint();
+                if (mid <= 0) continue;
+                if (has_limit && !crosses(taker.side, limit_ticks, mid)) {
+                    continue;
+                }
+                if (!ExecutionCollar::price_allowed(cb, mid)) {
+                    return false;
+                }
+            } else if (!ExecutionCollar::price_allowed(cb,
+                                                     lvl->price_ticks)) {
+                // §22.2 collar mirror (Task 2.3.17): the feasibility
+                // verdict must agree with the sweep — an out-of-range
+                // maker makes FOK infeasible.
+                return false;
+            }
             const bool self =
                 m->account_id == taker.account_id ||
                 (taker_group != 0 && taker_group == group_of(m->id));
@@ -1105,6 +1235,9 @@ void MatchingEngine::finish_taker(Order& taker, const OrderAux& aux,
 
     const bool never_rests = taker.type == OrderType::MARKET ||
                              taker.type == OrderType::STOP ||
+                             taker.type == OrderType::TRAILING_STOP ||
+                             taker.type == OrderType::MOO ||
+                             taker.type == OrderType::MOC ||
                              taker.tif == TimeInForce::IOC ||
                              taker.tif == TimeInForce::FOK;
     if (never_rests) {
@@ -1174,25 +1307,408 @@ void MatchingEngine::rest_remainder(Order& taker, const OrderAux& aux,
 // (their own fills may trigger further stops)
 // ---------------------------------------------------------------------------
 
-void MatchingEngine::drain_triggers() noexcept {
-    if (wal_fault_) return;  // unjournaled triggers cannot be activated
-    for (;;) {
-        Order* chain = stops_.pop_triggered(last_price_ticks_);
-        if (chain == nullptr) break;
-        for (Order* n = chain; n != nullptr;) {
-            Order* next = n->next;
-            n->next = nullptr;
-            // Rebuild aux from the meta index (group/expiry tracked at
-            // enqueue) — pending stops carry no OrderAux of their own.
-            OrderAux aux{};
-            if (const OrderMeta* m = meta_find(n->id)) {
-                aux.trade_group_id = m->trade_group_id;
-                aux.gtd_expiry_ns = m->expiry_ns;
-            }
-            process_triggered(n, aux);
-            n = next;
+// ---------------------------------------------------------------------------
+// Phase-16 conditional settle wave (Tasks 16.3.3/11/13/15/16/17/22)
+// ---------------------------------------------------------------------------
+
+StopOrderTrigger::TriggerRefs MatchingEngine::trigger_refs() noexcept {
+    StopOrderTrigger::TriggerRefs refs{};
+    refs.last = last_price_ticks_;
+    // Mark/index resolve through the bound feed; the local seam serves the
+    // journal-free replay engine and unit tests. A stale stamp zeroes its
+    // own source only — LAST stays live.
+    int64_t mark = 0, mark_ts = 0, index = 0, index_ts = 0;
+    bool ok = false;
+    if (oracle_feed_ != nullptr) {
+        const PriceOracleFeed::Snapshot s = oracle_feed_->snapshot();
+        ok = s.verifiable;
+        mark = s.mark_ticks;  mark_ts = s.mark_ts_ns;
+        index = s.index_ticks; index_ts = s.index_ts_ns;
+    } else if (oracle_local_ok_) {
+        ok = true;
+        mark = oracle_mark_ticks_;  mark_ts = oracle_mark_ts_ns_;
+        index = oracle_index_ticks_; index_ts = oracle_index_ts_ns_;
+    }
+    if (ok) {
+        const uint64_t stale = kOracleStaleNs;
+        if (mark > 0 && (mark_ts == 0 ||
+                         now_ns_ - static_cast<uint64_t>(mark_ts) <= stale)) {
+            refs.mark = mark;
+        }
+        if (index > 0 && (index_ts == 0 ||
+                          now_ns_ - static_cast<uint64_t>(index_ts) <= stale)) {
+            refs.index = index;
         }
     }
+    // Staleness accounting (CONDITIONAL_TRIGGER_ORACLE_STALE freeze
+    // observations — spec §6.2a): only count a source as stale when a live
+    // conditional actually waits on it.
+    if (stops_.source_live(kTriggerSourceMark) > 0 && refs.mark <= 0 &&
+        oracle_feed_ != nullptr && mark > 0) {
+        ++oracle_stale_suspensions_;
+    }
+    if (stops_.source_live(kTriggerSourceIndex) > 0 && refs.index <= 0 &&
+        oracle_feed_ != nullptr && index > 0) {
+        ++oracle_stale_suspensions_;
+    }
+    return refs;
+}
+
+void MatchingEngine::set_oracle_snapshot(int64_t mark_ticks,
+                                         int64_t mark_ts_ns,
+                                         int64_t index_ticks,
+                                         int64_t index_ts_ns,
+                                         bool verifiable) noexcept {
+    oracle_mark_ticks_ = mark_ticks;
+    oracle_mark_ts_ns_ = mark_ts_ns;
+    oracle_index_ticks_ = index_ticks;
+    oracle_index_ts_ns_ = index_ts_ns;
+    oracle_local_ok_ = verifiable;
+}
+
+void MatchingEngine::trail_eval(
+    const StopOrderTrigger::TriggerRefs& refs) noexcept {
+    const Instrument* inst = book_.instrument();
+    if (inst == nullptr) return;  // no pip lattice — cannot re-anchor
+    stops_.for_each_trailing([&](Order* o, StopOrderTrigger::Pending* p) {
+        const int64_t ref = refs.ref(p->trigger_source);
+        if (ref <= 0) return;  // stale/missing source — frozen, stays pending
+        if (p->armed == 0) {
+            // Activation gate: the trail watches the reference only once
+            // it prints past the activation price (SELL trails arm on a
+            // rally to the gate; BUY trails arm on a dip).
+            const bool active =
+                p->activation_price_ticks <= 0 ||
+                (o->side == Side::BUY
+                     ? ref <= p->activation_price_ticks
+                     : ref >= p->activation_price_ticks);
+            if (!active) return;
+            p->armed = 1;
+            p->anchor_ticks = ref;
+        } else if (p->anchor_ticks <= 0) {
+            // Deferred arming (LAST with no print at admission): the first
+            // live reference seeds the anchor. A seeded explicit stop
+            // stands until the first FAVORABLE move recomputes; a stop of
+            // 0 derives immediately.
+            p->anchor_ticks = ref;
+            if (p->stop_price_ticks > 0) return;
+        } else {
+            // Re-anchor strictly on favorable moves — SELL trails ratchet
+            // UP with new highs, BUY trails ratchet DOWN with new lows.
+            const bool favorable =
+                o->side == Side::SELL ? ref > p->anchor_ticks
+                                      : ref < p->anchor_ticks;
+            if (!favorable) return;  // adverse move — the stop stands
+            p->anchor_ticks = ref;
+        }
+        const int64_t stop = trail_stop_from_anchor(
+            o->side == Side::BUY, p->anchor_ticks, p->trail_distance,
+            p->trail_unit, *inst);
+        if (stop <= 0 || stop == p->stop_price_ticks) return;
+        p->stop_price_ticks = stop;
+        stops_.resort(o);
+        if (p->gslo_notional_units > 0) gslo_resync(*p);
+    });
+}
+
+void MatchingEngine::journal_triggered(
+    const Order* node, const StopOrderTrigger::TriggeredInfo& info,
+    const OrderAux& aux) noexcept {
+    if (wal_ == nullptr) return;
+    WalOrderTriggeredPayload p{};
+    p.order_id = node->id;
+    p.account_id = node->account_id;
+    p.instrument_id = instrument_id_of(aux);
+    p.trigger_source = info.source;
+    p.order_kind = wal_order_type_wire(node->type);
+    p.stop_price_ticks = info.stop_ticks;
+    p.observed_price_ticks = info.observed_ticks;
+    if (wal_->write_order_triggered(p, now_ns_) != WalStatus::Ok) {
+        wal_fault_ = true;
+    }
+}
+
+void MatchingEngine::process_triggered_info(
+    Order* node, const OrderAux& aux,
+    const StopOrderTrigger::TriggeredInfo& info) noexcept {
+    if ((node->flags & kOrderFlagGslo) != 0) {
+        // Task 16.3.16: a flagged trigger is a guaranteed fill at the armed
+        // stop — no collar check, no sweep, no remainder. The exposure the
+        // slot reserved is released with the fill.
+        gslo_fill(node, aux, info.stop_ticks);
+        gslo_release(info.gslo_notional_units);
+        const uint64_t nid = node->id;
+        orders_.free(node);
+        meta_erase(nid);
+        return;
+    }
+    process_triggered(node, aux);
+}
+
+int64_t MatchingEngine::gslo_notional(const Order& o,
+                                      int64_t stop_ticks) const noexcept {
+    int64_t n = 0;
+    if (!notional_units(remaining_qty_units(o), stop_ticks, n)) {
+        return INT64_MAX;  // saturating — an overflowing estimate can only
+                           // trip the exposure cap, never undercount it
+    }
+    return n;
+}
+
+void MatchingEngine::gslo_resync(StopOrderTrigger::Pending& p) noexcept {
+    if (p.order == nullptr) return;
+    const int64_t n = gslo_notional(*p.order, p.stop_price_ticks);
+    gslo_notional_units_ += n - p.gslo_notional_units;
+    p.gslo_notional_units = n;
+}
+
+void MatchingEngine::gslo_release(int64_t notional_units) noexcept {
+    gslo_notional_units_ -= notional_units;
+    if (gslo_live_count_ > 0) --gslo_live_count_;
+}
+
+void MatchingEngine::gslo_fill(Order* node, const OrderAux& aux,
+                               int64_t stop_ticks) noexcept {
+    const int64_t fill = remaining_qty_units(*node);
+    if (fill <= 0) return;
+    const uint64_t tid = next_trade_id_++;
+    // Venue leg = the synthetic counterparty id — the gap liability moves
+    // to the exposure pool, never against a real order id.
+    const uint64_t buy_id =
+        node->side == Side::BUY ? node->id : kGsloVenueOrderId;
+    const uint64_t sell_id =
+        node->side == Side::BUY ? kGsloVenueOrderId : node->id;
+    if (wal_ != nullptr &&
+        wal_->write_trade(tid, buy_id, sell_id, instrument_id_of(aux),
+                          stop_ticks, fill, now_ns_) != WalStatus::Ok) {
+        wal_fault_ = true;
+        return;
+    }
+    node->filled_qty_units += fill;
+    last_price_ticks_ = stop_ticks;
+    ++trades_emitted_;
+    ++gslo_fills_;
+    if (publisher_ != nullptr) {
+        (void)publisher_->publish_trade(tid, buy_id, sell_id, stop_ticks,
+                                        fill, book_.book_seq(), now_ns_);
+    }
+    oco_on_dead(node->id, /*by_fill=*/true);
+}
+
+// --- pegged-order table (Task 16.3.11/16.3.22) --------------------------------
+
+MatchingEngine::PegRec* MatchingEngine::peg_find(uint64_t order_id) noexcept {
+    for (std::size_t i = 0; i < pegs_live_; ++i) {
+        if (pegs_[i].order_id == order_id) return &pegs_[i];
+    }
+    return nullptr;
+}
+
+const MatchingEngine::PegRec* MatchingEngine::peg_find(
+    uint64_t order_id) const noexcept {
+    for (std::size_t i = 0; i < pegs_live_; ++i) {
+        if (pegs_[i].order_id == order_id) return &pegs_[i];
+    }
+    return nullptr;
+}
+
+void MatchingEngine::peg_erase(uint64_t order_id) noexcept {
+    for (std::size_t i = 0; i < pegs_live_; ++i) {
+        if (pegs_[i].order_id != order_id) continue;
+        pegs_[i] = pegs_[pegs_live_ - 1];
+        pegs_[--pegs_live_].order_id = 0;
+        return;
+    }
+}
+
+int64_t MatchingEngine::visible_best_price(Side s) const noexcept {
+    for (uint32_t d = 0; d < OrderBook::kMaxLevels; ++d) {
+        const PriceLevel* l = book_.level(s, d);
+        if (l == nullptr) break;
+        // A level whose whole depth is pegged/hidden carries no PUBLIC
+        // liquidity — the peg reference tracks the visible BBO only.
+        for (const Order* o = l->head; o != nullptr; o = o->next) {
+            if (l2_visible(*o) && remaining_qty_units(*o) > 0) {
+                return l->price_ticks;
+            }
+        }
+    }
+    return 0;
+}
+
+int64_t MatchingEngine::visible_midpoint() const noexcept {
+    const int64_t b = visible_best_price(Side::BUY);
+    const int64_t a = visible_best_price(Side::SELL);
+    if (b <= 0 || a <= 0) return 0;
+    return b + (a - b) / 2;  // overflow-free midpoint; crossed book still
+                             // resolves (a < b -> mid inside the cross)
+}
+
+bool MatchingEngine::peg_reference(uint8_t mode, Side side,
+                                   int64_t& ref_ticks) const noexcept {
+    switch (mode) {
+    case kPegMid:
+        ref_ticks = visible_midpoint();
+        break;
+    case kPegPrimary:
+        ref_ticks = visible_best_price(side);
+        break;
+    case kPegMarket: {
+        const Side opp = side == Side::BUY ? Side::SELL : Side::BUY;
+        ref_ticks = visible_best_price(opp);
+        break;
+    }
+    default:
+        ref_ticks = 0;
+        break;
+    }
+    return ref_ticks > 0;
+}
+
+bool MatchingEngine::peg_target(const PegRec& rec, Side side,
+                                int64_t& price_ticks,
+                                int64_t& ref_ticks) const noexcept {
+    if (!peg_reference(rec.mode, side, ref_ticks)) return false;
+    const safe_math::int128_t t =
+        safe_math::int128_t{ref_ticks} +
+        (side == Side::BUY ? rec.offset_ticks : -rec.offset_ticks);
+    int64_t p = 0;
+    if (!safe_math::try_narrow_i128(t, p) || p <= 0) return false;
+    if (rec.limit_ticks > 0) {
+        // Collar: the pegged price never crosses the configured limit.
+        if (side == Side::BUY ? p > rec.limit_ticks
+                              : p < rec.limit_ticks) {
+            p = rec.limit_ticks;
+        }
+    }
+    price_ticks = p;
+    return true;
+}
+
+bool MatchingEngine::repeg_pass() noexcept {
+    bool any = false;
+    for (std::size_t i = 0; i < pegs_live_; ++i) {
+        if (pegs_[i].order_id == 0) continue;
+        Order* o = book_.find_order(pegs_[i].order_id);
+        if (o == nullptr) {
+            // Terminal already (fill/cancel) — prune lazily; single
+            // engine thread owns the table so swap-remove is safe inline.
+            pegs_[i] = pegs_[pegs_live_ - 1];
+            pegs_[--pegs_live_].order_id = 0;
+            --i;
+            continue;
+        }
+        PegRec& rec = pegs_[i];
+        int64_t target = 0, ref = 0;
+        if (!peg_target(rec, o->side, target, ref)) {
+            if (rec.priced_ok != 0) {
+                rec.priced_ok = 0;
+                ++peg_unavailable_total_;  // §6.2a hold — the level stays
+            }
+            continue;
+        }
+        rec.priced_ok = 1;
+        if (target == o->price_ticks) continue;
+        // Journal BEFORE mutation: the committed price is the replay
+        // divergence anchor (PEG_REPRICE row).
+        if (wal_ != nullptr) {
+            WalPegRepricePayload wp{};
+            wp.order_id = rec.order_id;
+            wp.instrument_id = instrument_id_of(OrderAux{});
+            wp.peg_mode = rec.mode;
+            wp.old_price_ticks = o->price_ticks;
+            wp.new_price_ticks = target;
+            wp.ref_price_ticks = ref;
+            if (wal_->write_peg_reprice(wp, now_ns_) != WalStatus::Ok) {
+                wal_fault_ = true;
+                return any;
+            }
+        }
+        const uint64_t ts =
+            now_ns_ > o->timestamp_ns ? now_ns_ : o->timestamp_ns;
+        const uint64_t seq = ++emit_seq_;
+        if (book_.modify_order(rec.order_id, target, o->qty_units, ts, seq,
+                               /*force_requeue*/ true) != BookError::OK) {
+            wal_fault_ = true;  // journaled reprice could not apply — halt
+            return any;
+        }
+        ++peg_repriced_total_;
+        any = true;
+    }
+    return any;
+}
+
+void MatchingEngine::settle() noexcept {
+    if (wal_fault_) return;  // unjournaled transitions must not commit
+    // Bounded wave: trail re-anchor -> sourced trigger pop -> pegged
+    // reprice -> repeat while progress was made (a triggered stop's own
+    // fill can trigger further stops; a reprice can move a reference).
+    constexpr int kMaxPasses = 8;
+    const StopOrderTrigger::TriggerRefs refs = trigger_refs();
+    for (int pass = 0; pass < kMaxPasses && !wal_fault_; ++pass) {
+        trail_eval(refs);
+        bool progress = false;
+        for (;;) {
+            Order* chain = stops_.pop_triggered(refs);
+            if (chain == nullptr) break;
+            progress = true;
+            for (Order* n = chain; n != nullptr;) {
+                Order* next = n->next;
+                n->next = nullptr;
+                // Rebuild aux from the meta index (group/expiry/source
+                // tracked at enqueue) — pending stops carry no OrderAux.
+                OrderAux aux{};
+                if (const OrderMeta* m = meta_find(n->id)) {
+                    aux.trade_group_id = m->trade_group_id;
+                    aux.gtd_expiry_ns = m->expiry_ns;
+                    aux.instrument_id = m->instrument_id;
+                    aux.trigger_source = m->trigger_source;
+                }
+                StopOrderTrigger::TriggeredInfo info{};
+                info.order_id = n->id;
+                info.source = aux.trigger_source;
+                (void)stops_.take_triggered(n->id, &info);
+                journal_triggered(n, info, aux);
+                process_triggered_info(n, aux, info);
+                n = next;
+            }
+        }
+        // Repricing is suspended inside an armed CALL — the accumulated
+        // book's crossed BBO is not a meaningful reference; the uncross
+        // settles prices, then the post-CALL settle resumes repricing.
+        const bool repriced =
+            auction_phase_ == kAuctionPhaseNone && repeg_pass();
+        if (!progress && !repriced) break;
+    }
+}
+
+void MatchingEngine::on_order_triggered_replay(
+    const WalOrderTriggeredPayload& p) noexcept {
+    if (wal_fault_) return;
+    // LAST-sourced triggers re-derive inside the replayed settle wave —
+    // the journaled row is informational there. MARK/INDEX rows are
+    // authoritative: the feedless replay engine cannot re-evaluate the
+    // oracle, so the committed row drives the activation.
+    StopOrderTrigger::Pending* pend = stops_.find(p.order_id);
+    if (pend == nullptr || pend->order == nullptr) return;
+    if (pend->trigger_source == kTriggerSourceLast) return;
+    Order* node = pend->order;
+    const int64_t gslo_notional = pend->gslo_notional_units;
+    OrderAux aux{};
+    if (const OrderMeta* m = meta_find(node->id)) {
+        aux.trade_group_id = m->trade_group_id;
+        aux.gtd_expiry_ns = m->expiry_ns;
+        aux.instrument_id = m->instrument_id;
+        aux.trigger_source = m->trigger_source;
+    }
+    StopOrderTrigger::TriggeredInfo info{};
+    info.order_id = p.order_id;
+    info.stop_ticks = p.stop_price_ticks;
+    info.observed_ticks = p.observed_price_ticks;
+    info.gslo_notional_units = gslo_notional;
+    info.source = pend->trigger_source;
+    (void)stops_.remove(node->id);
+    process_triggered_info(node, aux, info);
 }
 
 void MatchingEngine::process_triggered(Order* node,
@@ -1330,8 +1846,52 @@ void MatchingEngine::on_order_received(Order* order,
                     invalid = kRejectOrderInvalid;
                 }
                 break;
+            case OrderType::PEG:
+                // Task 16.3.11: mode must be a real peg; price_ticks is
+                // ignored — the admission reference computes the level.
+                if (aux.peg_mode == kPegNone || aux.peg_mode > kPegMarket ||
+                    order->tif == TimeInForce::IOC ||
+                    order->tif == TimeInForce::FOK) {
+                    invalid = kRejectOrderInvalid;
+                }
+                break;
+            case OrderType::TRAILING_STOP:
+                // Tasks 16.3.3/16.3.15: a real distance unit + positive
+                // distance are mandatory; stop_price_ticks is an optional
+                // seed for the armed stop (anchor derives it otherwise).
+                if (aux.trail_unit == kTrailUnitNone ||
+                    aux.trail_unit > kTrailUnitAbsolute ||
+                    aux.trail_distance <= 0) {
+                    invalid = kRejectOrderInvalid;
+                }
+                break;
+            case OrderType::MOO:
+            case OrderType::MOC:
+                // Task 16.3.25 (spec §6.2b): auction-scope orders exist
+                // only inside an armed CALL — the order service holds
+                // them RESERVED until the auction key arms (§27 decision:
+                // pre-CALL queueing is gateway-side, never engine-side).
+                if (auction_phase_ != kAuctionPhaseCall) {
+                    invalid = kRejectOrderInvalid;
+                }
+                break;
             default:
                 invalid = kRejectOrderInvalid;  // type unsupported here
+        }
+    }
+    // Phase-16 cross-field admission checks (fail closed, pre-WAL).
+    if (invalid == nullptr) {
+        if (aux.trigger_source > kTriggerSourceIndex) {
+            invalid = kRejectOrderInvalid;
+        } else if ((order->flags & kOrderFlagGslo) != 0 &&
+                   order->type != OrderType::STOP &&
+                   order->type != OrderType::STOP_LIMIT &&
+                   order->type != OrderType::TRAILING_STOP) {
+            invalid = kRejectOrderInvalid;  // GSLO is a conditional flag
+        } else if ((order->flags & kOrderFlagHidden) != 0 &&
+                   order->type != OrderType::LIMIT &&
+                   order->type != OrderType::ICEBERG) {
+            invalid = kRejectOrderInvalid;  // hidden = resting order only
         }
     }
     if (invalid == nullptr &&
@@ -1351,6 +1911,41 @@ void MatchingEngine::on_order_received(Order* order,
                       ? DiscretionaryExecutor::kRejectOffsetInvalid
                       : DiscretionaryExecutor::validate(
                             *order, aux.discretionary_offset_pips, *ins);
+    }
+
+    // Phase-16 Task 16.3.11/16.3.22 — pegged admission pricing (pre-WAL):
+    // the admission target derives from the CURRENT visible reference;
+    // an unpriceable peg rests at its collar when configured, else
+    // rejects PEGGED_PRICING_UNAVAILABLE (fail closed — a peg with no
+    // price is meaningless). Pegged orders are L2-hidden by l2_visible().
+    int64_t peg_admission_price = 0;
+    if (invalid == nullptr && order->type == OrderType::PEG) {
+        const PegRec probe{order->id, aux.peg_offset_ticks,
+                           aux.peg_limit_ticks, aux.peg_mode, 1};
+        int64_t ref = 0;
+        if (peg_target(probe, order->side, peg_admission_price, ref)) {
+            // computed target (collar-clamped inside peg_target)
+        } else if (aux.peg_limit_ticks > 0) {
+            peg_admission_price = aux.peg_limit_ticks;
+        } else {
+            invalid = kRejectPeggedPricingUnavailable;
+        }
+        if (invalid == nullptr && (pegs_ == nullptr || pegs_live_ >= pegs_cap_)) {
+            invalid = kRejectBookCapacity;
+        }
+        if (invalid == nullptr) order->price_ticks = peg_admission_price;
+    }
+    // Task 16.3.16 — GSLO exposure cap at admission (armed-notional at the
+    // effective stop; 0-capped engines run uncapped). The cap is checked
+    // here so a breach rejects without journaling.
+    if (invalid == nullptr && (order->flags & kOrderFlagGslo) != 0 &&
+        gslo_max_exposure_units_ > 0) {
+        const int64_t n = gslo_notional(*order, aux.stop_price_ticks > 0
+                                        ? aux.stop_price_ticks
+                                        : order->price_ticks);
+        if (gslo_notional_units_ + n > gslo_max_exposure_units_) {
+            invalid = kRejectGsloExposureLimit;
+        }
     }
 
     if (invalid != nullptr) {
@@ -1420,7 +2015,8 @@ void MatchingEngine::on_order_received(Order* order,
         ((order->tif == TimeInForce::IOC ||
           order->tif == TimeInForce::FOK) &&
          order->type != OrderType::STOP &&
-         order->type != OrderType::STOP_LIMIT);
+         order->type != OrderType::STOP_LIMIT &&
+         order->type != OrderType::TRAILING_STOP);
     // An armed CALL exempts non-resting orders — they park for the uncross
     // regardless of the currently (possibly crossed) accumulated book.
     if (takes_now && auction_phase_ != kAuctionPhaseCall) {
@@ -1666,17 +2262,27 @@ void MatchingEngine::on_order_received(Order* order,
         }
         case OrderType::STOP:
         case OrderType::STOP_LIMIT: {
-            // Already-crossed stops trigger immediately instead of queueing.
+            // Already-crossed stops trigger immediately instead of
+            // queueing — the trigger reference is the source-selected one
+            // (Task 16.3.17); a stale/absent source simply cannot be due.
+            const int64_t ref0 =
+                trigger_refs().ref(aux.trigger_source);
             const bool due =
-                last_price_ticks_ > 0 &&
+                ref0 > 0 &&
                 (order->side == Side::BUY
-                     ? last_price_ticks_ >= aux.stop_price_ticks
-                     : last_price_ticks_ <= aux.stop_price_ticks);
+                     ? ref0 >= aux.stop_price_ticks
+                     : ref0 <= aux.stop_price_ticks);
             if (due) {
-                process_triggered(order, aux);
+                StopOrderTrigger::TriggeredInfo info{};
+                info.order_id = order->id;
+                info.stop_ticks = aux.stop_price_ticks;
+                info.observed_ticks = ref0;
+                info.source = aux.trigger_source;
+                journal_triggered(order, info, aux);
+                process_triggered_info(order, aux, info);
                 break;
             }
-            // Track group/expiry alongside the pending stop.
+            // Track group/expiry/source alongside the pending stop.
             if (!track_meta(order->id, aux)) {
                 emit_cancel_event(order->id, order->account_id,
                                   kWalCancelReasonUser);
@@ -1684,7 +2290,17 @@ void MatchingEngine::on_order_received(Order* order,
                 ++reject_count_;
                 break;
             }
-            if (!stops_.enqueue(order, aux.stop_price_ticks)) {
+            // Task 16.3.16: a GSLO-flagged pending stop reserves its armed
+            // notional in the engine exposure counter (admission cap was
+            // checked pre-WAL); released on trigger/cancel.
+            int64_t gslo_n = 0;
+            if ((order->flags & kOrderFlagGslo) != 0) {
+                gslo_n = gslo_notional(*order, aux.stop_price_ticks);
+            }
+            StopOrderTrigger::Pending pm{};
+            pm.trigger_source = aux.trigger_source;
+            pm.gslo_notional_units = gslo_n;
+            if (!stops_.enqueue(order, aux.stop_price_ticks, pm)) {
                 meta_erase(order->id);
                 emit_cancel_event(order->id, order->account_id,
                                   kWalCancelReasonUser);
@@ -1692,15 +2308,143 @@ void MatchingEngine::on_order_received(Order* order,
                 ++reject_count_;
                 break;
             }
+            if (gslo_n > 0) {
+                gslo_notional_units_ += gslo_n;
+                ++gslo_live_count_;
+            }
             adopted = true;
             break;
         }
+        case OrderType::TRAILING_STOP: {
+            // Tasks 16.3.3/16.3.15 — trail arming at admission:
+            //   activation_price set   -> dormant until the reference
+            //                           prints past the gate (armed=0);
+            //   activation unset       -> arm on the live reference now;
+            //                           LAST with no print yet defers to
+            //                           the first settle evaluation;
+            //                           an absent MARK/INDEX reference is
+            //                           CONDITIONAL_TRIGGER_ORACLE_STALE —
+            //                           a post-WAL admission cancel
+            //                           (the ORDER_NEW row is committed).
+            // Journal-free engines (WAL replay, unit tests) keep the
+            // pending instead: the admission reject is a LIVE-ingress gate
+            // only — the ORDER_NEW_EX row is committed upstream, so the
+            // replaying engine must hold the order dormant until its
+            // authoritative ORDER_TRIGGERED row (or ORDER_CANCEL) lands.
+            const int64_t ref0 =
+                trigger_refs().ref(aux.trigger_source);
+            bool armed = aux.activation_price_ticks <= 0;
+            if (armed && ref0 <= 0 && wal_ != nullptr &&
+                aux.trigger_source != kTriggerSourceLast) {
+                emit_cancel_event(order->id, order->account_id,
+                                  kWalCancelReasonUser);
+                last_reject_ = kRejectConditionalOracleStale;
+                ++reject_count_;
+                break;
+            }
+            const int64_t anchor = (armed && ref0 > 0) ? ref0 : 0;
+            const Instrument* tins = book_.instrument();
+            int64_t stop = aux.stop_price_ticks;
+            if (armed && anchor > 0 && tins != nullptr) {
+                const int64_t s = trail_stop_from_anchor(
+                    order->side == Side::BUY, anchor, aux.trail_distance,
+                    aux.trail_unit, *tins);
+                if (s > 0) stop = s;
+            }
+            // An immediately-due trail (ref already past the armed stop)
+            // fires at admission — journal + activate, never queued.
+            if (armed && stop > 0 && ref0 > 0 &&
+                (order->side == Side::BUY ? ref0 >= stop
+                                          : ref0 <= stop)) {
+                StopOrderTrigger::TriggeredInfo info{};
+                info.order_id = order->id;
+                info.stop_ticks = stop;
+                info.observed_ticks = ref0;
+                info.source = aux.trigger_source;
+                journal_triggered(order, info, aux);
+                process_triggered_info(order, aux, info);
+                break;
+            }
+            if (!track_meta(order->id, aux)) {
+                emit_cancel_event(order->id, order->account_id,
+                                  kWalCancelReasonUser);
+                last_reject_ = kRejectBookCapacity;
+                ++reject_count_;
+                break;
+            }
+            int64_t gslo_n = 0;
+            if ((order->flags & kOrderFlagGslo) != 0 && stop > 0) {
+                gslo_n = gslo_notional(*order, stop);
+            }
+            StopOrderTrigger::Pending pm{};
+            pm.trigger_source = aux.trigger_source;
+            pm.trail_unit = aux.trail_unit;
+            pm.anchor_ticks = anchor;
+            pm.activation_price_ticks = aux.activation_price_ticks;
+            pm.trail_distance = aux.trail_distance;
+            pm.armed = armed ? 1 : 0;
+            pm.gslo_notional_units = gslo_n;
+            if (!stops_.enqueue(order, stop, pm)) {
+                meta_erase(order->id);
+                emit_cancel_event(order->id, order->account_id,
+                                  kWalCancelReasonUser);
+                last_reject_ = kRejectBookCapacity;
+                ++reject_count_;
+                break;
+            }
+            if (gslo_n > 0) {
+                gslo_notional_units_ += gslo_n;
+                ++gslo_live_count_;
+            }
+            adopted = true;
+            break;
+        }
+        case OrderType::PEG: {
+            // Task 16.3.11/16.3.22: price_ticks already carries the
+            // admission target (computed pre-WAL). Rest as a hidden-from-
+            // L2 limit; the peg record drives deterministic repricing in
+            // the settle wave.
+            Order tmpl = *order;
+            Order* node = nullptr;
+            const BookError e = book_.add_order(tmpl, &node);
+            if (e != BookError::OK) {
+                emit_cancel_event(order->id, order->account_id,
+                                  kWalCancelReasonUser);
+                last_reject_ = e == BookError::DUPLICATE_ID
+                                   ? kRejectDuplicateId
+                                   : kRejectBookCapacity;
+                ++reject_count_;
+                break;
+            }
+            if (!track_meta(order->id, aux)) {
+                (void)book_.cancel_order(order->id);
+                emit_cancel_event(order->id, order->account_id,
+                                  kWalCancelReasonUser);
+                last_reject_ = kRejectBookCapacity;
+                ++reject_count_;
+                break;
+            }
+            pegs_[pegs_live_++] =
+                PegRec{order->id, aux.peg_offset_ticks,
+                       aux.peg_limit_ticks, aux.peg_mode, 1};
+            break;
+        }
+        case OrderType::MOO:
+        case OrderType::MOC:
+            // Unreachable in continuous trading — admission gated to armed
+            // CALL and auction_accumulate() claims them there. Fail closed
+            // if one ever reaches the dispatch table.
+            emit_cancel_event(order->id, order->account_id,
+                              kWalCancelReasonUser);
+            last_reject_ = kRejectOrderInvalid;
+            ++reject_count_;
+            break;
         default:
             break;  // unreachable — validated above
     }
 
     if (!adopted) orders_.free(order);
-    drain_triggers();
+    settle();
     quarantine_check();  // Task 15.3.10 — post-mutation crossed-book probe
     if (book_.book_seq() != seq0) {
         refresh_protected_quote();  // §6.6b #6 — internal book is the quote
@@ -1722,7 +2466,7 @@ void MatchingEngine::on_cancel_received(uint64_t order_id,
         last_reject_ = kRejectUnknownOrder;
         ++reject_count_;
     }
-    drain_triggers();
+    settle();
     publish_auction_indicative();  // a CALL cancel can move the indicative
     quarantine_check();
     if (book_.book_seq() != seq0) {
@@ -1887,11 +2631,22 @@ void MatchingEngine::amend_pending_stop(StopOrderTrigger::Pending& p,
     const int64_t nexp =
         req.gtd_expiry_ns != 0 ? req.gtd_expiry_ns : m.expiry_ns;
     const Instrument* instr = book_.instrument();
-    if (qty <= 0 || stop <= 0 ||
+    if (qty <= 0 ||
+        (p.stop_price_ticks <= 0 && req.stop_price_ticks <= 0 &&
+         p.trail_unit == kTrailUnitNone) ||
         (s->type == OrderType::STOP_LIMIT && price <= 0) ||
         (instr != nullptr && instr->max_order_qty_units > 0 &&
          qty > instr->max_order_qty_units)) {
         last_reject_ = kRejectOrderInvalid;
+        ++reject_count_;
+        return;
+    }
+    // Task 16.3.17/16.3.22: a trigger-source switch on a live pending
+    // order is rejected — the source is admission-time metadata (the wire
+    // carries no field; 0xFF = unchanged).
+    if (req.trigger_source != 0xFF &&
+        req.trigger_source != p.trigger_source) {
+        last_reject_ = kRejectAmendRejected;
         ++reject_count_;
         return;
     }
@@ -1926,6 +2681,7 @@ void MatchingEngine::amend_pending_stop(StopOrderTrigger::Pending& p,
         s->ingress_seq = ++emit_seq_;
         stops_.resort(s);
     }
+    if (p.gslo_notional_units > 0) gslo_resync(p);  // qty/stop moved
     // Fence lands before rearm_expiry: an immediately-due GTD cancels the
     // order (and erases this meta slot) inside the call.
     m.amend_seq = req.ingress_seq;
@@ -1938,6 +2694,14 @@ void MatchingEngine::amend_pending_stop(StopOrderTrigger::Pending& p,
 
 void MatchingEngine::amend_resting(Order& o, const AmendRequest& req,
                                    OrderMeta& m) noexcept {
+    // Task 16.3.11/16.3.22: a pegged order's price is engine-managed — a
+    // manual price change is rejected outright; qty amends are legal.
+    if (o.type == OrderType::PEG && req.price_ticks > 0 &&
+        req.price_ticks != o.price_ticks) {
+        last_reject_ = kRejectAmendRejected;
+        ++reject_count_;
+        return;
+    }
     const int64_t price =
         req.price_ticks > 0 ? req.price_ticks : o.price_ticks;
     const int64_t nexp =
@@ -2102,7 +2866,7 @@ void MatchingEngine::on_time_tick(uint64_t now_ns) noexcept {
     auction_deadline_check();
     quarantine_check();
     expire_due();
-    drain_triggers();
+    settle();
     publish_auction_indicative();  // expiry cancels can move the indicative
     if (book_.book_seq() != seq0) {
         refresh_protected_quote();  // §6.6b #6 — internal book is the quote
@@ -2299,7 +3063,7 @@ void MatchingEngine::auction_control_sync() noexcept {
         // either way the CALL cannot complete; abort without uncrossing.
         if (auction_journal(kAuctionPhaseCancel, kAuctionReasonControl,
                             0, 0)) {
-            parked_drain(kWalCancelReasonIocRemainder);
+            parked_drain(kWalCancelReasonAuctionCancelled);
             auction_exit(kAuctionPhaseCancel, kAuctionReasonControl);
         }
         return;
@@ -2317,7 +3081,7 @@ void MatchingEngine::auction_control_sync() noexcept {
                                 kAuctionReasonClearingFailed, 0, 0)) {
                 quarantine_enter(kRejectAuctionClearingFailed,
                                  kAuctionReasonClearingFailed);
-                parked_drain(kWalCancelReasonIocRemainder);
+                parked_drain(kWalCancelReasonAuctionCancelled);
                 auction_exit(kAuctionPhaseCancel, kAuctionReasonControl);
             }
             return;
@@ -2411,7 +3175,7 @@ void MatchingEngine::auction_resolve_deadline() noexcept {
         if (feed_ != nullptr) {
             feed_->request_auction_result(auction_id_, /*cleared=*/true);
         }
-        parked_drain(kWalCancelReasonIocRemainder);
+        parked_drain(kWalCancelReasonAuctionCancelled);
         const bool was_quarantined = quarantined_;
         const uint64_t done_id = static_cast<uint64_t>(auction_id_);
         const int64_t done_deadline = auction_deadline_ns_;
@@ -2464,9 +3228,12 @@ bool MatchingEngine::auction_accumulate(Order* order,
                                         const OrderAux& aux) noexcept {
     switch (order->type) {
         case OrderType::STOP:
-        case OrderType::STOP_LIMIT: {
+        case OrderType::STOP_LIMIT:
+        case OrderType::TRAILING_STOP: {
             // No trigger evaluation during CALL — there is no continuous
-            // last-price to cross; the uncross itself sets it.
+            // last-price to cross; the uncross itself sets it. Trailing
+            // metadata rides the pending record; the trail arms in the
+            // post-uncross settle wave.
             if (!track_meta(order->id, aux)) {
                 emit_cancel_event(order->id, order->account_id,
                                   kWalCancelReasonUser);
@@ -2474,7 +3241,18 @@ bool MatchingEngine::auction_accumulate(Order* order,
                 ++reject_count_;
                 return false;
             }
-            if (!stops_.enqueue(order, aux.stop_price_ticks)) {
+            StopOrderTrigger::Pending pm{};
+            pm.trigger_source = aux.trigger_source;
+            pm.trail_unit = aux.trail_unit;
+            pm.activation_price_ticks = aux.activation_price_ticks;
+            pm.trail_distance = aux.trail_distance;
+            pm.armed = 0;  // dormant until post-uncross settle evaluates
+            if ((order->flags & kOrderFlagGslo) != 0 &&
+                aux.stop_price_ticks > 0) {
+                pm.gslo_notional_units =
+                    gslo_notional(*order, aux.stop_price_ticks);
+            }
+            if (!stops_.enqueue(order, aux.stop_price_ticks, pm)) {
                 meta_erase(order->id);
                 emit_cancel_event(order->id, order->account_id,
                                   kWalCancelReasonUser);
@@ -2482,13 +3260,44 @@ bool MatchingEngine::auction_accumulate(Order* order,
                 ++reject_count_;
                 return false;
             }
+            if (pm.gslo_notional_units > 0) {
+                gslo_notional_units_ += pm.gslo_notional_units;
+                ++gslo_live_count_;
+            }
+            return true;
+        }
+        case OrderType::PEG: {
+            // Rests at the admission price (pre-WAL computed target or
+            // collar fallback); repricing is suspended during CALL and
+            // resumes in the post-uncross settle wave.
+            if (pegs_ == nullptr || pegs_live_ >= pegs_cap_) {
+                emit_cancel_event(order->id, order->account_id,
+                                  kWalCancelReasonUser);
+                last_reject_ = kRejectBookCapacity;
+                ++reject_count_;
+                return false;
+            }
+            Order tmpl = *order;
+            Order* node = nullptr;
+            if (book_.add_order(tmpl, &node) != BookError::OK ||
+                !track_meta(order->id, aux)) {
+                (void)book_.cancel_order(order->id);
+                emit_cancel_event(order->id, order->account_id,
+                                  kWalCancelReasonUser);
+                last_reject_ = kRejectBookCapacity;
+                ++reject_count_;
+                return false;
+            }
+            pegs_[pegs_live_++] =
+                PegRec{order->id, aux.peg_offset_ticks,
+                       aux.peg_limit_ticks, aux.peg_mode, 0};
             return true;
         }
         default:
             break;
     }
     const bool never_rests =
-        order->type == OrderType::MARKET ||
+        auction_market_like(order->type) ||
         order->tif == TimeInForce::IOC || order->tif == TimeInForce::FOK;
     if (never_rests) {
         // Park for the uncross — the journaled ORDER_NEW is already
@@ -2581,7 +3390,9 @@ MatchingEngine::AuctionIndicative MatchingEngine::auction_indicative()
     for (const Order* o = parked_head_; o != nullptr; o = o->next) {
         const int64_t rem = remaining_qty_units(*o);
         if (rem <= 0) continue;
-        if (o->type == OrderType::MARKET) {
+        if (auction_market_like(o->type)) {
+            // MARKET + MOO/MOC (16.3.25) are market liquidity at the
+            // uncross — eligible at every candidate clearing price.
             if (o->side == Side::BUY) mkt_b += rem; else mkt_s += rem;
             continue;
         }
@@ -2732,7 +3543,7 @@ namespace {
 // orders rank ahead of every limit (single-price venue convention) — they
 // sort to INT64_MAX on the buy frontier, INT64_MIN on the sell frontier.
 inline int64_t parked_eff_price(const Order* o, Side s) noexcept {
-    return o->type == OrderType::MARKET
+    return auction_market_like(o->type)  // MARKET/MOO/MOC rank first
                ? (s == Side::BUY ? INT64_MAX : INT64_MIN)
                : o->price_ticks;
 }
@@ -3064,7 +3875,7 @@ bool MatchingEngine::on_auction_phase_replay(
             return true;
         case kAuctionPhaseCancel:
             if (auction_phase_ == kAuctionPhaseNone) return false;
-            parked_drain(kWalCancelReasonIocRemainder);
+            parked_drain(kWalCancelReasonAuctionCancelled);
             auction_exit(kAuctionPhaseCancel, kAuctionReasonControl);
             return true;
         case kAuctionPhaseQuarantine:
@@ -3080,7 +3891,7 @@ bool MatchingEngine::on_auction_phase_replay(
             }
             if (auction_phase_ != kAuctionPhaseNone &&
                 p.reason == kAuctionReasonClearingFailed) {
-                parked_drain(kWalCancelReasonIocRemainder);
+                parked_drain(kWalCancelReasonAuctionCancelled);
                 auction_exit(kAuctionPhaseCancel, kAuctionReasonControl);
             }
             return true;

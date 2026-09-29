@@ -217,8 +217,92 @@ func (rcv *OrderNew) MutateDiscretionaryOffsetPips(n int64) bool {
 	return rcv._tab.MutateInt64Slot(34, n)
 }
 
+func (rcv *OrderNew) PegMode() byte {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(36))
+	if o != 0 {
+		return rcv._tab.GetByte(o + rcv._tab.Pos)
+	}
+	return 0
+}
+
+func (rcv *OrderNew) MutatePegMode(n byte) bool {
+	return rcv._tab.MutateByteSlot(36, n)
+}
+
+func (rcv *OrderNew) PegOffset() int64 {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(38))
+	if o != 0 {
+		return rcv._tab.GetInt64(o + rcv._tab.Pos)
+	}
+	return 0
+}
+
+func (rcv *OrderNew) MutatePegOffset(n int64) bool {
+	return rcv._tab.MutateInt64Slot(38, n)
+}
+
+func (rcv *OrderNew) PegLimit() int64 {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(40))
+	if o != 0 {
+		return rcv._tab.GetInt64(o + rcv._tab.Pos)
+	}
+	return 0
+}
+
+func (rcv *OrderNew) MutatePegLimit(n int64) bool {
+	return rcv._tab.MutateInt64Slot(40, n)
+}
+
+func (rcv *OrderNew) TriggerSource() byte {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(42))
+	if o != 0 {
+		return rcv._tab.GetByte(o + rcv._tab.Pos)
+	}
+	return 0
+}
+
+func (rcv *OrderNew) MutateTriggerSource(n byte) bool {
+	return rcv._tab.MutateByteSlot(42, n)
+}
+
+func (rcv *OrderNew) TrailingOffset() int64 {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(44))
+	if o != 0 {
+		return rcv._tab.GetInt64(o + rcv._tab.Pos)
+	}
+	return 0
+}
+
+func (rcv *OrderNew) MutateTrailingOffset(n int64) bool {
+	return rcv._tab.MutateInt64Slot(44, n)
+}
+
+func (rcv *OrderNew) TrailingOffsetUnit() byte {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(46))
+	if o != 0 {
+		return rcv._tab.GetByte(o + rcv._tab.Pos)
+	}
+	return 0
+}
+
+func (rcv *OrderNew) MutateTrailingOffsetUnit(n byte) bool {
+	return rcv._tab.MutateByteSlot(46, n)
+}
+
+func (rcv *OrderNew) ActivationPrice() int64 {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(48))
+	if o != 0 {
+		return rcv._tab.GetInt64(o + rcv._tab.Pos)
+	}
+	return 0
+}
+
+func (rcv *OrderNew) MutateActivationPrice(n int64) bool {
+	return rcv._tab.MutateInt64Slot(48, n)
+}
+
 func OrderNewStart(builder *flatbuffers.Builder) {
-	builder.StartObject(16)
+	builder.StartObject(23)
 }
 func OrderNewAddOrderId(builder *flatbuffers.Builder, orderId uint64) {
 	builder.PrependUint64Slot(0, orderId, 0)
@@ -267,6 +351,27 @@ func OrderNewAddTradeGroupId(builder *flatbuffers.Builder, tradeGroupId uint32) 
 }
 func OrderNewAddDiscretionaryOffsetPips(builder *flatbuffers.Builder, discretionaryOffsetPips int64) {
 	builder.PrependInt64Slot(15, discretionaryOffsetPips, 0)
+}
+func OrderNewAddPegMode(builder *flatbuffers.Builder, pegMode byte) {
+	builder.PrependByteSlot(16, pegMode, 0)
+}
+func OrderNewAddPegOffset(builder *flatbuffers.Builder, pegOffset int64) {
+	builder.PrependInt64Slot(17, pegOffset, 0)
+}
+func OrderNewAddPegLimit(builder *flatbuffers.Builder, pegLimit int64) {
+	builder.PrependInt64Slot(18, pegLimit, 0)
+}
+func OrderNewAddTriggerSource(builder *flatbuffers.Builder, triggerSource byte) {
+	builder.PrependByteSlot(19, triggerSource, 0)
+}
+func OrderNewAddTrailingOffset(builder *flatbuffers.Builder, trailingOffset int64) {
+	builder.PrependInt64Slot(20, trailingOffset, 0)
+}
+func OrderNewAddTrailingOffsetUnit(builder *flatbuffers.Builder, trailingOffsetUnit byte) {
+	builder.PrependByteSlot(21, trailingOffsetUnit, 0)
+}
+func OrderNewAddActivationPrice(builder *flatbuffers.Builder, activationPrice int64) {
+	builder.PrependInt64Slot(22, activationPrice, 0)
 }
 func OrderNewEnd(builder *flatbuffers.Builder) flatbuffers.UOffsetT {
 	return builder.EndObject()

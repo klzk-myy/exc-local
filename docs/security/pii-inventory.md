@@ -1,6 +1,6 @@
 # PII Inventory — GDPR Art. 30 Record + Encryption/Access Map
 
-**Generated:** 2026-09-29 16:20 UTC by `scripts/security/gen-pii-inventory.py` (Task 13.5.3.2) from 120 `*.up.sql` migrations (158 tables, 1770 columns). Do not hand-edit; update the generator's ANNOTATIONS map and re-run. Companion artifacts: `pii-catalog.csv` (same rows, machine-checkable), `pii-audit-report.md` (verification evidence), `gdpr-erasure-runbook.md` (Art. 17 procedure).
+**Generated:** 2026-09-29 18:44 UTC by `scripts/security/gen-pii-inventory.py` (Task 13.5.3.2) from 127 `*.up.sql` migrations (169 tables, 1951 columns). Do not hand-edit; update the generator's ANNOTATIONS map and re-run. Companion artifacts: `pii-catalog.csv` (same rows, machine-checkable), `pii-audit-report.md` (verification evidence), `gdpr-erasure-runbook.md` (Art. 17 procedure).
 
 PII classes: **DIRECT_ID** (name/address/residency) · **CONTACT** (email/phone) · **GOV_ID** (TIN/ID documents) · **FINANCIAL** (bank identifiers) · **AUTH_SECRET** (credentials — hashed/sealed, tracked for erasure) · **PSEUDONYMOUS** (IP/UA/fingerprint/geo/actor ids) · **LINKAGE** (user_id/account_id re-identification joins) · **FREE_TEXT** (may embed incidental PII) · **ORG_CONTACT** (institutional contacts).
 
@@ -199,6 +199,25 @@ Retention classes reference `infrastructure/data-tiering/tiering_policy.yaml` (e
 |---|---|---|---|---|---|
 | `actor_user_id` | BIGINT | PSEUDONYMOUS | n/a (user id) | delegation audit | audit floor |
 | `detail` | JSONB | FREE_TEXT | plaintext JSONB | delegation audit | audit floor |
+
+### `order_lists`
+
+| column | type | class | encryption at rest | access path | retention |
+|---|---|---|---|---|---|
+| `fail_reason` | VARCHAR(64) | FREE_TEXT | plaintext | list-leg validation text — may echo client params | order record floor |
+
+### `strategy_templates`
+
+| column | type | class | encryption at rest | access path | retention |
+|---|---|---|---|---|---|
+| `name` | VARCHAR(128) | FREE_TEXT | plaintext | manager-chosen public label | template lifetime |
+| `reject_reason` | VARCHAR(255) | FREE_TEXT | plaintext | approver-entered review note | template lifetime |
+
+### `strategy_runs`
+
+| column | type | class | encryption at rest | access path | retention |
+|---|---|---|---|---|---|
+| `skip_reason` | VARCHAR(64) | FREE_TEXT | plaintext | machine/officer skip note | run record |
 
 ### `vulnerability_disclosures`
 
@@ -441,24 +460,25 @@ Schema-verified by the generator (no PII-name-pattern column and no curated anno
 
 `instruments` `balances` `audit_hash_chain` `risk_limits` `fee_tiers` `margin_accounts` `positions` `liquidation_auctions`
 `insurance_fund` `nostro_accounts` `audit_merkle_roots` `processed_trades` `book_snapshots` `chart_of_accounts`
-`journal_entries` `ledger_lines` `appropriateness_assessments` `recovery_reports` `prevented_matches`
-`client_role_bindings` `client_approval_policies` `withdrawal_whitelist_settings` `vip_tier_schedule`
-`account_equity_snapshots` `account_vip_history` `instruments_reference` `auction_calendar` `currency_day_counts`
-`swap_markup_policies` `non_trading_fee_schedule` `swap_accrual_records` `principal_role_systems` `admin_recert_campaigns`
-`environments` `fleet_hosts` `release_promotions` `deploy_windows` `recovery_digests` `account_product_profiles`
-`copy_follows` `copy_child_orders` `high_water_marks` `profit_share_accruals` `product_target_markets`
-`governance_packs` `ledger_entries` `journal_sums` `swap_free_admin_fees` `rail_payments` `risk_daily_usage`
-`currency_conversions` `position_fills` `nostro_movements` `dust_sweeps` `swap_rates` `carry_trade_allocations`
-`carry_trade_legs` `carry_yield_records` `carry_yield_totals` `swap_free_admin_fee_assessments` `rollover_runs`
-`commission_tiers` `account_monthly_volume` `partition_archive_log` `currency_holidays` `client_order_id_dedup`
-`transfers` `announcements` `maintenance_windows` `fx_klines` `fee_promo_windows` `api_deprecations`
-`manual_liquidations` `lp_instrument_configs` `lp_performance_alerts` `feature_flags` `data_retention_holds`
-`retention_audit_log` `partition_tier_state` `partition_tier_log` `api_deprecation_hits` `ops_status_events`
-`ops_component_state` `ops_incidents` `funding_fee_tiers` `funding_fee_free_usage` `funding_currency_conversions`
-`withdrawal_dispatch_queue` `funding_ops_alerts` `nostro_replenishment_requests` `kyc_tier_policies`
-`kyc_ops_matrix` `circuit_breaker_events` `reconciliation_runs` `reconciliation_findings` `solvency_snapshots`
-`solvency_proofs` `cooling_off_periods` `pamm_allocations` `pamm_subledger_entries` `pamm_fill_allocations`
-`auto_halt_events`
+`journal_entries` `ledger_lines` `appropriateness_assessments` `recovery_reports` `grid_bots` `grid_bot_orders`
+`prevented_matches` `client_role_bindings` `client_approval_policies` `order_list_legs` `strategies`
+`withdrawal_whitelist_settings` `vip_tier_schedule` `account_equity_snapshots` `account_vip_history`
+`instruments_reference` `auction_calendar` `currency_day_counts` `swap_markup_policies` `non_trading_fee_schedule`
+`swap_accrual_records` `principal_role_systems` `admin_recert_campaigns` `environments` `fleet_hosts`
+`release_promotions` `deploy_windows` `recovery_digests` `account_product_profiles` `copy_follows` `copy_child_orders`
+`high_water_marks` `profit_share_accruals` `product_target_markets` `governance_packs` `ledger_entries`
+`journal_sums` `swap_free_admin_fees` `rail_payments` `risk_daily_usage` `currency_conversions` `position_fills`
+`nostro_movements` `dust_sweeps` `swap_rates` `carry_trade_allocations` `carry_trade_legs` `carry_yield_records`
+`carry_yield_totals` `swap_free_admin_fee_assessments` `rollover_runs` `commission_tiers` `account_monthly_volume`
+`partition_archive_log` `currency_holidays` `client_order_id_dedup` `transfers` `announcements` `maintenance_windows`
+`fx_klines` `fee_promo_windows` `api_deprecations` `manual_liquidations` `lp_instrument_configs` `lp_performance_alerts`
+`feature_flags` `data_retention_holds` `retention_audit_log` `partition_tier_state` `partition_tier_log`
+`api_deprecation_hits` `ops_status_events` `ops_component_state` `ops_incidents` `funding_fee_tiers`
+`funding_fee_free_usage` `funding_currency_conversions` `withdrawal_dispatch_queue` `funding_ops_alerts`
+`nostro_replenishment_requests` `kyc_tier_policies` `kyc_ops_matrix` `circuit_breaker_events` `reconciliation_runs`
+`reconciliation_findings` `solvency_snapshots` `solvency_proofs` `cooling_off_periods` `pamm_allocations`
+`pamm_subledger_entries` `pamm_fill_allocations` `auto_halt_events` `algo_orders` `algo_order_children`
+`bracket_orders` `bracket_children`
 
 ## 4. Data-flow summary
 

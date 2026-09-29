@@ -53,7 +53,8 @@
 namespace exch {
 
 class IpcPublisher;
-class InstrumentFeed;  // risk/InstrumentFeed.hpp (Phase-15 control feed)
+class InstrumentFeed;   // risk/InstrumentFeed.hpp (Phase-15 control feed)
+class PriceOracleFeed;  // risk/PriceOracleFeed.hpp (Phase-16 mark/index)
 
 class MatchingEngine : public IEngineIngress {
 public:
@@ -99,6 +100,10 @@ public:
         int64_t  display_qty_units = 0;  // ICEBERG visible slice (loses priority)
         int64_t  gtd_expiry_ns = 0;      // >0 re-arms the GTD/DAY timer (§6.9)
         uint64_t ingress_seq = 0;        // envelope seq — stale-fence input
+        // Phase-16 Task 16.3.17: trigger-source switch on amend is
+        // rejected — 0xFF means "unchanged" (the OrderAmend wire has no
+        // field; engine API callers may fence it explicitly).
+        uint8_t  trigger_source = 0xFF;
     };
     void on_amend_received_ex(uint64_t order_id,
                             const AmendRequest& req) noexcept;
@@ -297,6 +302,35 @@ public:
     static constexpr char kRejectOcoSiblingRace[] = "OCO_SIBLING_CANCEL_RACE";
     static constexpr char kRejectOcoLinkInvalid[] = "OCO_LINK_INVALID";
     static constexpr char kRejectOcoLinkConflict[] = "OCO_LINK_CONFLICT";
+    // Phase-16 Task 16.3.11/16.3.22 (spec §23): a pegged order cannot price
+    // — the visible BBO is missing, one-sided or crossed (quarantine/CALL
+    // excluded via the auction gate). Admission rejects outright; a resting
+    // peg whose reference vanishes holds its current level and counts a
+    // peg_unavailable observation.
+    static constexpr char kRejectPeggedPricingUnavailable[] =
+        "PEGGED_PRICING_UNAVAILABLE";
+    // Phase-16 Task 16.3.17/16.3.22 (spec §6.2a): MARK/INDEX-sourced
+    // conditionals freeze when the oracle value is missing or older than
+    // kOracleStaleNs — they stay pending (never trigger on stale data).
+    static constexpr char kRejectConditionalOracleStale[] =
+        "CONDITIONAL_TRIGGER_ORACLE_STALE";
+    // Phase-16 Task 16.3.16 (spec §23 registered row): the instrument's
+    // aggregate guaranteed-stop liability cap is exceeded at admission.
+    static constexpr char kRejectGsloExposureLimit[] =
+        "GSLO_EXPOSURE_EXCEEDED";
+    // Phase-16 Task 16.3.25 (spec §6.2b): unfilled parked auction orders
+    // (MARKET/IOC/FOK + MOO/MOC) swept at/after the uncross surface this
+    // code — WAL reason kWalCancelReasonAuctionCancelled (8).
+    static constexpr char kRejectAuctionCancelled[] = "AUCTION_CANCELLED";
+    // GSLO fills print against the synthetic venue counterparty id — the
+    // gap liability moves to the exposure pool, never a real order id.
+    static constexpr uint64_t kGsloVenueOrderId = ~uint64_t{0};
+    // §6.2b auction freeze window (T-30s before the armed deadline):
+    // parked MOO/MOC cancels/amends inside it reject AMEND_IN_AUCTION_.
+    static constexpr uint64_t kAuctionFreezeNs =
+        30ull * 1'000'000'000ull;
+    // Mark/index oracle staleness gate (spec §19.5 5s convention).
+    static constexpr uint64_t kOracleStaleNs = 5ull * 1'000'000'000ull;
 
     // WAL marker for the §6.6a MARKET_WITH_PROTECTION conversion:
     // Order::flags bit2 flows verbatim into WalOrderNewPayload.flags
@@ -448,6 +482,62 @@ public:
     // family in matching/WalWriter.hpp.
     static constexpr uint8_t kWalCancelReasonExecRuleRange = 6;
 
+    // --- Phase-16 oracle feed + conditional surfaces (Tasks 16.3.17/22) -----
+    // Binds the control-plane mark/index feed (PriceOracleFeed). Unbound =
+    // dev/test mode: the local seam below supplies the references; an engine
+    // with neither treats MARK/INDEX sources as unavailable (pending
+    // conditionals on those sources freeze — fail closed, never trigger).
+    void bind_oracle_feed(const PriceOracleFeed* feed) noexcept {
+        oracle_feed_ = feed;
+    }
+    // Journal-free replay/test seam: installs the local oracle snapshot
+    // consulted only when no feed is bound. verifiable=false freezes both
+    // sources; a zero timestamp freezes its own source.
+    void set_oracle_snapshot(int64_t mark_ticks, int64_t mark_ts_ns,
+                             int64_t index_ticks, int64_t index_ts_ns,
+                             bool verifiable) noexcept;
+    [[nodiscard]] const PriceOracleFeed* oracle_feed() const noexcept {
+        return oracle_feed_;
+    }
+    // Settle-loop observations of a live conditional whose MARK/INDEX
+    // source was stale/missing (CONDITIONAL_TRIGGER_ORACLE_STALE freeze).
+    [[nodiscard]] uint64_t oracle_stale_suspensions() const noexcept {
+        return oracle_stale_suspensions_;
+    }
+
+    // RecoveryManager replay entry (journal-free): applies one journaled
+    // ORDER_TRIGGERED row. LAST-sourced triggers re-derive inside the
+    // replayed settle wave — the row is authoritative for MARK/INDEX
+    // sources, which the feedless replay engine cannot re-evaluate.
+    void on_order_triggered_replay(
+        const WalOrderTriggeredPayload& p) noexcept;
+
+    // GSLO exposure export (Task 16.3.16): aggregate armed-notional + live
+    // count + fired fills; the per-instrument cap is operator-configurable
+    // (0 = uncapped — the admission gate is then inert).
+    [[nodiscard]] int64_t gslo_notional_units() const noexcept {
+        return gslo_notional_units_;
+    }
+    [[nodiscard]] uint64_t gslo_live_count() const noexcept {
+        return gslo_live_count_;
+    }
+    [[nodiscard]] uint64_t gslo_fills() const noexcept { return gslo_fills_; }
+    void set_gslo_max_exposure_units(int64_t units) noexcept {
+        gslo_max_exposure_units_ = units;
+    }
+
+    // Pegged-order introspection (Task 16.3.11/16.3.22): committed reprices
+    // and hold events where the reference vanished under a resting peg.
+    [[nodiscard]] uint64_t peg_repriced_total() const noexcept {
+        return peg_repriced_total_;
+    }
+    [[nodiscard]] uint64_t peg_unavailable_total() const noexcept {
+        return peg_unavailable_total_;
+    }
+    [[nodiscard]] std::size_t pegged_live() const noexcept {
+        return pegs_live_;
+    }
+
 private:
     // Per-order aux side table: trade_group_id (STP, migration 072) and
     // GTD/DAY expiry for resting book orders AND pending stops. Only orders
@@ -468,6 +558,12 @@ private:
         // (orders.prevented_qty, migration 072). Accumulates across every
         // prevention mode while the order is live.
         int64_t  prevented_qty_units = 0;
+        // Phase-16 (Tasks 16.3.17/22): the pending order's trigger source +
+        // instrument — restored into the rebuilt aux when a conditional
+        // pops so the journaled ORDER_TRIGGERED carries the committed
+        // source (LAST_PRICE = 0 is the in-band default).
+        uint32_t instrument_id = 0;
+        uint8_t  trigger_source = 0;
     };
 
     // Phase-14 Task 14.3.1 — OCO member side table: one entry per linked
@@ -575,7 +671,68 @@ private:
     void expiry_remove_at(std::size_t i) noexcept;
     void expire_due() noexcept;
 
-    void drain_triggers() noexcept;
+    // Phase-16 conditional settle wave (Tasks 16.3.3/15/16/17/22): replaces
+    // the bare trigger drain at every ingress tail — trail re-anchor ->
+    // sourced trigger pop (ORDER_TRIGGERED journaled per activation) ->
+    // pegged reprice -> repeat until stable. Bounded pass count; a
+    // journal/structural fault halts the wave.
+    void settle() noexcept;
+    // Evaluation references for the trigger queue: last trade always
+    // available; mark/index come from the bound PriceOracleFeed (or the
+    // local seam) and are zeroed when unverifiable or stale.
+    [[nodiscard]] StopOrderTrigger::TriggerRefs trigger_refs() noexcept;
+    // TRAILING_STOP re-anchor pass — rides the trigger queue's trail
+    // chain, moves armed stops only on favorable reference moves.
+    void trail_eval(const StopOrderTrigger::TriggerRefs& refs) noexcept;
+    // Journals one ORDER_TRIGGERED row (no-op when wal_ == nullptr).
+    void journal_triggered(const Order* node,
+                           const StopOrderTrigger::TriggeredInfo& info,
+                           const OrderAux& aux) noexcept;
+    // Triggered-node terminal path: GSLO flags route to the guaranteed
+    // fill; everything else runs the existing taker conversion.
+    void process_triggered_info(Order* node, const OrderAux& aux,
+                                const StopOrderTrigger::TriggeredInfo& info)
+        noexcept;
+    // Task 16.3.16 GSLO helpers: armed-notional accounting against the
+    // engine exposure counter (release on pop/cancel, resync on stop
+    // moves), and the guaranteed fill itself (full remainder at the armed
+    // stop vs the synthetic venue leg — no book walk).
+    [[nodiscard]] int64_t gslo_notional(const Order& o,
+                                        int64_t stop_ticks) const noexcept;
+    void gslo_resync(StopOrderTrigger::Pending& p) noexcept;
+    void gslo_release(int64_t notional_units) noexcept;
+    void gslo_fill(Order* node, const OrderAux& aux,
+                   int64_t stop_ticks) noexcept;
+
+    // Task 16.3.11/16.3.22 pegged-order table — compact array (cold-alloc
+    // at construction); order_id key, linear scans bounded by kPegsCap.
+    struct PegRec {
+        uint64_t order_id = 0;
+        int64_t  offset_ticks = 0;   // signed; + = more aggressive
+        int64_t  limit_ticks = 0;    // collar; 0 = none
+        uint8_t  mode = 0;           // kPeg*
+        uint8_t  priced_ok = 1;      // 0 while the reference is missing
+    };
+    PegRec* peg_find(uint64_t order_id) noexcept;
+    const PegRec* peg_find(uint64_t order_id) const noexcept;
+    void peg_erase(uint64_t order_id) noexcept;
+    // Visible-BBO references: levels whose whole depth is hidden/pegged
+    // carry no public liquidity — the public BBO is what pegged orders
+    // track (and what hidden makers midpoint against).
+    [[nodiscard]] int64_t visible_best_price(Side s) const noexcept;
+    [[nodiscard]] int64_t visible_midpoint() const noexcept;  // 0 = none
+    // Peg reference per mode (MID / PRIMARY same-side / MARKET opposite),
+    // resolved against the visible BBO. false = unavailable.
+    [[nodiscard]] bool peg_reference(uint8_t mode, Side side,
+                                     int64_t& ref_ticks) const noexcept;
+    // Target pegged price: ref ± offset, clamped to the collar.
+    [[nodiscard]] bool peg_target(const PegRec& rec, Side side,
+                                  int64_t& price_ticks,
+                                  int64_t& ref_ticks) const noexcept;
+    // One reprice sweep over the peg table. Returns true when a reprice
+    // committed (the caller re-runs until stable — a reprice can move the
+    // reference another peg follows).
+    bool repeg_pass() noexcept;
     // §6.6b helpers: pushes the internal-book top into the guard's seqlock
     // cache after every committed mutation (spec §6.6b #6 staleness
     // contract), and the IOC/FOK presence-walk bounded at the quote.
@@ -753,6 +910,29 @@ private:
     prevented_match_fn prevented_fn_ = nullptr;
     void* prevented_ctx_ = nullptr;
     int64_t prevented_qty_total_ = 0;  // Task 2.3.18 engine-wide counter
+
+    // --- Phase-16 state (Tasks 16.3.3/11/13/15/16/17/22/25) -------------------
+    // Mark/index oracle feed — bound control-plane feed wins; the local
+    // snapshot is the journal-free replay + unit-test seam.
+    const PriceOracleFeed* oracle_feed_ = nullptr;
+    int64_t oracle_mark_ticks_ = 0;
+    int64_t oracle_mark_ts_ns_ = 0;
+    int64_t oracle_index_ticks_ = 0;
+    int64_t oracle_index_ts_ns_ = 0;
+    bool    oracle_local_ok_ = false;
+    uint64_t oracle_stale_suspensions_ = 0;
+    // Pegged-order record table (compact array — see PegRec above).
+    static constexpr std::size_t kPegsCap = 4096;
+    PegRec* pegs_ = nullptr;
+    std::size_t pegs_cap_ = 0;
+    std::size_t pegs_live_ = 0;
+    uint64_t peg_repriced_total_ = 0;
+    uint64_t peg_unavailable_total_ = 0;
+    // GSLO exposure pool accounting (armed guaranteed-stop notional).
+    int64_t  gslo_notional_units_ = 0;
+    uint64_t gslo_live_count_ = 0;
+    uint64_t gslo_fills_ = 0;
+    int64_t  gslo_max_exposure_units_ = 0;  // 0 = uncapped
 
     uint64_t received_count_ = 0;
     uint64_t trades_emitted_ = 0;

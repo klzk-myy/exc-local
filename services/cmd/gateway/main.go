@@ -24,8 +24,10 @@ import (
 
 	"exchange/internal/accounts"
 	"exchange/internal/admin"
+	"exchange/internal/algo"
 	"exchange/internal/api"
 	"exchange/internal/auth"
+	"exchange/internal/bots"
 	"exchange/internal/cache"
 	"exchange/internal/compliance"
 	"exchange/internal/config"
@@ -57,6 +59,7 @@ import (
 	"exchange/internal/risk"
 	"exchange/internal/security"
 	"exchange/internal/settlement"
+	"exchange/internal/strategies"
 	"exchange/internal/support"
 	"exchange/internal/tax"
 	"exchange/internal/testenv"
@@ -742,6 +745,23 @@ func run() error {
 		return fmt.Errorf("order service: %w", err)
 	}
 
+	// ---- Phase-16 advanced-order seams ----
+	// GSLO (Task 16.3.16): premium debit/refund journals + the
+	// per-instrument gap-liability cap + insurance-fund gap absorption —
+	// all through ledgerSvc (never direct balance writes). A nil seam
+	// would fail gslo submissions closed, so wire unconditionally.
+	gsloSvc := algo.NewGSLOService(pool, ledgerSvc, ledgerPub)
+	orderSvc.WithGSLO(gsloSvc)
+	// Task 16.3.22 conditional-trigger + pegged admission guards:
+	// MARK_PRICE/INDEX_PRICE freshness fails closed
+	// (CONDITIONAL_TRIGGER_ORACLE_STALE) until the Phase-19.5 oracle
+	// binds the feed seam; pegged orders need a viable BBO
+	// (PEGGED_PRICING_UNAVAILABLE).
+	orderSvc.WithConditional(algo.NewTriggerGuard(pool, nil, nil))
+	// Composite persistence (Tasks 16.3.14/.20) — PgStore satisfies the
+	// seam once migrations 075/225 apply.
+	orderSvc.WithComposite(orderStore)
+
 	// ---- Phase-12 Task 12.3.5 — notification service ----
 	//
 	// PgStore carries §24 #100 delivery tracking (migration 028
@@ -884,6 +904,59 @@ func run() error {
 		}
 	}
 
+	// Phase-16 — algo order framework (Tasks 16.3.1/2/6/7/8/12/18/21).
+	// Children dispatch ONLY through algoChildExecutor → orders.Service:
+	// admission gates, risk checks, balance sufficiency and §8.7 dedup
+	// all still apply — the framework never writes orders directly.
+	// Seam bindings:
+	//   Quote   — persisted-book top-of-book (orders ACTIVE rows);
+	//   Ref     — last-trade reference (empty-book fallback);
+	//   Pips    — instruments.pip_size (discretion band unit);
+	//   Profiles— trailing-24h bucketed tape profile (VWAP); a
+	//             ClickHouse bucket source binds the same seam in
+	//             Phase-23 — flat fallback is documented in vwap.go;
+	//   Volume  — TradeVolumeTracker fed by the `trades` JetStream
+	//             stream when NATS is wired, else the PgVolumeSource
+	//             tape read (degraded freshness, never disabled).
+	volTracker := algo.NewTradeVolumeTracker(time.Hour)
+	var volSrc algo.VolumeSource = algo.NewPgVolumeSource(pool)
+	if natsClient != nil {
+		volCons, verr := natsClient.EnsureConsumer(context.Background(),
+			"trades", "algo_vp_volume", nats.WithFilterSubject("trades.>"))
+		if verr != nil {
+			log.Warn("algo VP volume consumer unavailable — tape fallback",
+				"err", verr)
+		} else {
+			stop, serr := natsClient.Subscribe(volCons, volTracker.Consume)
+			if serr != nil {
+				log.Warn("algo VP volume subscribe failed — tape fallback",
+					"err", serr)
+			} else {
+				volSrc = volTracker
+				go func() { <-sweepCtx.Done(); stop() }()
+				log.Info("algo VP volume tracker consuming", "stream", "trades",
+					"durable", "algo_vp_volume")
+			}
+		}
+	}
+	algoEngine, err := algo.NewEngine(algo.Options{
+		Store:    algo.NewPgStore(pool),
+		Exec:     &algoChildExecutor{svc: orderSvc, store: orderStore},
+		Quote:    algo.NewPgTopOfBook(pool),
+		Ref:      algo.NewPgRefPrice(pool),
+		Pips:     algo.NewPgPipSize(pool),
+		Profiles: algo.NewPgVolumeProfile(pool),
+		Volume:   volSrc,
+		// Task 16.3.22 — deterministic parent/child cancel-race
+		// reconcile after every parent cancel CAS.
+		Race: algo.NewRaceGuard(pool, nil),
+		Logf: func(f string, a ...any) { log.Info(fmt.Sprintf("algo: "+f, a...)) },
+	})
+	if err != nil {
+		return fmt.Errorf("algo engine: %w", err)
+	}
+	go algoEngine.Run(sweepCtx) // delayed-dispatch sweeper + crash adoption
+
 	// Phase-14 Task 14.3.2 — auto-halt on anomaly: the detector layer
 	// bound to the five-tier breaker (trips land on the canonical
 	// machinery; this service adds the P1 page, user notification and
@@ -995,6 +1068,13 @@ func run() error {
 		}
 	}()
 
+	// Phase-16 Task 16.3.19 — grid bot engine. Every child leg rides the
+	// same orders.Service admission/risk/balance/dispatch pipeline as a
+	// manual LIMIT order; fills loop back through the consumer's fill
+	// hook below (gridEngine.OnFill) for adjacent-level counter placement
+	// and realized-PnL accounting. Persisted in migration-071 tables.
+	gridEngine := bots.NewEngine(bots.NewPgStore(pool), orderSvc, orderStore, nil)
+
 	// Engine out-ring consumer: cancel echoes + trade fills update the PG
 	// read model; without it pending confirms only time out. The fill
 	// hook is the order_filled emitter (Task 12.3.5) — order→account→user
@@ -1002,6 +1082,17 @@ func run() error {
 	go orders.NewConsumer(orderSubmitter, orderStore, orderSvc.Pending()).
 		WithFillHook(func(orderID int64, px, qty decimal.Decimal) {
 			ctx := context.Background()
+			// Phase-16 composite/auction lifecycle: bracket parent fills
+			// place proportional SL/TP OCO children; order-list fills
+			// activate pending legs; auction fills emit order.auction_fill.
+			orderSvc.OnFill(ctx, orderID, px, qty)
+			// Task 16.3.19: grid children observe their own fills through
+			// this same consumer path — a non-grid order ID resolves to
+			// no grid_bot_orders row and returns immediately. Errors are
+			// logged, never mask the read-model drain.
+			if err := gridEngine.OnFill(ctx, orderID, px, qty); err != nil {
+				log.Warn("grid fill hook failed", "order_id", orderID, "err", err)
+			}
 			o, oerr := orderStore.GetOrder(ctx, orderID)
 			if oerr != nil || o == nil {
 				return
@@ -1039,7 +1130,19 @@ func run() error {
 				"price":         px.String(),
 				"quantity":      qty.String(),
 			})
-		}).Run(sweepCtx, shardIDs(shardMap))
+		}).WithGSLOHook(func(orderID int64, px, qty decimal.Decimal) {
+		// Task 16.3.16: GSLO gap absorption — a fill worse than the
+		// guaranteed stop compensates the client from the insurance
+		// fund. Errors log, never mask the read-model drain.
+		if err := gsloSvc.OnFill(context.Background(), orderID, px, qty); err != nil {
+			log.Warn("gslo gap hook failed", "order_id", orderID, "err", err)
+		}
+	}).WithCancelHook(func(orderID int64, _ uint8) {
+		// Phase-16 composite/auction lifecycle: bracket parent cancels
+		// cascade to children; list leg cancels advance the list;
+		// engine-cancelled MOO/MOC emit order.cancelled.
+		orderSvc.OnCancel(context.Background(), orderID)
+	}).Run(sweepCtx, shardIDs(shardMap))
 
 	// accounts.OrderDispatcher ← orders.Service (dead-man sweeper,
 	// Task 5.3.33, and close-all, Task 5.3.36, share it). The dispatcher
@@ -1359,6 +1462,10 @@ func run() error {
 		TrustProxy:   true,
 		RoleResolver: adminRoleResolver, // Phase-07 role store (fail-closed on no binding)
 	}
+
+	// Phase-16 algo surface — shares the order auth path (Bearer or
+	// HMAC-signed API key, trade/read scopes).
+	algoDeps := &api.AlgoDeps{OrderDeps: *orderDeps, Engine: algoEngine, Bots: gridEngine}
 
 	// --- Phase-07 Tasks 7.3.1/7.3.2/7.3.11/7.3.12 — admin RBAC cluster ---
 	// Session store on the coordination Redis (§4.1 noeviction): binding
@@ -1692,6 +1799,47 @@ func run() error {
 	}
 	go auctionSched.Run(sweepCtx, 5*time.Second)
 	go fixingSched.Run(sweepCtx, 10*time.Second)
+
+	// Phase-16 Task 16.3.25 — MOO/MOC queue: the freeze gate rejects
+	// cancel/amend during the T-30s window + armed CALL; the private
+	// notify seam emits order.queued / order.auction_fill /
+	// order.cancelled frames; the injector replays queued orders onto
+	// the engine as MARKET OrderNew once a CALL arms.
+	orderSvc.WithAuction(auctionFreezeGate{feed: instFeed, cal: instCalStore})
+	orderSvc.WithNotify(wsSrv.PublishPrivate)
+	go orders.NewInjector(orderSvc, instFeed, 2*time.Second,
+		func(f string, a ...any) {
+			log.Warn(fmt.Sprintf("auction injector: "+f, a...))
+		}).Run(sweepCtx)
+	// Phase-16 Tasks 16.3.14/.20 — boot composite recovery: brackets
+	// whose parent filled while down get children placed; EXECUTING
+	// lists re-drive activation or close. Durable rows are the truth.
+	orderSvc.RecoverComposites(sweepCtx, func(f string, a ...any) {
+		log.Warn(fmt.Sprintf("composite recovery: "+f, a...))
+	})
+
+	// Phase-16 Task 16.3.9 — order-level fixing executor: FIXING orders
+	// are persisted + RESERVED at admission (never dispatched to the
+	// engine); the service consumes benchmark_fixings rows and crosses
+	// residuals exactly at the published rate — unmatched imbalance
+	// stays queued/audited, never fabricated into LP fills. Bound via
+	// With* (same late-binding pattern as WithAdmission) since the
+	// calendar store only exists here.
+	fixingSvc, ferr := algo.NewFixingService(algo.FixingDeps{
+		Pool:      pool,
+		Poster:    ledgerSvc,
+		TxPoster:  ledgerSvc,
+		Calendar:  instCalStore,
+		Ref:       orderStore,
+		Pub:       ledgerPub,
+		ValueDate: instHolCal.RollValueDate,
+		Logf:      func(f string, a ...any) { log.Warn(fmt.Sprintf("fixing svc: "+f, a...)) },
+	})
+	if ferr != nil {
+		return fmt.Errorf("fixing service: %w", ferr)
+	}
+	orderSvc.WithFixing(fixingSvc)
+	go fixingSvc.Run(sweepCtx, 15*time.Second)
 	// Listing/delist ladder sweep: scheduled activations + the §7.5
 	// notice→approval→close-only progression on a 30s cadence.
 	go func() {
@@ -1713,7 +1861,47 @@ func run() error {
 			}
 		}
 	}()
-	_ = sessionSvc // held for the order-path value-date gate wiring (Phase-16 order admission consumes SessionService.CheckValueDate)
+	// Phase-16 Task 16.3.21 — recurring FX conversion, drift-triggered
+	// rebalancing and the approved strategy marketplace (migration 077,
+	// §24 #296). SessionService is the market-hours gate; every run leg
+	// is a firm CLOB order through orders.Service — ruling R14 forbids a
+	// principal/RFQ conversion path, so none exists here. The sweep
+	// claims due slots idempotently (one open run per strategy) and
+	// market-closed slots are recorded SKIPPED, never faked-executed.
+	stratSvc, err := strategies.NewService(strategies.Options{
+		Store:    strategies.NewStore(pool),
+		Orders:   orderSvc,
+		Read:     orderStore,
+		Sessions: sessionSvc,
+		Book:     marketStore,
+		Balances: fundStore,
+		USD:      usdConv,
+	})
+	if err != nil {
+		return fmt.Errorf("strategies service: %w", err)
+	}
+	go func() {
+		t := time.NewTicker(30 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-sweepCtx.Done():
+				return
+			case <-t.C:
+				if n, err := stratSvc.Sweep(sweepCtx); err != nil {
+					log.Warn("strategy sweep failed", "err", err)
+				} else if n > 0 {
+					log.Info("strategy runs dispatched", "count", n)
+				}
+			}
+		}
+	}()
+
+	// Phase-16 Tasks 16.3.19/16.3.21 REST deps — both share the order
+	// auth seam (Bearer claims or HMAC-signed API key, read/trade
+	// scopes); handlers stay thin, semantics live in bots/strategies.
+	gridDeps := &api.GridBotDeps{Engine: gridEngine, Orders: orderDeps}
+	stratDeps := &api.StrategyDeps{SVC: stratSvc, Orders: orderDeps, TrustProxy: true}
 
 	// Phase-15 Task 15.3.5 — trade bust / price-adjust (spec §5.29,
 	// §7.2, §7.3.4, §24 #138). The correction runs through the landed
@@ -2482,6 +2670,26 @@ func run() error {
 		"DELETE /api/v1/orders/batch": http.HandlerFunc(api.OrderBatchCancel(orderDeps)),
 		// Phase-14 Task 14.3.1 — OCO pair (spec §6.2/§6.5).
 		"POST /api/v1/orders/oco": http.HandlerFunc(api.OrderSubmitOCO(orderDeps)),
+		// Phase-16 Tasks 16.3.14/.20/.24 — bracket/OTO submit +
+		// OPO/OPOCO composite order lists.
+		"POST /api/v1/orders/bracket":     http.HandlerFunc(api.OrderBracketSubmit(orderDeps)),
+		"GET /api/v1/order-lists":         http.HandlerFunc(api.OrderListsOpen(orderDeps)),
+		"POST /api/v1/order-lists":        http.HandlerFunc(api.OrderListSubmit(orderDeps)),
+		"GET /api/v1/order-lists/history": http.HandlerFunc(api.OrderListsHistory(orderDeps)),
+		"GET /api/v1/order-lists/{id}":    http.HandlerFunc(api.OrderListGet(orderDeps)),
+		"DELETE /api/v1/order-lists/{id}": http.HandlerFunc(api.OrderListCancel(orderDeps)),
+
+		// Phase-16 algo surface (Tasks 16.3.1/2/6/7/8/18/21).
+		"POST /api/v1/orders/twap":             http.HandlerFunc(api.AlgoSubmitTyped(algoDeps, algo.TypeTWAP)),
+		"POST /api/v1/orders/vwap":             http.HandlerFunc(api.AlgoSubmitTyped(algoDeps, algo.TypeVWAP)),
+		"POST /api/v1/orders/scaled":           http.HandlerFunc(api.AlgoSubmitTyped(algoDeps, algo.TypeScaled)),
+		"POST /api/v1/orders/spread":           http.HandlerFunc(api.AlgoSubmitTyped(algoDeps, algo.TypeSpread)),
+		"POST /api/v1/orders/algo":             http.HandlerFunc(api.AlgoSubmit(algoDeps)),
+		"POST /api/v1/orders/algo/{id}/pause":  http.HandlerFunc(api.AlgoPause(algoDeps)),
+		"POST /api/v1/orders/algo/{id}/resume": http.HandlerFunc(api.AlgoResume(algoDeps)),
+		"DELETE /api/v1/orders/algo/{id}":      http.HandlerFunc(api.AlgoCancel(algoDeps)),
+		"GET /api/v1/algo-orders":              http.HandlerFunc(api.AlgoList(algoDeps)),
+		"DELETE /api/v1/algo-orders":           http.HandlerFunc(api.AlgoCancelAll(algoDeps)),
 		// Task 5.3.37 atomic cancel-replace + keep-priority amend.
 		"POST /api/v1/orders/{id}/cancel-replace": http.HandlerFunc(
 			api.OrderCancelReplace(orderDeps)),
@@ -2566,6 +2774,28 @@ func run() error {
 			api.AdminReleaseCreate(fleetSvc, true)),
 		"POST /api/v1/admin/releases/{id}/promote": http.HandlerFunc(
 			api.AdminReleasePromote(fleetSvc, true)),
+		// --- Phase-16 Task 16.3.19 — grid bots ---
+		"POST /api/v1/bots/grid":        http.HandlerFunc(api.GridBotCreate(gridDeps)),
+		"GET /api/v1/bots/grid":         http.HandlerFunc(api.GridBotList(gridDeps)),
+		"GET /api/v1/bots/grid/{id}":    http.HandlerFunc(api.GridBotGet(gridDeps)),
+		"DELETE /api/v1/bots/grid/{id}": http.HandlerFunc(api.GridBotStop(gridDeps)),
+		// --- Phase-16 Task 16.3.21 — strategies + marketplace ---
+		"POST /api/v1/strategies":             http.HandlerFunc(api.StrategyCreate(stratDeps)),
+		"GET /api/v1/strategies":              http.HandlerFunc(api.StrategyList(stratDeps)),
+		"GET /api/v1/strategies/{id}":         http.HandlerFunc(api.StrategyGet(stratDeps)),
+		"POST /api/v1/strategies/{id}/pause":  http.HandlerFunc(api.StrategyPause(stratDeps)),
+		"POST /api/v1/strategies/{id}/resume": http.HandlerFunc(api.StrategyResume(stratDeps)),
+		"DELETE /api/v1/strategies/{id}":      http.HandlerFunc(api.StrategyCancel(stratDeps)),
+		"GET /api/v1/strategy-templates":      http.HandlerFunc(api.StrategyTemplates(stratDeps)),
+		"POST /api/v1/strategy-templates":     http.HandlerFunc(api.StrategyTemplatePublish(stratDeps)),
+		"POST /api/v1/strategy-templates/{id}/instantiate": http.HandlerFunc(
+			api.StrategyTemplateInstantiate(stratDeps)),
+		"GET /api/v1/admin/strategy-templates": http.HandlerFunc(
+			api.AdminStrategyTemplates(stratDeps)),
+		"POST /api/v1/admin/strategy-templates/{id}/approve": http.HandlerFunc(
+			api.AdminStrategyTemplateDecide(stratDeps, true)),
+		"POST /api/v1/admin/strategy-templates/{id}/reject": http.HandlerFunc(
+			api.AdminStrategyTemplateDecide(stratDeps, false)),
 	}
 	if err := router.MountSeedLive(live); err != nil {
 		return fmt.Errorf("route registry: %w", err)

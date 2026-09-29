@@ -97,6 +97,7 @@ add_library(exch_core STATIC
     src/risk/InstrumentFeed.cpp
     src/risk/InstrumentFeedRefresher.cpp
     src/risk/PreTradeChecker.cpp
+    src/risk/PriceOracleFeed.cpp
     src/risk/SuspensionFlags.cpp
     src/risk/SuspensionRefresher.cpp
     src/utils/ClockSyncGuard.cpp
@@ -196,7 +197,8 @@ if(EXCH_BUILD_TESTS)
             test_stp
             test_snapshot_manager
             test_lifecycle_auction
-            test_oco)
+            test_oco
+            test_phase16)
         add_executable(${t} tests/${t}.cpp)
         target_link_libraries(${t} PRIVATE exch_core gtest_main)
         add_test(NAME ${t} COMMAND ${t})

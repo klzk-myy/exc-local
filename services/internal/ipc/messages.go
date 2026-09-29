@@ -24,12 +24,21 @@ type OrderNewMsg struct {
 	// Aux fields added for stop/GTD/iceberg/STP/OCO leg fidelity
 	// (Phase-14 Task 14.3.1) — 0 values are the wire "unset" convention.
 	StpMode                 byte   // StpMode enum ordinal; 0xFF = unset
-	Flags                   byte   // bit0 post_only, bit1 reduce_only
+	Flags                   byte   // bit0 post_only, bit1 reduce_only; bit2 hidden, bit3 gslo
 	StopPrice               int64  // scaled 1e8; 0 = none
 	GtdExpiryNs             int64  // unixns; 0 = none
 	DisplayQty              int64  // iceberg visible slice; 0 = full
 	TradeGroupID            uint32 // 0 = none
 	DiscretionaryOffsetPips int64  // 0 = none
+	// ---- Phase-16 aux (exchange.fbs appends; the engine sibling owns
+	//      decode — engines predating the schema see the defaults) ----
+	PegMode            byte  // 0 none | 1 MID | 2 PRIMARY | 3 MARKET
+	PegOffset          int64 // scaled 1e8, signed
+	PegLimit           int64 // scaled 1e8; 0 = no collar
+	TriggerSource      byte  // 0 LAST_PRICE | 1 MARK_PRICE | 2 INDEX_PRICE
+	TrailingOffset     int64 // scaled 1e8; 0 = none
+	TrailingOffsetUnit byte  // 0 none | 1 PIPS | 2 PERCENTAGE | 3 ABSOLUTE
+	ActivationPrice    int64 // scaled 1e8; 0 = none
 }
 
 // EncodeOrderNewEvent serializes Event{seq, ts, type=OrderNew} into b and
@@ -53,6 +62,15 @@ func EncodeOrderNewEvent(b *flatbuffers.Builder, seq, ts uint64, m OrderNewMsg) 
 	wire.OrderNewAddDisplayQty(b, m.DisplayQty)
 	wire.OrderNewAddTradeGroupId(b, m.TradeGroupID)
 	wire.OrderNewAddDiscretionaryOffsetPips(b, m.DiscretionaryOffsetPips)
+	// Phase-16 aux fields — appended schema fields; 0 is the wire
+	// "unset" convention on every one of them.
+	wire.OrderNewAddPegMode(b, m.PegMode)
+	wire.OrderNewAddPegOffset(b, m.PegOffset)
+	wire.OrderNewAddPegLimit(b, m.PegLimit)
+	wire.OrderNewAddTriggerSource(b, m.TriggerSource)
+	wire.OrderNewAddTrailingOffset(b, m.TrailingOffset)
+	wire.OrderNewAddTrailingOffsetUnit(b, m.TrailingOffsetUnit)
+	wire.OrderNewAddActivationPrice(b, m.ActivationPrice)
 	on := wire.OrderNewEnd(b)
 
 	wire.EventStart(b)

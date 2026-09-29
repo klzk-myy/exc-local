@@ -74,8 +74,12 @@ type FixingOrderLister interface {
 		benchmark string) ([]int64, error)
 }
 
-// PgFixingOrders reads orders_derivative_params.fixing_benchmark
-// (migration 039) joined to open FIXING orders.
+// PgFixingOrders reads orders.fixing_benchmark (migration 038 — the
+// canonical spec §6.4 order vocabulary WM_R_4PM/ECB_1415/TOKYO_0955)
+// with the scheduler vocabulary translated at the seam. The legacy
+// orders_derivative_params.fixing_benchmark (migration 039) path is
+// UNIONed for rows written before 038 landed — deduped, never double-
+// counted.
 type PgFixingOrders struct{ pool *pgxpool.Pool }
 
 // NewPgFixingOrders wires the lister.
@@ -83,16 +87,43 @@ func NewPgFixingOrders(pool *pgxpool.Pool) *PgFixingOrders {
 	return &PgFixingOrders{pool: pool}
 }
 
+// orderBenchmarkFor maps the scheduler/calendar vocabulary onto the
+// canonical order-level benchmark the orders table stores (migration
+// 038 CHECK constraint). The mirror map lives in algo/fixing.go
+// (SchedulerBenchmark/OrderBenchmark) — kept bidirectionally identical;
+// a fourth benchmark added to either side must land on both.
+func orderBenchmarkFor(schedulerBenchmark string) (string, bool) {
+	switch schedulerBenchmark {
+	case BenchWMLondon:
+		return "WM_R_4PM", true
+	case BenchECB:
+		return "ECB_1415", true
+	case BenchTokyo:
+		return "TOKYO_0955", true
+	}
+	return "", false
+}
+
 // FixingOrderIDs returns open FIXING order ids for the instrument+benchmark.
 func (l *PgFixingOrders) FixingOrderIDs(ctx context.Context, instrumentID int64,
 	benchmark string) ([]int64, error) {
+	canonical, ok := orderBenchmarkFor(benchmark)
+	if !ok {
+		canonical = benchmark // unknown vocabulary — still match literally
+	}
 	rows, err := l.pool.Query(ctx, `
-		SELECT o.id FROM orders o
-		  JOIN orders_derivative_params d ON d.order_id = o.id
-		 WHERE o.instrument_id=$1 AND o.order_type='FIXING'
-		   AND d.fixing_benchmark=$2
-		   AND o.status IN ('PENDING','RESERVED','ACTIVE','PARTIALLY_FILLED')
-		 ORDER BY o.id`, instrumentID, benchmark)
+		SELECT id FROM (
+		    SELECT o.id FROM orders o
+		     WHERE o.instrument_id=$1 AND o.order_type='FIXING'
+		       AND o.fixing_benchmark=$2
+		       AND o.status IN ('PENDING','RESERVED','ACTIVE','PARTIALLY_FILLED')
+		    UNION
+		    SELECT o.id FROM orders o
+		      JOIN orders_derivative_params d ON d.order_id = o.id
+		     WHERE o.instrument_id=$1 AND o.order_type='FIXING'
+		       AND d.fixing_benchmark=$3
+		       AND o.status IN ('PENDING','RESERVED','ACTIVE','PARTIALLY_FILLED')
+		) q ORDER BY id`, instrumentID, canonical, benchmark)
 	if err != nil {
 		return nil, err
 	}

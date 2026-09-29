@@ -163,6 +163,11 @@ ANNOTATIONS = {
     ("benchmark_fixings", "skip_reason"): ("FREE_TEXT", "plaintext", "machine/officer skip note", "audit floor"),
     ("trade_busts", "reason"): ("FREE_TEXT", "plaintext", "obvious-error rationale — officer-entered", "audit floor"),
     ("instrument_change_requests", "payload"): ("FREE_TEXT", "plaintext JSONB — may embed actor context", "change bundle", "audit floor"),
+    # ---- Phase-16 advanced order types ----------------------------------
+    ("order_lists", "fail_reason"): ("FREE_TEXT", "plaintext", "list-leg validation text — may echo client params", "order record floor"),
+    ("strategy_templates", "name"): ("FREE_TEXT", "plaintext", "manager-chosen public label", "template lifetime"),
+    ("strategy_templates", "reject_reason"): ("FREE_TEXT", "plaintext", "approver-entered review note", "template lifetime"),
+    ("strategy_runs", "skip_reason"): ("FREE_TEXT", "plaintext", "machine/officer skip note", "run record"),
     # ---- trading records (linkage, immutable) ----------------------------
     ("orders", "account_id"): ("LINKAGE", "n/a (FK)", "all order paths", "MiFID 5y — Art.17(3)(b) immutable"),
     ("orders", "client_order_id"): ("FREE_TEXT", "plaintext", "client-supplied id; may embed identifiers", "MiFID 5y"),
@@ -273,6 +278,9 @@ NONPII = {
     ("suspense_account_mappings", "quarantined_at"): "timestamp",
     ("rail_payments", "return_reason"): "bank R-code text",
     ("carry_trade_allocations", "bot_ref"): "Phase-16 bot registry handle",
+    ("grid_bots", "stop_reason"): "bot lifecycle vocabulary",
+    ("grid_bot_orders", "note"): "engine-generated placement note",
+    ("order_lists", "contingency_type"): "OPO/OPOCO lifecycle enum",
     ("partition_archive_log", "partition_name"): "partition identifier",
     ("partition_tier_state", "partition_name"): "partition identifier",
     ("partition_tier_log", "partition_name"): "partition identifier",

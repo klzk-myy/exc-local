@@ -23,6 +23,7 @@ import (
 	"exchange/internal/compliance"
 	"exchange/internal/config"
 	"exchange/internal/funding"
+	"exchange/internal/instruments"
 	"exchange/internal/marketapi"
 	"exchange/internal/nats"
 	"exchange/internal/orders"
@@ -523,6 +524,81 @@ func (c instrumentOrderCanceller) CancelInstrumentOrders(ctx context.Context,
 		return 0, err
 	}
 	return res.Cancelled, nil
+}
+
+// auctionFreezeGate adapts orders.AuctionGate onto the armed auction
+// control key + the per-instrument auction calendar (Phase-16 Task
+// 16.3.25): queued MOO/MOC cancel/amend is rejected while frozen —
+// frozen = armed CALL/EXTEND key present, or now inside the T-30s
+// window before the next matching trigger.
+type auctionFreezeGate struct {
+	feed admin.RedisStatusFeed
+	cal  *instruments.CalendarStore
+}
+
+// Frozen implements orders.AuctionGate.
+func (g auctionFreezeGate) Frozen(ctx context.Context, inst *orders.Instrument,
+	orderType string, now time.Time) (bool, error) {
+	armed, err := g.feed.AuctionArmed(ctx, inst.Symbol)
+	if err != nil {
+		return false, err
+	}
+	if armed != "" {
+		return true, nil // CALL/EXTEND armed — queue is immutable
+	}
+	trg := g.nextTrigger(ctx, inst.Symbol, orderType, now)
+	if trg.IsZero() {
+		return false, nil // no resolvable auction — nothing freezes
+	}
+	// [trigger−30s, trigger+call window]: the post-trigger tail covers
+	// the scheduler's arm latency; the armed key takes over once CALL
+	// publishes.
+	end := trg.Add(instruments.CallAuctionLen)
+	return !now.Before(trg.Add(-30*time.Second)) && now.Before(end), nil
+}
+
+// nextTrigger resolves the next auction the order type uncrosses at:
+// MOC → earliest enabled DAILY_CLOSE/INTRADAY calendar occurrence
+// (falling back to the canonical Friday 22:00 UTC weekly close);
+// MOO → the weekly session open (Sunday 21:00 UTC).
+func (g auctionFreezeGate) nextTrigger(ctx context.Context, symbol,
+	orderType string, now time.Time) time.Time {
+	switch orderType {
+	case orders.TypeMOC:
+		var best time.Time
+		if g.cal != nil {
+			rows, err := g.cal.CalendarFor(ctx, symbol)
+			if err == nil {
+				for _, e := range rows {
+					if !e.Enabled || e.AuctionType == instruments.AuctionFixing {
+						continue
+					}
+					if at, oerr := e.NextOccurrence(now); oerr == nil &&
+						(best.IsZero() || at.Before(best)) {
+						best = at
+					}
+				}
+			}
+		}
+		if best.IsZero() {
+			best = nextWeekdayUTC(now, time.Friday, 22, 0) // §6.2b weekly close
+		}
+		return best
+	case orders.TypeMOO:
+		return nextWeekdayUTC(now, time.Sunday, 21, 0) // §6.2b weekly open
+	}
+	return time.Time{}
+}
+
+// nextWeekdayUTC returns the next wd-at-hh:mm UTC strictly after now.
+func nextWeekdayUTC(now time.Time, wd time.Weekday, hh, mm int) time.Time {
+	t := now.UTC()
+	delta := (int(wd) - int(t.Weekday()) + 7) % 7
+	at := time.Date(t.Year(), t.Month(), t.Day()+delta, hh, mm, 0, 0, time.UTC)
+	if !at.After(t) {
+		at = at.AddDate(0, 0, 7)
+	}
+	return at
 }
 
 // auctionTypeCanceller adapts instruments.AuctionOrderCanceller onto

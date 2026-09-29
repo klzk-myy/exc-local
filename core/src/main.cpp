@@ -41,6 +41,7 @@
 #include "risk/EngineRiskAdapter.hpp"
 #include "risk/InstrumentFeed.hpp"
 #include "risk/InstrumentFeedRefresher.hpp"
+#include "risk/PriceOracleFeed.hpp"
 #include "risk/PreTradeChecker.hpp"
 #include "risk/SuspensionFlags.hpp"
 #include "risk/SuspensionRefresher.hpp"
@@ -566,6 +567,48 @@ int main(int argc, char** argv) {
                      "unbound (lifecycle/hours enforced by the Go gates)\n");
     }
 
+    // --- Phase-16 mark/index oracle feed (Tasks 16.3.17/16.3.22) ----------
+    // With -redis + -symbol the engine binds a dedicated control poll of
+    // oracle:mark|index:{symbol}[:ts]. MARK_PRICE/INDEX_PRICE conditional
+    // triggers evaluate only against this snapshot plus the 5s staleness
+    // gate (MatchingEngine::kOracleStaleNs); unbound or unverifiable means
+    // those sources freeze fail-closed while LAST_PRICE stays live.
+    exch::PriceOracleFeed oracle_feed;
+    std::unique_ptr<exch::RespClient> oracle_redis;
+    std::unique_ptr<exch::PriceOracleFeedRefresher> oracle_refresh;
+    std::atomic<bool> oracle_stop{false};
+    std::thread oracle_thread;
+    if (!redis_addr.empty() && !symbol.empty()) {
+        exch::RespClientConfig ocfg{};
+        const std::size_t colon = redis_addr.rfind(':');
+        ocfg.host = redis_addr.substr(0, colon);
+        ocfg.port = static_cast<uint16_t>(
+            std::strtoul(redis_addr.c_str() + colon + 1, nullptr, 10));
+        oracle_redis = std::make_unique<exch::RespClient>(ocfg);
+        std::string oracle_sym;
+        oracle_refresh =
+            std::make_unique<exch::PriceOracleFeedRefresher>(
+                oracle_redis.get(), symbol, &oracle_sym);
+        engine.bind_oracle_feed(&oracle_feed);
+        if (!oracle_redis->connect() ||
+            !oracle_refresh->refresh(&oracle_feed)) {
+            std::fprintf(stderr,
+                         "WARN: oracle feed poll unreachable at boot — "
+                         "MARK/INDEX conditional sources freeze until the "
+                         "poll thread lands a clean read\n");
+        }
+        exch::PriceOracleFeedRefresher* orf = oracle_refresh.get();
+        exch::PriceOracleFeed* ofeed = &oracle_feed;
+        std::atomic<bool>* ostop = &oracle_stop;
+        const auto ocadence = std::chrono::milliseconds(feed_poll_ms);
+        oracle_thread = std::thread([orf, ofeed, ostop, ocadence]() {
+            while (!ostop->load(std::memory_order_acquire)) {
+                (void)orf->refresh(ofeed);
+                std::this_thread::sleep_for(ocadence);
+            }
+        });
+    }
+
     // --- Snapshot sink + cadence (Task 2.3.4; Phase-02.5 finding) -----------
     // Without periodic snapshots recovery replays the WHOLE journal —
     // measured 65s at 3h/21GB on the soak bench, over the <10s AC. The
@@ -769,8 +812,10 @@ int main(int argc, char** argv) {
     // Stop the control-path poll threads before their targets leave scope.
     susp_stop.store(true, std::memory_order_release);
     feed_stop.store(true, std::memory_order_release);
+    oracle_stop.store(true, std::memory_order_release);
     if (susp_thread.joinable()) susp_thread.join();
     if (feed_thread.joinable()) feed_thread.join();
+    if (oracle_thread.joinable()) oracle_thread.join();
 
     loop.stop_watchdog();
     // Drain snapshot: a graceful stop leaves a fresh base so the next boot

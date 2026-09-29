@@ -34,6 +34,53 @@ const (
 	TypeStop      = "STOP"
 	TypeStopLimit = "STOP_LIMIT"
 	TypeIceberg   = "ICEBERG"
+	// TypePeg is an engine-side pegged order (Phase-16 Task 16.3.11 —
+	// the engine's PeggedOrderTracker re-prices it off BBO). The Go
+	// gateway validates + persists peg_mode/peg_offset/peg_limit and
+	// maps them onto the OrderNew wire aux fields.
+	TypePeg = "PEG"
+	// TypeFixing is a benchmark-fixing order (Phase-16 Task 16.3.9,
+	// spec §6.4). It is NOT dispatched to the engine: orders.Service
+	// queues it status=RESERVED and the Phase-15 fixing executor
+	// crosses queued orders at the published fix rate.
+	TypeFixing = "FIXING"
+	// TypeMOO / TypeMOC are session-bound market orders (Phase-16 Task
+	// 16.3.25, spec §6.2b): queued status=RESERVED during the 15-minute
+	// pre-open/pre-close accumulation window and injected into the
+	// call-auction uncross at the single max-volume price — never
+	// continuously matched. Amends/cancels freeze T-30s before the
+	// trigger; the unfilled remainder is cancelled AUCTION_CANCELLED.
+	TypeMOO = "MOO"
+	TypeMOC = "MOC"
+)
+
+// IsAuctionType reports whether the order type is a queued session-
+// auction order (§6.2b) — RESERVED rows never reached the engine and
+// therefore cancel locally rather than via the wire-confirm path.
+func IsAuctionType(t string) bool { return t == TypeMOO || t == TypeMOC }
+
+// Contingency list types (Phase-16 Task 16.3.20, spec §5.39
+// migration-075 `contingency_type`).
+const (
+	ContingencyOPO   = "OPO"   // one pending leg activated on working fill
+	ContingencyOPOCO = "OPOCO" // pending legs are an OCO pair
+)
+
+// Order-list lifecycle states (migration 075 order_list_state_enum).
+const (
+	ListStateExecuting = "EXECUTING" // working leg in flight
+	ListStateAllDone   = "ALL_DONE"  // working filled; pending leg(s) placed
+	ListStateCancelled = "CANCELLED"
+	ListStateFailed    = "FAILED"  // pending validation/placement failed
+	ListStateExpired   = "EXPIRED" // working leg expired unexecuted
+)
+
+// Bracket lifecycle states (migration 225 bracket_state_enum).
+const (
+	BracketWorking   = "WORKING"   // parent live; fills spawn children
+	BracketFilled    = "FILLED"    // parent fully filled, children placed
+	BracketCancelled = "CANCELLED" // parent cancelled; children swept
+	BracketFailed    = "FAILED"    // parent rejected / child placement failed
 )
 
 const (
@@ -125,8 +172,19 @@ type Order struct {
 	// OcoGroupID links both legs of an OCO pair (Phase-14 Task 14.3.1,
 	// migration 218) — nil = standalone order.
 	OcoGroupID *int64
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	// ---- Phase-16 Task 16.3.10 execution-parameter columns (migration
+	// 038) + Task 16.3.17 trigger source (migration 066) ----
+	PegMode         *string
+	PegOffset       *decimal.Decimal
+	PegLimit        *decimal.Decimal
+	TriggerSource   string // LAST_PRICE | MARK_PRICE | INDEX_PRICE
+	Hidden          bool
+	GSLO            bool
+	FixingBenchmark *string
+	AlgoType        *string
+	AlgoParams      json.RawMessage // NULL-able JSONB
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 // View serializes an Order for REST responses — all decimals rendered as
@@ -170,6 +228,33 @@ func (o *Order) View() map[string]any {
 	if o.OcoGroupID != nil {
 		v["oco_group_id"] = *o.OcoGroupID
 	}
+	if o.PegMode != nil {
+		v["peg_mode"] = *o.PegMode
+	}
+	if o.PegOffset != nil {
+		v["peg_offset"] = o.PegOffset.String()
+	}
+	if o.PegLimit != nil {
+		v["peg_limit"] = o.PegLimit.String()
+	}
+	if o.TriggerSource != "" {
+		v["trigger_source"] = o.TriggerSource
+	}
+	if o.Hidden {
+		v["hidden"] = true
+	}
+	if o.GSLO {
+		v["gslo"] = true
+	}
+	if o.FixingBenchmark != nil {
+		v["fixing_benchmark"] = *o.FixingBenchmark
+	}
+	if o.AlgoType != nil {
+		v["algo_type"] = *o.AlgoType
+	}
+	if len(o.AlgoParams) > 0 {
+		v["algo_params"] = json.RawMessage(o.AlgoParams)
+	}
 	return v
 }
 
@@ -196,6 +281,22 @@ type SubmitRequest struct {
 	ReduceOnly    bool
 	STPMode       string
 	SessionID     string // populated from claims/server side, not the body
+
+	// ---- Phase-16 Task 16.3.10 execution-parameter surface
+	// (migration 038 columns; validation in execparams.go) ----
+	PegMode       string           // MID | PRIMARY | MARKET
+	PegOffset     *decimal.Decimal // signed price-scale offset
+	PegLimit      *decimal.Decimal // optional limit collar
+	TriggerSource string           // migration 066 — LAST_PRICE | MARK_PRICE | INDEX_PRICE
+	Hidden        bool
+	GSLO          bool
+	// FixingBenchmark carries the canonical spec §6.4 vocabulary —
+	// WM_R_4PM | ECB_1415 | TOKYO_0955 (supersedes the plan's
+	// WM_REFINITIV_4PM_LDN / ECB_1415_CET strings). The scheduler's
+	// auction_calendar vocabulary maps onto these in algo/fixing.go.
+	FixingBenchmark string
+	AlgoType        string
+	AlgoParams      json.RawMessage
 }
 
 // ModifyRequest is PUT /orders/{id}: order_seq is the STALE_MODIFY fence
@@ -369,6 +470,10 @@ func ParseSubmit(body []byte) (*SubmitRequest, error) {
 		{"time_in_force", &req.TimeInForce},
 		{"client_order_id", &req.ClientOrderID},
 		{"stp_mode", &req.STPMode},
+		{"peg_mode", &req.PegMode},
+		{"trigger_source", &req.TriggerSource},
+		{"fixing_benchmark", &req.FixingBenchmark},
+		{"algo_type", &req.AlgoType},
 	} {
 		v, present, err := strField(obj, k.key)
 		if err != nil {
@@ -387,6 +492,8 @@ func ParseSubmit(body []byte) (*SubmitRequest, error) {
 		{"price", &req.Price},
 		{"stop_price", &req.StopPrice},
 		{"iceberg_visible_qty", &req.DisplayQty},
+		{"peg_offset", &req.PegOffset},
+		{"peg_limit", &req.PegLimit},
 	} {
 		v, _, err := decField(obj, k.key)
 		if err != nil {
@@ -402,6 +509,17 @@ func ParseSubmit(body []byte) (*SubmitRequest, error) {
 	}
 	if req.ReduceOnly, err = boolField(obj, "reduce_only"); err != nil {
 		return nil, err
+	}
+	if req.Hidden, err = boolField(obj, "hidden"); err != nil {
+		return nil, err
+	}
+	if req.GSLO, err = boolField(obj, "gslo"); err != nil {
+		return nil, err
+	}
+	// algo_params arrives verbatim — the byte cap and per-algo_type
+	// schema checks live in execparams.go (Phase-16 Task 16.3.10).
+	if raw, ok := obj["algo_params"]; ok && string(raw) != "null" {
+		req.AlgoParams = append(json.RawMessage(nil), raw...)
 	}
 	return req, nil
 }
@@ -439,6 +557,147 @@ func ParseSubmitOco(body []byte) (*SubmitOcoRequest, error) {
 			return nil, fmt.Errorf("oco leg %d: %w", i, err)
 		}
 		req.Legs[i] = leg
+	}
+	return req, nil
+}
+
+// BracketChild configures one protective child of a bracket (spec
+// §6.2): trigger_price is mandatory; an optional limit_price upgrades
+// the child from a stop-market to a stop-limit order. client_order_id
+// is optional — when empty the service derives a deterministic
+// "brk{bracket}.{seq}.{sl|tp}" key so fill-triggered placement replays
+// idempotently.
+type BracketChild struct {
+	TriggerPrice  *decimal.Decimal `json:"trigger_price"`
+	LimitPrice    *decimal.Decimal `json:"limit_price,omitempty"`
+	ClientOrderID string           `json:"client_order_id,omitempty"`
+}
+
+// SubmitBracketRequest is POST /orders/bracket (Phase-16 Task 16.3.14):
+// Parent is a full POST /orders payload restricted to the entry-order
+// vocabulary (LIMIT or MARKET); ChildSL/ChildTP carry only trigger/limit
+// — they inherit the parent's instrument, opposite side, TIF-derived
+// expiry (parent GTD → child GTD; otherwise GTC) and session.
+type SubmitBracketRequest struct {
+	Parent  *SubmitRequest
+	ChildSL BracketChild
+	ChildTP BracketChild
+}
+
+// ParseSubmitBracket decodes the composite bracket body:
+//
+//	{"parent": {<POST /orders body>},
+//	 "child_sl": {"trigger_price": ..., "limit_price"?: ...},
+//	 "child_tp": {"trigger_price": ..., "limit_price"?: ...}}
+func ParseSubmitBracket(body []byte) (*SubmitBracketRequest, error) {
+	obj, err := decodeBody(body)
+	if err != nil {
+		return nil, err
+	}
+	req := &SubmitBracketRequest{}
+	raw, ok := obj["parent"]
+	if !ok {
+		return nil, fmt.Errorf("bracket submit requires a \"parent\" order")
+	}
+	parent, err := ParseSubmit(raw)
+	if err != nil {
+		return nil, fmt.Errorf("bracket parent: %w", err)
+	}
+	req.Parent = parent
+	parseChild := func(key string, dst *BracketChild) error {
+		raw, ok := obj[key]
+		if !ok {
+			return fmt.Errorf("bracket submit requires %q", key)
+		}
+		var cobj map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &cobj); err != nil {
+			return fmt.Errorf("field %q must be an object", key)
+		}
+		if dst.TriggerPrice, _, err = decField(cobj, "trigger_price"); err != nil {
+			return err
+		}
+		if dst.LimitPrice, _, err = decField(cobj, "limit_price"); err != nil {
+			return err
+		}
+		if v, present, err := strField(cobj, "client_order_id"); err != nil {
+			return err
+		} else if present {
+			dst.ClientOrderID = strings.TrimSpace(v)
+		}
+		return nil
+	}
+	if err := parseChild("child_sl", &req.ChildSL); err != nil {
+		return nil, err
+	}
+	if err := parseChild("child_tp", &req.ChildTP); err != nil {
+		return nil, err
+	}
+	return req, nil
+}
+
+// SubmitOrderListRequest is POST /order-lists (Phase-16 Task 16.3.20):
+// ContingencyType selects OPO (one pending leg) or OPOCO (pending legs
+// linked as an OCO pair). Working is the BUY entry leg; Pending holds
+// the SELL leg(s) whose quantity is recomputed at activation from the
+// working fill's net proceeds — any client-supplied pending quantity is
+// ignored (the net-proceeds formula owns it per §24 #287).
+type SubmitOrderListRequest struct {
+	ContingencyType string
+	Symbol          string
+	ClientOrderID   string
+	Working         *SubmitRequest
+	Pending         []*SubmitRequest
+}
+
+// ParseSubmitOrderList decodes:
+//
+//	{"contingency_type": "OPO"|"OPOCO", "symbol": "...",
+//	 "client_order_id": "...", "working": {<order>},
+//	 "pending": [{<order>} (, <order>)]}
+func ParseSubmitOrderList(body []byte) (*SubmitOrderListRequest, error) {
+	obj, err := decodeBody(body)
+	if err != nil {
+		return nil, err
+	}
+	req := &SubmitOrderListRequest{}
+	if v, present, err := strField(obj, "contingency_type"); err != nil {
+		return nil, err
+	} else if present {
+		req.ContingencyType = strings.ToUpper(strings.TrimSpace(v))
+	}
+	if v, present, err := strField(obj, "symbol"); err != nil {
+		return nil, err
+	} else if present {
+		req.Symbol = strings.TrimSpace(v)
+	}
+	if v, present, err := strField(obj, "client_order_id"); err != nil {
+		return nil, err
+	} else if present {
+		req.ClientOrderID = strings.TrimSpace(v)
+	}
+	raw, ok := obj["working"]
+	if !ok {
+		return nil, fmt.Errorf("order-list submit requires a \"working\" order")
+	}
+	working, err := ParseSubmit(raw)
+	if err != nil {
+		return nil, fmt.Errorf("working leg: %w", err)
+	}
+	req.Working = working
+	praw, ok := obj["pending"]
+	if !ok {
+		return nil, fmt.Errorf("order-list submit requires a \"pending\" leg array")
+	}
+	var legRaws []json.RawMessage
+	if err := json.Unmarshal(praw, &legRaws); err != nil {
+		return nil, fmt.Errorf("field \"pending\" must be an array of orders")
+	}
+	for i, lr := range legRaws {
+		leg, err := ParseSubmit(lr)
+		if err != nil {
+			return nil, fmt.Errorf("pending leg %d: %w", i, err)
+		}
+		req.Pending = append(req.Pending, leg)
 	}
 	return req, nil
 }

@@ -65,19 +65,42 @@ bool IpcPublisher::publish_book_snapshot(const OrderBook& book,
     // at emit() (drops_++) — plus the serialization itself was O(depth)
     // per book change on the matching thread. Top-20 is what the Go
     // conflator keeps internally anyway (internal/marketdata/l2.go).
-    const uint32_t nb = std::min(book.bid_count(), kWireDepthLevels);
-    const uint32_t na = std::min(book.ask_count(), kWireDepthLevels);
-    for (uint32_t i = 0; i < nb; ++i) {
+    //
+    // Phase-16 Tasks 16.3.11/16.3.13 — pegged orders and flag-hidden
+    // (dark) orders never reach the public L2 stream: a level emits only
+    // its VISIBLE aggregate and a level with zero visible members is
+    // omitted entirely (neither qty nor order_count may leak).
+    uint32_t nb = 0, na = 0;
+    for (uint32_t i = 0;
+         i < book.bid_count() && nb < kWireDepthLevels; ++i) {
         const PriceLevel* l = book.level(Side::BUY, i);
-        level_off_[i] = w::CreatePriceLevel(builder_, l->price_ticks,
-                                            l->total_qty_units,
-                                            l->order_count);
+        if (l == nullptr) break;
+        int64_t q = 0;
+        uint32_t c = 0;
+        for (const Order* o = l->head; o != nullptr; o = o->next) {
+            if (!l2_visible(*o)) continue;
+            q += remaining_qty_units(*o);
+            ++c;
+        }
+        if (c == 0) continue;
+        level_off_[nb++] = w::CreatePriceLevel(builder_, l->price_ticks, q,
+                                               static_cast<int32_t>(c));
     }
-    for (uint32_t i = 0; i < na; ++i) {
+    for (uint32_t i = 0;
+         i < book.ask_count() && na < kWireDepthLevels; ++i) {
         const PriceLevel* l = book.level(Side::SELL, i);
-        level_off_[OrderBook::kMaxLevels + i] =
-            w::CreatePriceLevel(builder_, l->price_ticks, l->total_qty_units,
-                                l->order_count);
+        if (l == nullptr) break;
+        int64_t q = 0;
+        uint32_t c = 0;
+        for (const Order* o = l->head; o != nullptr; o = o->next) {
+            if (!l2_visible(*o)) continue;
+            q += remaining_qty_units(*o);
+            ++c;
+        }
+        if (c == 0) continue;
+        level_off_[OrderBook::kMaxLevels + na++] =
+            w::CreatePriceLevel(builder_, l->price_ticks, q,
+                                static_cast<int32_t>(c));
     }
     const auto bids =
         builder_.CreateVector(level_off_, static_cast<size_t>(nb));

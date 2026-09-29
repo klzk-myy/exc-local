@@ -15,7 +15,10 @@ namespace exc.wire;
 enum Side : ubyte { Buy = 0, Sell = 1 }
 
 enum OrderType : ubyte { Market = 0, Limit = 1, StopMarket = 2, StopLimit = 3,
-                         Iceberg = 4 }
+                         Iceberg = 4,
+                         // Phase-16 appends — C++ decode lands with the
+                         // engine sibling; enum appends are wire-safe.
+                         Peg = 5, Fixing = 6 }
 
 enum TimeInForce : ubyte { GTC = 0, IOC = 1, FOK = 2, GTD = 3, DAY = 4 }
 
@@ -34,13 +37,25 @@ table OrderNew {
     client_order_id: string;
     // --- Phase-02 additions (Task 2.3.2/2.3.10/2.3.11/2.3.18/2.3.26) --------
     stp_mode: ubyte;              // StpMode; 0xFF = unset -> account default
-    flags: ubyte;                 // bit0 post_only, bit1 reduce_only
+    flags: ubyte;                 // bit0 post_only, bit1 reduce_only;
+                                  // bit2 hidden, bit3 gslo (Phase-16
+                                  // Tasks 16.3.13/16.3.16)
     stop_price: int64;            // scaled 1e8; 0 unless STOP*/triggered types
     gtd_expiry_ns: int64;         // absolute expiry for GTD; DAY resolves
                                   // in-core via ExpiryScheduler when 0
     display_qty: int64;           // ICEBERG visible slice; 0 = engine default
     trade_group_id: uint32;       // accounts.trade_group_id (migration 072)
     discretionary_offset_pips: int64;  // Task 2.3.26; 0 = none
+    // --- Phase-16 additions (Tasks 16.3.10/.11/.15/.16/.17) — written by
+    //     the Go gateway; the engine sibling decodes them. Old readers
+    //     observe the schema defaults (0 = feature off). ---
+    peg_mode: ubyte;              // 0 none | 1 MID | 2 PRIMARY | 3 MARKET
+    peg_offset: int64;            // scaled 1e8, signed
+    peg_limit: int64;             // scaled 1e8; 0 = no collar
+    trigger_source: ubyte;        // 0 LAST_PRICE | 1 MARK_PRICE | 2 INDEX_PRICE
+    trailing_offset: int64;       // scaled 1e8; 0 = none
+    trailing_offset_unit: ubyte;  // 0 none | 1 PIPS | 2 PERCENTAGE | 3 ABSOLUTE
+    activation_price: int64;      // scaled 1e8; 0 = none
 }
 
 /// Inbound: cancel request.

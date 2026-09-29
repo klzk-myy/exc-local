@@ -40,6 +40,22 @@ WalStatus WalWriter::write_order_new(const Order& o, const OrderAux& aux,
     p.stp_mode = static_cast<uint32_t>(o.stp_mode);
     p.trade_group_id = aux.trade_group_id;
     p.gtd_expiry_ns = aux.gtd_expiry_ns;
+    // Phase-16: when the aux record carries conditional/peg metadata the
+    // legacy 80-byte payload cannot express, emit ORDER_NEW_EX instead —
+    // its head is a verbatim WalOrderNewPayload (spec §6.2/§6.2a; Tasks
+    // 16.3.3/15/11/13/16/17).
+    if (aux.has_phase16_fields()) {
+        WalOrderNewExPayload px{};
+        px.base = p;
+        px.trigger_source = aux.trigger_source;
+        px.peg_mode = aux.peg_mode;
+        px.trail_unit = aux.trail_unit;
+        px.peg_offset_ticks = aux.peg_offset_ticks;
+        px.peg_limit_ticks = aux.peg_limit_ticks;
+        px.trail_distance = aux.trail_distance;
+        px.activation_price_ticks = aux.activation_price_ticks;
+        return append(WalEventType::ORDER_NEW_EX, &px, sizeof(px), ts_ns);
+    }
     return append(WalEventType::ORDER_NEW, &p, sizeof(p), ts_ns);
 }
 
@@ -99,6 +115,16 @@ WalStatus WalWriter::write_oco_link(
 WalStatus WalWriter::write_auction_phase(
     const WalAuctionPhasePayload& p, uint64_t ts_ns) noexcept {
     return append(WalEventType::AUCTION_PHASE, &p, sizeof(p), ts_ns);
+}
+
+WalStatus WalWriter::write_order_triggered(
+    const WalOrderTriggeredPayload& p, uint64_t ts_ns) noexcept {
+    return append(WalEventType::ORDER_TRIGGERED, &p, sizeof(p), ts_ns);
+}
+
+WalStatus WalWriter::write_peg_reprice(
+    const WalPegRepricePayload& p, uint64_t ts_ns) noexcept {
+    return append(WalEventType::PEG_REPRICE, &p, sizeof(p), ts_ns);
 }
 
 WalStatus WalWriter::flush() noexcept {

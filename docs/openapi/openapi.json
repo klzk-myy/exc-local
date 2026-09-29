@@ -435,6 +435,24 @@
         "owner": "Phase-21 Task 21.3.7"
       },
       {
+        "code": "GRID_MARGIN_INSUFFICIENT",
+        "description": "Grid bot committed capital exceeds available balance for the investment currency at placement (Phase-16 Task 16.3.19; §24 Order-Types matrix code)",
+        "http_status": 400,
+        "owner": "Phase-16 Task 16.3.19"
+      },
+      {
+        "code": "GRID_PARAMETERS_INVALID",
+        "description": "Grid bot configuration invalid — bounds ordering, grid_count outside 5–200, unknown mode, tick-misaligned or colliding levels, leverage beyond the instrument tier, or per-level quantity below min_order_qty/min_notional (Phase-16 Task 16.3.19)",
+        "http_status": 400,
+        "owner": "Phase-16 Task 16.3.19"
+      },
+      {
+        "code": "GSLO_EXPOSURE_EXCEEDED",
+        "description": "GSLO submission rejected: aggregate guaranteed-stop gap liability on the instrument plus the new order exceeds the per-instrument cap (`instruments.param_overrides->'gslo'.max_exposure_quote`, Risk Manager configurable) (Phase-16 Task 16.3.16; cited by §24 Order-Types matrix since remediation #11 — registered 2026-09-29)",
+        "http_status": 400,
+        "owner": "Phase-16 Task 16.3.16"
+      },
+      {
         "code": "HISTORICAL_QUERY_TIMEOUT",
         "description": "Historical market-data query exceeded the 10-second ClickHouse timeout (Phase-23 Task 23.3.8; remediation #18)",
         "http_status": 504,
@@ -653,6 +671,12 @@
         "description": "Exposure limit exceeded (Phase-19 Task 19.3.5 Exposure Limits; remediation #19)",
         "http_status": 400,
         "owner": "Phase-19 Task 19.3.5"
+      },
+      {
+        "code": "MAX_GRID_BOTS_EXCEEDED",
+        "description": "Concurrent grid-bot limit reached — at most five RUNNING bots per account (Phase-16 Task 16.3.19; §24 Order-Types matrix code, ruling R13)",
+        "http_status": 429,
+        "owner": "Phase-16 Task 16.3.19"
       },
       {
         "code": "MIN_NOTIONAL_VIOLATION",
@@ -960,6 +984,24 @@
         "description": "Account or instrument not eligible for STP mode NONE (PRO/ECP only); order rejected at pre-trade (Phase-02 Task 2.3.16; remediation #35 — registered: emitted by the task, row was missing)",
         "http_status": 409,
         "owner": "Phase-02 Task 2.3.16"
+      },
+      {
+        "code": "STRATEGY_CONFIG_INVALID",
+        "description": "Strategy or template configuration failed validation — bad kind/schedule/currency pair, non-positive amount, targets not summing to 1, drift band out of range, or config keys outside the allowlist (Phase-16 Task 16.3.21)",
+        "http_status": 400,
+        "owner": "Phase-16 Task 16.3.21"
+      },
+      {
+        "code": "STRATEGY_NOT_FOUND",
+        "description": "Strategy or strategy-template identifier does not resolve within the caller's scope (Phase-16 Task 16.3.21)",
+        "http_status": 404,
+        "owner": "Phase-16 Task 16.3.21"
+      },
+      {
+        "code": "STRATEGY_TEMPLATE_NOT_APPROVED",
+        "description": "Strategy template is not APPROVED — marketplace instantiation requires the approval gate (Phase-16 Task 16.3.21)",
+        "http_status": 409,
+        "owner": "Phase-16 Task 16.3.21"
       },
       {
         "code": "THIRD_PARTY_DEPOSIT_REJECTED",
@@ -8770,7 +8812,6 @@
     },
     "/api/v1/admin/instruments/{symbol}/auction-calendar": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_admin_instruments_symbol_auction_calendar",
         "parameters": [
           {
@@ -8801,7 +8842,7 @@
             "oauth2": null
           }
         ],
-        "summary": "Reopening-auction calendar",
+        "summary": "Auction/fixing calendar rows for the instrument",
         "tags": [
           "admin"
         ],
@@ -8813,14 +8854,13 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-15 Task 15.3.5",
+        "x-owner": "Phase-15 Task 15.3.13",
         "x-rate-tier": "basic",
         "x-rbac-role": "Risk Manager",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       },
       "put": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "put_api_v1_admin_instruments_symbol_auction_calendar",
         "parameters": [
           {
@@ -8851,7 +8891,7 @@
             "oauth2": null
           }
         ],
-        "summary": "Edit reopening-auction calendar",
+        "summary": "Replace auction/fixing calendar {entries[], reason} — OpInstrumentCalendar four-eyes",
         "tags": [
           "admin"
         ],
@@ -8861,12 +8901,12 @@
           "role": "Risk Manager",
           "scopes": null
         },
-        "x-dual-control": false,
+        "x-dual-control": true,
         "x-env": "",
-        "x-owner": "Phase-15 Task 15.3.5",
+        "x-owner": "Phase-15 Task 15.3.13",
         "x-rate-tier": "basic",
         "x-rbac-role": "Risk Manager",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -9872,7 +9912,6 @@
     },
     "/api/v1/admin/listing-proposals": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_admin_listing_proposals",
         "responses": {
           "200": {
@@ -9893,7 +9932,7 @@
             "oauth2": null
           }
         ],
-        "summary": "List instrument listing proposals",
+        "summary": "List instrument listing proposals (?status=)",
         "tags": [
           "admin"
         ],
@@ -9908,11 +9947,10 @@
         "x-owner": "Phase-15 Task 15.3.12",
         "x-rate-tier": "basic",
         "x-rbac-role": "Risk Manager",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       },
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_admin_listing_proposals",
         "responses": {
           "200": {
@@ -9933,7 +9971,7 @@
             "oauth2": null
           }
         ],
-        "summary": "Create listing proposal",
+        "summary": "Create listing proposal {symbol, reference, oracle_feeds, risk_defaults, reason}",
         "tags": [
           "admin"
         ],
@@ -9948,13 +9986,12 @@
         "x-owner": "Phase-15 Task 15.3.12",
         "x-rate-tier": "basic",
         "x-rbac-role": "Risk Manager",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/admin/listing-proposals/{id}/review": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_admin_listing_proposals_id_review",
         "parameters": [
           {
@@ -9985,7 +10022,7 @@
             "oauth2": null
           }
         ],
-        "summary": "Review listing proposal",
+        "summary": "Review listing proposal {action: REVIEW|APPROVE|REJECT} — APPROVE files OpInstrumentListing (202)",
         "tags": [
           "admin"
         ],
@@ -9995,12 +10032,12 @@
           "role": "Risk Manager",
           "scopes": null
         },
-        "x-dual-control": false,
+        "x-dual-control": true,
         "x-env": "",
         "x-owner": "Phase-15 Task 15.3.12",
         "x-rate-tier": "basic",
         "x-rbac-role": "Risk Manager",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -10573,7 +10610,6 @@
     },
     "/api/v1/admin/ops-board": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_admin_ops_board",
         "responses": {
           "200": {
@@ -10594,7 +10630,7 @@
             "oauth2": null
           }
         ],
-        "summary": "Market-ops console board",
+        "summary": "Market-ops console board (non-ACTIVE, proposals, approvals, auctions, fixings, warnings)",
         "tags": [
           "admin"
         ],
@@ -10609,7 +10645,7 @@
         "x-owner": "Phase-15 Task 15.3.12",
         "x-rate-tier": "basic",
         "x-rbac-role": "Risk Manager",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -12224,6 +12260,149 @@
         "x-weight": 1
       }
     },
+    "/api/v1/admin/strategy-templates": {
+      "get": {
+        "operationId": "get_api_v1_admin_strategy_templates",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Template review queue (all states)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Compliance Officer",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-16 Task 16.3.21",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Compliance Officer",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/strategy-templates/{id}/approve": {
+      "post": {
+        "operationId": "post_api_v1_admin_strategy_templates_id_approve",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Approve template for instantiation (audit-logged)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Compliance Officer",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-16 Task 16.3.21",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Compliance Officer",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/strategy-templates/{id}/reject": {
+      "post": {
+        "operationId": "post_api_v1_admin_strategy_templates_id_reject",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Reject template with reason (audit-logged)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Compliance Officer",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-16 Task 16.3.21",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Compliance Officer",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
     "/api/v1/admin/support/accounts/{id}": {
       "get": {
         "operationId": "get_api_v1_admin_support_accounts_id",
@@ -13024,7 +13203,6 @@
     },
     "/api/v1/algo-orders": {
       "delete": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "delete_api_v1_algo_orders",
         "responses": {
           "200": {
@@ -13065,13 +13243,12 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-16 Task 16.3.21",
+        "x-owner": "Phase-16 Task 16.3.23",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       },
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_algo_orders",
         "responses": {
           "200": {
@@ -13112,9 +13289,9 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-16 Task 16.3.21",
+        "x-owner": "Phase-16 Task 16.3.23",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -13928,7 +14105,6 @@
     },
     "/api/v1/bots/grid": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_bots_grid",
         "responses": {
           "200": {
@@ -13971,11 +14147,10 @@
         "x-env": "",
         "x-owner": "Phase-16 Task 16.3.19",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       },
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_bots_grid",
         "responses": {
           "200": {
@@ -13987,13 +14162,19 @@
         },
         "security": [
           {
-            "bearerAuth": null
+            "bearerAuth": [
+              "trade"
+            ]
           },
           {
-            "apiKeyAuth": null
+            "apiKeyAuth": [
+              "trade"
+            ]
           },
           {
-            "oauth2": null
+            "oauth2": [
+              "trade"
+            ]
           }
         ],
         "summary": "Create grid bot (≤5 concurrent per account)",
@@ -14001,26 +14182,23 @@
           "bots"
         ],
         "x-auth": {
-          "methods": [
-            "jwt",
-            "hmac",
-            "oauth2"
-          ],
+          "methods": null,
           "required": true,
           "role": "",
-          "scopes": null
+          "scopes": [
+            "trade"
+          ]
         },
         "x-dual-control": false,
         "x-env": "",
         "x-owner": "Phase-16 Task 16.3.19",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/bots/grid/{id}": {
       "delete": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "delete_api_v1_bots_grid_id",
         "parameters": [
           {
@@ -14042,13 +14220,19 @@
         },
         "security": [
           {
-            "bearerAuth": null
+            "bearerAuth": [
+              "trade"
+            ]
           },
           {
-            "apiKeyAuth": null
+            "apiKeyAuth": [
+              "trade"
+            ]
           },
           {
-            "oauth2": null
+            "oauth2": [
+              "trade"
+            ]
           }
         ],
         "summary": "Stop grid bot + cancel child orders",
@@ -14056,24 +14240,21 @@
           "bots"
         ],
         "x-auth": {
-          "methods": [
-            "jwt",
-            "hmac",
-            "oauth2"
-          ],
+          "methods": null,
           "required": true,
           "role": "",
-          "scopes": null
+          "scopes": [
+            "trade"
+          ]
         },
         "x-dual-control": false,
         "x-env": "",
         "x-owner": "Phase-16 Task 16.3.19",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       },
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_bots_grid_id",
         "parameters": [
           {
@@ -14126,7 +14307,7 @@
         "x-env": "",
         "x-owner": "Phase-16 Task 16.3.19",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -16306,7 +16487,6 @@
     },
     "/api/v1/order-lists": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_order_lists",
         "responses": {
           "200": {
@@ -16347,15 +16527,60 @@
         },
         "x-dual-control": false,
         "x-env": "",
+        "x-owner": "Phase-16 Task 16.3.20/.24",
+        "x-rate-tier": "basic",
+        "x-status": "live",
+        "x-weight": 1
+      },
+      "post": {
+        "operationId": "post_api_v1_order_lists",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "trade"
+            ]
+          },
+          {
+            "apiKeyAuth": [
+              "trade"
+            ]
+          },
+          {
+            "oauth2": [
+              "trade"
+            ]
+          }
+        ],
+        "summary": "Submit OPO/OPOCO net-proceeds order list",
+        "tags": [
+          "order-lists"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "",
+          "scopes": [
+            "trade"
+          ]
+        },
+        "x-dual-control": false,
+        "x-env": "",
         "x-owner": "Phase-16 Task 16.3.20",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/order-lists/history": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_order_lists_history",
         "responses": {
           "200": {
@@ -16396,15 +16621,70 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-16 Task 16.3.20",
+        "x-owner": "Phase-16 Task 16.3.20/.24",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/order-lists/{id}": {
+      "delete": {
+        "operationId": "delete_api_v1_order_lists_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "trade"
+            ]
+          },
+          {
+            "apiKeyAuth": [
+              "trade"
+            ]
+          },
+          {
+            "oauth2": [
+              "trade"
+            ]
+          }
+        ],
+        "summary": "Cancel order list (working + pending legs)",
+        "tags": [
+          "order-lists"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "",
+          "scopes": [
+            "trade"
+          ]
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-16 Task 16.3.20",
+        "x-rate-tier": "basic",
+        "x-status": "live",
+        "x-weight": 1
+      },
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_order_lists_id",
         "parameters": [
           {
@@ -16455,9 +16735,9 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-16 Task 16.3.20",
+        "x-owner": "Phase-16 Task 16.3.20/.24",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -16603,7 +16883,6 @@
     },
     "/api/v1/orders/algo": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_orders_algo",
         "responses": {
           "200": {
@@ -16644,15 +16923,14 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-16",
+        "x-owner": "Phase-16 Task 16.3.8",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/orders/algo/{id}": {
       "delete": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "delete_api_v1_orders_algo_id",
         "parameters": [
           {
@@ -16703,15 +16981,14 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-16",
+        "x-owner": "Phase-16 Task 16.3.8",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/orders/algo/{id}/pause": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_orders_algo_id_pause",
         "parameters": [
           {
@@ -16762,15 +17039,14 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-16",
+        "x-owner": "Phase-16 Task 16.3.8",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/orders/algo/{id}/resume": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_orders_algo_id_resume",
         "parameters": [
           {
@@ -16821,9 +17097,9 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-16",
+        "x-owner": "Phase-16 Task 16.3.8",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -16971,7 +17247,6 @@
     },
     "/api/v1/orders/bracket": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_orders_bracket",
         "responses": {
           "200": {
@@ -17014,7 +17289,7 @@
         "x-env": "",
         "x-owner": "Phase-16 Task 16.3.14",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -17215,7 +17490,6 @@
     },
     "/api/v1/orders/scaled": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_orders_scaled",
         "responses": {
           "200": {
@@ -17256,15 +17530,14 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-16",
+        "x-owner": "Phase-16 Task 16.3.7",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/orders/spread": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_orders_spread",
         "responses": {
           "200": {
@@ -17305,9 +17578,9 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-16 Task 16.3.14",
+        "x-owner": "Phase-16 Task 16.3.6",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -17361,7 +17634,6 @@
     },
     "/api/v1/orders/twap": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_orders_twap",
         "responses": {
           "200": {
@@ -17404,13 +17676,12 @@
         "x-env": "",
         "x-owner": "Phase-16 Task 16.3.1",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/orders/vwap": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_orders_vwap",
         "responses": {
           "200": {
@@ -17453,7 +17724,7 @@
         "x-env": "",
         "x-owner": "Phase-16 Task 16.3.2",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -18415,6 +18686,478 @@
         "x-env": "",
         "x-owner": "Phase-11 Task 11.3.5",
         "x-rate-tier": "public",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/strategies": {
+      "get": {
+        "operationId": "get_api_v1_strategies",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "read"
+            ]
+          },
+          {
+            "apiKeyAuth": [
+              "read"
+            ]
+          },
+          {
+            "oauth2": [
+              "read"
+            ]
+          }
+        ],
+        "summary": "List account strategies (rollup P&L/costs/drawdown)",
+        "tags": [
+          "strategies"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "",
+          "scopes": [
+            "read"
+          ]
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-16 Task 16.3.21",
+        "x-rate-tier": "basic",
+        "x-status": "live",
+        "x-weight": 1
+      },
+      "post": {
+        "operationId": "post_api_v1_strategies",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "trade"
+            ]
+          },
+          {
+            "apiKeyAuth": [
+              "trade"
+            ]
+          },
+          {
+            "oauth2": [
+              "trade"
+            ]
+          }
+        ],
+        "summary": "Create RECURRING_CONVERSION or REBALANCE strategy",
+        "tags": [
+          "strategies"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "",
+          "scopes": [
+            "trade"
+          ]
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-16 Task 16.3.21",
+        "x-rate-tier": "basic",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/strategies/{id}": {
+      "delete": {
+        "operationId": "delete_api_v1_strategies_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "trade"
+            ]
+          },
+          {
+            "apiKeyAuth": [
+              "trade"
+            ]
+          },
+          {
+            "oauth2": [
+              "trade"
+            ]
+          }
+        ],
+        "summary": "Cancel strategy + unwind open run's child orders",
+        "tags": [
+          "strategies"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "",
+          "scopes": [
+            "trade"
+          ]
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-16 Task 16.3.21",
+        "x-rate-tier": "basic",
+        "x-status": "live",
+        "x-weight": 1
+      },
+      "get": {
+        "operationId": "get_api_v1_strategies_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "read"
+            ]
+          },
+          {
+            "apiKeyAuth": [
+              "read"
+            ]
+          },
+          {
+            "oauth2": [
+              "read"
+            ]
+          }
+        ],
+        "summary": "Strategy detail + recent runs",
+        "tags": [
+          "strategies"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "",
+          "scopes": [
+            "read"
+          ]
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-16 Task 16.3.21",
+        "x-rate-tier": "basic",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/strategies/{id}/pause": {
+      "post": {
+        "operationId": "post_api_v1_strategies_id_pause",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "trade"
+            ]
+          },
+          {
+            "apiKeyAuth": [
+              "trade"
+            ]
+          },
+          {
+            "oauth2": [
+              "trade"
+            ]
+          }
+        ],
+        "summary": "Pause scheduling",
+        "tags": [
+          "strategies"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "",
+          "scopes": [
+            "trade"
+          ]
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-16 Task 16.3.21",
+        "x-rate-tier": "basic",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/strategies/{id}/resume": {
+      "post": {
+        "operationId": "post_api_v1_strategies_id_resume",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "trade"
+            ]
+          },
+          {
+            "apiKeyAuth": [
+              "trade"
+            ]
+          },
+          {
+            "oauth2": [
+              "trade"
+            ]
+          }
+        ],
+        "summary": "Resume scheduling",
+        "tags": [
+          "strategies"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "",
+          "scopes": [
+            "trade"
+          ]
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-16 Task 16.3.21",
+        "x-rate-tier": "basic",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/strategy-templates": {
+      "get": {
+        "operationId": "get_api_v1_strategy_templates",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "read"
+            ]
+          },
+          {
+            "apiKeyAuth": [
+              "read"
+            ]
+          },
+          {
+            "oauth2": [
+              "read"
+            ]
+          }
+        ],
+        "summary": "Marketplace catalog (APPROVED templates only)",
+        "tags": [
+          "strategy-templates"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "",
+          "scopes": [
+            "read"
+          ]
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-16 Task 16.3.21",
+        "x-rate-tier": "basic",
+        "x-status": "live",
+        "x-weight": 1
+      },
+      "post": {
+        "operationId": "post_api_v1_strategy_templates",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Publish template — config JSONB only, →PENDING_APPROVAL",
+        "tags": [
+          "strategy-templates"
+        ],
+        "x-auth": {
+          "methods": [
+            "jwt",
+            "hmac",
+            "oauth2"
+          ],
+          "required": true,
+          "role": "",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-16 Task 16.3.21",
+        "x-rate-tier": "basic",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/strategy-templates/{id}/instantiate": {
+      "post": {
+        "operationId": "post_api_v1_strategy_templates_id_instantiate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "trade"
+            ]
+          },
+          {
+            "apiKeyAuth": [
+              "trade"
+            ]
+          },
+          {
+            "oauth2": [
+              "trade"
+            ]
+          }
+        ],
+        "summary": "Copy APPROVED template config into a new strategy",
+        "tags": [
+          "strategy-templates"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "",
+          "scopes": [
+            "trade"
+          ]
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-16 Task 16.3.21",
+        "x-rate-tier": "basic",
         "x-status": "live",
         "x-weight": 1
       }

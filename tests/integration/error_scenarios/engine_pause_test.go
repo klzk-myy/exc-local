@@ -380,3 +380,8 @@ type admitAppropriateness struct{}
 func (admitAppropriateness) Appropriateness(context.Context, int64, string) error {
 	return nil
 }
+
+// MarkReserved is the Phase-16 FIXING-order queue flip; error-scenario
+// fakes never submit FIXING orders, so a no-op preserves interface
+// conformance without weakening the production path.
+func (f *fakeOrderStore) MarkReserved(context.Context, int64) error { return nil }

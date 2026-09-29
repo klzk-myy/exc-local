@@ -231,6 +231,7 @@ var specCodes = []CodeDef{
 	specRow("SETTLEMENT_RAIL_REJECTED", 409, "Rail rejected the instruction (e.g., RR04 regulatory-rule rejection); distinct from provider outage `SANCTIONS_SERVICE_UNAVAILABLE` (Phase-11 Task 11.3.11; remediation #35 — registered)"),
 	specRow("CROSSED_BOOK_DETECTED", 409, "Book crossed beyond the uncross threshold; instrument quarantined to HALTED and the uncross-override path opened (Phase-15 Task 15.3.10; remediation #35 — registered)"),
 	specRow("PREMIUM_INSUFFICIENT", 400, "Option premium debit failed: buyer lacks `premium_currency` balance at T+2 settlement; premium settlement queued into the margin-call workflow (Phase-22 Task 22.3.10; remediation #35 — registered)"),
+	specRow("GSLO_EXPOSURE_EXCEEDED", 400, "GSLO submission rejected: aggregate guaranteed-stop gap liability on the instrument plus the new order exceeds the per-instrument cap (`instruments.param_overrides->'gslo'.max_exposure_quote`, Risk Manager configurable) (Phase-16 Task 16.3.16; cited by §24 Order-Types matrix since remediation #11 — registered 2026-09-29)"),
 	specRow("TRADE_THROUGH_DETECTED", 409, "Aggressive order would match at a price worse than the protected quote; rejected per §6.6b trade-through prevention (Phase-02 Task 2.3.22; feature completeness audit #36 — registered)"),
 	specRow("RAIL_CUTOFF_EXCEEDED", 422, "Outbound rail settlement or withdrawal submitted past daily banking rail cut-off schedule without auto-roll (Phase-24 Task 24.3.20; remediation #37 — registered)"),
 	specRow("BILATERAL_CREDIT_EXHAUSTED", 409, "Matching loop found no executable contra liquidity within bilateral credit screening limits (Phase-02 Task 2.3.24; remediation #37 — registered)"),
@@ -270,6 +271,14 @@ var specCodes = []CodeDef{
 	specRow("PAMM_MIN_INVESTMENT_NOT_MET", 400, "PAMM investment below the pool's min_investment floor (Phase-14 Task 14.3.8 PAMM/MAM; §27.1 PAMM/MAM Investment Modules matrix code — registered with the Task 14.3.8 landing)"),
 	specRow("PAMM_INVESTOR_LOCKED", 403, "PAMM invest/redeem rejected: the investor account fails the FROZEN/SUSPENDED mutability gate (Phase-14 Task 14.3.8; §27.1 PAMM matrix code)"),
 	specRow("PAMM_ALLOCATION_MISMATCH", 500, "Pro-rata fill allocation failed conservation — residuals could not be distributed or the persisted child set diverges from the master fill; fail-closed, never silently misallocates (Phase-14 Task 14.3.8; §27.1 PAMM matrix code, L1/L2)"),
+	// Phase-16 Tasks 16.3.19/16.3.21 — grid bots + recurring/rebalancing
+	// strategies (registered with the task landing; §24 #275/#296).
+	specRow("MAX_GRID_BOTS_EXCEEDED", 429, "Concurrent grid-bot limit reached — at most five RUNNING bots per account (Phase-16 Task 16.3.19; §24 Order-Types matrix code, ruling R13)"),
+	specRow("GRID_PARAMETERS_INVALID", 400, "Grid bot configuration invalid — bounds ordering, grid_count outside 5–200, unknown mode, tick-misaligned or colliding levels, leverage beyond the instrument tier, or per-level quantity below min_order_qty/min_notional (Phase-16 Task 16.3.19)"),
+	specRow("GRID_MARGIN_INSUFFICIENT", 400, "Grid bot committed capital exceeds available balance for the investment currency at placement (Phase-16 Task 16.3.19; §24 Order-Types matrix code)"),
+	specRow("STRATEGY_NOT_FOUND", 404, "Strategy or strategy-template identifier does not resolve within the caller's scope (Phase-16 Task 16.3.21)"),
+	specRow("STRATEGY_CONFIG_INVALID", 400, "Strategy or template configuration failed validation — bad kind/schedule/currency pair, non-positive amount, targets not summing to 1, drift band out of range, or config keys outside the allowlist (Phase-16 Task 16.3.21)"),
+	specRow("STRATEGY_TEMPLATE_NOT_APPROVED", 409, "Strategy template is not APPROVED — marketplace instantiation requires the approval gate (Phase-16 Task 16.3.21)"),
 }
 
 // localCodes are emitted by the gateway but carry no spec §23 row yet.

@@ -68,6 +68,27 @@ enum class WalEventType : uint8_t {
     // the journal-free engine — the engine's own deadline resolution then
     // no-ops on the already-consumed auction id (idempotent re-derivation).
     AUCTION_PHASE,
+    // Phase-16 (Tasks 16.3.3/15/11/13/16/17) — extended order-admission
+    // record. Written INSTEAD OF ORDER_NEW whenever the aux record carries
+    // fields the 80-byte legacy payload cannot express (trigger_source,
+    // peg_mode/offset/limit, trail_unit/distance/activation). The head is a
+    // verbatim WalOrderNewPayload so the base fields decode identically.
+    // Payload is WalOrderNewExPayload.
+    ORDER_NEW_EX,
+    // Phase-16 Task 16.3.17 (spec §6.2a): audit row emitted when a pending
+    // conditional order converts to a live taker (or, for GSLO, an
+    // immediate guaranteed fill) — records the trigger_source and the
+    // exact evaluation price that crossed the armed threshold.
+    // Informational on replay (the replaying engine re-derives the
+    // trigger); wal_audit counts and verifies it. Payload is
+    // WalOrderTriggeredPayload.
+    ORDER_TRIGGERED,
+    // Phase-16 Task 16.3.11: one row per committed pegged-order reprice —
+    // old/new price plus the book reference the reprice followed.
+    // Informational on replay (the replaying engine re-derives each
+    // transition); the log supplies the audit trail. Payload is
+    // WalPegRepricePayload.
+    PEG_REPRICE,
 };
 
 #pragma pack(push, 1)
@@ -235,6 +256,52 @@ struct WalAuctionPhasePayload {
     int64_t  cleared_qty_units;
     uint8_t  _pad[16];
 };
+
+// Phase-16 — ORDER_NEW_EX: extended admission record. `base` is a verbatim
+// WalOrderNewPayload; the extension carries the conditional/peg metadata
+// the 80-byte legacy payload cannot express. Written only when the aux
+// record has non-default advanced fields — plain orders keep emitting
+// ORDER_NEW so pre-16 journals are byte-identical.
+struct WalOrderNewExPayload {
+    WalOrderNewPayload base;
+    uint8_t  trigger_source;         // kTriggerSource*
+    uint8_t  peg_mode;               // kPeg*
+    uint8_t  trail_unit;             // kTrailUnit*
+    uint8_t  _f0;
+    int64_t  peg_offset_ticks;       // signed tick offset off the reference
+    int64_t  peg_limit_ticks;        // collar; 0 = none
+    int64_t  trail_distance;         // pips | pct*100 | ticks per trail_unit
+    int64_t  activation_price_ticks; // trailing gate; 0 = armed at admission
+    uint8_t  _pad[8];
+};
+
+// Phase-16 — ORDER_TRIGGERED: conditional-order activation audit row.
+// order_kind is the wal order-type byte of the armed order
+// (kWalOrderType*); observed_price_ticks is the evaluation reference
+// (LAST trade price / mark / index) that crossed the armed threshold.
+struct WalOrderTriggeredPayload {
+    uint64_t order_id;
+    uint64_t account_id;
+    uint32_t instrument_id;
+    uint8_t  trigger_source;         // kTriggerSource*
+    uint8_t  order_kind;             // kWalOrderType* of the armed order
+    uint8_t  _pad0[2];
+    int64_t  stop_price_ticks;       // armed threshold that fired
+    int64_t  observed_price_ticks;   // reference value that crossed it
+    uint8_t  _pad[8];
+};
+
+// Phase-16 — PEG_REPRICE: one row per committed pegged-order reprice.
+struct WalPegRepricePayload {
+    uint64_t order_id;
+    uint32_t instrument_id;
+    uint8_t  peg_mode;               // kPeg*
+    uint8_t  _pad0[3];
+    int64_t  old_price_ticks;
+    int64_t  new_price_ticks;
+    int64_t  ref_price_ticks;        // book reference the reprice followed
+    uint8_t  _pad[8];
+};
 #pragma pack(pop)
 
 static_assert(sizeof(WalFileHeader) == 8);
@@ -250,6 +317,9 @@ static_assert(sizeof(WalSnapshotOrder) == 48);
 static_assert(sizeof(WalPreventedMatchPayload) == 80);
 static_assert(sizeof(WalOcoLinkPayload) == 40);
 static_assert(sizeof(WalAuctionPhasePayload) == 56);
+static_assert(sizeof(WalOrderNewExPayload) == 124);
+static_assert(sizeof(WalOrderTriggeredPayload) == 48);
+static_assert(sizeof(WalPegRepricePayload) == 48);
 static_assert(__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__,
               "WAL wire format is little-endian (spec §3.4)");
 

@@ -156,23 +156,29 @@ type CoolingOffGate interface {
 
 // Service wires store + transport + sequencing.
 type Service struct {
-	store      Store
-	sub        Submitter
-	shards     *config.ShardMap
-	pending    *pendingConfirms
-	limits     RiskChecker
-	kill       KillSwitch
-	otr        OtrGate
-	breakers   BreakerGate
-	products   ProductGate
-	coolingOff CoolingOffGate
-	batch      BatchRateLimiter
-	commission CommissionEstimator
-	admission  AdmissionObserver
-	product    AppropriatenessGate
-	seq        *seqAllocator
-	ackTimeout time.Duration
-	now        func() time.Time
+	store       Store
+	sub         Submitter
+	shards      *config.ShardMap
+	pending     *pendingConfirms
+	limits      RiskChecker
+	kill        KillSwitch
+	otr         OtrGate
+	breakers    BreakerGate
+	products    ProductGate
+	coolingOff  CoolingOffGate
+	batch       BatchRateLimiter
+	commission  CommissionEstimator
+	admission   AdmissionObserver
+	product     AppropriatenessGate
+	fixing      FixingHooks     // Phase-16 Task 16.3.9 — nil ⇒ FIXING rejected
+	gslo        GSLOHooks       // Phase-16 Task 16.3.16 — nil ⇒ gslo rejected
+	composite   CompositeStore  // Phase-16 Task 16.3.14/.20 composite persistence
+	conditional ConditionalGate // Phase-16 Task 16.3.22 — nil ⇒ trigger/peg guards skipped (engine authoritative)
+	auction     AuctionGate     // Phase-16 Task 16.3.25 — nil ⇒ MOO/MOC rejected
+	notifyFn    PrivateNotify   // nil ⇒ private WS events skipped (tests/dev)
+	seq         *seqAllocator
+	ackTimeout  time.Duration
+	now         func() time.Time
 }
 
 // Options customizes Service construction; nil/zero fields pick
@@ -191,6 +197,11 @@ type Options struct {
 	Admission  AdmissionObserver   // optional — Task 14.3.2 anomaly feeds
 	Product    AppropriatenessGate // nil → admission fails closed (Task 14.3.7)
 	CoolingOff CoolingOffGate      // nil → self-exclusion gate skipped (unwired)
+	Fixing     FixingHooks         // nil → FIXING submissions rejected (Task 16.3.9)
+	GSLO       GSLOHooks           // nil → gslo submissions rejected (Task 16.3.16)
+	Composite  CompositeStore      // nil → bracket/list submissions rejected (16.3.14/.20)
+	Auction    AuctionGate         // nil → MOO/MOC submissions rejected (Task 16.3.25)
+	Notify     PrivateNotify       // nil → private-channel events skipped (16.3.25)
 	AckTimeout time.Duration
 	Now        func() time.Time
 }
@@ -217,6 +228,11 @@ func NewService(o Options) (*Service, error) {
 		commission: o.Commission,
 		admission:  o.Admission,
 		product:    o.Product,
+		auction:    o.Auction,
+		composite:  o.Composite,
+		notifyFn:   o.Notify,
+		fixing:     o.Fixing,
+		gslo:       o.GSLO,
 		seq:        newSeqAllocator(),
 		ackTimeout: o.AckTimeout,
 		now:        o.Now,
@@ -245,6 +261,33 @@ func (s *Service) WithAdmission(o AdmissionObserver) { s.admission = o }
 // after the order dispatcher it needs for the activation saga, so the
 // gate attaches here (same pattern as WithAdmission).
 func (s *Service) WithCoolingOff(g CoolingOffGate) { s.coolingOff = g }
+
+// WithFixing binds the Phase-16 Task 16.3.9 fixing-order hooks — the
+// algo.FixingService is built from the pool + ledger poster after the
+// order service, so the seam attaches post-construction.
+func (s *Service) WithFixing(h FixingHooks) { s.fixing = h }
+
+// WithGSLO binds the Phase-16 Task 16.3.16 guaranteed-stop hooks
+// (premium journal + exposure cap) post-construction.
+func (s *Service) WithGSLO(h GSLOHooks) { s.gslo = h }
+
+// WithConditional binds the Phase-16 Task 16.3.22 trigger/peg admission
+// guard — *algo.TriggerGuard. Nil is tolerated (engine stays
+// authoritative); the gateway wires it in production.
+func (s *Service) WithConditional(g ConditionalGate) { s.conditional = g }
+
+// WithComposite binds the Task 16.3.14/.20 composite persistence seam —
+// *PgStore satisfies it once migrations 075/225 apply.
+func (s *Service) WithComposite(c CompositeStore) { s.composite = c }
+
+// WithAuction binds the Task 16.3.25 freeze gate post-construction —
+// the adapter reads instrument:auction:{symbol} + the auction calendar.
+func (s *Service) WithAuction(g AuctionGate) { s.auction = g }
+
+// WithNotify binds the private-channel emitter (ws.PublishPrivate) —
+// bound lazily in cmd/gateway because the WS server constructs after
+// the order service.
+func (s *Service) WithNotify(n PrivateNotify) { s.notifyFn = n }
 
 // AccountByID / InstrumentBySymbol are thin store delegates exposed so
 // the handler layer can resolve account rows and symbol → instrument
@@ -296,6 +339,16 @@ func decStr(d *decimal.Decimal) string {
 		return ""
 	}
 	return d.String()
+}
+
+// strPtrOrNil normalizes an optional request string for a NULL-able
+// column — "" ⇒ nil (absent), anything else rides through trimmed.
+func strPtrOrNil(s string) *string {
+	if s == "" {
+		return nil
+	}
+	v := strings.TrimSpace(s)
+	return &v
 }
 
 // ---------------------------------------------------------------------------
@@ -473,6 +526,46 @@ func (s *Service) Submit(ctx context.Context, acct *Account, req *SubmitRequest)
 		return nil, err
 	}
 
+	// Phase-16 Task 16.3.9 — FIXING orders gate on the benchmark
+	// publication cutoff BEFORE the row exists (no orphan intent rows).
+	if req.OrderType == TypeFixing {
+		if s.fixing == nil {
+			return nil, codeErr("INVALID_REQUEST",
+				"fixing-order pipeline unavailable — submissions rejected (fail closed)")
+		}
+		if err := s.fixing.AdmitSubmit(ctx, inst, req, s.now()); err != nil {
+			return nil, err // FIXING_CUTOFF_EXCEEDED
+		}
+	}
+	// Phase-16 Task 16.3.16 — GSLO exposure-cap admission check.
+	if req.GSLO {
+		if s.gslo == nil {
+			return nil, codeErr("INVALID_REQUEST",
+				"GSLO pipeline unavailable — submissions rejected (fail closed)")
+		}
+		if err := s.gslo.AdmitSubmit(ctx, acct, inst, req, ref); err != nil {
+			return nil, err // GSLO_EXPOSURE_EXCEEDED / PREMIUM_INSUFFICIENT
+		}
+	}
+	// Phase-16 Task 16.3.22 — conditional-trigger staleness + pegged-BBO
+	// admission guards (CONDITIONAL_TRIGGER_ORACLE_STALE /
+	// PEGGED_PRICING_UNAVAILABLE). The engine stays authoritative at
+	// trigger time; this keeps unschedulable orders out early.
+	if s.conditional != nil &&
+		(req.TriggerSource == "MARK_PRICE" || req.TriggerSource == "INDEX_PRICE" ||
+			req.PegMode != "") {
+		if err := s.conditional.AdmitConditional(ctx, inst, req); err != nil {
+			return nil, err
+		}
+	}
+	// Phase-16 Task 16.3.25 — MOO/MOC queue into the session call
+	// auction. The freeze gate must be wired before any row exists —
+	// an unfreezable queue would admit post-freeze mutations.
+	if IsAuctionType(req.OrderType) && s.auction == nil {
+		return nil, codeErr("INVALID_REQUEST",
+			"auction-order pipeline unavailable — submissions rejected (fail closed)")
+	}
+
 	shard := s.shardFor(inst.Symbol)
 	seq := s.seq.Next()
 	hash := ""
@@ -480,24 +573,33 @@ func (s *Service) Submit(ctx context.Context, acct *Account, req *SubmitRequest)
 		hash = submitHash(inst.ID, req)
 	}
 	o, dup, err := s.store.InsertOrderTx(ctx, InsertParams{
-		AccountID:     acct.ID,
-		InstrumentID:  inst.ID,
-		ClientOrderID: req.ClientOrderID,
-		Side:          req.Side,
-		OrderType:     req.OrderType,
-		Quantity:      *req.Quantity,
-		QuoteQuantity: req.QuoteQuantity,
-		Price:         req.Price,
-		StopPrice:     req.StopPrice,
-		DisplayQty:    req.DisplayQty,
-		TimeInForce:   req.TimeInForce,
-		ShardID:       int(shard),
-		OrderSeq:      seq,
-		PostOnly:      req.PostOnly,
-		ReduceOnly:    req.ReduceOnly,
-		STPMode:       req.STPMode,
-		SessionID:     req.SessionID,
-		RequestHash:   hash,
+		AccountID:       acct.ID,
+		InstrumentID:    inst.ID,
+		ClientOrderID:   req.ClientOrderID,
+		Side:            req.Side,
+		OrderType:       req.OrderType,
+		Quantity:        *req.Quantity,
+		QuoteQuantity:   req.QuoteQuantity,
+		Price:           req.Price,
+		StopPrice:       req.StopPrice,
+		DisplayQty:      req.DisplayQty,
+		TimeInForce:     req.TimeInForce,
+		ShardID:         int(shard),
+		OrderSeq:        seq,
+		PostOnly:        req.PostOnly,
+		ReduceOnly:      req.ReduceOnly,
+		STPMode:         req.STPMode,
+		SessionID:       req.SessionID,
+		RequestHash:     hash,
+		PegMode:         strPtrOrNil(req.PegMode),
+		PegOffset:       req.PegOffset,
+		PegLimit:        req.PegLimit,
+		TriggerSource:   req.TriggerSource,
+		Hidden:          req.Hidden,
+		GSLO:            req.GSLO,
+		FixingBenchmark: strPtrOrNil(req.FixingBenchmark),
+		AlgoType:        strPtrOrNil(req.AlgoType),
+		AlgoParams:      req.AlgoParams,
 	})
 	if err != nil {
 		if c := DedupConflictRow(err); c != nil {
@@ -526,12 +628,47 @@ func (s *Service) Submit(ctx context.Context, acct *Account, req *SubmitRequest)
 		return nil, codeErr("IDEMPOTENCY_KEY_COLLISION", "duplicate client_order_id")
 	}
 
+	// Phase-16 Task 16.3.9 — FIXING orders queue locally: post the
+	// balance reservation, flip to RESERVED and return. No wire send —
+	// the fix executor consumes them at publication.
+	if req.OrderType == TypeFixing {
+		if err := s.fixing.Reserve(ctx, o, inst); err != nil {
+			_ = s.store.MarkRejected(ctx, o.ID)
+			return nil, errInternal("fixing reservation", err)
+		}
+		_ = s.store.MarkReserved(ctx, o.ID)
+		return &Ack{OrderID: o.ID, ClientOrderID: o.ClientOrderID,
+			Status: "RESERVED", OrderSeq: seq,
+			TransactTime: s.now().UTC().Format(time.RFC3339Nano)}, nil
+	}
+
+	// Phase-16 Task 16.3.16 — GSLO premium debits at placement, before
+	// the engine sees the order; a journal failure kills the row
+	// (a guaranteed stop with no premium posted is a fabrication).
+	if req.GSLO {
+		if err := s.gslo.ChargePremium(ctx, o, inst); err != nil {
+			_ = s.store.MarkRejected(ctx, o.ID)
+			return nil, errInternal("gslo premium", err)
+		}
+	}
+
+	// Phase-16 Task 16.3.25 — MOO/MOC queue locally: RESERVED row +
+	// order.queued notice. No wire send — the Injector replays them as
+	// MARKET orders once the instrument's CALL arms.
+	if IsAuctionType(req.OrderType) {
+		return s.queueAuctionOrder(ctx, o)
+	}
+
 	if s.sub != nil {
 		b := flatbuffers.NewBuilder(256)
 		payload := ipc.EncodeOrderNewEvent(b, seq,
 			uint64(s.now().UnixNano()), orderNewMsg(o, acct, req))
 		if err := s.sub.Send(ctx, shard, payload); err != nil {
-			// Compensate the read model: engine never saw it.
+			// Compensate the read model + the GSLO premium — the engine
+			// never saw the order, so the guarantee never existed.
+			if req.GSLO {
+				_ = s.gslo.RefundPremium(ctx, o, inst)
+			}
 			_ = s.store.MarkRejected(ctx, o.ID)
 			return nil, err
 		}
@@ -621,8 +758,89 @@ func (s *Service) Cancel(ctx context.Context, acct *Account, orderID int64,
 		return nil, codeErr("INVALID_REQUEST",
 			"order %d in terminal state %s cannot be cancelled", o.ID, o.Status)
 	}
+	// Phase-16 Task 16.3.9 — FIXING orders never reached the engine:
+	// the cut-off gate + reservation release replace the wire cancel.
+	if o.OrderType == TypeFixing {
+		inst, ierr := s.store.InstrumentByID(ctx, o.InstrumentID)
+		if ierr != nil {
+			return nil, errInternal("instrument lookup", ierr)
+		}
+		if inst == nil {
+			return nil, codeErr("INSTRUMENT_DELISTED",
+				"order instrument %d no longer exists", o.InstrumentID)
+		}
+		if s.fixing != nil {
+			if err := s.fixing.AssertMutable(ctx, o, inst, s.now()); err != nil {
+				return nil, err // FIXING_CANCELLATION_RESTRICTED
+			}
+			if err := s.fixing.Release(ctx, o, inst); err != nil {
+				return nil, errInternal("fixing reservation release", err)
+			}
+		}
+		if err := s.store.ApplyCancel(ctx, o.ID); err != nil {
+			return nil, errInternal("order cancel", err)
+		}
+		_ = s.store.WriteAudit(ctx, []AuditEntry{{
+			OrderID: o.ID, AccountID: acct.ID, Operation: "CANCEL",
+			FieldName: "status", OldValue: o.Status, NewValue: "CANCELLED",
+			ModifiedBy: actor, RequestID: requestID, IPAddress: ip,
+		}})
+		return &Ack{OrderID: o.ID, ClientOrderID: o.ClientOrderID,
+			Status: "CANCELLED", OrderSeq: o.OrderSeq,
+			TransactTime: s.now().UTC().Format(time.RFC3339Nano)}, nil
+	}
+	// Phase-16 Task 16.3.25 — queued session orders cancel locally
+	// until the T-30s freeze; an injected (engine-held) auction order
+	// still rides the wire path below.
+	if IsAuctionType(o.OrderType) {
+		inst, ierr := s.store.InstrumentByID(ctx, o.InstrumentID)
+		if ierr != nil {
+			return nil, errInternal("instrument lookup", ierr)
+		}
+		if inst == nil {
+			return nil, codeErr("INSTRUMENT_DELISTED",
+				"order instrument %d no longer exists", o.InstrumentID)
+		}
+		if err := s.assertAuctionMutable(ctx, o, inst); err != nil {
+			return nil, err // AMEND_IN_AUCTION_REJECTED
+		}
+		if auctionInBook(o) {
+			if err := s.cancelOne(ctx, o); err != nil {
+				return nil, err
+			}
+		} else if err := s.cancelQueued(ctx, o, "client"); err != nil {
+			return nil, err
+		}
+		_ = s.store.WriteAudit(ctx, []AuditEntry{{
+			OrderID: o.ID, AccountID: acct.ID, Operation: "CANCEL",
+			FieldName: "status", OldValue: o.Status, NewValue: "CANCELLED",
+			ModifiedBy: actor, RequestID: requestID, IPAddress: ip,
+		}})
+		return &Ack{OrderID: o.ID, ClientOrderID: o.ClientOrderID,
+			Status: "CANCELLED", OrderSeq: o.OrderSeq,
+			TransactTime: s.now().UTC().Format(time.RFC3339Nano)}, nil
+	}
 	if err := s.cancelOne(ctx, o); err != nil {
 		return nil, err
+	}
+	// Phase-16 Task 16.3.16 — a cancelled GSLO was never triggered (open
+	// orders only reach here): refund the placement premium through the
+	// ledger. The journal is idempotency-keyed on the order id; a refund
+	// failure is audited rather than silently swallowed — the cancel
+	// itself already committed on the engine.
+	if o.GSLO && s.gslo != nil {
+		inst, ierr := s.store.InstrumentByID(ctx, o.InstrumentID)
+		if ierr == nil && inst != nil {
+			if rerr := s.gslo.RefundPremium(ctx, o, inst); rerr != nil {
+				_ = s.store.WriteAudit(ctx, []AuditEntry{{
+					OrderID: o.ID, AccountID: acct.ID,
+					Operation:  "GSLO_REFUND_FAILED",
+					FieldName:  "gslo_premium",
+					NewValue:   rerr.Error(),
+					ModifiedBy: "system:gslo",
+				}})
+			}
+		}
 	}
 	_ = s.store.WriteAudit(ctx, []AuditEntry{{
 		OrderID: o.ID, AccountID: acct.ID, Operation: "CANCEL",
@@ -652,6 +870,11 @@ func (s *Service) otrCancelEvent(ctx context.Context, o *Order) {
 
 // cancelOne sends the wire cancel and waits for the out-ring echo.
 func (s *Service) cancelOne(ctx context.Context, o *Order) error {
+	// Queued session orders never reached the engine — cancel locally
+	// (the freeze check already ran on the caller path).
+	if IsAuctionType(o.OrderType) && !auctionInBook(o) {
+		return s.cancelQueued(ctx, o, "client")
+	}
 	if s.sub == nil {
 		// No engine transport wired — dev/test mode applies the cancel
 		// locally; fail-open here would fabricate a confirmation in
@@ -742,6 +965,36 @@ func (s *Service) modify(ctx context.Context, acct *Account, orderID int64,
 	if err := ValidateModify(req, o, inst); err != nil {
 		return nil, err
 	}
+	// Phase-16 Task 16.3.9 — FIXING amends stay gateway-side: the cut-off
+	// gate applies, only quantity is mutable, no wire event exists.
+	fixingOrder := o.OrderType == TypeFixing
+	if fixingOrder {
+		if s.fixing == nil {
+			return nil, codeErr("FIXING_CANCELLATION_RESTRICTED",
+				"fixing-order pipeline unavailable — amend rejected (fail closed)")
+		}
+		if err := s.fixing.AssertMutable(ctx, o, inst, s.now()); err != nil {
+			return nil, err // FIXING_CANCELLATION_RESTRICTED
+		}
+		if req.Price != nil || req.StopPrice != nil || req.DisplayQty != nil ||
+			req.TimeInForce != "" || req.GTDExpiry != nil {
+			return nil, codeErr("ORDER_AMEND_REJECTED",
+				"FIXING orders accept quantity amends only")
+		}
+	}
+	// Phase-16 Task 16.3.25 — queued session orders amend quantity only,
+	// only pre-freeze (§6.2b: post-freeze → AMEND_IN_AUCTION_REJECTED).
+	auctionOrder := IsAuctionType(o.OrderType)
+	if auctionOrder {
+		if err := s.assertAuctionMutable(ctx, o, inst); err != nil {
+			return nil, err // AMEND_IN_AUCTION_REJECTED
+		}
+		if req.Price != nil || req.StopPrice != nil || req.DisplayQty != nil ||
+			req.TimeInForce != "" || req.GTDExpiry != nil {
+			return nil, codeErr("ORDER_AMEND_REJECTED",
+				"%s orders accept quantity amends only", o.OrderType)
+		}
+	}
 	newSeq := s.seq.Next()
 	audits := auditDiff(o, req, op, actor, requestID, ip)
 	updated, ok, err := s.store.AmendCAS(ctx, orderID, o.OrderSeq, newSeq,
@@ -756,6 +1009,23 @@ func (s *Service) modify(ctx context.Context, acct *Account, orderID int64,
 	if !ok {
 		return nil, codeErr("STALE_MODIFY",
 			"order %d modified concurrently", orderID)
+	}
+	if fixingOrder {
+		// Re-size the reservation to the amended quantity; the journal
+		// rides the same idempotency keys as placement. No wire event —
+		// the executor reads the amended row.
+		if s.fixing != nil {
+			if err := s.fixing.AdjustReservation(ctx, updated, inst); err != nil {
+				_ = s.store.RevertAmend(ctx, o)
+				return nil, errInternal("fixing reservation adjust", err)
+			}
+		}
+		return updated, nil
+	}
+	if auctionOrder {
+		// Engine never held this order (queue is local until injection);
+		// the CAS above is authoritative. Injection replays the row.
+		return updated, nil
 	}
 	if s.sub != nil {
 		b := flatbuffers.NewBuilder(128)
@@ -860,6 +1130,13 @@ func (s *Service) AmendKeepPriority(ctx context.Context, acct *Account,
 	if err := ValidateKeepPriority(req, o, inst); err != nil {
 		return nil, err
 	}
+	// Phase-16 Task 16.3.25 — queued session orders keep the freeze
+	// gate on the keep-priority path too (§6.2b).
+	if IsAuctionType(o.OrderType) {
+		if err := s.assertAuctionMutable(ctx, o, inst); err != nil {
+			return nil, err // AMEND_IN_AUCTION_REJECTED
+		}
+	}
 	newSeq := s.seq.Next()
 	mr := &ModifyRequest{Quantity: req.Quantity}
 	audits := auditDiff(o, mr, "AMEND", actor, requestID, ip)
@@ -871,7 +1148,9 @@ func (s *Service) AmendKeepPriority(ctx context.Context, acct *Account,
 	if !ok {
 		return nil, codeErr("STALE_MODIFY", "order %d modified concurrently", orderID)
 	}
-	if s.sub != nil {
+	if s.sub != nil && !IsAuctionType(o.OrderType) {
+		// Queued auction orders have no engine copy — CAS is
+		// authoritative; injected ones are frozen anyway.
 		b := flatbuffers.NewBuilder(128)
 		payload := EncodeAmendEvent(b, s.seq.Next(),
 			uint64(s.now().UnixNano()), uint64(o.ID), newSeq,
@@ -951,15 +1230,47 @@ func (s *Service) MassCancel(ctx context.Context, scope MassCancelScope,
 		pc *pendingCancel
 	}
 	var ws []waiter
+	// localCancelled tracks orders applied without the wire — the
+	// audit set below must cover only orders actually cancelled (a
+	// frozen queued order is skipped, not cancelled).
+	var localCancelled []*Order
 	enqueued := 0
 	for i := range open {
 		o := &open[i]
+		// Phase-16 Task 16.3.25 — queued (never-injected) session
+		// orders cancel locally pre-freeze; post-freeze the queue is
+		// immutable and the row is left to join the auction.
+		if IsAuctionType(o.OrderType) && !auctionInBook(o) {
+			inst, _ := s.store.InstrumentByID(ctx, o.InstrumentID)
+			frozen := false
+			if inst != nil && s.auction != nil {
+				frozen, _ = s.auction.Frozen(ctx, inst, o.OrderType, s.now())
+			}
+			if frozen {
+				continue
+			}
+			// Propagate the scope reason — the auction scheduler's
+			// AUCTION_UNFILLED_REMAINDER sweep must surface as
+			// AUCTION_CANCELLED on the private notification (§6.2b).
+			reason := scope.Reason
+			if reason == "" {
+				reason = "mass_cancel"
+			}
+			if s.cancelQueued(ctx, o, reason) == nil {
+				s.otrCancelEvent(ctx, o)
+				res.PerSymbol[sym(o.InstrumentID)]++
+				res.Cancelled++
+				localCancelled = append(localCancelled, o)
+			}
+			continue
+		}
 		if s.sub == nil {
 			// No transport wired (tests/dev) — apply locally.
 			_ = s.store.ApplyCancel(ctx, o.ID)
 			s.otrCancelEvent(ctx, o)
 			res.PerSymbol[sym(o.InstrumentID)]++
 			res.Cancelled++
+			localCancelled = append(localCancelled, o)
 			continue
 		}
 		pc := s.pending.register(uint64(o.ID))
@@ -983,12 +1294,12 @@ func (s *Service) MassCancel(ctx context.Context, scope MassCancelScope,
 		res.Cancelled++
 	}
 	// Task 13.3.6 — count every wire-dispatched cancel in the OTR
-	// window (the local-apply path already counted inline above;
-	// orders enqueued before a Send error were genuinely dispatched
-	// and stay counted).
+	// window (the local-apply and queued paths already counted inline
+	// above; iterating `open` again would double-count queued orders
+	// and count frozen ones that were never cancelled).
 	if s.otr != nil && s.sub != nil {
-		for i := range open {
-			s.otrCancelEvent(ctx, &open[i])
+		for _, w := range ws {
+			s.otrCancelEvent(ctx, w.o)
 		}
 	}
 	// Await phase — the task requires ALL shards to confirm before
@@ -1016,13 +1327,20 @@ func (s *Service) MassCancel(ctx context.Context, scope MassCancelScope,
 				"mass cancel aborted: %v", ctx.Err())
 		}
 	}
-	// Audit one row per cancelled order (operation=MASS_CANCEL).
-	audits := make([]AuditEntry, 0, len(open))
-	for i := range open {
-		o := &open[i]
+	// Audit one row per actually-cancelled order (operation=MASS_CANCEL)
+	// — local-apply/queued cancels plus every wire-confirmed waiter.
+	audits := make([]AuditEntry, 0, len(localCancelled)+len(ws))
+	for _, o := range localCancelled {
 		audits = append(audits, AuditEntry{
 			OrderID: o.ID, AccountID: o.AccountID, Operation: "MASS_CANCEL",
 			FieldName: "status", OldValue: o.Status, NewValue: "CANCELLED",
+			ModifiedBy: actor, RequestID: requestID, IPAddress: ip,
+		})
+	}
+	for _, w := range ws {
+		audits = append(audits, AuditEntry{
+			OrderID: w.o.ID, AccountID: w.o.AccountID, Operation: "MASS_CANCEL",
+			FieldName: "status", OldValue: w.o.Status, NewValue: "CANCELLED",
 			ModifiedBy: actor, RequestID: requestID, IPAddress: ip,
 		})
 	}

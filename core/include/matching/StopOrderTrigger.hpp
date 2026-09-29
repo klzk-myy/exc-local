@@ -3,15 +3,29 @@
 // Task 2.3.2 — conditional-trigger queue for STOP / STOP_LIMIT orders
 // (spec §3.2 #7, §3.7.5). Pending stops live OUTSIDE the resting book: the
 // component owns two price-sorted intrusive chains of pool-allocated Order
-// nodes — buy-stops ascending by stop_price (trigger when last >= stop),
-// sell-stops descending (trigger when last <= stop) — plus an
-// open-addressed order_id index for O(1) cancel/amend.
+// nodes — buy-stops ascending by stop_price (trigger when the evaluation
+// reference >= stop), sell-stops descending (trigger when ref <= stop) —
+// plus an open-addressed order_id index for O(1) cancel/amend.
 //
-// Trigger evaluation is deterministic: pop_triggered(last_price) detaches
-// every due entry into a single chain ordered by (timestamp_ns,
-// ingress_seq) — the same order replay produces under identical input.
-// Triggered entries leave the queue permanently (they run through the
-// engine's normal market/limit taker path).
+// Phase-16 extensions (Tasks 16.3.3/15/16/17, spec §6.2a):
+//   * Every pending carries a trigger_source (kTriggerSourceLast/Mark/
+//     Index) — pop_triggered() resolves each entry against that source's
+//     reference price; an unavailable/stale reference (value <= 0) freezes
+//     evaluation for that source fail-closed (CONDITIONAL_TRIGGER_
+//     ORACLE_STALE semantics — the order simply stays pending).
+//   * TRAILING_STOP pendings carry {trail_unit, trail_distance, anchor,
+//     activation_price} and ride a third intrusive chain (Order::hash_next
+//     — unused while the node is not in the book index) so the engine's
+//     re-anchor pass walks only trailing entries.
+//   * pop_triggered() records a TriggeredInfo per detached node (armed
+//     threshold + the observed reference + source) — the engine stamps it
+//     into the ORDER_TRIGGERED WAL row and uses stop_price for GSLO fills.
+//
+// Trigger evaluation is deterministic: pop_triggered(refs) detaches every
+// due entry into a single chain ordered by (timestamp_ns, ingress_seq) —
+// the same order replay produces under identical input. Triggered entries
+// leave the queue permanently (they run through the engine's normal
+// market/limit taker path or the GSLO guaranteed-fill path).
 //
 // Storage: one cold-allocated table at construction; zero heap traffic on
 // the hot path; a full table is fail-closed (enqueue returns false and the
@@ -35,9 +49,13 @@ public:
         if (capacity == 0) capacity = 1;
         capacity_ = next_pow2(capacity * 2);  // open addressing, load <= 0.5
         slots_ = new (std::nothrow) Pending[capacity_]();
-        if (slots_ == nullptr) capacity_ = 0;  // fail-closed
+        infos_ = new (std::nothrow) TriggeredInfo[capacity_]();
+        if (slots_ == nullptr || infos_ == nullptr) capacity_ = 0;  // fail-closed
     }
-    ~StopOrderTrigger() { delete[] slots_; }
+    ~StopOrderTrigger() {
+        delete[] slots_;
+        delete[] infos_;
+    }
 
     StopOrderTrigger(const StopOrderTrigger&) = delete;
     StopOrderTrigger& operator=(const StopOrderTrigger&) = delete;
@@ -45,16 +63,56 @@ public:
     struct Pending {
         uint64_t order_id = 0;         // key; 0 = empty
         Order*   order = nullptr;      // pool-owned node, chained next/prev
-        int64_t  stop_price_ticks = 0;
+        int64_t  stop_price_ticks = 0; // armed trigger threshold
+        // --- Phase-16 conditional metadata ---------------------------------
+        int64_t  anchor_ticks = 0;            // trailing: most-favorable ref
+        int64_t  activation_price_ticks = 0;  // trailing gate; 0 = armed
+        int64_t  trail_distance = 0;          // pips | pct*100 | ticks
+        int64_t  gslo_notional_units = 0;     // GSLO exposure accounting
+        uint8_t  trigger_source = 0;          // kTriggerSource*
+        uint8_t  trail_unit = 0;              // kTrailUnit*; 0 = plain stop
+        uint8_t  armed = 1;                   // trailing gate passed
+    };
+
+    // Per-source evaluation references handed to pop_triggered(). A value
+    // <= 0 means "unavailable" — entries on that source simply do not
+    // trigger (fail-closed freeze; spec §6.2a/§24 #255).
+    struct TriggerRefs {
+        int64_t last = 0;
+        int64_t mark = 0;
+        int64_t index = 0;
+        [[nodiscard]] constexpr int64_t ref(uint8_t source) const noexcept {
+            return source == kTriggerSourceMark  ? mark
+                 : source == kTriggerSourceIndex ? index
+                                                 : last;
+        }
+    };
+
+    // Metadata captured for each detached node by pop_triggered, in chain
+    // order — ORDER_TRIGGERED payload + GSLO execution price source.
+    struct TriggeredInfo {
+        uint64_t order_id = 0;
+        int64_t  stop_ticks = 0;
+        int64_t  observed_ticks = 0;
+        int64_t  gslo_notional_units = 0;  // engine releases on terminal
+        uint8_t  source = 0;
     };
 
     static constexpr std::size_t kDefaultCapacity = 1u << 15;  // 32k pending
 
     // Adopt a pending stop. order->side decides the queue: BUY triggers on
-    // last >= stop (price rallies into the stop), SELL on last <= stop.
+    // ref >= stop (price rallies into the stop), SELL on ref <= stop.
     // false = table full or duplicate id — caller cancels/rejects.
     [[nodiscard]] bool enqueue(Order* order,
                                int64_t stop_price_ticks) noexcept {
+        return enqueue(order, stop_price_ticks, Pending{});
+    }
+
+    // Phase-16 form: `meta` supplies trigger_source plus the trailing
+    // fields (trail_unit/anchor/activation/armed) — ignored for plain
+    // stops. Orders with trail_unit != 0 additionally ride the trail chain.
+    [[nodiscard]] bool enqueue(Order* order, int64_t stop_price_ticks,
+                               const Pending& meta) noexcept {
         if (slots_ == nullptr || order == nullptr ||
             live_ * 2 >= capacity_) {
             return false;
@@ -67,6 +125,21 @@ public:
         slots_[i].order_id = order->id;
         slots_[i].order = order;
         slots_[i].stop_price_ticks = stop_price_ticks;
+        slots_[i].anchor_ticks = meta.anchor_ticks;
+        slots_[i].activation_price_ticks = meta.activation_price_ticks;
+        slots_[i].trail_distance = meta.trail_distance;
+        slots_[i].gslo_notional_units = meta.gslo_notional_units;
+        slots_[i].trigger_source = meta.trigger_source;
+        slots_[i].trail_unit = meta.trail_unit;
+        slots_[i].armed = meta.armed;
+        if (slots_[i].trigger_source <= kTriggerSourceIndex) {
+            ++source_live_[slots_[i].trigger_source];
+        }
+        if (meta.trail_unit != kTrailUnitNone) {
+            order->hash_next = trail_head_;
+            trail_head_ = order;
+            ++trail_live_;
+        }
         ++live_;
         order->next = order->prev = nullptr;
         insert_sorted(order, stop_price_ticks);
@@ -79,6 +152,7 @@ public:
         Pending* p = find_slot(order_id);
         if (p == nullptr) return nullptr;
         Order* o = p->order;
+        if (p->trail_unit != kTrailUnitNone) unlink_trail(o);
         unlink_sorted(o);
         erase_slot(order_id);
         return o;
@@ -87,8 +161,9 @@ public:
     [[nodiscard]] bool pending(uint64_t order_id) const noexcept {
         return find_slot(order_id) != nullptr;
     }
-    // Mutable access for the amend path: caller may rewrite stop_price_ticks
-    // then MUST call resort(order) to restore queue order.
+    // Mutable access for the amend/re-anchor path: caller may rewrite the
+    // Pending record (stop_price_ticks, anchor, armed, trail fields, GSLO
+    // notional) then MUST call resort(order) to restore queue order.
     [[nodiscard]] Pending* find(uint64_t order_id) noexcept {
         return find_slot(order_id);
     }
@@ -101,44 +176,115 @@ public:
         insert_sorted(order, stop);
     }
 
-    // Detach every triggered entry into one chain via Order::next,
-    // ordered by (timestamp_ns, ingress_seq) across both sides.
-    // last_price_ticks <= 0 means "no trade yet" — nothing can trigger.
+    // Walk the trailing chain (hash_next links) invoking f(order, pending)
+    // for every pending with trail_unit != 0. The callback may rewrite the
+    // Pending record in place — but MUST NOT remove() or enqueue() (chain
+    // links are captured before each call).
+    template <typename F>
+    void for_each_trailing(F&& f) noexcept {
+        for (Order* n = trail_head_; n != nullptr;) {
+            Order* next = n->hash_next;
+            Pending* p = find_slot(n->id);
+            if (p != nullptr) f(n, p);
+            n = next;
+        }
+    }
+    [[nodiscard]] std::size_t trail_live() const noexcept { return trail_live_; }
+
+    // Pending count per trigger source — the engine consults this to decide
+    // whether oracle staleness actually gates anything (an empty MARK
+    // source must not freeze the whole pipeline).
+    [[nodiscard]] std::size_t source_live(uint8_t source) const noexcept {
+        return source <= kTriggerSourceIndex ? source_live_[source] : 0;
+    }
+
+    // Detach every triggered entry into one chain via Order::next.
+    // Ordering contract: per side the due set preserves the sorted queue
+    // (best stop first); the two sides merge by (timestamp_ns, ingress_seq)
+    // — identical to the book's priority key.
+    //
+    // Each entry's Pending.trigger_source selects its reference from
+    // `refs`; a source whose reference is <= 0 freezes only ITS entries
+    // (fail-closed; spec §6.2a/§24 #255). Because the queues mix sources,
+    // a frozen head must never shadow a due entry behind it — the pop
+    // therefore scans each side chain once (O(pending), allocation-free)
+    // instead of checking heads alone.
+    //
+    // TriggeredInfo rows are recorded per detached node (keyed by id —
+    // consume via take_triggered); pop_count() bounds the array until the
+    // next pop_triggered() call.
     [[nodiscard]] Order* pop_triggered(int64_t last_price_ticks) noexcept {
-        if (last_price_ticks <= 0) return nullptr;
+        return pop_triggered(TriggerRefs{last_price_ticks, 0, 0});
+    }
+    [[nodiscard]] Order* pop_triggered(const TriggerRefs& refs) noexcept {
+        pop_count_ = 0;
+        // Phase A: detach each side's due entries into a per-side chain.
+        Order* due[2] = {nullptr, nullptr};
+        for (int sd = 0; sd < 2; ++sd) {
+            Order* n = sd == 0 ? buy_head_ : sell_head_;
+            Order* dt = nullptr;
+            while (n != nullptr) {
+                Order* nxt = n->next;  // capture before relink/erase
+                Pending* p = find_slot(n->id);
+                const int64_t r =
+                    p != nullptr ? refs.ref(p->trigger_source) : 0;
+                const bool is_due =
+                    p != nullptr && p->armed != 0 && r > 0 &&
+                    (sd == 0 ? r >= p->stop_price_ticks
+                             : r <= p->stop_price_ticks);
+                if (is_due) {
+                    // Pop metadata BEFORE erase_slot releases the record.
+                    if (pop_count_ < capacity_) {
+                        infos_[pop_count_++] = TriggeredInfo{
+                            n->id, p->stop_price_ticks, r,
+                            p->gslo_notional_units, p->trigger_source};
+                    }
+                    if (p->trail_unit != kTrailUnitNone) unlink_trail(n);
+                    unlink_sorted(n);
+                    erase_slot(n->id);  // pending index -> remove() misses
+                    n->next = n->prev = nullptr;
+                    if (dt != nullptr) dt->next = n; else due[sd] = n;
+                    dt = n;
+                }
+                n = nxt;
+            }
+        }
+        // Phase B: merge by (timestamp_ns, ingress_seq) — earlier wins.
         Order* head = nullptr;
         Order* tail = nullptr;
-        for (;;) {
-            Order* b = buy_head_;
-            Order* s = sell_head_;
-            const int64_t b_stop = b != nullptr ? stop_of(b->id) : 0;
-            const int64_t s_stop = s != nullptr ? stop_of(s->id) : 0;
-            const bool b_due = b != nullptr && last_price_ticks >= b_stop;
-            const bool s_due = s != nullptr && last_price_ticks <= s_stop;
-            if (!b_due && !s_due) break;
+        while (due[0] != nullptr || due[1] != nullptr) {
             Order* pick;
-            if (b_due && s_due) {
-                // Both heads due: earlier ingress wins (ts, then seq).
-                pick = earlier(b, s) ? b : s;
-            } else {
-                pick = b_due ? b : s;
-            }
-            if (pick == b) {
-                buy_head_ = b->next;
-                if (buy_head_ != nullptr) buy_head_->prev = nullptr;
-                else buy_tail_ = nullptr;
-            } else {
-                sell_head_ = s->next;
-                if (sell_head_ != nullptr) sell_head_->prev = nullptr;
-                else sell_tail_ = nullptr;
-            }
-            erase_slot(pick->id);   // leaves pending index -> remove() misses
-            pick->next = pick->prev = nullptr;
+            if (due[0] == nullptr)       pick = due[1];
+            else if (due[1] == nullptr)  pick = due[0];
+            else pick = earlier(due[0], due[1]) ? due[0] : due[1];
+            Order*& dq = pick->side == Side::BUY ? due[0] : due[1];
+            dq = pick->next;
+            pick->next = nullptr;
             if (tail != nullptr) tail->next = pick; else head = pick;
             tail = pick;
         }
         return head;
     }
+
+    // Consume the pop metadata captured for order_id (engine reads it
+    // exactly once per activated node — the row is single-read). Returns
+    // false when the node predates metadata capture (defensive dedup).
+    bool take_triggered(uint64_t order_id, TriggeredInfo* out) noexcept {
+        for (uint32_t i = 0; i < pop_count_; ++i) {
+            if (infos_[i].order_id != order_id) continue;
+            if (out != nullptr) *out = infos_[i];
+            infos_[i].order_id = 0;  // consumed — single-read discipline
+            return true;
+        }
+        return false;
+    }
+
+    // Pop metadata from the most recent pop_triggered() call, in chain
+    // order (pop_info()[i] describes the i-th node on the returned chain).
+    [[nodiscard]] const TriggeredInfo* pop_infos() const noexcept {
+        return infos_;
+    }
+    [[nodiscard]] uint32_t pop_count() const noexcept { return pop_count_; }
 
     [[nodiscard]] std::size_t size() const noexcept { return live_; }
     [[nodiscard]] bool empty() const noexcept { return live_ == 0; }
@@ -178,6 +324,8 @@ private:
             if (slots_[i].order_id == order_id) break;
             i = (i + 1) & (capacity_ - 1);
         }
+        // Per-source bookkeeping: count before the slot is cleared.
+        const uint8_t src = slots_[i].trigger_source;
         std::size_t j = i;
         for (;;) {
             j = (j + 1) & (capacity_ - 1);
@@ -190,6 +338,9 @@ private:
             }
         }
         slots_[i] = Pending{};
+        if (src <= kTriggerSourceIndex && source_live_[src] > 0) {
+            --source_live_[src];
+        }
         --live_;
     }
 
@@ -241,13 +392,31 @@ private:
         order->next = order->prev = nullptr;
     }
 
+    void unlink_trail(Order* order) noexcept {
+        Order** link = &trail_head_;
+        while (*link != nullptr) {
+            if (*link == order) {
+                *link = order->hash_next;
+                order->hash_next = nullptr;
+                --trail_live_;
+                return;
+            }
+            link = &(*link)->hash_next;
+        }
+    }
+
     Pending* slots_ = nullptr;
+    TriggeredInfo* infos_ = nullptr;
     std::size_t capacity_ = 0;
     std::size_t live_ = 0;
+    std::size_t trail_live_ = 0;
+    std::size_t source_live_[3] = {0, 0, 0};
+    uint32_t pop_count_ = 0;
     Order* buy_head_ = nullptr;   // ascending stop_price
     Order* buy_tail_ = nullptr;
     Order* sell_head_ = nullptr;  // descending stop_price
     Order* sell_tail_ = nullptr;
+    Order* trail_head_ = nullptr; // trail_unit != 0 subset (hash_next links)
 };
 
 }  // namespace exch

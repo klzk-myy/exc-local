@@ -33,7 +33,11 @@ func validTIF(t string) bool {
 // fail closed here rather than being silently truncated onto the wire.
 func validWireType(t string) bool {
 	switch t {
-	case TypeLimit, TypeMarket, TypeStop, TypeStopLimit, TypeIceberg:
+	case TypeLimit, TypeMarket, TypeStop, TypeStopLimit, TypeIceberg,
+		// TypePeg is engine-owned (Phase-16 Task 16.3.11); TypeFixing
+		// never reaches the wire — orders.Service queues it for the
+		// fixing executor (Task 16.3.9).
+		TypePeg:
 		return true
 	}
 	return false
@@ -146,14 +150,25 @@ func ValidateSubmit(req *SubmitRequest, inst *Instrument, acct *Account,
 		return codeErr("INVALID_REQUEST",
 			"symbol, side (BUY|SELL) and type are required")
 	}
-	if !validWireType(req.OrderType) {
+	// TypeFixing / MOO / MOC are deliberately not wire types —
+	// orders.Service queues them for the fixing executor (Task 16.3.9)
+	// or the §6.2b session call-auction (Task 16.3.25) instead of
+	// dispatching at submit time. Every other §5.4 type fails closed.
+	if !validWireType(req.OrderType) && req.OrderType != TypeFixing &&
+		!IsAuctionType(req.OrderType) {
 		return codeErr("INVALID_REQUEST",
-			"unsupported order type %q (wire types: LIMIT, MARKET, STOP, STOP_LIMIT, ICEBERG)",
+			"unsupported order type %q (wire types: LIMIT, MARKET, STOP, STOP_LIMIT, ICEBERG, PEG; gateway-queued: FIXING, MOO, MOC)",
 			req.OrderType)
 	}
 	if inst.Status == "RESTRICTED" && req.OrderType != TypeLimit {
 		return codeErr("INSTRUMENT_RESTRICTED",
 			"instrument %s is RESTRICTED: limit orders only", inst.Symbol)
+	}
+	if IsAuctionType(req.OrderType) {
+		// §6.2b: session-bound orders are implicitly GTD to their auction
+		// trigger — an explicit gtd_expiry or a continuous-matching TIF
+		// would contradict the queue semantics.
+		req.TimeInForce = TIFGTD
 	}
 	if req.TimeInForce == "" {
 		req.TimeInForce = TIFGTC
@@ -161,7 +176,7 @@ func ValidateSubmit(req *SubmitRequest, inst *Instrument, acct *Account,
 	if !validTIF(req.TimeInForce) {
 		return codeErr("INVALID_REQUEST", "invalid time_in_force %q", req.TimeInForce)
 	}
-	if req.TimeInForce == TIFGTD {
+	if req.TimeInForce == TIFGTD && !IsAuctionType(req.OrderType) {
 		if req.GTDExpiry == nil {
 			return codeErr("INVALID_REQUEST", "GTD requires gtd_expiry")
 		}
@@ -177,7 +192,9 @@ func ValidateSubmit(req *SubmitRequest, inst *Instrument, acct *Account,
 	}
 
 	// §22.1: market orders accept exactly one of quantity/quote_quantity.
-	if req.OrderType == TypeMarket {
+	// MOO/MOC share the market-order quantity contract — they ARE
+	// market orders, bound to a session auction (§6.2b).
+	if req.OrderType == TypeMarket || IsAuctionType(req.OrderType) {
 		if (req.Quantity == nil) == (req.QuoteQuantity == nil) {
 			return codeErr("QUOTE_QUANTITY_INVALID",
 				"market orders require exactly one of quantity or quote_quantity")
@@ -195,7 +212,20 @@ func ValidateSubmit(req *SubmitRequest, inst *Instrument, acct *Account,
 		}
 	}
 
-	// Price requirements per type.
+	// Price requirements per type. §6.2b queue semantics: a price,
+	// stop, iceberg display or maker-only flag cannot express a
+	// session-uncross order.
+	if IsAuctionType(req.OrderType) {
+		if req.Price != nil || req.StopPrice != nil {
+			return codeErr("INVALID_REQUEST",
+				"%s orders do not accept price or stop_price (session-uncross market orders)",
+				req.OrderType)
+		}
+		if req.PostOnly {
+			return codeErr("INVALID_REQUEST",
+				"post_only does not apply to %s orders", req.OrderType)
+		}
+	}
 	switch req.OrderType {
 	case TypeLimit, TypeIceberg:
 		if req.Price == nil || !req.Price.IsPositive() {
@@ -211,6 +241,10 @@ func ValidateSubmit(req *SubmitRequest, inst *Instrument, acct *Account,
 			return codeErr("INVALID_REQUEST",
 				"price and stop_price required for STOP_LIMIT orders")
 		}
+		// TypePeg: quantity is enforced by the generic branch above;
+		// price/stop/display stay optional — the engine's peg tracker
+		// owns repricing (Task 16.3.11). TypeFixing: all field rules
+		// live in validateExecParams (Task 16.3.9).
 	}
 	if req.DisplayQty != nil {
 		if req.OrderType != TypeIceberg {
@@ -224,7 +258,13 @@ func ValidateSubmit(req *SubmitRequest, inst *Instrument, acct *Account,
 
 	// Filter checks (Task 5.3.35 vocabulary): LOT_SIZE / PRICE_FILTER /
 	// MIN_NOTIONAL / PRICE_BAND.
-	return validateFilters(req, inst, refPrice)
+	if err := validateFilters(req, inst, refPrice); err != nil {
+		return err
+	}
+	// Phase-16 Task 16.3.10 — exec-param surface (peg / hidden / GSLO /
+	// trigger_source / fixing benchmark / algo_params + post_only·MARKET
+	// and iceberg visibility rules).
+	return validateExecParams(req)
 }
 
 // validateFilters applies the structured filter rules of Task 5.3.35.
@@ -463,10 +503,14 @@ func NormalizeMassCancelScope(s *MassCancelScope, admin bool) error {
 	switch s.OrderType {
 	case "", "ALL":
 		s.OrderType = ""
-	case TypeLimit, TypeMarket, TypeStop, TypeStopLimit, TypeIceberg:
+	case TypeLimit, TypeMarket, TypeStop, TypeStopLimit, TypeIceberg,
+		// Queued Phase-16 types ride the same scoped-cancel contract —
+		// the §6.2b remainder sweep targets MOO/MOC by type, and FIXING
+		// orders cancel through the reservation-release path.
+		TypePeg, TypeFixing, TypeMOO, TypeMOC:
 	default:
 		return codeErr("INVALID_REQUEST",
-			"order_type must be one of LIMIT|MARKET|STOP|STOP_LIMIT|ICEBERG|ALL")
+			"order_type must be one of LIMIT|MARKET|STOP|STOP_LIMIT|ICEBERG|PEG|FIXING|MOO|MOC|ALL")
 	}
 	if !admin && s.AccountID == 0 {
 		return codeErr("UNAUTHORIZED", "account context required")
