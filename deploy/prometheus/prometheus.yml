@@ -15,7 +15,16 @@ global:
     cluster: exchange-prod
 
 rule_files:
+  # Phase-07/09: L0–L3 error-tier, Aeron/bridge/JetStream, SLO burn,
+  # PTP and edge rules.
   - rules/exchange-alerts.yml
+  # Phase-13 Task 13.3.3: domain alert rules (latency, throughput,
+  # queue depth, WAL lag, memory, CPU, degradation, circuit breaker,
+  # reconciliation, DR, settlement, funding).
+  - alerts.yml
+  # Phase-09 headroom + Sentinel HA packs (paths relative to this file).
+  - ../monitoring/capacity-alerts.yml
+  - ../monitoring/redis-sentinel-alerts.yml
 
 alerting:
   alertmanagers:

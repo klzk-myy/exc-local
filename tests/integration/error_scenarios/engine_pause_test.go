@@ -263,7 +263,7 @@ func TestEnginePaused_CancelAckTimeout(t *testing.T) {
 		ID: 42, AccountID: 7, InstrumentID: 1, Status: "ACTIVE", OrderSeq: 1,
 	}}
 	svc, err := orders.NewService(orders.Options{
-		KillSwitch: openKillSwitch{},
+		KillSwitch: openKillSwitch{}, Breakers: openBreakers{},
 		Store:      store,
 		Submitter:  &silentSubmitter{},
 		ShardMap:   mustShardMap(t),
@@ -360,3 +360,10 @@ type openKillSwitch struct{}
 func (openKillSwitch) OrderHalt(context.Context, int64, string, string, string) (string, string, error) {
 	return "", "", nil
 }
+
+// openBreakers is the always-admit Phase-13 circuit-breaker fake — the
+// admission seam fails closed when nil, so these tests (which predate the
+// seam and assert pre-breaker error contracts) wire a permanently-open gate.
+type openBreakers struct{}
+
+func (openBreakers) AdmitOrder(context.Context, int64, string) error { return nil }

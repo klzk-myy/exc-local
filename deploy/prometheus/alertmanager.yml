@@ -11,6 +11,8 @@
 #   PAGERDUTY_P0_SERVICE_KEY  — critical service (phone/page)
 #   PAGERDUTY_P1_SERVICE_KEY  — high-urgency service
 #   PAGERDUTY_P2_SERVICE_KEY  — low-urgency / ticket queue
+#   PAGERDUTY_P3_SERVICE_KEY  — info-severity ticket queue (Phase-13
+#                               Task 13.3.3: P3 alerts open tickets)
 
 route:
   receiver: default
@@ -33,9 +35,10 @@ route:
     - match: {severity: p2}
       receiver: pagerduty-p2-ticket
       repeat_interval: 4h
-    # P3 — informational (DLQ growth, SLA warnings): slack only.
+    # P3 — informational (DLQ growth, SLA warnings): low-urgency
+    # PagerDuty ticket + slack (Task 13.3.3: P3 = ticket).
     - match: {severity: p3}
-      receiver: slack-ops
+      receiver: pagerduty-p3-ticket
       repeat_interval: 12h
 
 # A firing P0 suppresses lower-severity alerts on the same service+shard —
@@ -85,6 +88,21 @@ receivers:
       - api_url: "${SLACK_OPS_WEBHOOK_URL}"
         channel: "#exchange-ops"
         title: "P2: {{ .CommonAnnotations.summary }}"
+        text: "{{ range .Alerts }}{{ .Annotations.description }}\n{{ end }}"
+
+  # P3 → ticket queue: a low-urgency PagerDuty incident (severity info)
+  # plus the ops slack channel. Un-acked P3 tickets are reviewed in the
+  # weekly ops review per docs/runbooks/incident-escalation.md §2.
+  - name: pagerduty-p3-ticket
+    pagerduty_configs:
+      - service_key: "${PAGERDUTY_P3_SERVICE_KEY}"
+        severity: info
+        description: "{{ .CommonAnnotations.summary }}"
+        send_resolved: true
+    slack_configs:
+      - api_url: "${SLACK_OPS_WEBHOOK_URL}"
+        channel: "#exchange-ops"
+        title: "P3: {{ .CommonAnnotations.summary }}"
         text: "{{ range .Alerts }}{{ .Annotations.description }}\n{{ end }}"
 
   - name: slack-ops

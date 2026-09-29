@@ -15,6 +15,9 @@
 //       gates are the authoritative layer and fail closed there).
 //       Cancels never reach this pipeline (engine cancels are ungated),
 //       satisfying the cancel-exempt halt contract.
+//   0b. MiFID II RTS 9 order-to-trade breach (Phase-13 Task 13.3.6):
+//       the same refreshed snapshot carries `otr:breach:{account}` —
+//       breached accounts reject OTR_LIMIT_EXCEEDED; cancels exempt.
 //   1.  Account status (ACTIVE only)
 //   2.  Instrument status (ACTIVE; RESTRICTED=limit-only; DELISTED=
 //       reduce_only-only per §7.1 + remediation #35)

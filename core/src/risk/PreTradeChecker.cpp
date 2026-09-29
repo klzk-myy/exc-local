@@ -47,6 +47,11 @@ RiskDecision PreTradeChecker::check(const Order& order) noexcept {
             instrument_ != nullptr ? instrument_type_name(instrument_->type)
                                    : nullptr);
         if (kscope != nullptr) return RiskDecision::REJECT;
+        // Task 13.3.6 — the OTR breach gate applies on the detached
+        // path too; a bound lattice is never bypassed.
+        if (suspensions_->otr_breached(order.account_id)) {
+            return RiskDecision::REJECT;
+        }
     }
     if (accounts_ == nullptr) return RiskDecision::ACCEPT;  // detached stub
     const uint64_t now = clock_fn_ != nullptr
@@ -208,6 +213,14 @@ RiskVerdict PreTradeChecker::run(const Order& order,
             inst != nullptr ? instrument_type_name(inst->type) : nullptr);
         if (kscope != nullptr) {
             return reject(kCodeTradingHalted, kscope);
+        }
+        // ---- 0b. MiFID II RTS 9 OTR breach (Phase-13 Task 13.3.6) -------
+        // Same refreshed snapshot: `otr:breach:{account}` raised by the
+        // Go OtrMonitor. New orders reject OTR_LIMIT_EXCEEDED (429);
+        // cancels never reach this pipeline — cancel-only during breach.
+        if (suspensions_->otr_breached(order.account_id)) {
+            return reject(kCodeOtrLimitExceeded,
+                          "order-to-trade ratio limit breached — cancels only");
         }
     }
 

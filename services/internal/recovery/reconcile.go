@@ -70,18 +70,15 @@ type RecReconcileResult struct {
 	ReportRowID     int64               `json:"report_row_id,omitempty"`
 }
 
-// RecReconcile rebuilds wallet balances from ledger_entries and diffs
-// them against balances.total. On mismatch it pages P1 and persists a
-// recovery_reports row (stage='daily_reconcile',
-// outcome='RECONCILE_MISMATCH'). Never mutates balances — reconciliation
-// is read-only diagnosis; correction is an operator action (fail-closed
-// pessimism: report first, never silently repair money).
-func RecReconcile(ctx context.Context, pool *pgxpool.Pool, alerter RecAlerter) (*RecReconcileResult, error) {
+// RecWalletReconcileDiff runs the scan+diff legs of the wallet
+// reconciliation — ledger_entries rebuild vs balances.total, with
+// journal_sums cross-checked — and returns the result WITHOUT alerting
+// or persisting. Exported for the Phase-13 Task 13.3.2 reconciliation
+// engine (BALANCES category), which composes this ledger leg and owns
+// its own alert/halt/report pipeline. Read-only; never mutates.
+func RecWalletReconcileDiff(ctx context.Context, pool *pgxpool.Pool) (*RecReconcileResult, error) {
 	if pool == nil {
 		return nil, fmt.Errorf("reconcile: nil pool")
-	}
-	if alerter == nil {
-		alerter = recSlogAlerter{}
 	}
 	res := &RecReconcileResult{}
 
@@ -212,7 +209,23 @@ func RecReconcile(ctx context.Context, pool *pgxpool.Pool, alerter RecAlerter) (
 			})
 		}
 	}
+	return res, nil
+}
 
+// RecReconcile rebuilds wallet balances from ledger_entries and diffs
+// them against balances.total. On mismatch it pages P1 and persists a
+// recovery_reports row (stage='daily_reconcile',
+// outcome='RECONCILE_MISMATCH'). Never mutates balances — reconciliation
+// is read-only diagnosis; correction is an operator action (fail-closed
+// pessimism: report first, never silently repair money).
+func RecReconcile(ctx context.Context, pool *pgxpool.Pool, alerter RecAlerter) (*RecReconcileResult, error) {
+	if alerter == nil {
+		alerter = recSlogAlerter{}
+	}
+	res, err := RecWalletReconcileDiff(ctx, pool)
+	if err != nil {
+		return nil, err
+	}
 	if len(res.Mismatches) == 0 {
 		return res, nil
 	}

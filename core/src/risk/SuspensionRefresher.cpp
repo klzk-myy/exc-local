@@ -38,7 +38,27 @@ bool SuspensionRefresher::refresh(SuspensionFlags* flags) noexcept {
         // Unknown/malformed keys are ignored inside suspension_key_into —
         // they never suspend; a transport-level failure above already
         // marked the set unverifiable.
-        suspension_key_into(key, snap.get());
+        (void)suspension_key_into(key, snap.get());
+    }
+    // Phase-13 Task 13.3.6 — MiFID II RTS 9 OTR breach flags. The Go
+    // OtrMonitor owns `otr:breach:{account}` writes; the same
+    // operator-sized keyspace discipline applies (a breached account is
+    // one flag). A failed poll is treated exactly like a halt-side
+    // failure: unverifiable => every admission rejects until a clean
+    // refresh — the engine must not keep matching for an account whose
+    // ratio state it cannot see (spec §2.7).
+    RespValue ov;
+    if (!client_->execute({"KEYS", "otr:breach:*"}, &ov) || ov.is_error() ||
+        ov.type != RespValue::Type::Array) {
+        flags->mark_unverifiable();
+        return false;
+    }
+    for (const RespValue& item : ov.items) {
+        std::string_view key;
+        if (!item.as_string(&key)) continue;
+        // `otr:breach:index` and any other non-`{id}` target are ignored
+        // inside otr_key_into — bookkeeping keys never suspend.
+        (void)otr_key_into(key, snap.get());
     }
     flags->apply(std::move(snap));
     return true;

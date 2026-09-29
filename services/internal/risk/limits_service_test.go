@@ -5,6 +5,7 @@ package risk
 
 import (
 	"context"
+	"encoding/json"
 	stderrors "errors"
 	"fmt"
 	"testing"
@@ -456,5 +457,111 @@ func TestLimitsViewUnlimitedFieldsNilPct(t *testing.T) {
 	}
 	if v.DailyVolumePct != nil || v.OpenOrdersPct != nil {
 		t.Fatal("unset limits must yield nil utilization percentages")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Migration 047 — MiFID II RTS 9 OTR columns (Task 13.3.6)
+// ---------------------------------------------------------------------------
+
+func TestResolveOtrDefaults(t *testing.T) {
+	// No rows → the §13.6a canonical pair: 500 events/trade, 60s window.
+	lim := Resolve(nil, 7, "T1", "EURUSD")
+	if lim.MaxOrderToTradeRatio == nil ||
+		!lim.MaxOrderToTradeRatio.Equal(DefaultOtrRatio) {
+		t.Fatalf("MaxOrderToTradeRatio = %v, want %s",
+			lim.MaxOrderToTradeRatio, DefaultOtrRatio)
+	}
+	if lim.OtrWindow != DefaultOtrWindow {
+		t.Fatalf("OtrWindow = %v, want %v", lim.OtrWindow, DefaultOtrWindow)
+	}
+}
+
+func TestResolveOtrScopedOverride(t *testing.T) {
+	// The §9.6 market-maker allowance: an account(+symbol)-scoped row
+	// carrying a higher ratio and a longer window wins over the
+	// account-wide row; other symbols keep the account-wide value.
+	min := 30 * time.Second
+	mm := 5 * time.Minute
+	rows := []Row{
+		{ID: 1, AccountID: int64p(7),
+			MaxOrderToTradeRatio: dec("1000"), OtrWindow: &min},
+		{ID: 2, AccountID: int64p(7), Symbol: strp("EURUSD"),
+			MaxOrderToTradeRatio: dec("10000"), OtrWindow: &mm},
+	}
+	lim := Resolve(rows, 7, "T1", "EURUSD")
+	if got := lim.MaxOrderToTradeRatio.String(); got != "10000" {
+		t.Fatalf("MM row MaxOrderToTradeRatio = %s, want 10000", got)
+	}
+	if lim.OtrWindow != mm {
+		t.Fatalf("MM row OtrWindow = %v, want %v", lim.OtrWindow, mm)
+	}
+	lim = Resolve(rows, 7, "T1", "GBPUSD")
+	if got := lim.MaxOrderToTradeRatio.String(); got != "1000" {
+		t.Fatalf("account row MaxOrderToTradeRatio = %s, want 1000", got)
+	}
+	if lim.OtrWindow != min {
+		t.Fatalf("account row OtrWindow = %v, want %v", lim.OtrWindow, min)
+	}
+	// A row that sets the ratio but not the window inherits the
+	// default window.
+	rows = []Row{{ID: 3, AccountID: int64p(7), MaxOrderToTradeRatio: dec("50")}}
+	lim = Resolve(rows, 7, "T1", "EURUSD")
+	if lim.OtrWindow != DefaultOtrWindow {
+		t.Fatalf("unset window = %v, want default %v", lim.OtrWindow, DefaultOtrWindow)
+	}
+}
+
+func TestParseWindow(t *testing.T) {
+	w, err := parseWindow(strp("60"))
+	if err != nil || *w != 60*time.Second {
+		t.Fatalf("60s: %v %v", w, err)
+	}
+	w, err = parseWindow(strp("0.5"))
+	if err != nil || *w != 500*time.Millisecond {
+		t.Fatalf("0.5s: %v %v", w, err)
+	}
+	if _, err := parseWindow(strp("0")); err == nil {
+		t.Fatal("zero window must reject")
+	}
+	if _, err := parseWindow(strp("-30")); err == nil {
+		t.Fatal("negative window must reject")
+	}
+	if _, err := parseWindow(strp("garbage")); err == nil {
+		t.Fatal("non-numeric window must reject")
+	}
+	w, err = parseWindow(nil)
+	if w != nil || err != nil {
+		t.Fatalf("NULL window → nil: %v %v", w, err)
+	}
+}
+
+func TestOtrRowJSONRoundTrip(t *testing.T) {
+	// The Redis snapshot form: ratio as decimal string, window as a Go
+	// duration string — both must survive PublishLimits marshalling.
+	win := 90 * time.Second
+	r := Row{ID: 9, AccountID: int64p(7),
+		MaxOrderToTradeRatio: dec("750"), OtrWindow: &win}
+	w := rowJSON{
+		ID: r.ID, AccountID: r.AccountID,
+		MaxOrderToTradeRatio: decStr(r.MaxOrderToTradeRatio),
+		OtrWindow:            durStr(r.OtrWindow),
+	}
+	blob, err := json.Marshal(w)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back rowJSON
+	if err := json.Unmarshal(blob, &back); err != nil {
+		t.Fatal(err)
+	}
+	if back.MaxOrderToTradeRatio == nil || *back.MaxOrderToTradeRatio != "750" {
+		t.Fatalf("ratio wire: %v", back.MaxOrderToTradeRatio)
+	}
+	if back.OtrWindow == nil || *back.OtrWindow != "1m30s" {
+		t.Fatalf("window wire: %v", back.OtrWindow)
+	}
+	if d, err := time.ParseDuration(*back.OtrWindow); err != nil || d != win {
+		t.Fatalf("window parse-back: %v %v", d, err)
 	}
 }

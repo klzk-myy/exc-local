@@ -19,6 +19,7 @@ groups:
         annotations:
           summary: "L0 critical/fatal error on {{ $labels.service }}"
           description: "L0 (halt-domain) errors incremented by {{ $value }} on {{ $labels.service }} in the last minute. Strict fail-closed zero-loss: verify core state before anything else."
+          runbook: docs/runbooks/l0-error-observed.md
 
       # L1 systemic — sustained >30s before P1 (matches L1SustainFor).
       - alert: L1ErrorsSustained
@@ -28,6 +29,7 @@ groups:
         annotations:
           summary: "Sustained L1 systemic errors on {{ $labels.service }}"
           description: "L1 error rate {{ $value }}/s for >30s — degradation-mode territory (spec §2.7.3)."
+          runbook: docs/runbooks/l1-errors-sustained.md
 
       # L2 transaction rejections >5% of requests over 1m → P2.
       - alert: L2RejectionSpike
@@ -39,6 +41,7 @@ groups:
         annotations:
           summary: "L2 rejection spike on {{ $labels.service }}"
           description: "{{ $value | humanizePercentage }} of requests rejected at L2 over 1m (threshold 5%, min 100 req/min)."
+          runbook: docs/runbooks/l2-rejection-spike.md
 
       # Error-rate anomaly — fast burn (5m) vs slow baseline (1h); the
       # in-process EWMA evaluator catches subtler drifts, this catches
@@ -57,6 +60,7 @@ groups:
         annotations:
           summary: "Error-rate anomaly across services"
           description: "5m error ratio is >4× the 1h baseline — possible systemic regression."
+          runbook: docs/runbooks/l2-rejection-spike.md
 
       # Alerting pipeline self-check — dispatch failures mean pages are
       # being lost; page on the monitoring gap itself.
@@ -66,6 +70,7 @@ groups:
         annotations:
           summary: "Ops alert dispatch failing on {{ $labels.service }}"
           description: "ops.alerts.monitoring publishes are erroring — check NATS JetStream health; alerting may be silently down."
+          runbook: docs/runbooks/alert-dispatch-errors.md
 
   # ---- Task 7.3.8: Aeron / bridge / JetStream thresholds ----------------
   - name: exchange.ipc-backbone
@@ -79,6 +84,7 @@ groups:
         annotations:
           summary: "Aeron subscriber lag on {{ $labels.channel }}"
           description: "Subscriber position lags publisher by {{ $value }} bytes on {{ $labels.channel }} (stream {{ $labels.stream_id }}). Check consumer slow-down / NAKs."
+          runbook: docs/runbooks/aeron-subscriber-lag.md
 
       # Media driver down/unreadable → P1 (bridge is flying blind).
       - alert: AeronDriverDown
@@ -88,6 +94,7 @@ groups:
         annotations:
           summary: "Aeron media driver down"
           description: "cnc.dat unreadable/missing on the monitored host — engine IPC telemetry lost."
+          runbook: docs/runbooks/aeron-driver-down.md
 
       # Bridge buffer depth > 10000 events → P1 (NATS outage backlog).
       - alert: BridgeBufferDepthHigh
@@ -96,6 +103,7 @@ groups:
         annotations:
           summary: "Bridge buffer depth high on shard {{ $labels.shard }}"
           description: "{{ $value }} events buffered awaiting JetStream publish (spec §2.3.1 100k cap; disk spool >5GB forces ReadOnly)."
+          runbook: docs/runbooks/bridge-buffer-depth-high.md
 
       # Bridge heartbeat stale: 5s cadence, >15s silent → P1.
       - alert: BridgeHeartbeatStale
@@ -104,6 +112,7 @@ groups:
         annotations:
           summary: "Bridge heartbeat stale on shard {{ $labels.shard }}"
           description: "No bridge.health.{{ $labels.shard }} heartbeat for {{ $value }}s — bridge or shard down (3× missed beats)."
+          runbook: docs/runbooks/bridge-heartbeat-stale.md
 
       # Aeron poll/subscription health on the bridge itself.
       - alert: BridgeSubscriptionDisconnected
@@ -113,6 +122,7 @@ groups:
         annotations:
           summary: "Bridge Aeron subscription disconnected"
           description: "Subscription image detached for >60s — engine events not flowing to NATS."
+          runbook: docs/runbooks/bridge-subscription-disconnected.md
 
       # JetStream consumer pending > 50000 → P1.
       - alert: NATSConsumerPendingHigh
@@ -122,6 +132,7 @@ groups:
         annotations:
           summary: "JetStream consumer {{ $labels.consumer }} lagging"
           description: "{{ $value }} messages pending on {{ $labels.stream }}/{{ $labels.consumer }} — consumer stalled or down."
+          runbook: docs/runbooks/nats-consumer-pending-high.md
 
       # DLQ growth — entries in ops-dlq need operator triage.
       - alert: DLQEntriesAccumulating
@@ -131,6 +142,7 @@ groups:
         annotations:
           summary: "DLQ accumulating entries"
           description: "ops-dlq holds {{ $value }} dead letters. Inspect via GET /api/v1/admin/dlq or `natsctl dlq list`; replay/discard after triage."
+          runbook: docs/runbooks/dlq-entries-accumulating.md
 
   # ---- Spec §19.3: golden-signal / platform rules ------------------------
   - name: exchange.platform
@@ -153,6 +165,7 @@ groups:
         annotations:
           summary: "Availability SLO fast burn"
           description: "Error ratio burning the 99.99% budget at >14.4× on both 5m and 1h windows."
+          runbook: docs/runbooks/availability-slo-burn.md
 
       - alert: AvailabilityBurnSlow
         expr: |
@@ -169,6 +182,7 @@ groups:
         annotations:
           summary: "Availability SLO slow burn"
           description: "Error ratio burning the 99.99% budget at >6× on 30m/6h composite windows."
+          runbook: docs/runbooks/availability-slo-burn.md
 
       # Degradation mode not Normal → P2 (mode transitions page at the
       # severity the mode implies; Maintenance is expected and excluded).
@@ -179,14 +193,16 @@ groups:
         annotations:
           summary: "Degradation mode {{ $labels.mode }} on {{ $labels.service }}"
           description: "Service entered {{ $labels.mode }} — spec §2.7.3 requires 30s healthy telemetry before Normal returns."
+          runbook: docs/runbooks/degradation-mode-active.md
 
       - alert: CircuitBreakerOpen
         expr: exchange_circuit_breaker_open == 1
         for: 2m
         labels: {severity: p2, team: ops}
         annotations:
-          summary: "Circuit breaker {{ $labels.breaker }} open on {{ $labels.service }}"
+          summary: "Circuit breaker {{ $labels.name }} open on {{ $labels.service }}"
           description: "Five-tier breaker tripped — dependency fault or overload (Phase-13)."
+          runbook: docs/runbooks/circuit-breaker-open.md
 
       # Reconciliation mismatches are zero-loss violations → P1.
       - alert: ReconciliationMismatch
@@ -195,6 +211,7 @@ groups:
         annotations:
           summary: "Reconciliation mismatch on {{ $labels.service }} ({{ $labels.kind }})"
           description: "{{ $value }} mismatches in 15m — ledger/position divergence; fail-closed review required."
+          runbook: docs/runbooks/reconciliation-mismatch.md
 
       # WAL lag growth — durability risk approaching RPO bound.
       - alert: WALLagGrowing
@@ -204,6 +221,7 @@ groups:
         annotations:
           summary: "WAL lag high on shard {{ $labels.shard }}"
           description: "{{ $value }} unarchived WAL entries — fsync/archive stalled; durability/RPO at risk."
+          runbook: docs/runbooks/wal-lag-growing.md
 
       # IPC ring saturation ladder (spec §2.7.3: 80% shed / 95% critical
       # on a 1M-entry ring — depths are entries, not percentages).
@@ -214,6 +232,7 @@ groups:
         annotations:
           summary: "IPC ring >80% on shard {{ $labels.shard }}"
           description: "{{ $value }} entries queued — load-shedding threshold crossed; engine consumers behind."
+          runbook: docs/runbooks/ipc-ring-pressure.md
 
       - alert: IPCRingCritical
         expr: engine_ipc_ring_depth > 950000
@@ -221,6 +240,7 @@ groups:
         annotations:
           summary: "IPC ring >95% on shard {{ $labels.shard }}"
           description: "Critical backpressure — ring overflow drops engine events; immediate mitigation required."
+          runbook: docs/runbooks/ipc-ring-pressure.md
 
   # ---- Phase-09 Task 9.3.12: PTP clock sync (MiFID II RTS 25) ----------
   # Exported by services/internal/timesync.PTPMonitor on hosts running the
@@ -236,6 +256,7 @@ groups:
         annotations:
           summary: "PTP clock offset >100µs on {{ $labels.instance }}"
           description: "clock_offset_nanoseconds is {{ $value }}ns — exceeds the MiFID II RTS 25 100µs bound; matching timestamps are not auditable."
+          runbook: docs/runbooks/time-sync-loss-halt.md
 
       # Servo unlocked / GM absent on a host exporting PTP state.
       - alert: PTPNotSynchronized
@@ -245,6 +266,7 @@ groups:
         annotations:
           summary: "ptp4l not slaved on {{ $labels.instance }}"
           description: "Grandmaster absent or port left SLAVE for 30s — clock is drifting undisciplined."
+          runbook: docs/runbooks/time-sync-loss-halt.md
 
       # Stale readings — the status writer/pmc path died silently.
       - alert: PTPStale
@@ -254,6 +276,7 @@ groups:
         annotations:
           summary: "PTP reading stale on {{ $labels.instance }}"
           description: "No fresh PTP state for >60s — ptp4l/phc2sys or the status writer may be dead."
+          runbook: docs/runbooks/time-sync-loss-halt.md
 
       # Host expected to run PTP reports nothing — the aeron_driver_up
       # analogue for the clock plane (only fires on matching bare metal
@@ -265,6 +288,7 @@ groups:
         annotations:
           summary: "No PTP source on {{ $labels.instance }}"
           description: "Neither /run/ptp/status nor pmc produced a reading on a PTP-expected host — verify ptp4l/phc2sys/ptp-status timer (deploy/ansible/roles/ptp)."
+          runbook: docs/runbooks/time-sync-loss-halt.md
 
   # ---- Phase-09 Task 9.3.13: edge WAF / DDoS ---------------------------
   # HAProxy deny counters come from the prometheus-exporter listener;
@@ -281,6 +305,7 @@ groups:
         annotations:
           summary: "Edge deny rate >100/s for 5m on {{ $labels.instance }}"
           description: "{{ $value }} denied conn/s — WAF/DDoS controls active at volume; confirm attack shape via 'show table st_req_per_ip' and playbook deploy/edge/ddos-playbook.md."
+          runbook: deploy/edge/ddos-playbook.md
 
       # Provider-side WAF block surge — feed is the Logpush exporter.
       - alert: WAFBlocksSurge
@@ -290,6 +315,7 @@ groups:
         annotations:
           summary: "Provider WAF blocks surging ({{ $value }}/s)"
           description: "OWASP-class blocks sustained — verify it's not a legit client regression before it flips to the challenge ladder."
+          runbook: deploy/edge/ddos-playbook.md
 
       # Challenge mode under sustained load → possible L7 attack running.
       - alert: WAFChallengesSustained
@@ -299,6 +325,7 @@ groups:
         annotations:
           summary: "WAF challenges sustained at {{ $value }}/s"
           description: "Managed-challenge volume high — L7 flood in progress or over-broad challenge rule; check whitelist coverage."
+          runbook: deploy/edge/ddos-playbook.md
 
       # Volumetric suspicion: ingress byte-rate far above baseline —
       # provider should be absorbing; if this reaches origin, escalate.
@@ -309,3 +336,4 @@ groups:
         annotations:
           summary: "Possible volumetric DDoS — ingress >500MB/s at origin"
           description: "Provider mitigation may be bypassed or saturated; run deploy/edge/ddos-playbook.md (tighten ladders, challenge mode, escalate to provider)."
+          runbook: deploy/edge/ddos-playbook.md

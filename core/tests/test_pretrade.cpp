@@ -788,3 +788,69 @@ TEST(PreTrade, LatencyP99Under10us) {
                 static_cast<unsigned long long>(worst));
     EXPECT_LT(p99, 10'000u);  // spec §3.3: all 14 checks < 10µs total
 }
+
+// --- Phase-13 Task 13.3.6: MiFID II RTS 9 OTR breach gate (check 0b) ----------
+
+TEST(PreTrade, OtrKeyParsesAccountFlagOnly) {
+    SuspensionFlags::Snapshot snap;
+    EXPECT_TRUE(otr_key_into("otr:breach:7", &snap));
+    EXPECT_TRUE(snap.otr_breached.count(7) == 1);
+    // Bookkeeping + malformed + foreign keys never land a flag.
+    EXPECT_FALSE(otr_key_into("otr:breach:index", &snap));   // sweep index
+    EXPECT_FALSE(otr_key_into("otr:breach:", &snap));
+    EXPECT_FALSE(otr_key_into("otr:breach:0", &snap));       // id 0 never valid
+    EXPECT_FALSE(otr_key_into("otr:breach:abc", &snap));
+    EXPECT_FALSE(otr_key_into("otr:events:7:EUR/USD", &snap));
+    EXPECT_FALSE(otr_key_into("halt:account:7", &snap));     // wrong namespace
+    EXPECT_EQ(snap.otr_breached.size(), 1u);
+}
+
+TEST(PreTrade, OtrBreachRejectsNewOrder) {
+    Fixture f;
+    SuspensionFlags flags;
+    f.checker.bind_suspensions(&flags);
+    auto snap = std::make_shared<SuspensionFlags::Snapshot>();
+    snap->otr_breached.insert(7);  // make_order()'s account_id
+    flags.apply(snap);
+    const RiskVerdict v = f.checker.check(f.order, f.ctx);
+    expect_reject(v, "OTR_LIMIT_EXCEEDED");
+}
+
+TEST(PreTrade, OtrBreachIsPerAccount) {
+    Fixture f;
+    SuspensionFlags flags;
+    f.checker.bind_suspensions(&flags);
+    auto snap = std::make_shared<SuspensionFlags::Snapshot>();
+    snap->otr_breached.insert(9);  // a different account
+    flags.apply(snap);
+    const RiskVerdict v = f.checker.check(f.order, f.ctx);
+    EXPECT_TRUE(v.pass) << (v.code ? v.code : "?");
+}
+
+TEST(PreTrade, OtrFlagClearReadmits) {
+    Fixture f;
+    SuspensionFlags flags;
+    f.checker.bind_suspensions(&flags);
+    auto breached = std::make_shared<SuspensionFlags::Snapshot>();
+    breached->otr_breached.insert(7);
+    flags.apply(breached);
+    EXPECT_FALSE(f.checker.check(f.order, f.ctx).pass);
+    // The Go monitor clears otr:breach:7 -> next poll publishes without it.
+    flags.apply(std::make_shared<SuspensionFlags::Snapshot>());
+    const RiskVerdict v = f.checker.check(f.order, f.ctx);
+    EXPECT_TRUE(v.pass) << (v.code ? v.code : "?");
+}
+
+TEST(PreTrade, OtrBreachLegacyShimRejects) {
+    // The detached check(order) path honors the same gate.
+    SuspensionFlags flags;
+    auto snap = std::make_shared<SuspensionFlags::Snapshot>();
+    snap->otr_breached.insert(7);
+    flags.apply(snap);
+    PreTradeChecker detached;
+    detached.bind_suspensions(&flags);
+    Order o = make_order();
+    EXPECT_EQ(detached.check(o), RiskDecision::REJECT);
+    o.account_id = 8;
+    EXPECT_EQ(detached.check(o), RiskDecision::ACCEPT);
+}

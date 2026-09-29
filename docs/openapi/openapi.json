@@ -2677,7 +2677,6 @@
     },
     "/api/v1/account/pnl": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_account_pnl",
         "responses": {
           "200": {
@@ -2718,9 +2717,9 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-13",
+        "x-owner": "Phase-13 Task 13.3.4",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -3198,7 +3197,6 @@
     },
     "/api/v1/account/solvency-proof": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_account_solvency_proof",
         "responses": {
           "200": {
@@ -3241,7 +3239,7 @@
         "x-env": "",
         "x-owner": "Phase-13 Task 13.3.7",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -4177,7 +4175,6 @@
     },
     "/api/v1/admin/api-keys/{id}/extend-expiry": {
       "put": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "put_api_v1_admin_api_keys_id_extend_expiry",
         "parameters": [
           {
@@ -4208,7 +4205,7 @@
             "oauth2": null
           }
         ],
-        "summary": "Extend API-key expiry (secrets lifecycle)",
+        "summary": "Extend API-key privilege-expiry deadline (dual-control)",
         "tags": [
           "admin"
         ],
@@ -4220,10 +4217,10 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-13 Task 13.5.3.6",
+        "x-owner": "Phase-13 Task 13.3.8",
         "x-rate-tier": "basic",
         "x-rbac-role": "Super Admin",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -4933,7 +4930,6 @@
     },
     "/api/v1/admin/circuit-breaker/{symbol}": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_admin_circuit_breaker_symbol",
         "parameters": [
           {
@@ -4964,7 +4960,7 @@
             "oauth2": null
           }
         ],
-        "summary": "Trip circuit breaker for symbol",
+        "summary": "Trip circuit breaker for symbol (optional body {scope,target_id} for ACCOUNT/MARKET_WIDE tiers)",
         "tags": [
           "admin"
         ],
@@ -4979,13 +4975,12 @@
         "x-owner": "Phase-13 Task 13.3.1",
         "x-rate-tier": "basic",
         "x-rbac-role": "Risk Manager",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/admin/circuit-breaker/{symbol}/reset": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_admin_circuit_breaker_symbol_reset",
         "parameters": [
           {
@@ -5016,7 +5011,7 @@
             "oauth2": null
           }
         ],
-        "summary": "Reset circuit breaker for symbol",
+        "summary": "Reset circuit breaker for symbol (four-eyes queue: 2 approvers ≤15min)",
         "tags": [
           "admin"
         ],
@@ -5026,12 +5021,12 @@
           "role": "Risk Manager",
           "scopes": null
         },
-        "x-dual-control": false,
+        "x-dual-control": true,
         "x-env": "",
         "x-owner": "Phase-13 Task 13.3.9",
         "x-rate-tier": "basic",
         "x-rbac-role": "Risk Manager",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -10440,6 +10435,88 @@
         "x-owner": "Phase-07 Task 7.3.12",
         "x-rate-tier": "basic",
         "x-rbac-role": "Super Admin",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/reconciliation/latest": {
+      "get": {
+        "operationId": "get_api_v1_admin_reconciliation_latest",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Latest reconciliation run + findings",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Read-Only Auditor",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-13 Task 13.3.2",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Read-Only Auditor",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/reconciliation/runs": {
+      "get": {
+        "operationId": "get_api_v1_admin_reconciliation_runs",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Recent reconciliation runs (?limit=, ?run_id= drill-down)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Read-Only Auditor",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-13 Task 13.3.2",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Read-Only Auditor",
         "x-status": "live",
         "x-weight": 1
       }
@@ -16331,7 +16408,6 @@
     },
     "/api/v1/public/proof-of-reserves/daily-root": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_public_proof_of_reserves_daily_root",
         "responses": {
           "200": {
@@ -16355,7 +16431,7 @@
         "x-env": "",
         "x-owner": "Phase-13 Task 13.3.7",
         "x-rate-tier": "public",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -16491,7 +16567,6 @@
     },
     "/api/v1/solvency/latest": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_solvency_latest",
         "responses": {
           "200": {
@@ -16515,13 +16590,12 @@
         "x-env": "",
         "x-owner": "Phase-13 Task 13.3.7",
         "x-rate-tier": "public",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/solvency/proof": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_solvency_proof",
         "responses": {
           "200": {
@@ -16564,7 +16638,7 @@
         "x-env": "",
         "x-owner": "Phase-13 Task 13.3.7",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },

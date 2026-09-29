@@ -95,7 +95,14 @@ type APIKey struct {
 	CreatedBy     *int64
 	RotatesFromID *int64
 	OverlapUntil  *time.Time
-	CreatedAt     time.Time
+	// Task 13.3.8 auto-expiry bookkeeping (migration 208): the 90-day
+	// no-allowlist policy strips trade/transfer scopes — the key row
+	// survives, the revocation is recorded and restorable.
+	PermissionsRevokedAt *time.Time
+	RevokedScopes        []string   // privileged scopes stripped, restorable on allowlist config
+	ExpiryNotifiedAt     *time.Time // T-7d warning sent (idempotency gate)
+	ExpiryOverrideUntil  *time.Time // dual-control grace extension past the 90d deadline
+	CreatedAt            time.Time
 }
 
 // Active reports the request-time validity: status ACTIVE, not revoked,
@@ -342,12 +349,14 @@ func (s *KeyStore) getForUpdate(ctx context.Context, tx pgx.Tx, keyID string) (*
 	return s.getOne(ctx, tx, `SELECT `+apiKeyCols+` FROM api_keys WHERE key_id=$1 FOR UPDATE`, keyID)
 }
 
-// apiKeyCols matches the migration-025 extended schema + 073 columns.
+// apiKeyCols matches the migration-025 extended schema + 073 columns +
+// 208 auto-expiry bookkeeping columns.
 const apiKeyCols = `id, key_id, account_id, user_id, key_hash, key_prefix, label,
 	key_type, algorithm, public_key, secret_enc, scopes, rate_limit_tier,
 	ip_allowlist, status, expires_at, last_used_at, last_used_ip,
 	revoke_reason, created_by, rotates_from_id, overlap_until, revoked_at,
-	created_at`
+	permissions_revoked_at, revoked_scopes, expiry_notified_at,
+	expiry_override_until, created_at`
 
 // scanKey reads one apiKeys row from rows/row.
 func scanKey(scan func(dest ...any) error) (*APIKey, error) {
@@ -360,7 +369,9 @@ func scanKey(scan func(dest ...any) error) (*APIKey, error) {
 		&k.Label, &k.KeyType, &k.Algorithm, &k.PublicKey, &k.SecretEnc,
 		&k.Scopes, &tier, &allowlist, &status, &k.ExpiresAt,
 		&k.LastUsedAt, &lastUsedIP, &reason, &k.CreatedBy,
-		&k.RotatesFromID, &k.OverlapUntil, &k.RevokedAt, &k.CreatedAt)
+		&k.RotatesFromID, &k.OverlapUntil, &k.RevokedAt,
+		&k.PermissionsRevokedAt, &k.RevokedScopes, &k.ExpiryNotifiedAt,
+		&k.ExpiryOverrideUntil, &k.CreatedAt)
 	if err != nil {
 		return nil, err
 	}

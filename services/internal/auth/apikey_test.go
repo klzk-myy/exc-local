@@ -67,6 +67,7 @@ func itestAuth(t *testing.T) (*pgxpool.Pool, int64, int64) {
 	for _, f := range []string{
 		"002_create_users", "003_create_accounts",
 		"025_create_api_keys", "073_api_key_asymmetric_types", "151_oauth_clients",
+		"208_api_key_auto_expiry",
 	} {
 		sql, err := os.ReadFile("../db/migrations/" + f + ".up.sql")
 		if err != nil {
@@ -105,6 +106,15 @@ func itestAuth(t *testing.T) (*pgxpool.Pool, int64, int64) {
 			conn.Close(ctx)
 			t.Fatalf("re-up %s: %v", f, err)
 		}
+	}
+	// The 025 drop/re-up above recreates api_keys without the Phase-13
+	// expiry columns — re-apply 208 so apiKeyCols resolves.
+	if sql, err := os.ReadFile("../db/migrations/208_api_key_auto_expiry.up.sql"); err != nil {
+		conn.Close(ctx)
+		t.Fatalf("read 208 re-up: %v", err)
+	} else if _, err := conn.Exec(ctx, string(sql)); err != nil {
+		conn.Close(ctx)
+		t.Fatalf("re-apply 208: %v", err)
 	}
 	conn.Close(ctx)
 	t.Cleanup(func() {

@@ -170,6 +170,38 @@ func AccountRiskLimits(limits *risk.LimitsService, meta accountMetaSource) http.
 	}
 }
 
+// ---------------------------------------------------------------------------
+// GET /api/v1/account/pnl — Phase-13 Task 13.3.4 real-time P&L
+// ---------------------------------------------------------------------------
+
+// AccountPnL serves the live P&L rollup: per-position mark-to-market
+// (signedQty × (mark − entry)), per-quote-currency totals, and a
+// base-currency aggregate when the FX converter is bound. Money crosses
+// as decimal strings; a nil/unreadable service fails closed
+// (SERVICE_DEGRADED / coded store errors) rather than fabricating a 0.
+func AccountPnL(pnl *risk.PnlService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		accountID, claims, ok := claimsAccount(w, r)
+		if !ok {
+			return
+		}
+		if rejectForeignAccount(w, r, claims, r.URL.Query().Get("account_id")) {
+			return
+		}
+		if pnl == nil {
+			WriteError(w, "SERVICE_DEGRADED", "pnl service unavailable",
+				gateway.RequestIDFrom(r.Context()), nil)
+			return
+		}
+		v, err := pnl.Snapshot(r.Context(), accountID)
+		if err != nil {
+			writeServiceErr(w, r, err)
+			return
+		}
+		WriteJSON(w, http.StatusOK, v)
+	}
+}
+
 // riskLimitsJSON projects the service View into a stable API shape —
 // money as decimal strings, utilisation percentages when limits exist.
 func riskLimitsJSON(v *risk.View) map[string]any {
@@ -184,6 +216,9 @@ func riskLimitsJSON(v *risk.View) map[string]any {
 		"max_notional_exposure":  decStringPtr(lim.MaxNotionalExposure),
 		"max_short_exposure":     decStringPtr(lim.MaxShortExposure),
 		"max_account_notional":   decStringPtr(lim.MaxAccountNotional),
+		// Migration 047 — MiFID II RTS 9 order-to-trade controls.
+		"max_order_to_trade_ratio": decStringPtr(lim.MaxOrderToTradeRatio),
+		"otr_window_seconds":       int64(lim.OtrWindow.Seconds()),
 	}
 	usage := map[string]any{
 		"daily_volume":        v.Usage.Volume.String(),

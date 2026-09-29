@@ -64,6 +64,39 @@ type KillSwitch interface {
 		symbol, instrumentClass, sessionID string) (scope, detail string, err error)
 }
 
+// OtrGate is the Phase-13 Task 13.3.6 MiFID II RTS 9 order-to-trade-ratio
+// seam — *risk.OtrMonitor satisfies it in production; nil disables
+// counting/admission (the C++ PreTradeChecker consults the same
+// otr:breach:{account} flag as the engine-side backstop either way).
+//
+// Event counts one order event (new / modify / cancel) in the
+// sliding-window counters — every message that enters the admission
+// pipeline counts, including ones the gate then rejects (a breached
+// account cannot spam-escape the window). Event is best-effort: Redis
+// failures degrade the monitor's own health counters, never the order
+// path; Admission fails closed on its own read.
+//
+// Admission returns a coded OTR_LIMIT_EXCEEDED rejection while the
+// account's breach flag stands. It is consulted on the same paths as
+// KillSwitch — cancels never call it (cancel-only during breach).
+type OtrGate interface {
+	Event(ctx context.Context, accountID int64, kycTier, symbol string)
+	Admission(ctx context.Context, accountID int64) error
+}
+
+// BreakerGate is the Phase-13 five-tier circuit-breaker admission seam
+// (spec §2.6; *risk.CircuitBreakerService satisfies it). Consulted on
+// every new-order admission path AFTER the kill-switch: an OPEN breaker
+// rejects with CIRCUIT_BREAKER_OPEN (503); HALF_OPEN admits and counts
+// one of the 10 probe orders in the 30s recovery window.
+//
+// Fail-closed contract (spec §2.7): a nil seam rejects admission — a
+// service whose breaker state is unverifiable must not admit orders —
+// and a gate error rejects rather than being ignored.
+type BreakerGate interface {
+	AdmitOrder(ctx context.Context, accountID int64, symbol string) error
+}
+
 // Service wires store + transport + sequencing.
 type Service struct {
 	store      Store
@@ -72,6 +105,8 @@ type Service struct {
 	pending    *pendingConfirms
 	limits     RiskChecker
 	kill       KillSwitch
+	otr        OtrGate
+	breakers   BreakerGate
 	batch      BatchRateLimiter
 	commission CommissionEstimator
 	seq        *seqAllocator
@@ -86,7 +121,9 @@ type Options struct {
 	Submitter  Submitter
 	ShardMap   *config.ShardMap
 	Limits     RiskChecker
-	KillSwitch KillSwitch // nil → admission fails closed (TRADING_HALTED)
+	KillSwitch KillSwitch  // nil → admission fails closed (TRADING_HALTED)
+	Otr        OtrGate     // nil → OTR counting/admission skipped (engine flag still enforced)
+	Breakers   BreakerGate // nil → admission fails closed (CIRCUIT_BREAKER_OPEN)
 	BatchRL    BatchRateLimiter
 	Commission CommissionEstimator // optional — dry-run fee estimate
 	AckTimeout time.Duration
@@ -107,6 +144,8 @@ func NewService(o Options) (*Service, error) {
 		pending:    newPendingConfirms(),
 		limits:     o.Limits,
 		kill:       o.KillSwitch,
+		otr:        o.Otr,
+		breakers:   o.Breakers,
 		batch:      o.BatchRL,
 		commission: o.Commission,
 		seq:        newSeqAllocator(),
@@ -214,6 +253,26 @@ func (s *Service) checkAdmission(ctx context.Context, acct *Account,
 	}
 	if scope != "" {
 		return codeErr("TRADING_HALTED", "trading suspended (%s)", detail)
+	}
+	// Phase-13 Task 13.3.6 — MiFID II RTS 9 OTR: the order event counts
+	// BEFORE the gate is consulted, so a breached account spamming new
+	// orders keeps the flag alive rather than decaying out under it.
+	// Cancels never reach this function (cancel-only during breach).
+	if s.otr != nil {
+		s.otr.Event(ctx, acct.ID, acct.KycTier, inst.Symbol)
+		if err := s.otr.Admission(ctx, acct.ID); err != nil {
+			return err // OTR_LIMIT_EXCEEDED (breach) / SERVICE_DEGRADED (unreadable)
+		}
+	}
+	// Phase-13 five-tier circuit breaker (spec §2.6): OPEN rejects with
+	// CIRCUIT_BREAKER_OPEN; HALF_OPEN admits and counts a probe. A nil or
+	// erroring gate fails closed — never admits on unverifiable state.
+	if s.breakers == nil {
+		return codeErr("CIRCUIT_BREAKER_OPEN",
+			"circuit-breaker gate unavailable — new orders rejected")
+	}
+	if err := s.breakers.AdmitOrder(ctx, acct.ID, inst.Symbol); err != nil {
+		return err // gate emits coded errors (CIRCUIT_BREAKER_OPEN / internal)
 	}
 	return nil
 }
@@ -445,13 +504,33 @@ func (s *Service) Cancel(ctx context.Context, acct *Account, orderID int64,
 		TransactTime: s.now().UTC().Format(time.RFC3339Nano)}, nil
 }
 
+// otrCancelEvent counts one cancel-side order event in the RTS-9
+// sliding window (Task 13.3.6). Cancels bypass the admission gate but
+// still count toward the ratio — the account cannot clear a breach by
+// flooding cancels. Best-effort; a symbol that fails to resolve counts
+// under the instrument id so the window never silently loses an event.
+func (s *Service) otrCancelEvent(ctx context.Context, o *Order) {
+	if s.otr == nil {
+		return
+	}
+	symbol := strconv.FormatInt(o.InstrumentID, 10)
+	if inst, err := s.store.InstrumentByID(ctx, o.InstrumentID); err == nil && inst != nil {
+		symbol = inst.Symbol
+	}
+	s.otr.Event(ctx, o.AccountID, "", symbol)
+}
+
 // cancelOne sends the wire cancel and waits for the out-ring echo.
 func (s *Service) cancelOne(ctx context.Context, o *Order) error {
 	if s.sub == nil {
 		// No engine transport wired — dev/test mode applies the cancel
 		// locally; fail-open here would fabricate a confirmation in
 		// production, so the handler wiring MUST supply a submitter.
-		return s.store.ApplyCancel(ctx, o.ID)
+		err := s.store.ApplyCancel(ctx, o.ID)
+		if err == nil {
+			s.otrCancelEvent(ctx, o)
+		}
+		return err
 	}
 	shard := uint16(0)
 	if o.ShardID != nil {
@@ -465,6 +544,7 @@ func (s *Service) cancelOne(ctx context.Context, o *Order) error {
 	if err := s.sub.Send(ctx, shard, payload); err != nil {
 		return err
 	}
+	s.otrCancelEvent(ctx, o)
 	select {
 	case <-pc.done:
 		return nil
@@ -671,6 +751,11 @@ func (s *Service) AmendKeepPriority(ctx context.Context, acct *Account,
 			return nil, serr
 		}
 	}
+	// Task 13.3.6 — qty-down keep-priority amends bypass checkAdmission
+	// but still count as a modify event in the OTR window.
+	if s.otr != nil {
+		s.otr.Event(ctx, acct.ID, acct.KycTier, inst.Symbol)
+	}
 	return updated, nil
 }
 
@@ -742,6 +827,7 @@ func (s *Service) MassCancel(ctx context.Context, scope MassCancelScope,
 		if s.sub == nil {
 			// No transport wired (tests/dev) — apply locally.
 			_ = s.store.ApplyCancel(ctx, o.ID)
+			s.otrCancelEvent(ctx, o)
 			res.PerSymbol[sym(o.InstrumentID)]++
 			res.Cancelled++
 			continue
@@ -765,6 +851,15 @@ func (s *Service) MassCancel(ctx context.Context, scope MassCancelScope,
 		enqueued++
 		res.PerSymbol[sym(o.InstrumentID)]++
 		res.Cancelled++
+	}
+	// Task 13.3.6 — count every wire-dispatched cancel in the OTR
+	// window (the local-apply path already counted inline above;
+	// orders enqueued before a Send error were genuinely dispatched
+	// and stay counted).
+	if s.otr != nil && s.sub != nil {
+		for i := range open {
+			s.otrCancelEvent(ctx, &open[i])
+		}
 	}
 	// Await phase — the task requires ALL shards to confirm before
 	// success; the overall deadline bounds the wait.

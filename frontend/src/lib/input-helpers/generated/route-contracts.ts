@@ -640,7 +640,7 @@ export const ROUTE_CONTRACTS: Readonly<Record<string, RouteContract>> = {
   'GET /api/v1/account/pnl': {
     method: 'GET',
     path: '/api/v1/account/pnl',
-    status: 'stub',
+    status: 'live',
     authRequired: true,
     scopes: ['read'],
     role: null,
@@ -648,7 +648,7 @@ export const ROUTE_CONTRACTS: Readonly<Record<string, RouteContract>> = {
     rateTier: 'basic',
     weight: 1,
     dualControl: false,
-    owner: 'Phase-13',
+    owner: 'Phase-13 Task 13.3.4',
     summary: 'Realized/unrealized P&L rollup',
     params: [],
     env: null,
@@ -827,7 +827,7 @@ export const ROUTE_CONTRACTS: Readonly<Record<string, RouteContract>> = {
   'GET /api/v1/account/solvency-proof': {
     method: 'GET',
     path: '/api/v1/account/solvency-proof',
-    status: 'stub',
+    status: 'live',
     authRequired: true,
     scopes: ['read'],
     role: null,
@@ -1242,7 +1242,7 @@ export const ROUTE_CONTRACTS: Readonly<Record<string, RouteContract>> = {
   'PUT /api/v1/admin/api-keys/{id}/extend-expiry': {
     method: 'PUT',
     path: '/api/v1/admin/api-keys/{id}/extend-expiry',
-    status: 'stub',
+    status: 'live',
     authRequired: true,
     scopes: [],
     role: 'Super Admin',
@@ -1250,8 +1250,8 @@ export const ROUTE_CONTRACTS: Readonly<Record<string, RouteContract>> = {
     rateTier: 'basic',
     weight: 1,
     dualControl: false,
-    owner: 'Phase-13 Task 13.5.3.6',
-    summary: 'Extend API-key expiry (secrets lifecycle)',
+    owner: 'Phase-13 Task 13.3.8',
+    summary: 'Extend API-key privilege-expiry deadline (dual-control)',
     params: [
       {
         name: 'id',
@@ -1580,7 +1580,7 @@ export const ROUTE_CONTRACTS: Readonly<Record<string, RouteContract>> = {
   'POST /api/v1/admin/circuit-breaker/{symbol}': {
     method: 'POST',
     path: '/api/v1/admin/circuit-breaker/{symbol}',
-    status: 'stub',
+    status: 'live',
     authRequired: true,
     scopes: [],
     role: 'Risk Manager',
@@ -1589,7 +1589,8 @@ export const ROUTE_CONTRACTS: Readonly<Record<string, RouteContract>> = {
     weight: 1,
     dualControl: false,
     owner: 'Phase-13 Task 13.3.1',
-    summary: 'Trip circuit breaker for symbol',
+    summary:
+      'Trip circuit breaker for symbol (optional body {scope,target_id} for ACCOUNT/MARKET_WIDE tiers)',
     params: [
       {
         name: 'symbol',
@@ -1607,16 +1608,16 @@ export const ROUTE_CONTRACTS: Readonly<Record<string, RouteContract>> = {
   'POST /api/v1/admin/circuit-breaker/{symbol}/reset': {
     method: 'POST',
     path: '/api/v1/admin/circuit-breaker/{symbol}/reset',
-    status: 'stub',
+    status: 'live',
     authRequired: true,
     scopes: [],
     role: 'Risk Manager',
     methods: null,
     rateTier: 'basic',
     weight: 1,
-    dualControl: false,
+    dualControl: true,
     owner: 'Phase-13 Task 13.3.9',
-    summary: 'Reset circuit breaker for symbol',
+    summary: 'Reset circuit breaker for symbol (four-eyes queue: 2 approvers ≤15min)',
     params: [
       {
         name: 'symbol',
@@ -4113,6 +4114,38 @@ export const ROUTE_CONTRACTS: Readonly<Record<string, RouteContract>> = {
         maximum: null,
       },
     ],
+    env: null,
+  },
+  'GET /api/v1/admin/reconciliation/latest': {
+    method: 'GET',
+    path: '/api/v1/admin/reconciliation/latest',
+    status: 'live',
+    authRequired: true,
+    scopes: [],
+    role: 'Read-Only Auditor',
+    methods: null,
+    rateTier: 'basic',
+    weight: 1,
+    dualControl: false,
+    owner: 'Phase-13 Task 13.3.2',
+    summary: 'Latest reconciliation run + findings',
+    params: [],
+    env: null,
+  },
+  'GET /api/v1/admin/reconciliation/runs': {
+    method: 'GET',
+    path: '/api/v1/admin/reconciliation/runs',
+    status: 'live',
+    authRequired: true,
+    scopes: [],
+    role: 'Read-Only Auditor',
+    methods: null,
+    rateTier: 'basic',
+    weight: 1,
+    dualControl: false,
+    owner: 'Phase-13 Task 13.3.2',
+    summary: 'Recent reconciliation runs (?limit=, ?run_id= drill-down)',
+    params: [],
     env: null,
   },
   'POST /api/v1/admin/regulatory-changes': {
@@ -6662,7 +6695,7 @@ export const ROUTE_CONTRACTS: Readonly<Record<string, RouteContract>> = {
   'GET /api/v1/public/proof-of-reserves/daily-root': {
     method: 'GET',
     path: '/api/v1/public/proof-of-reserves/daily-root',
-    status: 'stub',
+    status: 'live',
     authRequired: false,
     scopes: [],
     role: null,
@@ -6737,7 +6770,7 @@ export const ROUTE_CONTRACTS: Readonly<Record<string, RouteContract>> = {
   'GET /api/v1/solvency/latest': {
     method: 'GET',
     path: '/api/v1/solvency/latest',
-    status: 'stub',
+    status: 'live',
     authRequired: false,
     scopes: [],
     role: null,
@@ -6753,7 +6786,7 @@ export const ROUTE_CONTRACTS: Readonly<Record<string, RouteContract>> = {
   'GET /api/v1/solvency/proof': {
     method: 'GET',
     path: '/api/v1/solvency/proof',
-    status: 'stub',
+    status: 'live',
     authRequired: true,
     scopes: ['read'],
     role: null,

@@ -4257,6 +4257,24 @@ This specification defines a **complete production-grade FOREX exchange system s
     - Error-code registry: `INVALID_CREDENTIALS` (401) registered with Phase-12 Task 12.3.1 owner — registry **181**; `ACCOUNT_LOCKED_AUTH_FAILURES`/`WEBAUTHN_VERIFICATION_FAILED`/`MULTI_VALIDATOR_REQUIRED` were already registered (emitted now for the first time).
     - Frontend `gen:validators` route-contracts regenerated for the Phase-12 routes (373 operations; `gen:validators:check` green, typecheck clean).
 
+- **Phase-13 settle record (2026-09-29 — orchestrator verification pass, all 9 tasks):** 13/13 P13 spec checkpoints bound and green (`checks/phase13.go`); all 60 DoD/SDD rows verified and ticked. Landed via 5 clusters: circuit-breaker (five-tier state machine + auto-reset/flapping — mig 206), reconciliation (9-category hourly engine — mig 207), alerts+pentest (95 loaded rules / 12 domains + attack-surface map + seed fixtures + scope doc), pnl+otr (real-time P&L service + OTR limits — mig 047 + C++ breach flag), solvency+keyexpiry (Merkle PoR + API-key auto-expiry — migs 208/209).
+  - **Decisions:**
+    - Circuit-breaker order enforcement rides the existing `orders.Options.Breakers` admission seam (fail-closed on nil/tripped → `CIRCUIT_BREAKER_OPEN` 503); OTR breach enforcement rides the same admission path Go-side *and* the C++ `SuspensionFlags` lattice (`otr:breach:*` poll → `PreTradeChecker` rejects `OTR_LIMIT_EXCEEDED`) so engine-level rejection survives a Go bypass.
+    - 60s transition cooldown interpreted as the minimum trip→recovery gap; a literal cooldown between *all* transitions contradicts the 30s probe window (documented in `circuit_breaker.go`).
+    - OTR event counting happens at the Go admission/consume points (C++ publish optional); MM allowance is honest scoped `risk_limits` rows (higher `max_order_to_trade_ratio` on account/symbol rows) — no invented MM registry.
+    - Reconciliation INCONCLUSIVE (unreachable inputs, incomplete WAL coverage, missing bank-statement leg) → P2 alert, never a halt; only verified MISMATCH → P1 + scoped `trading_suspensions` + `halt:*` flag (>32 scopes → GLOBAL). `journal_sums` drift is inconclusive-only by design.
+    - Solvency signer seam: `GPGSigner` (detached `gpg --local-user`, prod cold-storage) + labelled `DevHMACSigner` forbidden in prod (`EXC_SOLVENCY_SIGNER`); unattested nostro currency → ratio 0 → insolvent (fail-closed).
+    - Alert severity uses lowercase `p1/p2/p3` matching existing alertmanager routes; two `deploy/monitoring/` rule files were drift-fixed into `rule_files` and uppercase severities normalized.
+    - Keys already >90d old at first deployment revoke without a prior warning (retroactive T-7d warning is meaningless); active `expiry_override_until` gets its own T-7d warning before expiry.
+    - WS P&L event channel resolved to `private:pnl` (registered private channel, session account-bound) per `account:{id}` semantics.
+  - **Noted seams (not fabrications):** OPTIONS_VOLATILITY `NullIVSource` bound Phase-22; ACCOUNT loss publisher bound Phase-19; nostro custodian attestation metadata absent (fail-closed ratios); Prometheus emitter feeders (`SetWALLag`, `SetDegradationMode`, `ObserveReconciliation`) registered but un-fed — tracked by paired `*TelemetryAbsent` p3 rules pending Phase-02/03/19 emitters; C++ core state is not API-queryable so ORDERS/TRADES reconcile against WAL replay (incomplete → inconclusive).
+    - `docs/security/attack-surface.md` mechanically generated from `SeedRoutes()` via `cmd/route-dump` (375 routes: 233 live / 142 stub) — regenerable, not hand-maintained.
+    - Merkle scalability edge (>1M leaves) verified: `TestMerkleTreeMillionLeaves` — 1,000,000 leaves, 373–381ms build, depth 20, proof at n−1 verifies.
+  - **Settle fixes:** `apikey_test.go` scratch-schema fixture lacked migration 208 columns after `apiKeyCols` extension → added 208 to fixture apply list + re-apply after the 025 drop/re-up rollback proof; `checks/phase13.go` structural patterns corrected for regex semantics and gofmt spacing; `cmd/route-dump` gofmt'd.
+    - Migrations verified: 047/206/207/208/209 up/down/re-up clean on migverify DB; all applied to dev (101 pairs on disk).
+    - Error-code registry unchanged at **181** (`OTR_LIMIT_EXCEEDED`, `CIRCUIT_BREAKER_OPEN` were already registered — emitted now for the first time).
+    - `docs/openapi/openapi.json` regenerated (375 operations); `gen:validators` route-contracts regenerated, typecheck clean.
+
 ### 27.1 Operational Domains & High-Level Completeness Matrix
 
 | # | Domain | Core Components | Spec % | Plan % | §24 ACs | Migrations | Code % | Implementation Readiness |

@@ -27,3 +27,7 @@ Ingress ring on `{shard}` crossed 80% (shedding threshold — gateways reject ma
 - `IPCRingCritical` → P0 tree ([incident-escalation.md](./incident-escalation.md)) — the halt domain is L0-adjacent.
 - `IPCRingSaturated` → P2; escalate to P1 if depth keeps climbing 15m with consumers healthy.
 - Permanent-halt recurrence is a release blocker — cite perf report §4.3/§11 in the post-mortem.
+
+## telemetry-gap
+
+`EngineIPCTelemetryAbsent` (p3): `engine_ipc_ring_depth`/`engine_ipc_last_seq` emit no samples — `SetIPCRingDepth`/`SetIPCLastSeq` have no wired caller yet. The gateway shedder already reads the same occupancy internally (`orderSubmitter.Channel(id).Occupancy()`, cmd/gateway Task 9.3.10 block) — wire that source into the metrics registry to close the gap; until then `load_shed_stage` is the only ring-pressure signal.

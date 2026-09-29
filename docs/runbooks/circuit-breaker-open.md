@@ -30,3 +30,17 @@ The breaker state machine + metrics are Phase-13 deliverables; until `exchange_c
 
 - P2 → Risk Manager informed (all `ACCOUNT` and `MARKET_WIDE` trips, and every manual reset).
 - Escalate to P1 if `MARKET_WIDE` opens during a live incident or a breaker fails to hold (orders matching through an open breaker = invariant breach → P0 territory, [l0-error-observed.md](./l0-error-observed.md)).
+
+## Task 13.3.3 companion alerts
+
+### sustained
+
+`CircuitBreakerOpenSustained` (p1): breaker open >10m — beyond the probe-recoverable window, so the dependency fault is persistent. Work the dependency, not the breaker: check what tripped it (five-tier scope in the alert's `name` label — account / instrument / market-wide / edge / global per the Task 13.3.x taxonomy) and whether its health source is alive at all.
+
+### flapping
+
+`CircuitBreakerFlapping` (p2): ≥4 open/close transitions in 30m. Flapping means the half-open probe succeeds then re-fails — a marginal downstream (intermittent 5xx, borderline latency). Treat as a dependency-health problem: sustained flap noise also desensitizes the P2 page, so fix or widen deliberately, never silence.
+
+### telemetry-gap
+
+`CircuitBreakerTelemetryAbsent` (p3): `exchange_circuit_breaker_open` emits no samples — feed `Metrics.SetCircuitBreaker` from `internal/gateway/breaker.go` state transitions and the edge-breaker probe. Until wired, breaker state is visible only in gateway logs and instrument status.

@@ -47,6 +47,8 @@ const (
 	OpDeployToProduction    = "deploy-to-production"
 	OpBreakGlass            = "break-glass"
 	OpInstrumentMaintenance = "instrument-maintenance" // Phase-15 maker-checker
+	OpCircuitBreakerReset   = "circuit-breaker-reset"  // Phase-13 Task 13.3.1/13.3.9
+	OpAPIKeyExpiryExtend    = "api-key-expiry-extend"  // Phase-13 Task 13.3.8 privilege-grace grant
 )
 
 // Request statuses.
@@ -63,7 +65,8 @@ func SensitiveOperation(op string) bool {
 	switch op {
 	case OpKillSwitch, OpBalanceAdjustment, OpManualLiquidation,
 		OpWithdrawalOverride, OpAdminRoleChange, OpFeeTierChange,
-		OpReleaseSuspendedAcct, OpDeployToProduction, OpBreakGlass:
+		OpReleaseSuspendedAcct, OpDeployToProduction, OpBreakGlass,
+		OpAPIKeyExpiryExtend, OpCircuitBreakerReset:
 		return true
 	}
 	return false

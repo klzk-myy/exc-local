@@ -718,3 +718,101 @@ Scope: 26 tasks (2.3.1–2.3.26), 67 AC rows. Critical spec correction noted at 
   `go test -count=1 ./...` all packages green; EXC_PG_TEST=1 +
   EXC_REDIS_TEST=1 legs for auth/api/notifications/compliance/delegation/
   accounts/funding/errs/gateway all PASS.
+
+## [2026-09-29 10:34 UTC] — PHASE 13 COMPLETE (Production Hardening & Reconciliation)
+
+**9/9 tasks, 13/13 P13 spec checkpoints PASS** (`checks/phase13.go`, 4-shard
+corpus below). **60/60 DoD/SDD rows verified and ticked** — zero honestly
+open. Landed via 5 disjoint clusters.
+
+### Tasks
+- **13.3.1 Five-tier circuit breaker** (`risk/circuit_breaker.go`,
+  `circuit_breaker_store.go`, mig **206**): 5 exact scopes+triggers+holds
+  (INSTRUMENT 5%/60s→5m · ACCOUNT 3 losses>5%/5m→30m · VOLUME_SPIKE z≥4.0σ→10m
+  · OPTIONS_VOLATILITY IV>200%→15m · MARKET_WIDE >20% on >2 instruments→manual);
+  CLOSED→OPEN→HALF_OPEN→CLOSED; Redis `circuit_breaker:{scope}:{id}` HASH +
+  boot hydration (Load key-split `|` bug found+fixed); 10-probe/30s auto
+  recovery; 60s trip→recovery cooldown; flap re-trip <15min→doubled hold
+  ≤120min+P1; `circuit_breaker_events` jsonb audit; WS `admin.circuit_breaker`;
+  metrics `circuit_breaker_state`/`_transitions_total`; admin trip +
+  dual-control reset (`OpCircuitBreakerReset`, 2 approvers/15min);
+  `orders.Options.Breakers` admission gate fail-closed → `CIRCUIT_BREAKER_OPEN`.
+- **13.3.9 CB auto-reset & flapping**: probe-window expiry re-OPENs same
+  episode (no flap); PgBreakerEventStore integration test + live Redis test.
+- **13.3.2 Reconciliation engine** (`internal/reconciliation/`, mig **207**):
+  9 categories — balances (RecWalletReconcileDiff), positions (fill-ledger net),
+  orders+trades (real WAL replay; torn tail/seq gap→INCONCLUSIVE), funding
+  (rails+quarantine+statement leg), settlement (vs nostro), fees (expected vs
+  collected vs GL), PnL, GL zero-sum (per-ccy + per-journal). Hourly
+  `RunScheduler` (`EXC_RECON_INTERVAL` injectable); MISMATCH→P1
+  `funding_ops_alerts`+page + durable `trading_suspensions`+`halt:*` (scoped;
+  >32→GLOBAL); INCONCLUSIVE→P2 only, never halts; `journal_sums` drift
+  inconclusive-only; read API `RoleReadOnlyAuditor`.
+- **13.3.3 Alerts**: `deploy/prometheus/alerts.yml` 54 new rules; **95 loaded**
+  total, 12/12 domains (latency/throughput/queue/WAL/mem/cpu/degradation/CB/
+  recon/DR/settlement/funding); p1→PD-critical 1h, p2→ticket+slack 4h,
+  p3→PD-info 12h (env keys, none committed); **95/95 runbook links verified**
+  (10 new runbooks + anchors); `scripts/ci/check_alert_rules.py` validator;
+  drift fixes: `deploy/monitoring/` packs wired into `rule_files`, severity
+  case normalized. Emitter gaps honestly tracked by `*TelemetryAbsent` p3 rules.
+- **13.3.5 Pen-test prep**: `cmd/route-dump` → mechanical `attack-surface.md`
+  (375 routes: 233 live/142 stub + WS/FIX surface); `tests/pentest/seed.sql`
+  idempotent on scratch PG (5 accounts, ledger-consistent
+  `journal_sums.net_balance == balances.total`); `docs/security/pentest-scope.md`.
+- **13.3.4 Real-time P&L** (`risk/pnl.go`): realized+unrealized per quote ccy,
+  mark=last-trade seam (Phase-19.5 oracle placeholder) w/ stored-mark→entry
+  fallback; fail-closed on store/oracle err; base-ccy conversion via Phase-03
+  `position.Converter`; `GET /api/v1/account/pnl` (claims-bound, foreign→403);
+  `private:pnl` WS event on every trade/mark update.
+- **13.3.6 OTR limits** (`risk/otr_monitor.go`, mig **047**
+  `max_order_to_trade_ratio`/`otr_window` defaults 500/60s): Redis-zset sliding
+  windows + Lua `events>ratio×max(trades,1)`; breach→`otr:breach:{acct}` +
+  `OTR_LIMIT_EXCEEDED` (cancel-only) + P2 deduped alerts + gauges; MM = scoped
+  risk_limits rows; counted at Go admission/consume; C++ backstop —
+  `SuspensionFlags.otr_breached` poll + `PreTradeChecker` check 0b (ctest 29/29).
+- **13.3.7 Proof of Reserves** (`reconciliation/merkle_tree.go`, mig **209**):
+  salted SHA256 leaves canonical order, sign-then-persist serializable tx,
+  per-ccy reserve ratios (unattested nostro→0→insolvent), GPGSigner+labelled
+  dev-HMAC (`EXC_SOLVENCY_*`), negative-balance abort, `0 22 * * *` cron;
+  client proof path (sibling hashes only — zero peer leak); **1,000,000-leaf
+  build verified 373ms/depth-20** (`TestMerkleTreeMillionLeaves`).
+- **13.3.8 API-key auto-expiry** (`auth/apikey_expiry.go`, mig **208**): T-7d
+  `security_alert` warn → revoke TRADE/TRANSFER on >90d no-allowlist keys (row
+  kept, `permissions_revoked_at`) → restore verbatim on allowlist; dual-control
+  `PUT /admin/api-keys/{id}/extend-expiry` (≤180d, in-tx executor); hourly
+  idempotent sweeper + daily cron of record.
+
+### Settle-pass fixes (root-caused, §27)
+- `internal/auth/apikey_test.go` scratch-schema fixture provisioned migrations
+  002/003/025/073/151 but not **208** — `apiKeyCols` now selects
+  `permissions_revoked_at` → added 208 to fixture + re-apply after the 025
+  drop/re-up rollback proof.
+- `checks/phase13.go` structural patterns fixed for regex semantics
+  (`hold: 5 \* time\.Minute`) and gofmt spacing.
+- `cmd/route-dump/main.go` gofmt'd.
+- Migration **047** missing from dev DB (agent applied :55433 only) — applied;
+  all 5 round-tripped up/down/re-up on migverify.
+
+### Verified (orchestrator, independent re-run)
+- `go build ./...`, `go vet ./...`, `go test -count=1 ./...` — all green.
+- `EXC_PG_TEST=1`+`EXC_REDIS_TEST=1` gated legs: auth/api/reconciliation/risk/
+  orders/gateway/recovery/admin/compliance — all PASS.
+- Migrations 047/206/207/208/209 up/down/re-up clean on migverify; applied dev.
+- ctest 29/29 (OTR breach consult gtests included, per agent + spot check).
+- openapi regenerated **375 ops**; `gen:validators:check` current; typecheck green.
+- §27 Phase-13 settle record written; AGENTS/CLAUDE/MEMORY synced (migrations
+  96→**101**, ops 373→**375**); error codes **181** unchanged
+  (`OTR_LIMIT_EXCEEDED`/`CIRCUIT_BREAKER_OPEN` pre-registered, first emitted).
+
+### Honest seams (not fabrications)
+- OPTIONS_VOLATILITY IV feed = NullIVSource (Phase-22 owns options IV).
+- ACCOUNT rapid-loss publisher bound Phase-19 (machinery+tests complete).
+- Nostro custodian attestation metadata absent → unattested currency = insolvent
+  (fail-closed, no fabricated attestation).
+- Prometheus feeders (`SetWALLag`/`SetDegradationMode`/`ObserveReconciliation`)
+  registered but un-fed — tracked by `*TelemetryAbsent` rules pending
+  Phase-02/03/19 emitters.
+- ORDERS/TRADES recon reconcile vs WAL replay (no C++ state query seam);
+  incomplete coverage = INCONCLUSIVE, never pass.
+- Live GPG cold-storage key unprovisioned (Phase-13.5 secrets task) — dev-HMAC
+  labelled signer active in dev.

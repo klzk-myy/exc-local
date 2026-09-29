@@ -31,6 +31,10 @@ var PrivateChannels = map[string]bool{
 	// notifications dispatcher pushes via Server.PublishPrivate; the
 	// Phase-10 frontend (Task 10.3.22) subscribes to this channel.
 	"private:notifications": true,
+	// Phase-13 Task 13.3.4: real-time P&L rollup pushes ("pnl" events)
+	// after every fill and mark update — risk.PnlService publishes via
+	// PublishPrivate on the account-isolated channel.
+	"private:pnl": true,
 }
 
 // wsConnCaps is the §8.3 WS-connections column keyed by tier label:

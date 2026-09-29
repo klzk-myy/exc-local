@@ -1,0 +1,730 @@
+# Exchange domain alert rules — Phase-13 Task 13.3.3.
+#
+# Loaded by deploy/prometheus/prometheus.yml rule_files alongside
+# rules/exchange-alerts.yml (Phase-07/09 L0–L3 + IPC/SLO rules) and
+# ../monitoring/{capacity,redis-sentinel}-alerts.yml (Phase-09 headroom
+# + Sentinel HA rules). Together these cover the 12 mandated domains:
+# latency, throughput, queue depth, WAL lag, memory, CPU, degradation,
+# circuit breaker, reconciliation, DR, settlement, funding.
+#
+# Severity label convention (consumed by alertmanager.yml routing):
+#   severity: p0 → immediate page (reserved — see exchange-alerts.yml)
+#   severity: p1 → immediate page (systemic / money-path / durability risk)
+#   severity: p2 → ticket + slack, business-hours response
+#   severity: p3 → ticket queue via low-urgency PagerDuty + slack
+#
+# Every rule carries `domain:` (the 12-domain taxonomy above) and a
+# `runbook:` annotation pointing at a checked-in doc — 404-less links
+# only (docs/runbooks/*, docs/ops/*).
+#
+# Emitter-gap policy: rules marked "EMITTER-GAP" target metric families
+# that are registered by services/internal/observability (http.go
+# NewMetrics: wal_lag_entries, engine_ipc_ring_depth,
+# exchange_degradation_mode, exchange_circuit_breaker_open,
+# reconciliation_*) but whose feeders (SetWALLag, SetIPCRingDepth,
+# SetDegradationMode, SetCircuitBreaker, ObserveReconciliation) are not
+# yet wired to a live source. The rules are contract-correct and fire as
+# soon as the feeders land; the paired absent() rules surface the gap
+# itself as a p3 monitoring ticket instead of failing silently.
+
+groups:
+  # ── Domain: latency ─────────────────────────────────────────────────
+  - name: exchange.domain.latency
+    interval: 15s
+    rules:
+      # REST p99 SLO is 5ms (docs/runbooks/README.md §4 latency SLO row).
+      - alert: GatewayP99LatencySLOBreach
+        expr: |
+          histogram_quantile(0.99,
+            sum by (le) (rate(http_request_duration_seconds_bucket{service="gateway"}[5m]))
+          ) > 0.005
+        for: 15m
+        labels: {severity: p2, team: sre, domain: latency}
+        annotations:
+          summary: "Gateway REST p99 > 5ms for 15m"
+          description: "p99 request latency is {{ $value }}s — the 5ms REST SLO is being burned (spec §19.3 golden signals)."
+          runbook: docs/runbooks/http-latency-slo.md#gateway-p99
+
+      # §19.8 P1 example: "gateway p99 >50ms".
+      - alert: GatewayP99LatencyDegraded
+        expr: |
+          histogram_quantile(0.99,
+            sum by (le) (rate(http_request_duration_seconds_bucket{service="gateway"}[5m]))
+          ) > 0.05
+        for: 5m
+        labels: {severity: p1, team: sre, domain: latency}
+        annotations:
+          summary: "Gateway REST p99 > 50ms — P1 degradation"
+          description: "p99 request latency is {{ $value }}s; §19.8 classifies gateway p99 >50ms as a P1-class symptom."
+          runbook: docs/runbooks/http-latency-slo.md#gateway-p99
+
+      # Any service's API p99 over the 5ms SLO for a sustained window.
+      - alert: HTTPP99LatencySLOBreach
+        expr: |
+          histogram_quantile(0.99,
+            sum by (service, le) (rate(http_request_duration_seconds_bucket[15m]))
+          ) > 0.005
+        for: 30m
+        labels: {severity: p3, team: sre, domain: latency}
+        annotations:
+          summary: "{{ $labels.service }} REST p99 > 5ms sustained 30m"
+          description: "Per-service p99 is {{ $value }}s — below paging threshold but worth a ticket; check hot routes via route label drilldown."
+          runbook: docs/runbooks/http-latency-slo.md#per-service-slo
+
+      # Marketdata send-side push p99 (reservoir snapshot gauge,
+      # quantile="0.99" exported by cmd/marketdata).
+      - alert: MarketDataWSPushP99High
+        expr: ws_push_latency_seconds{quantile="0.99"} > 0.05
+        for: 10m
+        labels: {severity: p2, team: sre, domain: latency}
+        annotations:
+          summary: "Marketdata WS push p99 {{ $value }}s > 50ms"
+          description: "Send-side push latency p99 elevated for 10m — slow-consumer backlog or CPU starvation on the marketdata node."
+          runbook: docs/runbooks/http-latency-slo.md#ws-push-latency
+
+      # Bridge JetStream publish path mean latency (sum/count counters
+      # exported by services/internal/bridge/metrics.go).
+      - alert: BridgePublishLatencyHigh
+        expr: |
+          rate(bridge_publish_latency_seconds_sum[5m])
+            / rate(bridge_publish_latency_seconds_count[5m]) > 0.25
+        for: 10m
+        labels: {severity: p2, team: sre, domain: latency}
+        annotations:
+          summary: "Bridge publish mean latency {{ $value }}s on shard {{ $labels.shard }}"
+          description: "Aeron→JetStream publish path averaging >250ms — NATS RTT, disk spool fsync, or bridge CPU pressure."
+          runbook: docs/runbooks/http-latency-slo.md#bridge-publish-latency
+
+  # ── Domain: throughput ──────────────────────────────────────────────
+  - name: exchange.domain.throughput
+    interval: 15s
+    rules:
+      # Traffic collapse vs the level seen one hour ago — catches silent
+      # upstream failure (edge, auth, load balancer) that error-rate
+      # rules can't see because requests never arrive. Baseline gate
+      # (>5 req/s) keeps weekend/quiet-window noise from paging; the
+      # venue trades 24/5 so a 5× drop mid-session is abnormal.
+      - alert: GatewayTrafficCollapse
+        expr: |
+          sum(rate(http_requests_total{service="gateway"}[10m]))
+            < 0.2 * sum(rate(http_requests_total{service="gateway"}[10m] offset 1h))
+          and sum(rate(http_requests_total{service="gateway"}[10m] offset 1h)) > 5
+        for: 15m
+        labels: {severity: p2, team: sre, domain: throughput}
+        annotations:
+          summary: "Gateway request rate collapsed >5× vs 1h ago"
+          description: "Now {{ $value }} req/s — requests are dying upstream of the gateway (edge/WAF/HAProxy/auth) rather than erroring here."
+          runbook: docs/runbooks/throughput-collapse.md#gateway-traffic
+
+      # Engine events arriving at the bridge but nothing reaching
+      # JetStream — publish path wedged while input keeps flowing.
+      - alert: BridgePublishStalled
+        expr: |
+          rate(bridge_events_published_total[5m]) == 0
+          and rate(bridge_events_received_total[5m]) > 0
+        for: 2m
+        labels: {severity: p1, team: sre, domain: throughput}
+        annotations:
+          summary: "Bridge shard {{ $labels.shard }} consuming but not publishing"
+          description: "Events received from Aeron are not reaching JetStream — buffer will fill, then drop (bridge_buffer_depth / ops-dlq)."
+          runbook: docs/runbooks/bridge-buffer-depth-high.md
+
+      # Any drop from the bounded buffer is a §2.7 zero-loss violation
+      # candidate — page, not ticket.
+      - alert: BridgeEventsDropped
+        expr: increase(bridge_events_dropped_total[5m]) > 0
+        labels: {severity: p1, team: sre, domain: throughput}
+        annotations:
+          summary: "Bridge dropped {{ $value }} engine events on shard {{ $labels.shard }}"
+          description: "Bounded buffer evicted events — strict fail-closed zero-loss pessimism requires treating this as potential event loss."
+          runbook: docs/runbooks/bridge-buffer-depth-high.md
+
+      # Engine deltas arriving but no frames emitted downstream.
+      - alert: MarketDataFramesStalled
+        expr: |
+          rate(marketdata_frames_published_total[10m]) == 0
+          and rate(marketdata_deltas_received_total[10m]) > 0
+        for: 10m
+        labels: {severity: p2, team: sre, domain: throughput}
+        annotations:
+          summary: "Marketdata consuming deltas but publishing no frames"
+          description: "Conflator/fan-out wedged — subscribers see a frozen book while engine deltas still arrive."
+          runbook: docs/runbooks/throughput-collapse.md#marketdata-pipeline
+
+      # Input-queue saturation drops → fail-loud gaps clients must resync.
+      - alert: MarketDataDeltasDropped
+        expr: rate(marketdata_deltas_dropped_total[5m]) > 0
+        for: 5m
+        labels: {severity: p2, team: sre, domain: throughput}
+        annotations:
+          summary: "Marketdata input queue dropping {{ $value }} deltas/s"
+          description: "Input saturation drops force resync directives; sustained drops mean the conflator can't keep up."
+          runbook: docs/runbooks/throughput-collapse.md#marketdata-pipeline
+
+  # ── Domain: queue depth ─────────────────────────────────────────────
+  - name: exchange.domain.queue-depth
+    interval: 15s
+    rules:
+      # Early warning below the 50000 P1 page (Task 7.3.8 threshold).
+      - alert: NATSConsumerPendingWarn
+        expr: nats_consumer_pending > 10000
+        for: 10m
+        labels: {severity: p3, team: sre, domain: queue-depth}
+        annotations:
+          summary: "JetStream consumer {{ $labels.consumer }} pending {{ $value }}"
+          description: "Approaching the 50000-message P1 threshold on {{ $labels.stream }} — investigate consumer throughput before it pages."
+          runbook: docs/runbooks/nats-consumer-pending-high.md
+
+      # Delivered-but-unacked = handlers wedged mid-processing.
+      - alert: NATSConsumerAckPendingHigh
+        expr: nats_consumer_ack_pending > 10000
+        for: 10m
+        labels: {severity: p2, team: sre, domain: queue-depth}
+        annotations:
+          summary: "Consumer {{ $labels.consumer }} ack-pending {{ $value }}"
+          description: "Messages delivered but never acked — handler deadlocks or slow downstream writes on {{ $labels.stream }}/{{ $labels.consumer }}."
+          runbook: docs/runbooks/queue-depth-backlog.md#ack-pending
+
+      # Redelivery counter climbing = ack timeouts repeating.
+      - alert: NATSConsumerRedeliveryStorm
+        expr: increase(nats_consumer_redelivered_total[15m]) > 0
+        for: 15m
+        labels: {severity: p3, team: sre, domain: queue-depth}
+        annotations:
+          summary: "Consumer {{ $labels.consumer }} redelivering messages"
+          description: "Redeliveries on {{ $labels.stream }}/{{ $labels.consumer }} — ack deadline exceeded repeatedly; check for poison messages (ops-dlq may follow)."
+          runbook: docs/runbooks/queue-depth-backlog.md#redelivery-storm
+
+      # Task 9.3.10 load-shedder: any stage>0 means the gateway is
+      # shedding load per the §2.7 ladder.
+      - alert: LoadShedStageActive
+        expr: load_shed_stage > 0
+        for: 2m
+        labels: {severity: p2, team: sre, domain: queue-depth}
+        annotations:
+          summary: "Gateway load-shed stage {{ $value }} active"
+          description: "Inbound Aeron ring occupancy crossed a shedding watermark — gateway is deliberately shedding tiers."
+          runbook: docs/runbooks/queue-depth-backlog.md#load-shedding
+
+      - alert: LoadShedRejectionsOngoing
+        expr: rate(load_shed_rejected_total[5m]) > 0
+        for: 5m
+        labels: {severity: p2, team: sre, domain: queue-depth}
+        annotations:
+          summary: "Load shedder rejecting {{ $value }} req/s"
+          description: "Requests are being shed under Task 9.3.10 — engine ingress rings are saturated; clients see 503+shed_stage."
+          runbook: docs/runbooks/queue-depth-backlog.md#load-shedding
+
+      # EMITTER-GAP: engine_ipc_ring_depth is registered by
+      # observability.NewMetrics (help text 'Engine Aeron IPC inbound
+      # ring depth') but no service calls SetIPCRingDepth yet — the
+      # gateway shedder computes the same occupancy internally via
+      # orderSubmitter.Channel(id).Occupancy() (cmd/gateway/main.go
+      # 9.3.10 block). Fires once the feeder lands; until then
+      # EngineIPC TelemetryAbsent below tracks the gap.
+      - alert: EngineIPCRingDepthWarn
+        expr: engine_ipc_ring_depth > 500000
+        for: 5m
+        labels: {severity: p3, team: sre, domain: queue-depth}
+        annotations:
+          summary: "Engine IPC ring {{ $value }} entries (>50%) on shard {{ $labels.shard }}"
+          description: "Pre-page warning below the 80% shed threshold (IPCRingSaturated p2 at 800000)."
+          runbook: docs/runbooks/ipc-ring-pressure.md
+
+      # EMITTER-GAP feeder check — engine_ipc_ring_depth and
+      # engine_ipc_last_seq have no wired source; if the gauge family
+      # renders no samples for 15m the telemetry contract is unmet.
+      - alert: EngineIPCTelemetryAbsent
+        expr: absent(engine_ipc_ring_depth) or absent(engine_ipc_last_seq)
+        for: 15m
+        labels: {severity: p3, team: sre, domain: queue-depth}
+        annotations:
+          summary: "Engine IPC ring telemetry absent"
+          description: "engine_ipc_ring_depth/engine_ipc_last_seq emit no samples — the SetIPCRingDepth/SetIPCLastSeq feeders are not wired (see alerts.yml EMITTER-GAP note). Wire the gateway shedder depth source or the admin Aeron monitor."
+          runbook: docs/runbooks/ipc-ring-pressure.md#telemetry-gap
+
+      # Sequence stuck while the ring holds entries = consumer wedged.
+      # EMITTER-GAP: same feeder dependency as above.
+      - alert: EngineIPCSeqStalled
+        expr: |
+          increase(engine_ipc_last_seq[5m]) == 0
+          and engine_ipc_ring_depth > 0
+        for: 5m
+        labels: {severity: p1, team: sre, domain: queue-depth}
+        annotations:
+          summary: "Engine IPC sequence stalled on shard {{ $labels.shard }}"
+          description: "Ring holds {{ $value }}s-last-observed entries but last_seq has not advanced in 5m — shard consumer wedged or halted."
+          runbook: docs/runbooks/ipc-ring-pressure.md
+
+  # ── Domain: wal-lag ─────────────────────────────────────────────────
+  - name: exchange.domain.wal-lag
+    interval: 15s
+    rules:
+      # EMITTER-GAP: wal_lag_entries is registered (help 'WAL entries
+      # written but not yet fsync'd/archived, by shard') but SetWALLag
+      # has no caller yet — needs the waldir/archive monitor feed. Rules
+      # are contract-ready; WALLagTelemetryAbsent surfaces the gap.
+      - alert: WALLagCritical
+        expr: wal_lag_entries > 500000
+        for: 2m
+        labels: {severity: p1, team: sre, domain: wal-lag}
+        annotations:
+          summary: "WAL lag critical on shard {{ $labels.shard }} ({{ $value }} entries)"
+          description: "Unarchived/unfsync'd WAL backlog far beyond the WALLagGrowing 100k watch — RPO (≤15s PITR/WAL archive) at risk; treat as durability emergency."
+          runbook: docs/runbooks/wal-lag-growing.md
+
+      # Lag that never drains: any nonzero backlog persisting 30m means
+      # the archive path (S3 archive + exchange:replay-from-archive,
+      # Task 4.3.5-era pipeline) is stalled rather than merely behind.
+      - alert: WALLagNotDraining
+        expr: wal_lag_entries > 0
+        for: 30m
+        labels: {severity: p2, team: sre, domain: wal-lag}
+        annotations:
+          summary: "WAL backlog not draining on shard {{ $labels.shard }}"
+          description: "{{ $value }} entries pending for >30m — fsync/archive pipeline stalled; check archive service and S3 archive creds (deploy/dr/s3-crr-wal-archive.json)."
+          runbook: docs/runbooks/wal-archive-stalled.md
+
+      # Telemetry contract check — family registered by NewMetrics but
+      # renders no samples until a feeder calls SetWALLag.
+      - alert: WALLagTelemetryAbsent
+        expr: absent(wal_lag_entries)
+        for: 15m
+        labels: {severity: p3, team: sre, domain: wal-lag}
+        annotations:
+          summary: "WAL lag telemetry absent"
+          description: "wal_lag_entries emits no samples — wire SetWALLag to the waldir/archive monitor (services/internal/recovery/waldir.go). Durability alerting is blind until then."
+          runbook: docs/runbooks/wal-archive-stalled.md#telemetry-gap
+
+  # ── Domain: memory ──────────────────────────────────────────────────
+  # Source: node-exporter job (:9100) in prometheus.yml; complements the
+  # coarser Phase-09 headroom rules in ../monitoring/capacity-alerts.yml
+  # (75% capacity watch vs these pressure pages).
+  - name: exchange.domain.memory
+    interval: 15s
+    rules:
+      - alert: HostMemoryPressure
+        expr: |
+          (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes))
+            > 0.90
+        for: 5m
+        labels: {severity: p1, team: sre, domain: memory}
+        annotations:
+          summary: "Memory pressure >90% on {{ $labels.instance }}"
+          description: "OOM risk on a trading host — a killed engine/settlement process is an L0-class event; shed or fail over now."
+          runbook: docs/runbooks/host-resource-pressure.md#memory
+
+      - alert: HostMemoryHigh
+        expr: |
+          (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes))
+            > 0.80
+        for: 30m
+        labels: {severity: p2, team: sre, domain: memory}
+        annotations:
+          summary: "Memory utilisation >80% for 30m on {{ $labels.instance }}"
+          description: "Between the 75% capacity watch and the 90% page — check for leaks or heap growth before pressure builds."
+          runbook: docs/runbooks/host-resource-pressure.md#memory
+
+      # Swap use on matching hosts destroys the p99 ≤50µs budget.
+      - alert: HostSwapInUse
+        expr: |
+          node_memory_SwapTotal_bytes > 0
+          and (node_memory_SwapFree_bytes / node_memory_SwapTotal_bytes) < 0.5
+        for: 30m
+        labels: {severity: p3, team: sre, domain: memory}
+        annotations:
+          summary: "Swap >50% consumed on {{ $labels.instance }}"
+          description: "Half of swap in use — paging on a latency-critical host; check mlockall coverage and RSS of hot processes."
+          runbook: docs/runbooks/host-resource-pressure.md#swap
+
+      # WAL volume <10% free — durability bound, not capacity planning.
+      - alert: WALVolumeNearlyFull
+        expr: |
+          node_filesystem_avail_bytes{mountpoint=~"/var/lib/exchange/wal|/var/spool/exchange"}
+            / node_filesystem_size_bytes{mountpoint=~"/var/lib/exchange/wal|/var/spool/exchange"}
+            < 0.10
+        for: 5m
+        labels: {severity: p1, team: sre, domain: memory}
+        annotations:
+          summary: "WAL/spool volume <10% free on {{ $labels.instance }} {{ $labels.mountpoint }}"
+          description: "Write-blocking disk exhaustion on the durability path — WAL append or bridge spool will fail closed; clear archives or expand now."
+          runbook: docs/runbooks/host-resource-pressure.md#disk
+
+  # ── Domain: cpu ─────────────────────────────────────────────────────
+  - name: exchange.domain.cpu
+    interval: 15s
+    rules:
+      - alert: HostCPUSaturated
+        expr: |
+          avg by (instance) (1 - rate(node_cpu_seconds_total{mode="idle"}[15m]))
+            > 0.85
+        for: 15m
+        labels: {severity: p2, team: sre, domain: cpu}
+        annotations:
+          summary: "CPU >85% for 15m on {{ $labels.instance }}"
+          description: "Sustained saturation — latency percentiles degrade before throughput does; check for busy-loop or hot shard."
+          runbook: docs/runbooks/host-resource-pressure.md#cpu
+
+      - alert: HostCPUCritical
+        expr: |
+          avg by (instance) (1 - rate(node_cpu_seconds_total{mode="idle"}[5m]))
+            > 0.95
+        for: 10m
+        labels: {severity: p1, team: sre, domain: cpu}
+        annotations:
+          summary: "CPU >95% for 10m on {{ $labels.instance }}"
+          description: "Scheduler starvation on a trading host — engine loop p99 and shedder behavior degrade; consider traffic shift or failover."
+          runbook: docs/runbooks/host-resource-pressure.md#cpu
+
+      # Load average >2× core count = runnable queue depth high.
+      - alert: HostRunqueueHigh
+        expr: |
+          node_load15
+            / on(instance) group_left()
+              count by (instance) (node_cpu_seconds_total{mode="idle"})
+          > 2
+        for: 15m
+        labels: {severity: p3, team: sre, domain: cpu}
+        annotations:
+          summary: "load15 > 2× cores on {{ $labels.instance }}"
+          description: "Runqueue depth indicates scheduling contention even if instantaneous CPU looks lower — inspect thread hot spots."
+          runbook: docs/runbooks/host-resource-pressure.md#cpu
+
+  # ── Domain: degradation ─────────────────────────────────────────────
+  # EMITTER-GAP: exchange_degradation_mode{mode} is registered by
+  # NewMetrics but SetDegradationMode (the metrics setter — distinct
+  # from internal/redis's mode store) has no caller yet; the gateway
+  # reads mode from Redis `system:degradation:*`. Wire the feeder when
+  # the Phase-02 ModeManager lands its exporter. Until then
+  # DegradationTelemetryAbsent tracks the gap and in-process mode
+  # changes remain visible via ops.alerts + the X-Degradation-Mode
+  # response header.
+  - name: exchange.domain.degradation
+    interval: 15s
+    rules:
+      # Client-impacting modes escalated from the generic p2 1m rule —
+      # ReadOnly/MarketDataOnly/SpotOnly still accept no new risk.
+      - alert: ClientBlockingModeActive
+        expr: exchange_degradation_mode{mode=~"ReadOnly|MarketDataOnly|SpotOnly"} == 1
+        for: 5m
+        labels: {severity: p1, team: ops, domain: degradation}
+        annotations:
+          summary: "{{ $labels.mode }} active on {{ $labels.service }} for 5m"
+          description: "A client-blocking degradation mode has persisted — trading is impaired; confirm trigger and drive the §2.7.3 exit hysteresis."
+          runbook: docs/runbooks/degradation-mode-active.md
+
+      # Any non-normal mode held 15m — beyond expected transient.
+      - alert: DegradationModeSustained
+        expr: exchange_degradation_mode{mode!~"Normal|Maintenance"} == 1
+        for: 15m
+        labels: {severity: p1, team: ops, domain: degradation}
+        annotations:
+          summary: "Degradation mode {{ $labels.mode }} sustained 15m on {{ $labels.service }}"
+          description: "Mode has not recovered in 15m — the 30s-healthy-telemetry exit hysteresis should have cleared a transient by now."
+          runbook: docs/runbooks/degradation-mode-active.md#sustained
+
+      # Maintenance held past a plausible window — undeclared or
+      # forgotten maintenance state blocks nothing but hides real modes.
+      - alert: MaintenanceModeProlonged
+        expr: exchange_degradation_mode{mode="Maintenance"} == 1
+        for: 2h
+        labels: {severity: p3, team: ops, domain: degradation}
+        annotations:
+          summary: "Maintenance mode still active after 2h on {{ $labels.service }}"
+          description: "Confirm the maintenance window is still declared (maintenance_windows, migration 172); stale Maintenance suppresses the DegradationModeActive rule."
+          runbook: docs/runbooks/degradation-mode-active.md#maintenance-window
+
+      - alert: DegradationTelemetryAbsent
+        expr: absent(exchange_degradation_mode)
+        for: 15m
+        labels: {severity: p3, team: ops, domain: degradation}
+        annotations:
+          summary: "Degradation-mode telemetry absent"
+          description: "exchange_degradation_mode emits no samples — SetDegradationMode feeder unwired (see alerts.yml EMITTER-GAP note). Mode state is still enforced via Redis system:degradation:*."
+          runbook: docs/runbooks/degradation-mode-active.md#telemetry-gap
+
+  # ── Domain: circuit-breaker ─────────────────────────────────────────
+  # EMITTER-GAP: exchange_circuit_breaker_open{name} is registered but
+  # the metrics setter is unwired (the gateway's in-process Breaker in
+  # internal/gateway/breaker.go and the HAProxy edge breaker do not feed
+  # it yet). CircuitBreakerTelemetryAbsent tracks the gap.
+  - name: exchange.domain.circuit-breaker
+    interval: 15s
+    rules:
+      - alert: CircuitBreakerOpenSustained
+        expr: exchange_circuit_breaker_open == 1
+        for: 10m
+        labels: {severity: p1, team: sre, domain: circuit-breaker}
+        annotations:
+          summary: "Breaker {{ $labels.name }} open >10m on {{ $labels.service }}"
+          description: "A tripped five-tier breaker that cannot half-open within 10m means the downstream fault is persistent, not transient."
+          runbook: docs/runbooks/circuit-breaker-open.md#sustained
+
+      - alert: CircuitBreakerFlapping
+        expr: changes(exchange_circuit_breaker_open[30m]) >= 4
+        labels: {severity: p2, team: sre, domain: circuit-breaker}
+        annotations:
+          summary: "Breaker {{ $labels.name }} flapping on {{ $labels.service }}"
+          description: ">=4 open/close transitions in 30m — partial recovery churn; the probe path is unhealthy, not the whole dependency."
+          runbook: docs/runbooks/circuit-breaker-open.md#flapping
+
+      - alert: MultipleCircuitBreakersOpen
+        expr: count(exchange_circuit_breaker_open == 1) > 1
+        for: 2m
+        labels: {severity: p1, team: sre, domain: circuit-breaker}
+        annotations:
+          summary: "{{ $value }} circuit breakers open simultaneously"
+          description: "Multiple breakers tripped at once is systemic (shared dependency or host fault), not a per-route blip."
+          runbook: docs/runbooks/circuit-breaker-open.md
+
+      - alert: CircuitBreakerTelemetryAbsent
+        expr: absent(exchange_circuit_breaker_open)
+        for: 15m
+        labels: {severity: p3, team: sre, domain: circuit-breaker}
+        annotations:
+          summary: "Circuit-breaker telemetry absent"
+          description: "exchange_circuit_breaker_open emits no samples — feed SetCircuitBreaker from internal/gateway/breaker.go transitions and the edge breaker probe."
+          runbook: docs/runbooks/circuit-breaker-open.md#telemetry-gap
+
+  # ── Domain: reconciliation ──────────────────────────────────────────
+  # EMITTER-GAP: reconciliation_runs_total / reconciliation_mismatches_total
+  # are registered by NewMetrics but ObserveReconciliation has no caller
+  # yet — the Phase-03/Phase-24 sweep loops must call it. Rules are
+  # contract-ready; ReconciliationTelemetryAbsent tracks the gap.
+  - name: exchange.domain.reconciliation
+    interval: 15s
+    rules:
+      # A burst of mismatches in 5m is worse than the existing
+      # any-mismatch/15m rule — systemic divergence, not a stray row.
+      - alert: ReconciliationMismatchBurst
+        expr: increase(reconciliation_mismatches_total[5m]) >= 5
+        labels: {severity: p1, team: ops, domain: reconciliation}
+        annotations:
+          summary: "Reconciliation mismatch burst ({{ $value }} in 5m, kind={{ $labels.kind }})"
+          description: "Rapid mismatch accumulation — treat as systemic ledger/position divergence; halt the affected flow per fail-closed policy."
+          runbook: docs/runbooks/reconciliation-mismatch.md
+
+      # Sweeps that stopped running are silent divergence — the worst
+      # reconciliation state is not knowing.
+      - alert: ReconciliationSweepMissing
+        expr: increase(reconciliation_runs_total[2h]) == 0
+        for: 2h
+        labels: {severity: p2, team: ops, domain: reconciliation}
+        annotations:
+          summary: "No reconciliation sweep for kind={{ $labels.kind }} in 2h"
+          description: "reconciliation_runs_total flatlined — the sweep scheduler stalled or the job crashed; divergence can accumulate undetected."
+          runbook: docs/runbooks/reconciliation-sweep-stalled.md
+
+      # Multiple kinds mismatching at once = platform-level break.
+      - alert: ReconciliationMismatchMultipleKinds
+        expr: |
+          count(increase(reconciliation_mismatches_total[1h]) > 0) > 1
+        labels: {severity: p1, team: ops, domain: reconciliation}
+        annotations:
+          summary: "Reconciliation mismatches across {{ $value }} kinds in 1h"
+          description: "More than one reconciliation domain diverging simultaneously — check shared infra (PG, settlement batches) before per-domain triage."
+          runbook: docs/runbooks/reconciliation-mismatch.md
+
+      - alert: ReconciliationTelemetryAbsent
+        expr: absent(reconciliation_runs_total)
+        for: 15m
+        labels: {severity: p3, team: ops, domain: reconciliation}
+        annotations:
+          summary: "Reconciliation telemetry absent"
+          description: "reconciliation_runs_total emits no samples — wire ObserveReconciliation into the sweep loops (see alerts.yml EMITTER-GAP note)."
+          runbook: docs/runbooks/reconciliation-sweep-stalled.md#telemetry-gap
+
+  # ── Domain: dr ──────────────────────────────────────────────────────
+  # Disaster-recovery / availability-of-visibility rules. Note: true
+  # replication-lag metrics (pg WAL receiver lag, S3 CRR depth) have no
+  # exporter in prometheus.yml yet — documented gap; these rules cover
+  # what the current scrape set can see (target liveness, shard
+  # redundancy, backbone connectivity, monitoring self-health).
+  - name: exchange.domain.dr
+    interval: 15s
+    rules:
+      - alert: ScrapeTargetDown
+        expr: up{job=~"gateway|marketdata|fix|settlement|compliance|admin"} == 0
+        for: 2m
+        labels: {severity: p1, team: sre, domain: dr}
+        annotations:
+          summary: "Scrape target down: {{ $labels.job }} {{ $labels.instance }}"
+          description: "Service unreachable for 2m — process dead, wedged, or network-partitioned; if it is a real outage this is the earliest signal."
+          runbook: docs/runbooks/service-scrape-down.md
+
+      - alert: BridgeShardDown
+        expr: up{job="bridge"} == 0
+        for: 1m
+        labels: {severity: p1, team: sre, domain: dr}
+        annotations:
+          summary: "Bridge target down on shard {{ $labels.shard }} ({{ $labels.instance }})"
+          description: "A per-shard Aeron→JetStream bridge is unreachable — the shard's event path to consumers is severed; engine events spool at most to the buffer cap."
+          runbook: docs/runbooks/bridge-heartbeat-stale.md
+
+      # prometheus.yml scrapes two shard bridges; losing quorum of one
+      # leaves zero redundancy on the event fan-out.
+      - alert: BridgeShardRedundancyLost
+        expr: count(up{job="bridge"} == 1) < 2
+        for: 5m
+        labels: {severity: p2, team: sre, domain: dr}
+        annotations:
+          summary: "Only {{ $value }}/2 bridge shards healthy"
+          description: "Bridge fan-out redundancy degraded — a single remaining shard is a single point of failure for engine→JetStream."
+          runbook: docs/runbooks/service-scrape-down.md#bridge-redundancy
+
+      - alert: NATSBackboneDisconnected
+        expr: nats_connected == 0 or bridge_health_nats_connected == 0
+        for: 1m
+        labels: {severity: p1, team: sre, domain: dr}
+        annotations:
+          summary: "JetStream connectivity lost (admin probe / bridge shard {{ $labels.shard }})"
+          description: "The event backbone is unreachable — bridge buffers grow (bridge_buffer_depth) and monitoring goes Aeron-only."
+          runbook: docs/runbooks/nats-backbone-down.md
+
+      - alert: NodeExporterDown
+        expr: up{job="node"} == 0
+        for: 5m
+        labels: {severity: p3, team: sre, domain: dr}
+        annotations:
+          summary: "node-exporter down on {{ $labels.instance }}"
+          description: "Host telemetry blind — memory/CPU/disk alerts cannot evaluate on this node; restart the exporter."
+          runbook: docs/runbooks/service-scrape-down.md#node-exporter
+
+      # The admin service is the ops telemetry hub (NATS monitor, bridge
+      # heartbeat watcher, Aeron CnC monitor). Its key series missing =
+      # flying blind while everything may look quiet.
+      - alert: AdminMonitorTelemetryAbsent
+        expr: absent(nats_connected) or absent(bridge_heartbeat_age_seconds)
+        for: 10m
+        labels: {severity: p2, team: sre, domain: dr}
+        annotations:
+          summary: "Admin monitor series missing (nats_connected / bridge_heartbeat_age_seconds)"
+          description: "cmd/admin is up but exports no NATS/heartbeat series — NATSMonitor or BridgeHeartbeatWatcher failed to start; backbone alerting is inert."
+          runbook: docs/runbooks/nats-backbone-down.md#telemetry-gap
+
+  # ── Domain: settlement ──────────────────────────────────────────────
+  # The settlement service (cmd/settlement, :8083) currently exports the
+  # shared observability.NewMetrics panel only; domain-specific lag/GL
+  # metrics land with Phase-03/Phase-24 emitters. These rules cover the
+  # derivable surface: liveness, errors, latency, silence.
+  - name: exchange.domain.settlement
+    interval: 15s
+    rules:
+      - alert: SettlementServiceDown
+        expr: up{job="settlement"} == 0
+        for: 1m
+        labels: {severity: p1, team: sre, domain: settlement}
+        annotations:
+          summary: "Settlement service unreachable ({{ $labels.instance }})"
+          description: "Settlement batches, GL posting and nostro flows depend on this service — page immediately."
+          runbook: docs/runbooks/settlement-service-degraded.md#down
+
+      - alert: SettlementErrorsElevated
+        expr: |
+          sum(rate(exchange_errors_total{service="settlement",tier=~"L1|L2"}[5m])) > 0
+        for: 5m
+        labels: {severity: p2, team: ops, domain: settlement}
+        annotations:
+          summary: "Settlement L1/L2 errors sustained ({{ $value }}/s)"
+          description: "Settlement boundary rejections or systemic errors — settlement batches failing closed leaves funds in transit; check the batch log and GL zero-sum invariants."
+          runbook: docs/runbooks/settlement-service-degraded.md#errors
+
+      - alert: SettlementP99Slow
+        expr: |
+          histogram_quantile(0.99,
+            sum by (le) (rate(http_request_duration_seconds_bucket{service="settlement"}[10m]))
+          ) > 0.5
+        for: 10m
+        labels: {severity: p2, team: sre, domain: settlement}
+        annotations:
+          summary: "Settlement p99 {{ $value }}s > 500ms"
+          description: "Settlement endpoints degrade under batch/GL contention — check for long-running posting transactions holding ledger locks."
+          runbook: docs/runbooks/settlement-service-degraded.md#latency
+
+      # Expected-silence check: the scaffold serves no API traffic yet —
+      # flat-zero request rate while the process is up is informational
+      # until Phase-03 handlers land, then becomes a stall signal.
+      - alert: SettlementTrafficSilent
+        expr: |
+          sum(rate(http_requests_total{service="settlement"}[30m])) == 0
+          and up{job="settlement"} == 1
+        for: 30m
+        labels: {severity: p3, team: sre, domain: settlement}
+        annotations:
+          summary: "No settlement HTTP traffic for 30m"
+          description: "Zero requests on an up settlement service — normal for the scaffold, a stall signal once Phase-03 ingest/settlement handlers land."
+          runbook: docs/runbooks/settlement-service-degraded.md#silent
+
+  # ── Domain: funding ─────────────────────────────────────────────────
+  # Funding routes are served by the gateway (route label = mux pattern).
+  # Money-moving paths get their own error budgets — a 5xx on
+  # /api/v1/deposits|withdrawals|transfers is a P1-class client impact.
+  - name: exchange.domain.funding
+    interval: 15s
+    rules:
+      - alert: FundingMoneyPath5xx
+        expr: |
+          sum(rate(http_requests_total{
+            service="gateway",
+            route=~"/api/v1/(deposits|withdrawals|funding|transfers).*",
+            code=~"5.."}[5m])) > 0
+        for: 2m
+        labels: {severity: p1, team: ops, domain: funding}
+        annotations:
+          summary: "5xx on funding money-path routes ({{ $value }}/s)"
+          description: "Deposit/withdrawal/transfer endpoints are erroring — client money flows are failing; check funding service deps, bank-rail handlers, and ledger postings."
+          runbook: docs/runbooks/funding-path-errors.md#five-xx
+
+      # Rejection storm on funding routes — double-submit replay,
+      # confirmation-expiry churn, or a hostile client probing the
+      # withdrawal path.
+      - alert: FundingRejectionStorm
+        expr: |
+          sum(rate(http_requests_total{
+            service="gateway",
+            route=~"/api/v1/(deposits|withdrawals|funding|transfers).*",
+            code=~"4.."}[5m]))
+            / sum(rate(http_requests_total{
+              service="gateway",
+              route=~"/api/v1/(deposits|withdrawals|funding|transfers).*"}[5m]))
+          > 0.10
+          and sum(rate(http_requests_total{
+            service="gateway",
+            route=~"/api/v1/(deposits|withdrawals|funding|transfers).*"}[5m])) * 300 > 20
+        for: 10m
+        labels: {severity: p2, team: ops, domain: funding}
+        annotations:
+          summary: "Funding route rejections {{ $value | humanizePercentage }} over 10m"
+          description: ">10% of money-path requests rejected (min 20 req/5m) — idempotency conflicts, expired withdrawal confirmations (15min window), or probing; sample top client IPs in the gateway log."
+          runbook: docs/runbooks/funding-path-errors.md#rejection-storm
+
+      # Funding paths traverse bank-rail lookups — a looser bound than
+      # the 5ms core SLO, but >1s means a downstream rail/registry hang.
+      - alert: FundingRouteP99Slow
+        expr: |
+          histogram_quantile(0.99,
+            sum by (le) (rate(http_request_duration_seconds_bucket{
+              service="gateway",
+              route=~"/api/v1/(deposits|withdrawals|funding|transfers).*"}[10m]))
+          ) > 1
+        for: 10m
+        labels: {severity: p2, team: ops, domain: funding}
+        annotations:
+          summary: "Funding routes p99 {{ $value }}s > 1s"
+          description: "Money-path latency elevated — bank-rail or beneficiary-registry lookups stalling; withdrawals on the 15min confirm window may expire before issuance."
+          runbook: docs/runbooks/funding-path-errors.md#latency
+
+      # Admin funding ops surface (reviews, nostro replenishments,
+      # quarantine resolution) erroring — Finance Ops blocked.
+      - alert: FundingAdminOpsErrors
+        expr: |
+          sum(rate(http_requests_total{
+            service="gateway",
+            route=~"/api/v1/admin/funding.*",
+            code=~"5.."}[15m])) > 0
+        for: 15m
+        labels: {severity: p3, team: ops, domain: funding}
+        annotations:
+          summary: "Admin funding ops endpoints erroring ({{ $value }}/s)"
+          description: "Deposit review / nostro replenishment / quarantine endpoints failing — ops staff cannot clear the manual-review queue."
+          runbook: docs/runbooks/funding-path-errors.md#admin-ops

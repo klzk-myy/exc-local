@@ -104,6 +104,31 @@ bool suspension_key_into(std::string_view key,
     return false;
 }
 
+bool otr_key_into(std::string_view key,
+                  SuspensionFlags::Snapshot* out) noexcept {
+    if (out == nullptr) return false;
+    // "otr:breach:{account}" — account id must parse to a positive u64.
+    constexpr std::string_view kPrefix = "otr:breach:";
+    if (key.size() <= kPrefix.size() ||
+        key.substr(0, kPrefix.size()) != kPrefix) {
+        return false;
+    }
+    const std::string_view target = key.substr(kPrefix.size());
+    uint64_t id = 0;
+    // "index" (the Go sweeper's bookkeeping set) and any other
+    // non-numeric/malformed target fall out here — they never breach.
+    if (!parse_u64(target, &id)) return false;
+    out->otr_breached.insert(id);
+    return true;
+}
+
+bool SuspensionFlags::otr_breached(uint64_t account_id) const noexcept {
+    std::shared_lock<std::shared_mutex> lk(mu_);
+    const std::shared_ptr<const Snapshot> s = snap_;
+    if (s == nullptr || s->unverifiable || account_id == 0) return false;
+    return s->otr_breached.find(account_id) != s->otr_breached.end();
+}
+
 const char* SuspensionFlags::scope_for(uint64_t account_id,
                                        const char* symbol,
                                        const char* cls) const noexcept {

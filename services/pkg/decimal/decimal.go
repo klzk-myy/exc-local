@@ -39,6 +39,10 @@ func RequireFromString(s string) Decimal { return decimal.RequireFromString(s) }
 // NewFromInt returns v as a Decimal.
 func NewFromInt(v int64) Decimal { return decimal.NewFromInt(v) }
 
+// NewFromFloat converts a float64 into a Decimal — for statistics
+// (z-scores, volatility), never for financial quantities.
+func NewFromFloat(v float64) Decimal { return decimal.NewFromFloat(v) }
+
 // NewFromScaled converts a core wire value (integer count of 10^-8 units)
 // into a Decimal.
 func NewFromScaled(scaled int64) Decimal {

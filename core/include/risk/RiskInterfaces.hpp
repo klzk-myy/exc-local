@@ -46,6 +46,12 @@ inline constexpr char kCodeAccountInactive[] = "ACCOUNT_INACTIVE";   // CLOSED/u
 // (SuspensionFlags): every scoped or global halt rejects new orders
 // with the §23 TRADING_HALTED code (503); cancels never consult it.
 inline constexpr char kCodeTradingHalted[] = "TRADING_HALTED";        // §23: 503
+// Phase-13 Task 13.3.6 — MiFID II RTS 9 order-to-trade ratio breach.
+// The Go OtrMonitor owns the otr:breach:{account} flag; the engine-side
+// gate reads the same keyspace through SuspensionFlags and rejects NEW
+// orders only — cancels never reach this pipeline (cancel-only during
+// breach is the task contract).
+inline constexpr char kCodeOtrLimitExceeded[] = "OTR_LIMIT_EXCEEDED"; // §23: 429
 inline constexpr char kCodeInstrumentSuspended[] = "INSTRUMENT_SUSPENDED";  // §23: 409
 inline constexpr char kCodeInstrumentHalted[] = "INSTRUMENT_HALTED";        // §23: 409
 inline constexpr char kCodeInstrumentDelisted[] = "INSTRUMENT_DELISTED";    // §23: 409

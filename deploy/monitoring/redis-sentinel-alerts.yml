@@ -8,7 +8,7 @@ groups:
       - alert: SentinelQuorumLost
         expr: sentinel_quorum_ok == 0
         for: 5s
-        labels: {severity: P1, component: redis-sentinel}
+        labels: {severity: p1, component: redis-sentinel}
         annotations:
           summary: "Sentinel quorum lost — failover impossible"
           runbook: docs/ops/redis-sentinel-failover.md#quorum-loss
@@ -16,42 +16,47 @@ groups:
       - alert: SentinelNodeDown
         expr: sentinel_up < 3
         for: 30s
-        labels: {severity: P2, component: redis-sentinel}
+        labels: {severity: p2, component: redis-sentinel}
         annotations:
           summary: "Sentinel node down ({{ $value }} reachable, want 3)"
+          runbook: docs/ops/redis-sentinel-failover.md
 
       - alert: RedisMasterDown
         expr: redis_master_up == 0
         for: 3s
-        labels: {severity: P1, component: redis}
+        labels: {severity: p1, component: redis}
         annotations:
           summary: "Coordination Redis primary unreachable"
-          runbook: docs/ops/redis-sentinel-failover.md#master-down
+          runbook: docs/ops/redis-sentinel-failover.md#master-down-unplanned
 
       - alert: RedisReplicationLag
         expr: redis_replication_lag_seconds > 0.1
         for: 10s
-        labels: {severity: P2, component: redis}
+        labels: {severity: p2, component: redis}
         annotations:
           summary: "Replica lag {{ $value }}s > 100ms alert line (RPO budget 5s)"
+          runbook: docs/ops/redis-sentinel-failover.md
 
       - alert: RedisReplicationRPORisk
         expr: redis_replication_lag_seconds > 5
         for: 5s
-        labels: {severity: P1, component: redis}
+        labels: {severity: p1, component: redis}
         annotations:
           summary: "Replica lag exceeds the 5s RPO budget (spec §18.3)"
+          runbook: docs/ops/redis-sentinel-failover.md
 
       - alert: SentinelFailoverInProgress
         expr: sentinel_failover_in_progress == 1
         for: 0s
-        labels: {severity: P1, component: redis-sentinel}
+        labels: {severity: p1, component: redis-sentinel}
         annotations:
           summary: "Unexpected primary re-election — check for split-brain"
+          runbook: docs/ops/redis-sentinel-failover.md#split-brain
 
       - alert: SentinelNoReplicas
         expr: redis_replicas_up < 1
         for: 30s
-        labels: {severity: P1, component: redis}
+        labels: {severity: p1, component: redis}
         annotations:
           summary: "Primary has zero online replicas — failover target missing"
+          runbook: docs/ops/redis-sentinel-failover.md

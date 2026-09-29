@@ -19,10 +19,12 @@ Two independent paths carry the same alert identities; both must be checked when
 
 | Path | Source | Transport | Routing |
 |---|---|---|---|
-| Prometheus-side | `deploy/prometheus/rules/exchange-alerts.yml` (evaluated at 15s, scrape 15s per `deploy/prometheus/prometheus.yml`) | Alertmanager `deploy/prometheus/alertmanager.yml` | `severity: p0` → `pagerduty-p0` (group_wait 0s, repeat 15m); `p1` → `pagerduty-p1` (repeat 1h); `p2` → `pagerduty-p2-ticket` + `#exchange-ops`; `p3` → `slack-ops` only. Inhibit rules: firing p0 suppresses p1–p3 on same `service`+`shard`; p1 suppresses p3. |
+| Prometheus-side | `deploy/prometheus/rules/exchange-alerts.yml` + `deploy/prometheus/alerts.yml` (Task 13.3.3 domain pack) + `deploy/monitoring/{capacity,redis-sentinel}-alerts.yml` (evaluated at 15s, scrape 15s per `deploy/prometheus/prometheus.yml`) | Alertmanager `deploy/prometheus/alertmanager.yml` | `severity: p0` → `pagerduty-p0` (group_wait 0s, repeat 15m); `p1` → `pagerduty-p1` (repeat 1h); `p2` → `pagerduty-p2-ticket` + `#exchange-ops`; `p3` → `pagerduty-p3-ticket` (info-severity PD ticket) + `#exchange-ops`. Inhibit rules: firing p0 suppresses p1–p3 on same `service`+`shard`; p1 suppresses p3. |
 | In-process fail-safe | `services/internal/observability/rules.go` + `alerts.go` evaluator | NATS subject `ops.alerts.monitoring` (siblings: `ops.alerts.settlement`, `ops.alerts.recovery`, `ops.alerts.support`) | consumed by the ops alerting bridge — **pending Phase-13 Task 13.3.3** for the full PagerDuty bridge; today these payloads are inspectable via `natsctl` and the `admin` service metrics. |
 
-PagerDuty integration keys are injected at container start from `PAGERDUTY_P0_SERVICE_KEY` / `PAGERDUTY_P1_SERVICE_KEY` / `PAGERDUTY_P2_SERVICE_KEY` and `SLACK_OPS_WEBHOOK_URL` — sourced from Vault/KMS, never committed.
+PagerDuty integration keys are injected at container start from `PAGERDUTY_P0_SERVICE_KEY` / `PAGERDUTY_P1_SERVICE_KEY` / `PAGERDUTY_P2_SERVICE_KEY` / `PAGERDUTY_P3_SERVICE_KEY` and `SLACK_OPS_WEBHOOK_URL` — sourced from Vault/KMS, never committed.
+
+Every alert rule in the loaded files carries a `runbook:` annotation resolved by `scripts/ci/check_alert_rules.py` (CI gate — link must point at a real file/anchor in this repo).
 
 ## 2. Alert → runbook matrix (deployed rules)
 
@@ -50,6 +52,31 @@ Runbooks exist for every alert rule currently deployed in `deploy/prometheus/rul
 | `WALLagGrowing` | — | p1 | [wal-lag-growing.md](./wal-lag-growing.md) |
 | `IPCRingSaturated` | — | p2 | [ipc-ring-pressure.md](./ipc-ring-pressure.md) |
 | `IPCRingCritical` | — | p0 | [ipc-ring-pressure.md](./ipc-ring-pressure.md) |
+| `PTPClockOffsetExceeded` / `PTPNotSynchronized` / `PTPStale` / `PTPUnavailable` | — | p1 | [time-sync-loss-halt.md](./time-sync-loss-halt.md) |
+| `EdgeDeniesSustained` / `WAFBlocksSurge` / `WAFChallengesSustained` / `EdgeDDoSSuspected` | — | p2/p2/p2/p1 | [../../deploy/edge/ddos-playbook.md](../../deploy/edge/ddos-playbook.md) |
+
+### Task 13.3.3 domain pack (`deploy/prometheus/alerts.yml`)
+
+| Alert | Severity | Runbook |
+|---|---|---|
+| `GatewayP99LatencySLOBreach` / `GatewayP99LatencyDegraded` / `HTTPP99LatencySLOBreach` / `MarketDataWSPushP99High` / `BridgePublishLatencyHigh` | p2/p1/p3/p2/p2 | [http-latency-slo.md](./http-latency-slo.md) |
+| `GatewayTrafficCollapse` / `MarketDataFramesStalled` / `MarketDataDeltasDropped` | p2 | [throughput-collapse.md](./throughput-collapse.md) |
+| `BridgePublishStalled` / `BridgeEventsDropped` | p1 | [bridge-buffer-depth-high.md](./bridge-buffer-depth-high.md), [throughput-collapse.md](./throughput-collapse.md) |
+| `NATSConsumerPendingWarn` / `NATSConsumerAckPendingHigh` / `NATSConsumerRedeliveryStorm` / `LoadShedStageActive` / `LoadShedRejectionsOngoing` | p3/p2/p3/p2/p2 | [queue-depth-backlog.md](./queue-depth-backlog.md), [nats-consumer-pending-high.md](./nats-consumer-pending-high.md) |
+| `EngineIPCRingDepthWarn` / `EngineIPCSeqStalled` / `EngineIPCTelemetryAbsent` | p3/p1/p3 | [ipc-ring-pressure.md](./ipc-ring-pressure.md) |
+| `WALLagCritical` | p1 | [wal-lag-growing.md](./wal-lag-growing.md) |
+| `WALLagNotDraining` / `WALLagTelemetryAbsent` | p2/p3 | [wal-archive-stalled.md](./wal-archive-stalled.md) |
+| `HostMemoryPressure` / `HostMemoryHigh` / `HostSwapInUse` / `WALVolumeNearlyFull` / `HostCPUSaturated` / `HostCPUCritical` / `HostRunqueueHigh` | p1/p2/p3/p1/p2/p1/p3 | [host-resource-pressure.md](./host-resource-pressure.md) |
+| `ClientBlockingModeActive` / `DegradationModeSustained` / `MaintenanceModeProlonged` / `DegradationTelemetryAbsent` | p1/p1/p3/p3 | [degradation-mode-active.md](./degradation-mode-active.md) |
+| `CircuitBreakerOpenSustained` / `CircuitBreakerFlapping` / `MultipleCircuitBreakersOpen` / `CircuitBreakerTelemetryAbsent` | p1/p2/p1/p3 | [circuit-breaker-open.md](./circuit-breaker-open.md) |
+| `ReconciliationMismatchBurst` / `ReconciliationMismatchMultipleKinds` | p1 | [reconciliation-mismatch.md](./reconciliation-mismatch.md) |
+| `ReconciliationSweepMissing` / `ReconciliationTelemetryAbsent` | p2/p3 | [reconciliation-sweep-stalled.md](./reconciliation-sweep-stalled.md) |
+| `ScrapeTargetDown` / `BridgeShardDown` / `BridgeShardRedundancyLost` / `NodeExporterDown` | p1/p1/p2/p3 | [service-scrape-down.md](./service-scrape-down.md), [bridge-heartbeat-stale.md](./bridge-heartbeat-stale.md) |
+| `NATSBackboneDisconnected` / `AdminMonitorTelemetryAbsent` | p1/p2 | [nats-backbone-down.md](./nats-backbone-down.md) |
+| `SettlementServiceDown` / `SettlementErrorsElevated` / `SettlementP99Slow` / `SettlementTrafficSilent` | p1/p2/p2/p3 | [settlement-service-degraded.md](./settlement-service-degraded.md) |
+| `FundingMoneyPath5xx` / `FundingRejectionStorm` / `FundingRouteP99Slow` / `FundingAdminOpsErrors` | p1/p2/p2/p3 | [funding-path-errors.md](./funding-path-errors.md) |
+
+Rule-load validation (count ≥47, all 12 domains, severity+runbook on every rule, links resolve): `python3 scripts/ci/check_alert_rules.py` — also validates the alertmanager severity→receiver routing.
 
 Note on `AvailabilityBurnFast`/`Slow` severities: the deployed Prometheus labels are `p0`/`p1`-class pages; Task 9.3.14 phrases the model as 14.4×→P1, 6×→P2, 1×→P3. The deployed labels are stricter on the fast burn; the SLO burn model itself is documented in [../ops/slo-policy.md](../ops/slo-policy.md).
 
@@ -74,20 +101,20 @@ Existing runbooks maintained elsewhere (link, do not duplicate):
 
 - ClickHouse backup/restore & failure modes — [`deploy/clickhouse/RUNBOOK.md`](../../deploy/clickhouse/RUNBOOK.md) (Task 4.3.6).
 
-## 4. Alert categories still pending — Phase-13 Task 13.3.3
+## 4. Alert categories — Task 13.3.3 status
 
-Task 9.3.5 targets 47+ alert types; ~20 rules are deployed today. Phase-13 Task 13.3.3 will define the full rule set in `deploy/prometheus/alerts.yml` (covering latency, throughput, queue depth, WAL lag, memory, CPU, degradation, circuit breaker, reconciliation, DR, settlement, funding) and Phase-13.5 Task 13.5.3.4 validates runbook coverage. Template stubs below name the category owner; write the runbook in this directory using the standard structure when the rule lands.
+Task 9.3.5 targets 47+ alert types; the full domain set now loads from `deploy/prometheus/alerts.yml` + `rules/exchange-alerts.yml` + `deploy/monitoring/{capacity,redis-sentinel}-alerts.yml` (95 rules at last `check_alert_rules.py` run, all 12 Task 13.3.3 domains covered). Remaining gaps are emitter-side, not rule-side — rules whose feeders are unwired carry an `EMITTER-GAP` comment and a paired `*TelemetryAbsent` rule that tracks the gap as a p3 ticket. Phase-13.5 Task 13.5.3.4 validates runbook coverage.
 
-| Anticipated category | Anchor mechanism (where it exists) | Status |
+| Category | Anchor mechanism (where it exists) | Status |
 |---|---|---|
-| Matching p99 > 50µs / REST p99 > 5ms latency SLO | `LatencyHistogram` in `core/src/matching/EngineLoop.cpp`; `http_requests_total`/`exchange_errors_total` | pending Phase-13 Task 13.3.3 |
-| Order-gateway 5xx rate / route-level SLI | gateway `/metrics` on :8080 | pending Phase-13 Task 13.3.3 |
+| Matching p99 > 50µs / REST p99 > 5ms latency SLO | `LatencyHistogram` in `core/src/matching/EngineLoop.cpp`; `http_request_duration_seconds` | REST p99 deployed (`GatewayP99LatencySLOBreach`/`Degraded`); engine-side p99 still needs a core exporter — pending Phase-13 |
+| Order-gateway 5xx rate / route-level SLI | gateway `/metrics` on :8080 | covered by `L1ErrorsSustained` + funding-domain rules; per-route SLI matrix pending |
 | Per-endpoint SLIs beyond generic 99.99%/5ms | spec §19.14 | pending Phase-09 Task 9.3.29 contract ([../ops/observability-contract.md](../ops/observability-contract.md)) |
-| PostgreSQL replica lag > 5s | `deploy/postgres/` semi-sync config | runbook exists ([postgres-failover.md](./postgres-failover.md)); dedicated lag alert pending Phase-13 |
-| Redis Sentinel quorum loss / lag > 100ms | `deploy/redis/sentinel.conf`, `config/redis-sentinel.yaml` | runbook exists ([redis-sentinel-failover.md](./redis-sentinel-failover.md)); drill harness pending Phase-09 Task 9.3.20 |
+| PostgreSQL replica lag > 5s | `deploy/postgres/` semi-sync config | runbook exists ([postgres-failover.md](./postgres-failover.md)); needs a postgres exporter job in prometheus.yml — emitter gap, not yet scraped |
+| Redis Sentinel quorum loss / lag > 100ms | `deploy/redis/sentinel.conf`, `config/redis-sentinel.yaml` | **deployed** — `deploy/monitoring/redis-sentinel-alerts.yml` is now in `rule_files` (drill harness per Phase-09 Task 9.3.20; exporter emitting `sentinel_*`/`redis_*` series is the remaining gap) |
 | Price-oracle staleness > 5s / `PRICE_ORACLE_UNAVAILABLE` | spec §19.13.1 `oracle-service` | pending Phase-19.5 (service + feeds) |
 | Liquidation scanner missed 2s cadence | spec §19.13.1 `liquidation-scanner` | pending Phase-19 |
-| Settlement ingest lag / GL imbalance (`LEDGER_IMBALANCE_ABORT`) | `services/cmd/settlement` (scaffold), GL migrations 036/088 | service pending Phase-03 |
+| Settlement ingest lag / GL imbalance (`LEDGER_IMBALANCE_ABORT`) | `services/cmd/settlement` (scaffold), GL migrations 036/088 | service liveness/error/latency deployed (Task 13.3.3 pack); batch/GL-level rules pending Phase-03 emitters |
 | Banking-rail return codes / suspense growth | `services/cmd/banking_rails` | pending Phase-11/Phase-24 |
 | Swap-free / Tom-Next roll failure (17:00 ET) | `services/cmd/tomnext_rollover` | pending Phase-03 Task 3.3.7 |
 | Proof-of-reserves Merkle publish failure | `services/cmd/proof_of_reserves`, `exchange merkle` | partial — `exchange merkle` CLI exists; CronJob pending Phase-13 Task 13.3.7 |
@@ -95,14 +122,14 @@ Task 9.3.5 targets 47+ alert types; ~20 rules are deployed today. Phase-13 Task 
 | Cache-warming failure (P0 keys >5s / P1 keys >30s) | `exchange warm-cache` CLI | pending Phase-09 Task 9.3.8 (CLI not yet registered) |
 | Daemon watchdog trip / `exchange-watchdogd` probe failure | [`../ops/daemon-supervision.md`](../ops/daemon-supervision.md) (Task 9.3.28), [`../ops/daemon-inventory.md`](../ops/daemon-inventory.md) | supervision runbook exists; `services/cmd/watchdogd` binary pending |
 | Sanctions provider outage (scoped degradation) | `SANCTIONS_SERVICE_UNAVAILABLE` registered in `services/internal/errs/codes.go` | pending Phase-21 feed handler |
-| `RETENTION_POLICY_VIOLATION` (nightly enforcer) | `services/internal/operations/retention/` enforcer exists; policy doc [`../compliance/data-retention.md`](../compliance/data-retention.md) | deployed (Task 9.3.22) — alert-rule wiring pending Phase-13 Task 13.3.3 |
+| `RETENTION_POLICY_VIOLATION` (nightly enforcer) | `services/internal/operations/retention/` enforcer exists; policy doc [`../compliance/data-retention.md`](../compliance/data-retention.md) | deployed (Task 9.3.22) — `RetentionPolicyViolation` rule now loaded via `deploy/monitoring/capacity-alerts.yml` (emitter `exchange_retention_violations_total` is the remaining gap) |
 | `VDP_SLA_BREACH` (vulnerability disclosure SLA) | `vulnerability_disclosures` (migration 081 — pending) | pending Phase-13.5 Task 13.5.3.8 |
 | Clock offset `clock_offset_nanoseconds` > 100µs | spec §19.4, `services/internal/timesync` | runbook exists ([time-sync-loss-halt.md](./time-sync-loss-halt.md)) |
 
 ## 5. On-call rotation (PagerDuty)
 
 - Rotation: weekly primary + secondary, handover Mondays 09:00 UTC (aligned to the 24/5 FX week — Sunday 21:00 UTC open → Friday 22:00 UTC close; weekend pages still route to the rotation).
-- Services: `pagerduty-p0` (phone/page, repeat 15m), `pagerduty-p1` (page, repeat 1h), `pagerduty-p2-ticket` (ticket + Slack). P3 is Slack-only informational in `#exchange-ops`.
+- Services: `pagerduty-p0` (phone/page, repeat 15m), `pagerduty-p1` (page, repeat 1h), `pagerduty-p2-ticket` (ticket + Slack), `pagerduty-p3-ticket` (info-severity PD ticket + `#exchange-ops` — Task 13.3.3 P3=ticket contract).
 - Escalation timing and the full matrix: [incident-escalation.md](./incident-escalation.md).
 - PagerDuty provider outage fallback: SMS/phone tree maintained in the escalation doc; this is a named edge case of Task 9.3.18.
 
@@ -121,4 +148,4 @@ Chaos evidence harness for T1/T4-style injects: `tests/chaos/run.sh --scenarios 
 
 ## 7. Change control
 
-These runbooks are controlled documents. Any change to a runbook that alters thresholds or steps must be reconciled with the alert rule that cites it (`deploy/prometheus/rules/*.yml` annotation `runbook:` link — pending Phase-13 Task 13.3.3 wiring) and noted in the relevant phase plan. Runbook edits never tick acceptance checkboxes.
+These runbooks are controlled documents. Any change to a runbook that alters thresholds or steps must be reconciled with the alert rule that cites it (the `runbook:` annotation in the loaded rule files — `deploy/prometheus/{alerts.yml,rules/exchange-alerts.yml}` and `deploy/monitoring/*.yml` — wired by Task 13.3.3 and link-checked by `scripts/ci/check_alert_rules.py`) and noted in the relevant phase plan. Runbook edits never tick acceptance checkboxes.

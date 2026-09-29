@@ -29,3 +29,17 @@ A service reports an active mode other than `Normal`/`Maintenance`. Modes (Pasca
 
 - P2 for `ReadOnly`/`Throttled`; **P1 for `MarketDataOnly`/`SpotOnly`** (§2.4 alerting table). Escalate to P0 if `MarketDataOnly` exceeds 1h (client-money read/write impaired) or mode oscillates.
 - Status-page entry required for any mode ≠ `Normal` visible to clients — the Task 9.3.25 aggregator (`services/internal/ops/status_exporter.go`) already opens an `ops_incidents` row on non-`Normal` mode activation; verify `status:current`/`GET /api/v1/system/status` reflects it, and post to `#exchange-ops` + support macro for direct notice.
+
+## Task 13.3.3 companion alerts
+
+### sustained
+
+`DegradationModeSustained` (p1): any non-Normal/non-Maintenance mode held >15m. The 30s-healthy-telemetry exit hysteresis should have cleared a transient — a sustained mode means either the trigger is still real (check the mode's recovery criteria above) or the exit probe is broken (check that the monitored metric is actually flowing — e.g. ReadOnly's exit needs the engine p50 self-probe running).
+
+### maintenance-window
+
+`MaintenanceModeProlonged` (p3): `Maintenance` held >2h. Verify a declared window exists in `maintenance_windows` (migration 172, `GET /api/v1/admin/maintenance-windows`); an undeclared Maintenance suppresses `DegradationModeActive` and hides real modes — clear it or declare the window.
+
+### telemetry-gap
+
+`DegradationTelemetryAbsent` (p3): `exchange_degradation_mode` emits no samples — the metrics feeder (`observability.Metrics.SetDegradationMode`) is not yet wired to the Redis `system:degradation:mode` store. Mode enforcement is unaffected (the gateway gate reads Redis directly); wire the gauge to the same source so the timeline is scrapeable.

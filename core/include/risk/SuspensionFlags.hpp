@@ -11,6 +11,13 @@
 // `halt:fixsession:{id}`, `halt:lp:{id}`, `halt:rail:{RAIL}`,
 // `halt:desk:{id}`, `halt:region:{R}`, `halt:env:{E}`.
 //
+// Phase-13 Task 13.3.6 extends the same refreshed snapshot with the
+// MiFID II RTS 9 order-to-trade flags the Go OtrMonitor owns —
+// `otr:breach:{account}`. The keyspace rides the same poll/apply
+// cadence (zero Redis on the match thread); a breach rejects new-order
+// admission with OTR_LIMIT_EXCEEDED while cancels stay exempt because
+// they never reach the pre-trade pipeline.
+//
 // A control-path SuspensionRefresher (SuspensionRefresher.cpp) polls
 // those keys via RespClient and swaps a Snapshot into this object.
 // PreTradeChecker consults the snapshot on EVERY order admission —
@@ -54,6 +61,7 @@ public:
         std::unordered_set<std::string> desks;         // halt:desk:{id}
         std::unordered_set<std::string> regions;       // halt:region:{R}
         std::unordered_set<std::string> envs;          // halt:env:{E}
+        std::unordered_set<uint64_t> otr_breached;     // otr:breach:{id} (Task 13.3.6)
     };
 
     SuspensionFlags() = default;
@@ -91,6 +99,14 @@ public:
                                         const char* symbol,
                                         const char* cls) const noexcept;
 
+    // Hot path — true while the account's RTS-9 OTR breach flag stands
+    // (`otr:breach:{account}` in the last applied snapshot). An
+    // unverifiable or absent snapshot reports FALSE here: the
+    // fail-closed verdict for that case is already produced by
+    // scope_for (kScopeUnverifiable), which callers evaluate first —
+    // the OTR gate only distinguishes "open" from "breached".
+    [[nodiscard]] bool otr_breached(uint64_t account_id) const noexcept;
+
 private:
     mutable std::shared_mutex mu_;
     std::shared_ptr<const Snapshot> snap_{};
@@ -102,5 +118,13 @@ private:
 // target (they are ignored — a foreign key must never suspend trading).
 [[nodiscard]] bool suspension_key_into(std::string_view key,
                                        SuspensionFlags::Snapshot* out) noexcept;
+
+// Parse one `otr:breach:{account}` key into a Snapshot (Task 13.3.6).
+// Returns false for keys outside the namespace or with a non-numeric
+// account id — notably the Go side's `otr:breach:index` bookkeeping set,
+// which a `KEYS otr:breach:*` scan returns but which must never be
+// treated as an account flag.
+[[nodiscard]] bool otr_key_into(std::string_view key,
+                                SuspensionFlags::Snapshot* out) noexcept;
 
 }  // namespace exch

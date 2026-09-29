@@ -56,6 +56,13 @@ var (
 	DefaultSymbolNotionalCap  = decimal.NewFromInt(10_000_000) // $10M per symbol
 	DefaultShortNotionalCap   = decimal.NewFromInt(5_000_000)  // $5M short per symbol
 	DefaultAccountNotionalCap = decimal.NewFromInt(50_000_000) // $50M all symbols
+
+	// §13.6a / Task 13.3.6 (MiFID II RTS 9) canonical OTR defaults —
+	// applied when no row resolves a value (the columns themselves are
+	// NOT NULL DEFAULT after migration 047, so the fallback only guards
+	// an entirely empty table).
+	DefaultOtrRatio  = decimal.NewFromInt(500)
+	DefaultOtrWindow = 60 * time.Second
 )
 
 // Redis key layout (spec §4 naming style). risk_limits:rows is the full
@@ -82,25 +89,27 @@ func dailyWithdrawnKey(accountID int64, day time.Time) string {
 // AccountID nil = global default, Symbol nil/"*" = all symbols,
 // Tier nil = KYC-tier-independent.
 type Row struct {
-	ID                  int64
-	AccountID           *int64
-	Symbol              *string
-	Tier                *string // kyc_tier_enum: 'T0'|'T1'|'T2'
-	MaxOrderQty         *decimal.Decimal
-	MaxDailyVolume      *decimal.Decimal
-	MaxOpenOrders       *int32
-	DailyWithdrawLimit  *decimal.Decimal
-	MaxWithdrawAmount   *decimal.Decimal
-	WithdrawRatePerHour *decimal.Decimal
-	MaxNotionalExposure *decimal.Decimal // migration 109
-	MaxShortExposure    *decimal.Decimal // migration 109
-	MaxAccountNotional  *decimal.Decimal // migration 109
+	ID                   int64
+	AccountID            *int64
+	Symbol               *string
+	Tier                 *string // kyc_tier_enum: 'T0'|'T1'|'T2'
+	MaxOrderQty          *decimal.Decimal
+	MaxDailyVolume       *decimal.Decimal
+	MaxOpenOrders        *int32
+	DailyWithdrawLimit   *decimal.Decimal
+	MaxWithdrawAmount    *decimal.Decimal
+	WithdrawRatePerHour  *decimal.Decimal
+	MaxNotionalExposure  *decimal.Decimal // migration 109
+	MaxShortExposure     *decimal.Decimal // migration 109
+	MaxAccountNotional   *decimal.Decimal // migration 109
+	MaxOrderToTradeRatio *decimal.Decimal // migration 047 — MiFID II RTS 9
+	OtrWindow            *time.Duration   // migration 047 — rolling OTR window
 }
 
 // EffectiveLimits is the resolved limit set for one (account, tier,
 // symbol) triple. Nil pointers mean unlimited — except the three exposure
-// fields, which are always non-nil after resolution because §13.6 defines
-// canonical defaults.
+// fields and the OTR pair, which are always non-nil after resolution
+// because §13.6/§13.6a define canonical defaults.
 type EffectiveLimits struct {
 	MaxOrderQty         *decimal.Decimal
 	MaxDailyVolume      *decimal.Decimal
@@ -111,6 +120,12 @@ type EffectiveLimits struct {
 	MaxNotionalExposure *decimal.Decimal
 	MaxShortExposure    *decimal.Decimal
 	MaxAccountNotional  *decimal.Decimal
+	// Task 13.3.6 — MiFID II RTS 9 order-to-trade ratio. Always resolved:
+	// a scoped row wins (the MM/program-instrument allowance is simply a
+	// higher ratio on an account/symbol-scoped row), else the §13.6a
+	// venue default 500 events/trade over a 60s window.
+	MaxOrderToTradeRatio *decimal.Decimal
+	OtrWindow            time.Duration
 }
 
 // Usage is one account's utilisation of its daily counters for one UTC
@@ -257,6 +272,23 @@ func Resolve(rows []Row, accountID int64, tier, symbol string) EffectiveLimits {
 	} else {
 		d := DefaultAccountNotionalCap
 		lim.MaxAccountNotional = &d
+	}
+
+	// §13.6a / Task 13.3.6: OTR columns carry canonical defaults too.
+	if v := firstDec(func(r Row) *decimal.Decimal { return r.MaxOrderToTradeRatio }); v != nil {
+		lim.MaxOrderToTradeRatio = v
+	} else {
+		d := DefaultOtrRatio
+		lim.MaxOrderToTradeRatio = &d
+	}
+	for _, c := range cands {
+		if c.row.OtrWindow != nil {
+			lim.OtrWindow = *c.row.OtrWindow
+			break
+		}
+	}
+	if lim.OtrWindow <= 0 {
+		lim.OtrWindow = DefaultOtrWindow
 	}
 	return lim
 }
@@ -634,7 +666,9 @@ func (s *PgStore) LoadLimits(ctx context.Context) ([]Row, error) {
 		       daily_withdraw_limit::text, max_withdraw_amount::text,
 		       withdraw_rate_per_hour::text,
 		       max_notional_exposure::text, max_short_exposure::text,
-		       max_account_notional::text
+		       max_account_notional::text,
+		       max_order_to_trade_ratio::text,
+		       EXTRACT(EPOCH FROM otr_window)::text
 		FROM risk_limits ORDER BY id`)
 	if err != nil {
 		return nil, err
@@ -646,10 +680,11 @@ func (s *PgStore) LoadLimits(ctx context.Context) ([]Row, error) {
 		var (
 			r                                       Row
 			moq, mdv, dwl, mwa, wrph, mne, mse, man *string
+			otr, otrw                               *string
 		)
 		if err := rows.Scan(&r.ID, &r.AccountID, &r.Symbol, &r.Tier,
 			&moq, &mdv, &r.MaxOpenOrders, &dwl, &mwa, &wrph,
-			&mne, &mse, &man); err != nil {
+			&mne, &mse, &man, &otr, &otrw); err != nil {
 			return nil, err
 		}
 		var scanErr error
@@ -677,9 +712,33 @@ func (s *PgStore) LoadLimits(ctx context.Context) ([]Row, error) {
 		if r.MaxAccountNotional, scanErr = parseDec(man); scanErr != nil {
 			return nil, scanErr
 		}
+		if r.MaxOrderToTradeRatio, scanErr = parseDec(otr); scanErr != nil {
+			return nil, scanErr
+		}
+		if r.OtrWindow, scanErr = parseWindow(otrw); scanErr != nil {
+			return nil, scanErr
+		}
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+// parseWindow converts an interval rendered as epoch-seconds text into a
+// Duration (LoadLimits reads EXTRACT(EPOCH FROM otr_window)::text so the
+// INTERVAL column crosses the wire without pgtype shimming).
+func parseWindow(s *string) (*time.Duration, error) {
+	if s == nil {
+		return nil, nil
+	}
+	d, err := decimal.NewFromString(*s)
+	if err != nil {
+		return nil, fmt.Errorf("parse otr_window seconds %q: %w", *s, err)
+	}
+	w := time.Duration(d.Mul(decimal.NewFromInt(int64(time.Second))).IntPart())
+	if w <= 0 {
+		return nil, fmt.Errorf("otr_window %q resolves to a non-positive duration", *s)
+	}
+	return &w, nil
 }
 
 // DailyUsage returns today's usage row; an absent row is zero usage, not
@@ -827,6 +886,18 @@ type rowJSON struct {
 	MaxNotionalExposure *string `json:"max_notional_exposure,omitempty"`
 	MaxShortExposure    *string `json:"max_short_exposure,omitempty"`
 	MaxAccountNotional  *string `json:"max_account_notional,omitempty"`
+	// Migration 047 (RTS 9). OtrWindow crosses the wire as a Go duration
+	// string ("60s") — the INTERVAL column renders the same human unit.
+	MaxOrderToTradeRatio *string `json:"max_order_to_trade_ratio,omitempty"`
+	OtrWindow            *string `json:"otr_window,omitempty"`
+}
+
+func durStr(w *time.Duration) *string {
+	if w == nil {
+		return nil
+	}
+	s := w.String()
+	return &s
 }
 
 func decStr(d *decimal.Decimal) *string {
@@ -842,19 +913,21 @@ func (c *RedisLimitsCache) PublishLimits(ctx context.Context, rows []Row) error 
 	wire := make([]rowJSON, 0, len(rows))
 	for _, r := range rows {
 		wire = append(wire, rowJSON{
-			ID:                  r.ID,
-			AccountID:           r.AccountID,
-			Symbol:              r.Symbol,
-			Tier:                r.Tier,
-			MaxOrderQty:         decStr(r.MaxOrderQty),
-			MaxDailyVolume:      decStr(r.MaxDailyVolume),
-			MaxOpenOrders:       r.MaxOpenOrders,
-			DailyWithdrawLimit:  decStr(r.DailyWithdrawLimit),
-			MaxWithdrawAmount:   decStr(r.MaxWithdrawAmount),
-			WithdrawRatePerHour: decStr(r.WithdrawRatePerHour),
-			MaxNotionalExposure: decStr(r.MaxNotionalExposure),
-			MaxShortExposure:    decStr(r.MaxShortExposure),
-			MaxAccountNotional:  decStr(r.MaxAccountNotional),
+			ID:                   r.ID,
+			AccountID:            r.AccountID,
+			Symbol:               r.Symbol,
+			Tier:                 r.Tier,
+			MaxOrderQty:          decStr(r.MaxOrderQty),
+			MaxDailyVolume:       decStr(r.MaxDailyVolume),
+			MaxOpenOrders:        r.MaxOpenOrders,
+			DailyWithdrawLimit:   decStr(r.DailyWithdrawLimit),
+			MaxWithdrawAmount:    decStr(r.MaxWithdrawAmount),
+			WithdrawRatePerHour:  decStr(r.WithdrawRatePerHour),
+			MaxNotionalExposure:  decStr(r.MaxNotionalExposure),
+			MaxShortExposure:     decStr(r.MaxShortExposure),
+			MaxAccountNotional:   decStr(r.MaxAccountNotional),
+			MaxOrderToTradeRatio: decStr(r.MaxOrderToTradeRatio),
+			OtrWindow:            durStr(r.OtrWindow),
 		})
 	}
 	blob, err := json.Marshal(wire)

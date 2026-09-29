@@ -21,4 +21,5 @@ func RegisterAll(r *spec.Registry) {
 	registerPhase10(r)
 	registerPhase11(r)
 	registerPhase12(r)
+	registerPhase13(r)
 }

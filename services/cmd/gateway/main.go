@@ -45,8 +45,10 @@ import (
 	"exchange/internal/observability"
 	"exchange/internal/ops"
 	"exchange/internal/orders"
+	"exchange/internal/position"
 	"exchange/internal/promos"
 	"exchange/internal/ratelimit"
+	"exchange/internal/reconciliation"
 	"exchange/internal/redis"
 	"exchange/internal/risk"
 	"exchange/internal/settlement"
@@ -217,11 +219,69 @@ func run() error {
 	}
 	riskLimits.StartRefresher(context.Background(), 60*time.Second,
 		func(e error) { log.Warn("risk limits refresh failed", "err", e) })
+	// Phase-13 Tasks 13.3.1/13.3.9 — five-tier circuit breaker (spec §2.6):
+	// Redis HASH state (circuit_breaker:{scope}:{id}), PG audit
+	// (circuit_breaker_events, migration 206), Prometheus
+	// circuit_breaker_state/transitions_total, and the order-admission
+	// gate wired into orders.Service below. Feeds: engine fill stream
+	// (price + volume); ACCOUNT losses and IV bind the documented seams
+	// (Phase-19 P&L / Phase-22 options surfaces) — NullIVSource is the
+	// dev/null OPTIONS_VOLATILITY feed until then.
+	breakerSvc, err := risk.NewCircuitBreakerService(risk.BreakerDeps{
+		Store:   risk.RedisBreakerStore{C: rdb},
+		Events:  risk.NewPgBreakerEventStore(pool),
+		Metrics: risk.NewBreakerMetrics(metReg),
+		IV:      risk.NullIVSource{},
+		Logf:    func(f string, a ...any) { log.Warn(fmt.Sprintf(f, a...)) },
+	})
+	if err != nil {
+		return fmt.Errorf("circuit-breaker service: %w", err)
+	}
+	if err := breakerSvc.Load(context.Background()); err != nil {
+		// Boot continues: the in-process map is empty and the per-admission
+		// read-through hydration still consults Redis — fail closed.
+		log.Warn("circuit-breaker state load failed", "err", err)
+	}
 	usdConv := &settlement.RedisUsdConverter{Rdb: rdb}
 	var opsAlerter funding.OpsAlerter
 	if ledgerPub != nil {
 		opsAlerter = settlement.PublisherAlerter{Pub: ledgerPub}
 	}
+	// Flapping penalty pages Risk Management via the shared ops alerter;
+	// nil alerter (no NATS) degrades to the service log only.
+	breakerSvc.WithAlerter(func(ctx context.Context, severity, code, summary string) error {
+		if opsAlerter == nil {
+			return nil
+		}
+		return opsAlerter.Raise(ctx, settlement.OpsAlert{
+			Severity: severity, Code: code, Summary: summary})
+	})
+	// Phase-13 Task 13.3.6 — MiFID II RTS 9 order-to-trade ratio monitor:
+	// order events (new/modify/cancel) and fills slide through Redis
+	// zset windows (otr:events|otr:trades:{account}:{symbol}); a breach
+	// (events > ratio × max(trades,1), defaults 500 / 60s — migration
+	// 047) raises otr:breach:{account}, rejects new orders with
+	// OTR_LIMIT_EXCEEDED while permitting cancels, and pages P2. The 1s
+	// sweeper clears the flag when every active pair decays under its
+	// limit; the C++ SuspensionRefresher mirrors the same keyspace into
+	// PreTradeChecker as the engine-side backstop. Market-maker
+	// allowance = a higher-ratio account/symbol-scoped risk_limits row
+	// (resolved by riskLimits; no separate MM registry exists).
+	otrMon := risk.NewOtrMonitor(rdb.Client, riskLimits).
+		WithLogger(func(f string, a ...any) { log.Warn(fmt.Sprintf(f, a...)) }).
+		WithMetrics(metReg).
+		WithTierResolver(func(ctx context.Context, accountID int64) (string, error) {
+			var tier string
+			err := pool.QueryRow(ctx,
+				`SELECT kyc_tier::text FROM accounts WHERE id = $1`,
+				accountID).Scan(&tier)
+			return tier, err
+		})
+	otrSinks := observability.FanoutSink{observability.LogSink{Log: log}}
+	if ledgerPub != nil {
+		otrSinks = append(otrSinks, observability.PublisherSink{Pub: ledgerPub})
+	}
+	otrMon.WithAlerts(otrSinks)
 	// Task 7.3.10 DLQ inspection: bind the ops-dlq stream if it has been
 	// provisioned (`natsctl dlq init`) — the registered route returns a
 	// fail-closed 503 until then rather than silently fabricating one.
@@ -549,6 +609,8 @@ func run() error {
 		ShardMap:   shardMap,
 		Limits:     riskLimits,
 		KillSwitch: killResolver, // Tasks 11.3.4/11.3.8 — every admission path consults it
+		Otr:        otrMon,       // Task 13.3.6 — RTS 9 OTR event counting + breach gate
+		Breakers:   breakerSvc,   // Tasks 13.3.1/13.3.9 — §2.6 five-tier breaker gate
 		BatchRL:    orders.NewRedisBatchLimiter(rdb.Client, 0),
 	})
 	if err != nil {
@@ -570,6 +632,33 @@ func run() error {
 	// below; the pusher tolerates a nil hub (no subscribers can exist
 	// before the endpoint mounts anyway).
 	var wsSrv *ws.Server
+
+	// Phase-13 Task 13.3.4 — real-time P&L service: per-position
+	// mark-to-market (signedQty × (mark − entry)) aggregated per quote
+	// currency, converted to accounts.base_currency through the Task
+	// 3.3.9 FX converter. Marks resolve through the Phase-19.5 oracle
+	// seam — today the last-trade reference price (orderStore), the
+	// same seam order admission uses; PositionService's stored mark is
+	// the fallback inside the service. The publisher binds wsSrv
+	// lazily (hub constructed below; fills can land first).
+	pnlStore := risk.NewPnlPgStore(pool)
+	pnlSvc, err := risk.NewPnlService(risk.PnlOptions{
+		Store: pnlStore,
+		Marks: orderStore, // last-trade reference price — PriceOracle placeholder
+		Converter: position.NewConverter(risk.LastTradeRates{
+			Instruments: pnlStore,
+			Marks:       orderStore,
+		}, ""),
+		Publisher: pnlPublisherFunc(func(accountID int64, channel string, data any) {
+			if wsSrv != nil {
+				wsSrv.PublishPrivate(accountID, channel, data)
+			}
+		}),
+	})
+	if err != nil {
+		return fmt.Errorf("pnl service: %w", err)
+	}
+
 	notifStore := notifications.NewPgStore(pool)
 	notifSvc, err := notifications.NewService(notifications.Options{
 		Store: notifStore,
@@ -626,6 +715,24 @@ func run() error {
 			o, oerr := orderStore.GetOrder(ctx, orderID)
 			if oerr != nil || o == nil {
 				return
+			}
+			// Phase-13 circuit-breaker feeds: last-trade price →
+			// INSTRUMENT move window + MARKET_WIDE aggregate; fill
+			// notional → VOLUME_SPIKE minute buckets. Best-effort: a
+			// feed error is logged inside the service, never masks the
+			// fill notification path.
+			if inst, ierr := orderStore.InstrumentByID(ctx, o.InstrumentID); ierr == nil && inst != nil {
+				breakerSvc.ObservePrice(ctx, inst.Symbol, px)
+				breakerSvc.ObserveTrade(ctx, inst.Symbol, px.Mul(qty))
+				// Task 13.3.6: the fill counts in the account's OTR
+				// trades window (denominator); an under-limit verdict
+				// re-evaluates the breach flag.
+				otrMon.Fill(ctx, o.AccountID, "", inst.Symbol)
+			}
+			// Task 13.3.4: republish the account's live P&L plus the
+			// mark-update fanout to other holders of the instrument.
+			if pnlSvc != nil {
+				pnlSvc.OnTrade(ctx, o.AccountID, o.InstrumentID)
 			}
 			var userID int64
 			if err := pool.QueryRow(ctx,
@@ -702,6 +809,17 @@ func run() error {
 			return ratelimit.ParseTier(*name)
 		},
 	})
+	// Phase-13 Task 13.3.9: stream every breaker transition to the
+	// "admin.circuit_breaker" WS admin-monitor channel (documented seam —
+	// no pre-existing admin monitor channel in ws.Server).
+	breakerSvc.WithPublisher(wsSrv)
+	// Task 13.3.9 sweeper: 1s cadence advances OPEN→HALF_OPEN at hold
+	// expiry and resolves 30s probe windows (HALF_OPEN→CLOSED/OPEN).
+	go breakerSvc.Run(sweepCtx, time.Second)
+	// Task 13.3.6 OTR sweeper: 1s cadence re-evaluates flagged accounts
+	// and clears otr:breach:* once every active pair decays under its
+	// limit (pure window decay has no triggering event otherwise).
+	go otrMon.Run(sweepCtx, time.Second)
 
 	// Phase-11 kill-switch control plane (Tasks 11.3.4/11.3.8/11.3.12):
 	// dual-controlled set/clear (GLOBAL + destructive COUNTERPARTY) over
@@ -728,6 +846,41 @@ func run() error {
 		log.Warn("kill-switch flag reconcile failed", "err", rerr)
 	} else if n > 0 {
 		log.Info("kill-switch flags reconciled", "active_suspensions", n)
+	}
+
+	// Phase-13 Task 13.3.2 — nine-category hourly reconciliation engine.
+	// The sweep composes the Phase-04 wallet-diff legs (composed via
+	// recovery.RecWalletReconcileDiff, never reimplemented), the core
+	// WAL journal replay, and the §5.19/§5.46/§5.21 projections. A
+	// MISMATCH pages P1 (durable funding_ops_alerts row + the shared
+	// NATS ops-alert subject) and emits a scoped auto-halt through the
+	// same artifacts KillSwitchService commits — a trading_suspensions
+	// row (initiated_by=0, the machine sentinel) plus the halt:* flag —
+	// so the enforcement surface and the admin resume path are
+	// identical (engine ruling R4). The scheduler shares the sweeper
+	// lifecycle; hourly ±10% jitter, interval injectable for tests.
+	reconStore := reconciliation.NewPgStore(pool)
+	reconEngine, err := reconciliation.NewEngine(reconciliation.Deps{
+		Pool:    pool,
+		Store:   reconStore,
+		Alerter: reconciliation.NewDurableOpsAlerter(pool, opsAlerter),
+		Halter:  reconciliation.NewPgHalter(pool, rdb),
+		WalDirs: reconciliationWalDirs(shardMap),
+		Logf:    func(f string, a ...any) { log.Warn(fmt.Sprintf(f, a...)) },
+	}, reconciliation.DefaultCheckers(reconciliation.NewPgLegs(pool), nil, nil))
+	if err != nil {
+		return fmt.Errorf("reconciliation engine: %w", err)
+	}
+	go reconEngine.RunScheduler(sweepCtx, reconciliationInterval())
+
+	// Phase-13 Task 13.3.7 — solvency proof read surface. The store
+	// serves the published-snapshot reads; generation runs out-of-process
+	// (`exchange solvency-tree`, deploy/crons/solvency-tree.sh, 22:00
+	// UTC) so the signing key never needs to live in the gateway's env —
+	// and a signing failure can never degrade the trading surface.
+	solvStore, err := reconciliation.NewSolvencyStore(pool)
+	if err != nil {
+		return fmt.Errorf("solvency store: %w", err)
 	}
 
 	// Task 5.3.30: manual liquidation. Role resolution is the Phase-07
@@ -915,6 +1068,42 @@ func run() error {
 	adminSvc := admin.NewService(pool, adminStore, killSessions, rbacAlerter)
 	dualSvc := admin.NewDualControlService(pool, adminStore)
 	api.RegisterRoleChangeExecutor(dualSvc, adminSvc)
+	// Task 13.3.8: the expiry-extension executor — the grant applies
+	// inside the second approver's transaction, never at submit time.
+	api.RegisterAPIKeyExpiryExecutor(dualSvc, keyStore)
+
+	// Phase-13 Task 13.3.8 — API-key privilege auto-expiry policy. The
+	// in-process sweeper re-runs the idempotent warn→revoke→restore pass
+	// hourly (the daily `exchange api-key-expiry-sweep` cron job is the
+	// scheduled-of-record path); a query-level failure logs loudly and
+	// retries next tick — a silent skip would defeat the defense.
+	keyExpiry, err := auth.NewKeyExpiryPolicy(keyStore, secNotify)
+	if err != nil {
+		return fmt.Errorf("api-key expiry policy: %w", err)
+	}
+	keyExpiry.WithLogger(func(f string, a ...any) { log.Warn(fmt.Sprintf(f, a...)) })
+	go func() {
+		t := time.NewTicker(time.Hour)
+		defer t.Stop()
+		for {
+			select {
+			case <-sweepCtx.Done():
+				return
+			case <-t.C:
+				res, serr := keyExpiry.Sweep(sweepCtx)
+				if serr != nil {
+					log.Warn("api-key expiry sweep failed", "err", serr)
+				} else if res.Warned+res.Revoked+res.Restored > 0 {
+					log.Info("api-key expiry sweep", "warned", res.Warned,
+						"revoked", res.Revoked, "restored", res.Restored)
+				}
+			}
+		}
+	}()
+	// Phase-13 Task 13.3.9: dual-controlled breaker reset — the second
+	// approver's approval runs ManualReset inside the decision tx; a
+	// failed close aborts and leaves the request PENDING for retry.
+	api.RegisterBreakerResetExecutor(dualSvc, breakerSvc)
 
 	// ---- Phase-12 Tasks 12.3.10/12.3.11 + 12.3.12(part 3) ----
 	// Client-side delegation (migration 074): master-account workforce
@@ -1122,6 +1311,8 @@ func run() error {
 		"GET /api/v1/account/balances":    http.HandlerFunc(api.AccountBalances(fundStore)),
 		"GET /api/v1/positions":           http.HandlerFunc(api.AccountPositions(fundStore)),
 		"GET /api/v1/account/risk-limits": http.HandlerFunc(api.AccountRiskLimits(riskLimits, fundStore)),
+		// Phase-13 Task 13.3.4 — real-time realized/unrealized P&L rollup.
+		"GET /api/v1/account/pnl":         http.HandlerFunc(api.AccountPnL(pnlSvc)),
 		"GET /api/v1/deposits/{currency}": http.HandlerFunc(api.DepositInstructions(fundStore)),
 		// Task 11.3.2: withdrawal create/confirm run the Phase-11 flow
 		// wrapper — whitelist/cooldown/beneficiary gates at create, the
@@ -1155,6 +1346,15 @@ func run() error {
 			api.AdminKillSwitchReset(killSvc, true)),
 		"GET /api/v1/admin/kill-switch": http.HandlerFunc(
 			api.AdminKillSwitchStatus(killSvc)),
+		// Phase-13 Tasks 13.3.1/13.3.9 — circuit-breaker admin surface.
+		// Trip is single-approver Risk Manager; reset goes through the
+		// four-eyes queue (admin.OpCircuitBreakerReset executor above).
+		"POST /api/v1/admin/circuit-breaker/{symbol}": http.HandlerFunc(
+			api.AdminCircuitBreakerTrip(api.CircuitBreakerDeps{
+				Breakers: breakerSvc, Dual: dualSvc, TrustProxy: true})),
+		"POST /api/v1/admin/circuit-breaker/{symbol}/reset": http.HandlerFunc(
+			api.AdminCircuitBreakerReset(api.CircuitBreakerDeps{
+				Breakers: breakerSvc, Dual: dualSvc, TrustProxy: true})),
 		"POST /api/v1/transfers":                      http.HandlerFunc(api.CreateTransfer(transferSvc)),
 		"GET /api/v1/transfers":                       http.HandlerFunc(api.TransferHistory(historySvc)),
 		"POST /api/v1/admin/chargebacks":              http.HandlerFunc(api.AdminChargebackCreate(chargebackSvc)),
@@ -1199,6 +1399,23 @@ func run() error {
 			api.AdminReplenishmentDecide(dispatchSvc)),
 		"GET /api/v1/admin/funding/ops-alerts": http.HandlerFunc(
 			api.AdminFundingOpsAlerts(dispatchSvc)),
+		// --- Phase-13 Task 13.3.2 reconciliation report surface ---
+		"GET /api/v1/admin/reconciliation/latest": http.HandlerFunc(
+			api.AdminReconciliationLatest(reconStore)),
+		"GET /api/v1/admin/reconciliation/runs": http.HandlerFunc(
+			api.AdminReconciliationRuns(reconStore)),
+		// --- Phase-13 Task 13.3.7 solvency proof surface ---
+		"GET /api/v1/solvency/latest": http.HandlerFunc(
+			api.SolvencyLatest(solvStore)),
+		"GET /api/v1/solvency/proof": http.HandlerFunc(
+			api.SolvencyProof(solvStore)),
+		"GET /api/v1/account/solvency-proof": http.HandlerFunc(
+			api.AccountSolvencyProof(solvStore)),
+		"GET /api/v1/public/proof-of-reserves/daily-root": http.HandlerFunc(
+			api.SolvencyLatest(solvStore)),
+		// --- Phase-13 Task 13.3.8 API-key expiry extension (four-eyes) ---
+		"PUT /api/v1/admin/api-keys/{id}/extend-expiry": http.HandlerFunc(
+			api.AdminAPIKeyExtendExpiry(dualSvc, true)),
 		// --- end flows cluster ---
 		// --- Phase-11 stats+fees cluster (Tasks 11.3.5/11.3.9) ---
 		"GET /api/v1/stats/24h":          http.HandlerFunc(api.MarketStats24hAll(marketDeps)),
@@ -1257,7 +1474,7 @@ func run() error {
 		"POST /api/v1/admin/fees/promo/{id}/approve": http.HandlerFunc(promoApprove),
 		"POST /api/v1/admin/fees/promo/{id}/reject":  http.HandlerFunc(promoReject),
 		// Task 5.3.16 developer portal (Swagger UI + API-key CRUD).
-		"GET /developer":                         http.HandlerFunc(api.DeveloperPortal()),
+		"GET /developer": http.HandlerFunc(api.DeveloperPortal()),
 		// 12.3.2 DoD: "API key creation" is 2FA-gated on every path —
 		// account + developer portal alike.
 		"POST /api/v1/developer/api-keys":        auth.RequireTwoFactor()(http.HandlerFunc(keyCreate)),
@@ -1699,6 +1916,16 @@ type notifyAdapter struct {
 
 func (a notifyAdapter) Notify(ctx context.Context, accountID int64, event string, payload map[string]any) {
 	a.fn(ctx, accountID, event, payload)
+}
+
+// pnlPublisherFunc adapts a closure to risk.PnlPublisher — the ws hub
+// is late-bound (constructed after the order consumer starts), so the
+// closure checks wsSrv at publish time rather than capturing a nil.
+type pnlPublisherFunc func(accountID int64, channel string, data any)
+
+// PublishPrivate implements risk.PnlPublisher.
+func (f pnlPublisherFunc) PublishPrivate(accountID int64, channel string, data any) {
+	f(accountID, channel, data)
 }
 
 // wsNotifyPush fans a notification payload to every account the user

@@ -300,6 +300,12 @@ func (openKill) OrderHalt(context.Context, int64, string, string, string) (strin
 	return "", "", nil
 }
 
+// openBreakers is the always-admit circuit-breaker fake — the seam fails
+// closed when nil, so happy-path tests opt out explicitly.
+type openBreakers struct{}
+
+func (openBreakers) AdmitOrder(context.Context, int64, string) error { return nil }
+
 func newSvc(t *testing.T, st *fakeStore, sub *fakeSubmitter) *Service {
 	t.Helper()
 	shards, err := config.LoadShardMap("")
@@ -308,7 +314,7 @@ func newSvc(t *testing.T, st *fakeStore, sub *fakeSubmitter) *Service {
 	}
 	svc, err := NewService(Options{
 		Store: st, Submitter: sub, ShardMap: shards,
-		KillSwitch: openKill{},
+		KillSwitch: openKill{}, Breakers: openBreakers{},
 		AckTimeout: 200 * time.Millisecond,
 	})
 	if err != nil {
@@ -367,6 +373,50 @@ func submitReq2(coid string) *SubmitRequest {
 	r := submitReq()
 	r.ClientOrderID = coid
 	return r
+}
+
+// closedBreakers is the tripped fake — every admission rejected.
+type closedBreakers struct{}
+
+func (closedBreakers) AdmitOrder(context.Context, int64, string) error {
+	return excerrors.New("CIRCUIT_BREAKER_OPEN", "INSTRUMENT breaker open for EUR/USD")
+}
+
+// Phase-13: the breaker seam fails closed — nil gate or gate error both
+// reject new orders before risk checks (spec §2.6/§2.7).
+func TestAdmissionFailsClosedOnBreakerGate(t *testing.T) {
+	shards, err := config.LoadShardMap("")
+	if err != nil {
+		t.Fatalf("shard map: %v", err)
+	}
+	st := newFakeStore()
+
+	// Nil gate → CIRCUIT_BREAKER_OPEN (unverifiable state never admits).
+	svcNil, err := NewService(Options{
+		Store: st, Submitter: &fakeSubmitter{}, ShardMap: shards,
+		KillSwitch: openKill{}, AckTimeout: 200 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	if _, err := svcNil.Submit(context.Background(), st.acct, submitReq()); err == nil ||
+		codeOf(t, err) != "CIRCUIT_BREAKER_OPEN" {
+		t.Fatalf("nil gate: got %v, want CIRCUIT_BREAKER_OPEN", err)
+	}
+
+	// Tripped gate → the gate's own coded error propagates.
+	svcTripped, err := NewService(Options{
+		Store: st, Submitter: &fakeSubmitter{}, ShardMap: shards,
+		KillSwitch: openKill{}, Breakers: closedBreakers{},
+		AckTimeout: 200 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	if _, err := svcTripped.Submit(context.Background(), st.acct, submitReq()); err == nil ||
+		codeOf(t, err) != "CIRCUIT_BREAKER_OPEN" {
+		t.Fatalf("tripped gate: got %v, want CIRCUIT_BREAKER_OPEN", err)
+	}
 }
 
 func TestSubmitInsufficientBalance(t *testing.T) {
@@ -657,8 +707,8 @@ func TestBatchRateLimitGate(t *testing.T) {
 	}
 	svc, err := NewService(Options{
 		Store: st, Submitter: sub, ShardMap: shards,
-		KillSwitch: openKill{},
-		BatchRL:    fakeBatchRL{allow: false},
+		KillSwitch: openKill{}, Breakers: openBreakers{},
+		BatchRL: fakeBatchRL{allow: false},
 	})
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
