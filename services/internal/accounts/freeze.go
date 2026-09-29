@@ -32,6 +32,7 @@ type AdminActor struct {
 	UserID     int64
 	Role       string
 	ApproverID int64
+	ClientIP   string // audit column (handlers fill from the request)
 }
 
 // FreezeService implements the FROZEN legal-hold lifecycle

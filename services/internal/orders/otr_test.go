@@ -46,6 +46,7 @@ func newSvcWithOtr(t *testing.T, st *fakeStore, gate *fakeOtr) *Service {
 	svc, err := NewService(Options{
 		Store: st, Submitter: sub, ShardMap: shards,
 		KillSwitch: openKill{}, Otr: gate, Breakers: openBreakers{},
+		Product:    openProduct{},
 		AckTimeout: 200 * time.Millisecond,
 	})
 	if err != nil {

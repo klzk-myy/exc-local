@@ -45,6 +45,8 @@ CREATE TABLE accounts (
     user_id           BIGINT NOT NULL REFERENCES users(id),
     parent_account_id BIGINT REFERENCES accounts(id),
     kyc_tier          VARCHAR(4)  NOT NULL DEFAULT 'T2',
+    client_category   VARCHAR(24) NOT NULL DEFAULT 'RETAIL', -- migration 042 shape
+    nbp               BOOLEAN NOT NULL DEFAULT TRUE,         -- migration 042 shape
     status            VARCHAR(12) NOT NULL DEFAULT 'ACTIVE',
     base_currency     VARCHAR(3)  NOT NULL DEFAULT 'USD',
     created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),

@@ -22,6 +22,24 @@ import (
 // Encoding — exc.wire Event envelopes
 // ---------------------------------------------------------------------------
 
+// Cancel-reason codes mirror the C++ kWalCancelReason* constants
+// (core/include/matching/WalWriter.hpp) — the engine stamps them on the
+// outbound OrderCancel so the read model can tell an OCO sibling cancel
+// (7) from a user cancel (0).
+const (
+	CancelReasonUser         = 0
+	CancelReasonExpired      = 1
+	CancelReasonStp          = 2
+	CancelReasonFokUnfilled  = 3
+	CancelReasonIocRemainder = 4
+	CancelReasonSlippage     = 5
+	CancelReasonExecRange    = 6
+	// CancelReasonOcoLink — sibling leg reached terminal FILLED first;
+	// this leg was cancelled atomically in the same engine dispatch
+	// (spec §6.5). The doomed-leg inbound reject shares the reason.
+	CancelReasonOcoLink = 7
+)
+
 // EncodeCancelEvent serializes Event{seq, ts, OrderCancel{order_id, account_id}}.
 func EncodeCancelEvent(b *flatbuffers.Builder, seq, ts uint64, orderID, accountID uint64) []byte {
 	wire.OrderCancelStart(b)
@@ -61,13 +79,60 @@ func EncodeAmendEvent(b *flatbuffers.Builder, seq, ts uint64,
 	return b.FinishedBytes()
 }
 
-// orderNewMsg maps a validated submit onto wire.OrderNewMsg.
-func orderNewMsg(o *Order, acct *Account) ipc.OrderNewMsg {
+// EncodeOcoLinkEvent serializes Event{seq, ts, OcoLink{link_id, order_id_a,
+// order_id_b, account_id, instrument_id}} — the Phase-14 Task 14.3.1
+// pair-linkage command (spec §6.2/§6.5). It MUST be sent on the shard
+// ring BEFORE either leg's OrderNew: the SPSC ring preserves order, so the
+// engine installs the link while both legs are still unplaced.
+func EncodeOcoLinkEvent(b *flatbuffers.Builder, seq, ts, linkID,
+	orderIDA, orderIDB, accountID uint64, instrumentID uint32) []byte {
+	wire.OcoLinkStart(b)
+	wire.OcoLinkAddLinkId(b, linkID)
+	wire.OcoLinkAddOrderIdA(b, orderIDA)
+	wire.OcoLinkAddOrderIdB(b, orderIDB)
+	wire.OcoLinkAddAccountId(b, accountID)
+	wire.OcoLinkAddInstrumentId(b, instrumentID)
+	ol := wire.OcoLinkEnd(b)
+
+	wire.EventStart(b)
+	wire.EventAddSeq(b, seq)
+	wire.EventAddTs(b, ts)
+	wire.EventAddTypeType(b, wire.EventTypeOcoLink)
+	wire.EventAddType(b, ol)
+	b.Finish(wire.EventEnd(b))
+	return b.FinishedBytes()
+}
+
+// stpModeByte maps the §5.4 stp_mode string onto the engine's StpMode
+// ordinal (core Order.hpp: 0..4); "" → 0xFF unset so the engine resolves
+// order → account default → CANCEL_NEWEST (Task 2.3.21).
+func stpModeByte(mode string) byte {
+	switch mode {
+	case "CANCEL_NEWEST":
+		return 0
+	case "CANCEL_OLDEST":
+		return 1
+	case "CANCEL_BOTH":
+		return 2
+	case "DECREMENT":
+		return 3
+	case "NONE":
+		return 4
+	default:
+		return 0xFF
+	}
+}
+
+// orderNewMsg maps a validated submit onto wire.OrderNewMsg. req carries
+// the request-only fields the orders row doesn't materialize (gtd_expiry);
+// the persisted Order supplies the rest.
+func orderNewMsg(o *Order, acct *Account, req *SubmitRequest) ipc.OrderNewMsg {
 	m := ipc.OrderNewMsg{
 		OrderID:       uint64(o.ID),
 		AccountID:     uint64(o.AccountID),
 		InstrumentID:  uint32(o.InstrumentID),
 		ClientOrderID: o.ClientOrderID,
+		StpMode:       0xFF,
 	}
 	if o.Side == SideSell {
 		m.Side = wire.SideSell
@@ -101,6 +166,25 @@ func orderNewMsg(o *Order, acct *Account) ipc.OrderNewMsg {
 	m.Qty = decimal.Scaled(o.Quantity)
 	if o.Price != nil {
 		m.Price = decimal.Scaled(*o.Price)
+	}
+	if o.StopPrice != nil {
+		m.StopPrice = decimal.Scaled(*o.StopPrice)
+	}
+	if o.DisplayQty != nil {
+		m.DisplayQty = decimal.Scaled(*o.DisplayQty)
+	}
+	m.StpMode = stpModeByte(o.STPMode)
+	if o.PostOnly {
+		m.Flags |= 1
+	}
+	if o.ReduceOnly {
+		m.Flags |= 2
+	}
+	if acct != nil && acct.TradeGroupID != nil {
+		m.TradeGroupID = uint32(*acct.TradeGroupID)
+	}
+	if req != nil && req.GTDExpiry != nil {
+		m.GtdExpiryNs = req.GTDExpiry.UnixNano()
 	}
 	return m
 }
@@ -357,6 +441,19 @@ func (c *Consumer) handle(payload []byte) {
 		oc := &wire.OrderCancel{}
 		oc.Init(t.Bytes, t.Pos)
 		_ = c.store.ApplyCancel(context.Background(), int64(oc.OrderId()))
+		if oc.Reason() == CancelReasonOcoLink {
+			// Phase-14 Task 14.3.1 — OCO sibling cancellation: audit the
+			// engine-driven reason so the order's history distinguishes it
+			// from a user cancel (spec §6.5 terminal notice).
+			_ = c.store.WriteAudit(context.Background(), []AuditEntry{{
+				OrderID:    int64(oc.OrderId()),
+				AccountID:  int64(oc.AccountId()),
+				Operation:  "OCO_SIBLING_CANCEL",
+				FieldName:  "status",
+				NewValue:   "CANCELLED",
+				ModifiedBy: "engine",
+			}})
+		}
 		c.pending.resolve(oc.OrderId())
 	case wire.EventTypeTradeFill:
 		tf := ipc.EventTradeFill(ev)

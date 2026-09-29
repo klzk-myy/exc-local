@@ -1,0 +1,13 @@
+# Testnet namespace — Phase-14 Task 14.3.3.
+# A fully separate deployment identity from `exchange` (production):
+# separate namespace, separate env label, separate ingress host.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: exchange-testnet
+  labels:
+    app.kubernetes.io/part-of: exchange
+    environment: testnet
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

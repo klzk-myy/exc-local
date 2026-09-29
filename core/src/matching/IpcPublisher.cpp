@@ -44,9 +44,11 @@ bool IpcPublisher::publish_trade(uint64_t trade_id, uint64_t buy_order_id,
 
 bool IpcPublisher::publish_order_cancel(uint64_t order_id,
                                         uint64_t account_id,
-                                        uint64_t ts_ns) noexcept {
+                                        uint64_t ts_ns,
+                                        uint8_t reason) noexcept {
     namespace w = exc::wire;
-    const auto cx = w::CreateOrderCancel(builder_, order_id, account_id);
+    const auto cx = w::CreateOrderCancel(builder_, order_id, account_id,
+                                         reason);
     const auto ev = w::CreateEvent(builder_, pub_seq_, ts_ns,
                                    w::EventType_OrderCancel, cx.Union());
     return emit(ev);
@@ -96,7 +98,7 @@ bool IpcPublisher::publish_trade(uint64_t, uint64_t, uint64_t, int64_t,
     return false;
 }
 bool IpcPublisher::publish_order_cancel(uint64_t, uint64_t,
-                                        uint64_t) noexcept {
+                                        uint64_t, uint8_t) noexcept {
     ++drops_;
     return false;
 }

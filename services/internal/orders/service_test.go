@@ -103,6 +103,46 @@ func (s *fakeStore) InsertOrderTx(_ context.Context, p InsertParams) (*Order, *D
 	}
 	return o, nil, nil
 }
+
+// InsertOcoPairTx mirrors PgStore.InsertOcoPairTx: both legs + both dedup
+// rows atomically — a conflict on either leg rolls the whole pair back and
+// surfaces the colliding DedupRow (Phase-14 Task 14.3.1).
+func (s *fakeStore) InsertOcoPairTx(_ context.Context, groupID int64,
+	a, b InsertParams) (*Order, *Order, error) {
+	for _, p := range [2]InsertParams{a, b} {
+		if p.ClientOrderID != "" {
+			if row, ok := s.dedup[dedupKey{p.AccountID, p.ClientOrderID}]; ok {
+				return nil, nil, &dedupConflict{row: row}
+			}
+		}
+		if p.ClientOrderID == "" {
+			return nil, nil, errors.New("oco pair legs require client_order_id")
+		}
+	}
+	gid := groupID
+	mk := func(p InsertParams) *Order {
+		s.nextID++
+		o := &Order{
+			ID: s.nextID, AccountID: p.AccountID, InstrumentID: p.InstrumentID,
+			ClientOrderID: p.ClientOrderID, Side: p.Side, OrderType: p.OrderType,
+			Quantity: p.Quantity, QuoteQuantity: p.QuoteQuantity,
+			Price: p.Price, StopPrice: p.StopPrice, DisplayQty: p.DisplayQty,
+			TimeInForce: p.TimeInForce, Status: "PENDING",
+			OrderSeq: p.OrderSeq, PostOnly: p.PostOnly, ReduceOnly: p.ReduceOnly,
+			STPMode: p.STPMode, SessionID: p.SessionID,
+			OcoGroupID: &gid,
+			ShardID:    &p.ShardID,
+			CreatedAt:  time.Now(), UpdatedAt: time.Now(),
+		}
+		s.orders[o.ID] = o
+		s.dedup[dedupKey{p.AccountID, p.ClientOrderID}] = &DedupRow{
+			AccountID: p.AccountID, ClientOrderID: p.ClientOrderID,
+			OrderID: o.ID, RequestHash: p.RequestHash,
+		}
+		return o
+	}
+	return mk(a), mk(b), nil
+}
 func (s *fakeStore) GetOrder(_ context.Context, id int64) (*Order, error) {
 	if o := s.orders[id]; o != nil {
 		cp := *o // copy: RevertAmend must see pre-CAS values
@@ -306,6 +346,13 @@ type openBreakers struct{}
 
 func (openBreakers) AdmitOrder(context.Context, int64, string) error { return nil }
 
+// openProduct is the always-admit appropriateness fake — the Task
+// 14.3.7 gate fails closed when nil, so happy-path tests opt out
+// explicitly like they do for the kill-switch/breaker seams.
+type openProduct struct{}
+
+func (openProduct) Appropriateness(context.Context, int64, string) error { return nil }
+
 func newSvc(t *testing.T, st *fakeStore, sub *fakeSubmitter) *Service {
 	t.Helper()
 	shards, err := config.LoadShardMap("")
@@ -315,6 +362,7 @@ func newSvc(t *testing.T, st *fakeStore, sub *fakeSubmitter) *Service {
 	svc, err := NewService(Options{
 		Store: st, Submitter: sub, ShardMap: shards,
 		KillSwitch: openKill{}, Breakers: openBreakers{},
+		Product:    openProduct{},
 		AckTimeout: 200 * time.Millisecond,
 	})
 	if err != nil {
@@ -394,7 +442,8 @@ func TestAdmissionFailsClosedOnBreakerGate(t *testing.T) {
 	// Nil gate → CIRCUIT_BREAKER_OPEN (unverifiable state never admits).
 	svcNil, err := NewService(Options{
 		Store: st, Submitter: &fakeSubmitter{}, ShardMap: shards,
-		KillSwitch: openKill{}, AckTimeout: 200 * time.Millisecond,
+		KillSwitch: openKill{}, Product: openProduct{},
+		AckTimeout: 200 * time.Millisecond,
 	})
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
@@ -408,6 +457,7 @@ func TestAdmissionFailsClosedOnBreakerGate(t *testing.T) {
 	svcTripped, err := NewService(Options{
 		Store: st, Submitter: &fakeSubmitter{}, ShardMap: shards,
 		KillSwitch: openKill{}, Breakers: closedBreakers{},
+		Product:    openProduct{},
 		AckTimeout: 200 * time.Millisecond,
 	})
 	if err != nil {
@@ -708,6 +758,7 @@ func TestBatchRateLimitGate(t *testing.T) {
 	svc, err := NewService(Options{
 		Store: st, Submitter: sub, ShardMap: shards,
 		KillSwitch: openKill{}, Breakers: openBreakers{},
+		Product: openProduct{},
 		BatchRL: fakeBatchRL{allow: false},
 	})
 	if err != nil {

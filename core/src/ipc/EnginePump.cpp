@@ -169,6 +169,17 @@ void MatchingEngineIngress::on_amend_received(uint64_t order_id,
     }
 }
 
+void MatchingEngineIngress::on_oco_link_received(
+    uint64_t link_id, uint64_t order_id_a, uint64_t order_id_b,
+    uint64_t account_id, uint32_t instrument_id) noexcept {
+    if (engine_ != nullptr) {
+        engine_->on_oco_link_received(link_id, order_id_a, order_id_b,
+                                      account_id, instrument_id);
+    } else {
+        ++unrouted_links_;
+    }
+}
+
 // --- LatencyHistogram ---------------------------------------------------------
 
 void LatencyHistogram::record(uint64_t ns) noexcept {
@@ -520,6 +531,25 @@ void EnginePump::dispatch(const uint8_t* data, uint32_t len) noexcept {
                 }
                 engine_->on_amend_received(m->order_id(), m->price(), m->qty(),
                                            m->stop_price(), ev->seq());
+                msgs_dispatched_.fetch_add(1, std::memory_order_relaxed);
+                break;
+            }
+            case exc::wire::EventType_OcoLink: {
+                const exc::wire::OcoLink* m = ev->type_as_OcoLink();
+                if (m == nullptr) {
+                    quarantine(data, len, "ocolink_payload_missing");
+                    break;
+                }
+                // Links are never shed — they precede both legs' OrderNew
+                // and each leg carries its own backpressure handling.
+                if (engine_ == nullptr) {
+                    unrouted_drops_.fetch_add(1, std::memory_order_relaxed);
+                    report("ENGINE_UNWIRED", "no ingress bound; OcoLink dropped");
+                    break;
+                }
+                engine_->on_oco_link_received(m->link_id(), m->order_id_a(),
+                                              m->order_id_b(), m->account_id(),
+                                              m->instrument_id());
                 msgs_dispatched_.fetch_add(1, std::memory_order_relaxed);
                 break;
             }

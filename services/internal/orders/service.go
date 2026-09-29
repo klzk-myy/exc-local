@@ -97,6 +97,63 @@ type BreakerGate interface {
 	AdmitOrder(ctx context.Context, accountID int64, symbol string) error
 }
 
+// AppropriatenessGate is the Phase-14 Task 14.3.7 MiFID II client-
+// categorization admission seam — *compliance.CategorizationService
+// satisfies it in production. Consulted LAST in checkAdmission for any
+// order that can add exposure: the gate resolves the account's
+// client_category and applies the §24 #132 matrix — SPOT exempt for
+// every category; RETAIL barred from OPTION outright (conservative
+// binary-option treatment until the Phase-22 subtype lands); FORWARD/
+// SWAP/NDF require an unexpired appropriateness PASS for RETAIL and
+// PROFESSIONAL; ELIGIBLE_COUNTERPARTY is exempt (art. 30).
+//
+// Fail-closed contract (spec §2.7): a nil seam rejects admission — a
+// categorization gate that cannot answer must never silently admit —
+// and a gate error rejects rather than being ignored. reduce_only
+// orders bypass the gate: a downgrade or expired assessment must never
+// trap an open position — closing exposure is always permitted (the
+// close-only posture spec §5.2 requires after a category downgrade).
+type AppropriatenessGate interface {
+	Appropriateness(ctx context.Context, accountID int64, instrumentClass string) error
+}
+
+// ProductGate is the Phase-14 Tasks 14.3.13/14.3.16 product-profile +
+// retail target-market admission seam — *accounts.ProductGateService
+// satisfies it in production. Consulted inside checkAdmission before the
+// appropriateness gate: a coded PRODUCT_NOT_PERMITTED rejection carries
+// the scope or target-market reason. nil skips the gate (pre-095
+// deployments); reduceOnly marks closing flow which stays admissible
+// under close-only restrictions (narrowed scope / overdue review).
+type ProductGate interface {
+	AdmitOrder(ctx context.Context, accountID int64,
+		symbol, instrumentClass string, reduceOnly bool) error
+}
+
+// AdmissionObserver is the Phase-14 Task 14.3.2 auto-halt telemetry
+// seam — one call per Submit verdict carrying the admission-path
+// latency and the systemic-error classification
+// (risk.SystemicAdmissionCode applied at the call site). It feeds the
+// LATENCY_SPIKE and ERROR_RATE_SPIKE detectors; nil → the feeds are
+// dormant (detectors never fabricate observations). Wired to
+// risk.AutoHaltService.ObserveAdmission in cmd/gateway.
+type AdmissionObserver func(ctx context.Context, symbol string,
+	latency time.Duration, systemic bool)
+
+// CoolingOffGate is the Phase-14 Task 14.3.12 responsible-trading
+// self-exclusion seam (*accounts.CoolingOffService satisfies it in
+// production). AssertLeverageEntryAllowed rejects with
+// COOLING_OFF_ACTIVE while a live cooling_off_periods window covers
+// the account's owner; a lookup failure returns a coded error (fail
+// closed). Consulted inside checkAdmission only for leveraged order
+// entry — a marginable instrument (max_leverage>0) on a non-SPOT
+// account, mirroring checkBalance's margin test — and never for
+// reduce_only legs: the activation saga itself dispatches reduce-only
+// closes through Submit. A nil seam skips the gate (unwired test/dev
+// construction), matching the OtrGate convention.
+type CoolingOffGate interface {
+	AssertLeverageEntryAllowed(ctx context.Context, accountID int64) error
+}
+
 // Service wires store + transport + sequencing.
 type Service struct {
 	store      Store
@@ -107,8 +164,12 @@ type Service struct {
 	kill       KillSwitch
 	otr        OtrGate
 	breakers   BreakerGate
+	products   ProductGate
+	coolingOff CoolingOffGate
 	batch      BatchRateLimiter
 	commission CommissionEstimator
+	admission  AdmissionObserver
+	product    AppropriatenessGate
 	seq        *seqAllocator
 	ackTimeout time.Duration
 	now        func() time.Time
@@ -124,8 +185,12 @@ type Options struct {
 	KillSwitch KillSwitch  // nil → admission fails closed (TRADING_HALTED)
 	Otr        OtrGate     // nil → OTR counting/admission skipped (engine flag still enforced)
 	Breakers   BreakerGate // nil → admission fails closed (CIRCUIT_BREAKER_OPEN)
+	Products   ProductGate // nil → product-profile/target-market gate skipped (pre-095)
 	BatchRL    BatchRateLimiter
 	Commission CommissionEstimator // optional — dry-run fee estimate
+	Admission  AdmissionObserver   // optional — Task 14.3.2 anomaly feeds
+	Product    AppropriatenessGate // nil → admission fails closed (Task 14.3.7)
+	CoolingOff CoolingOffGate      // nil → self-exclusion gate skipped (unwired)
 	AckTimeout time.Duration
 	Now        func() time.Time
 }
@@ -146,8 +211,12 @@ func NewService(o Options) (*Service, error) {
 		kill:       o.KillSwitch,
 		otr:        o.Otr,
 		breakers:   o.Breakers,
+		products:   o.Products,
+		coolingOff: o.CoolingOff,
 		batch:      o.BatchRL,
 		commission: o.Commission,
+		admission:  o.Admission,
+		product:    o.Product,
 		seq:        newSeqAllocator(),
 		ackTimeout: o.AckTimeout,
 		now:        o.Now,
@@ -164,6 +233,18 @@ func NewService(o Options) (*Service, error) {
 // Pending is exposed for the consumer wiring (internal same-package use
 // via NewConsumer is preferred).
 func (s *Service) Pending() *pendingConfirms { return s.pending }
+
+// WithAdmission binds the Task 14.3.2 auto-halt observer
+// post-construction — cmd/gateway builds the notification-backed
+// AutoHaltService after the order pipeline, so the feed attaches here
+// (same pattern as CircuitBreakerService.WithPublisher).
+func (s *Service) WithAdmission(o AdmissionObserver) { s.admission = o }
+
+// WithCoolingOff binds the Task 14.3.12 self-exclusion gate
+// post-construction — cmd/gateway builds accounts.CoolingOffService
+// after the order dispatcher it needs for the activation saga, so the
+// gate attaches here (same pattern as WithAdmission).
+func (s *Service) WithCoolingOff(g CoolingOffGate) { s.coolingOff = g }
 
 // AccountByID / InstrumentBySymbol are thin store delegates exposed so
 // the handler layer can resolve account rows and symbol → instrument
@@ -240,7 +321,7 @@ type Ack struct {
 // or a suspended scope all reject with TRADING_HALTED (503); the detail
 // names the winning scope per Task 11.3.8 step 3.
 func (s *Service) checkAdmission(ctx context.Context, acct *Account,
-	inst *Instrument, sessionID string) error {
+	inst *Instrument, sessionID string, reduceOnly bool) error {
 	if s.kill == nil {
 		return codeErr("TRADING_HALTED",
 			"trading-state resolver unavailable — new orders rejected")
@@ -274,11 +355,60 @@ func (s *Service) checkAdmission(ctx context.Context, acct *Account,
 	if err := s.breakers.AdmitOrder(ctx, acct.ID, inst.Symbol); err != nil {
 		return err // gate emits coded errors (CIRCUIT_BREAKER_OPEN / internal)
 	}
+	// Phase-14 Task 14.3.12 — cooling-off self-exclusion: leveraged
+	// order entry rejects with COOLING_OFF_ACTIVE while a live window
+	// covers the account's owner. reduce_only bypasses it (the
+	// activation saga dispatches its own reduce-only closes through
+	// Submit); SPOT accounts and non-marginable instruments stay open
+	// so spot conversions remain available. A gate error fails closed.
+	if !reduceOnly && s.coolingOff != nil &&
+		acct.Type != "SPOT" && inst.MaxLeverage > 0 {
+		if err := s.coolingOff.AssertLeverageEntryAllowed(ctx, acct.ID); err != nil {
+			return err // COOLING_OFF_ACTIVE / SERVICE_DEGRADED
+		}
+	}
+	// Phase-14 Tasks 14.3.13/14.3.16 — product-profile instrument_scope +
+	// RETAIL target-market gate (*accounts.ProductGateService). Out-of-
+	// scope or out-of-target opens reject PRODUCT_NOT_PERMITTED;
+	// reduce_only flow stays admissible (close-only posture after scope
+	// narrowing / overdue review). A nil seam skips the gate (pre-095
+	// deployments carry no profiles to enforce).
+	if s.products != nil {
+		if err := s.products.AdmitOrder(ctx, acct.ID, inst.Symbol,
+			inst.InstrumentType, reduceOnly); err != nil {
+			return err // PRODUCT_NOT_PERMITTED / SERVICE_DEGRADED
+		}
+	}
+	// Phase-14 Task 14.3.7 — MiFID II appropriateness/categorization
+	// gate, consulted last for exposure-adding orders only. reduce_only
+	// bypasses it deliberately: the close-only posture a RETAIL
+	// downgrade or expired assessment imposes must never trap an open
+	// position (spec §5.2). A nil seam or a gate error fails closed.
+	if reduceOnly {
+		return nil
+	}
+	if s.product == nil {
+		return codeErr("SERVICE_DEGRADED",
+			"appropriateness gate unavailable — new orders rejected (fail closed)")
+	}
+	if err := s.product.Appropriateness(ctx, acct.ID, inst.InstrumentType); err != nil {
+		return err // PRODUCT_NOT_PERMITTED / SERVICE_DEGRADED
+	}
 	return nil
 }
 
-func (s *Service) Submit(ctx context.Context, acct *Account, req *SubmitRequest) (*Ack, error) {
+func (s *Service) Submit(ctx context.Context, acct *Account, req *SubmitRequest) (_ *Ack, err error) {
+	start := s.now()
 	sym := config.CanonicalSymbol(req.Symbol)
+	// Task 14.3.2: every verdict (admit or reject) feeds the auto-halt
+	// latency + error-rate windows once per call. Best-effort — the
+	// observer never veto's the return value.
+	defer func() {
+		if s.admission != nil && sym != "" {
+			s.admission(ctx, sym, s.now().Sub(start),
+				err != nil && risk.SystemicAdmissionCode(excerrors.CodeOf(err)))
+		}
+	}()
 	inst, err := s.store.InstrumentBySymbol(ctx, sym)
 	if err != nil {
 		return nil, errInternal("instrument lookup", err)
@@ -286,7 +416,7 @@ func (s *Service) Submit(ctx context.Context, acct *Account, req *SubmitRequest)
 	if inst == nil {
 		return nil, codeErr("INVALID_REQUEST", "unknown symbol %q", req.Symbol)
 	}
-	if err := s.checkAdmission(ctx, acct, inst, req.SessionID); err != nil {
+	if err := s.checkAdmission(ctx, acct, inst, req.SessionID, req.ReduceOnly); err != nil {
 		return nil, err
 	}
 	ref, err := s.store.ReferencePrice(ctx, inst.ID)
@@ -399,7 +529,7 @@ func (s *Service) Submit(ctx context.Context, acct *Account, req *SubmitRequest)
 	if s.sub != nil {
 		b := flatbuffers.NewBuilder(256)
 		payload := ipc.EncodeOrderNewEvent(b, seq,
-			uint64(s.now().UnixNano()), orderNewMsg(o, acct))
+			uint64(s.now().UnixNano()), orderNewMsg(o, acct, req))
 		if err := s.sub.Send(ctx, shard, payload); err != nil {
 			// Compensate the read model: engine never saw it.
 			_ = s.store.MarkRejected(ctx, o.ID)
@@ -606,7 +736,7 @@ func (s *Service) modify(ctx context.Context, acct *Account, orderID int64,
 	// Modify / cancel-replace are new-order entry under halt semantics —
 	// the keep-priority qty-down path (AmendKeepPriority) is exempt as
 	// it can only reduce the residual.
-	if err := s.checkAdmission(ctx, acct, inst, o.SessionID); err != nil {
+	if err := s.checkAdmission(ctx, acct, inst, o.SessionID, o.ReduceOnly); err != nil {
 		return nil, err
 	}
 	if err := ValidateModify(req, o, inst); err != nil {
@@ -942,7 +1072,30 @@ func (f *BatchSubmitFailure) Unwrap() error { return f.Err }
 // persisted or dispatched — and the response carries per-entry verdicts.
 // Duplicate client_order_id within the batch is a batch-level defect.
 func (s *Service) BatchSubmit(ctx context.Context, acct *Account,
-	reqs []*SubmitRequest, requestID, ip string) ([]BatchResult, error) {
+	reqs []*SubmitRequest, requestID, ip string) (_ []BatchResult, err error) {
+	start := s.now()
+	// Task 14.3.2: a batch is also admission traffic — emit one
+	// observation per distinct canonical symbol. The latency sample is
+	// the whole-call duration (documented aggregate — batches are rare
+	// vs single submits and carry ≤BatchSubmitMax entries); the
+	// systemic flag unwraps BatchSubmitFailure to the first cause.
+	defer func() {
+		if s.admission == nil {
+			return
+		}
+		systemic := err != nil &&
+			risk.SystemicAdmissionCode(excerrors.CodeOf(err))
+		seen := map[string]bool{}
+		for _, req := range reqs {
+			if req == nil {
+				continue
+			}
+			if sym := config.CanonicalSymbol(req.Symbol); sym != "" && !seen[sym] {
+				seen[sym] = true
+				s.admission(ctx, sym, s.now().Sub(start), systemic)
+			}
+		}
+	}()
 	if len(reqs) == 0 || len(reqs) > BatchSubmitMax {
 		return nil, codeErr("BATCH_SIZE_EXCEEDED",
 			"batch requires 1..%d orders, got %d", BatchSubmitMax, len(reqs))
@@ -996,7 +1149,7 @@ func (s *Service) BatchSubmit(ctx context.Context, acct *Account,
 		if verr == nil && inst != nil {
 			// Kill-switch gate per batch entry — per-item verdicts carry
 			// TRADING_HALTED without aborting sibling entries.
-			verr = s.checkAdmission(ctx, acct, inst, req.SessionID)
+			verr = s.checkAdmission(ctx, acct, inst, req.SessionID, req.ReduceOnly)
 		}
 		if verr == nil {
 			ref, rerr := s.store.ReferencePrice(ctx, inst.ID)
@@ -1098,7 +1251,7 @@ func (s *Service) BatchSubmit(ctx context.Context, acct *Account,
 		if s.sub != nil {
 			b := flatbuffers.NewBuilder(256)
 			payload := ipc.EncodeOrderNewEvent(b, seq,
-				uint64(s.now().UnixNano()), orderNewMsg(o, acct))
+				uint64(s.now().UnixNano()), orderNewMsg(o, acct, req))
 			if err := s.sub.Send(ctx, shard, payload); err != nil {
 				return nil, s.batchAbort(ctx, persisted, err)
 			}

@@ -242,6 +242,20 @@ groups:
           description: "Critical backpressure — ring overflow drops engine events; immediate mitigation required."
           runbook: docs/runbooks/ipc-ring-pressure.md
 
+      # Phase-14 Task 14.3.6 — an identity (account / public IP) reaching
+      # ≥80% of its effective tier request rate in a 1s window. Emitted
+      # once per identity per window by ratelimit.Limiter; per-account
+      # labels are deliberately absent (cardinality) — the runbook names
+      # the identity-resolution path.
+      - alert: RateLimitUtilizationHigh
+        expr: increase(exchange_rate_limit_utilization_over80_total[10m]) > 0
+        for: 0m
+        labels: {severity: p2, team: ops, domain: throughput}
+        annotations:
+          summary: "Identity reached ≥80% of {{ $labels.tier }} rate limit"
+          description: "An account or public IP crossed 80% of its tier request rate in the last 10m ({{ $value }} window-second(s)). Saturation to 429 is the usual next step — resolve identity via rl:usage:<key> / request logs."
+          runbook: docs/runbooks/rate-limit-utilization.md
+
   # ---- Phase-09 Task 9.3.12: PTP clock sync (MiFID II RTS 25) ----------
   # Exported by services/internal/timesync.PTPMonitor on hosts running the
   # admin node exporter (EXC_PTP_EXPECTED=1 on bare-metal matching nodes).

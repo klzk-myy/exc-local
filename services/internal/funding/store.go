@@ -41,14 +41,19 @@ func isUniqueViolation(err error) bool {
 // ---------------------------------------------------------------------------
 
 // AccountMeta is the account-ownership + state projection the funding
-// services need (no sensitive columns).
+// services need (no sensitive columns). ClientCategory/NBP carry the
+// Phase-14 Task 14.3.7 MiFID II categorization (migration 042): the
+// NBP flag is the §13.6c retail negative-balance-protection entitlement
+// Phase-19 Task 19.3.9's workflow consumes.
 type AccountMeta struct {
-	ID           int64
-	UserID       int64
-	ParentID     *int64
-	Status       string // ACTIVE | SUSPENDED | FROZEN | CLOSED
-	KYCTier      string
-	BaseCurrency string
+	ID             int64
+	UserID         int64
+	ParentID       *int64
+	Status         string // ACTIVE | SUSPENDED | FROZEN | CLOSED
+	KYCTier        string
+	ClientCategory string // RETAIL | PROFESSIONAL | ELIGIBLE_COUNTERPARTY
+	NBP            bool   // retail negative-balance-protection entitlement
+	BaseCurrency   string
 }
 
 // BalanceRow mirrors one balances row (total is generated).
@@ -396,9 +401,11 @@ func (s *PgStore) AccountMeta(ctx context.Context, id int64) (*AccountMeta, erro
 	var parent *int64
 	var base *string
 	err := s.pool.QueryRow(ctx, `
-		SELECT id, user_id, parent_account_id, status::text, kyc_tier::text, base_currency
+		SELECT id, user_id, parent_account_id, status::text, kyc_tier::text,
+		       client_category::text, nbp, base_currency
 		FROM accounts WHERE id = $1`, id).
-		Scan(&m.ID, &m.UserID, &parent, &m.Status, &m.KYCTier, &base)
+		Scan(&m.ID, &m.UserID, &parent, &m.Status, &m.KYCTier,
+			&m.ClientCategory, &m.NBP, &base)
 	if err == pgx.ErrNoRows {
 		return nil, errf("NOT_FOUND", "account %d not found", id)
 	}

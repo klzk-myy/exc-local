@@ -106,6 +106,32 @@ public:
     // not move the clock backwards).
     void on_time_tick(uint64_t now_ns) noexcept override;
 
+    // Phase-14 Task 14.3.1 — OCO (one-cancels-other) pair linkage
+    // (spec §6.2/§6.5, §24 #47; wire OcoLink event). The gateway sequences
+    // this command BEFORE either member's OrderNew on the shard ring, so
+    // the engine installs the link while both legs are still unplaced:
+    // whichever leg reaches terminal FILLED first cancels the sibling
+    // atomically on the matching thread (journaled ORDER_CANCEL reason 7),
+    // and a leg whose sibling already terminated is rejected
+    // OCO_SIBLING_CANCEL_RACE on arrival — the trailing-order reject of the
+    // spec §6.5/§6.8 deterministic race resolution. Validation failures are
+    // never journaled; a re-sent identical link is an idempotent no-op.
+    void on_oco_link_received(uint64_t link_id, uint64_t order_id_a,
+                            uint64_t order_id_b, uint64_t account_id,
+                            uint32_t instrument_id) noexcept override;
+
+    // OCO introspection (tests / recovery accounting): member count is the
+    // number of linked order ids (2 per live pair, 1 while a doomed entry
+    // awaits its leg), link count is live pairs.
+    [[nodiscard]] uint64_t oco_member_count() const noexcept {
+        return oco_live_;
+    }
+    [[nodiscard]] uint64_t oco_link_count() const noexcept {
+        return oco_live_ / 2;
+    }
+    // -1 = unlinked, 0 = armed, 1 = doomed (sibling won — reject on arrival).
+    [[nodiscard]] int oco_member_state(uint64_t order_id) const noexcept;
+
     // --- Recovery / wiring hooks ---------------------------------------------
 
     // Trade ids are monotonic per engine; B2 recovery seeds the next id from
@@ -257,6 +283,12 @@ public:
     static constexpr char kRejectInstrumentSuspended[] = "INSTRUMENT_SUSPENDED";
     static constexpr char kRejectInstrumentHalted[] = "INSTRUMENT_HALTED";
     static constexpr char kRejectInstrumentDelisted[] = "INSTRUMENT_DELISTED";
+    // Phase-14 Task 14.3.1 OCO codes (spec §6.5/§23 — OCO_SIBLING_CANCEL_RACE
+    // is the §23-registered code; the other two are engine-internal link
+    // validation verdicts surfaced via last_reject()/logs only).
+    static constexpr char kRejectOcoSiblingRace[] = "OCO_SIBLING_CANCEL_RACE";
+    static constexpr char kRejectOcoLinkInvalid[] = "OCO_LINK_INVALID";
+    static constexpr char kRejectOcoLinkConflict[] = "OCO_LINK_CONFLICT";
 
     // WAL marker for the §6.6a MARKET_WITH_PROTECTION conversion:
     // Order::flags bit2 flows verbatim into WalOrderNewPayload.flags
@@ -353,6 +385,20 @@ private:
         int64_t  prevented_qty_units = 0;
     };
 
+    // Phase-14 Task 14.3.1 — OCO member side table: one entry per linked
+    // leg, keyed by order id (open addressing identical to the meta table,
+    // allocated once at construction — zero heap on the hot path, full =
+    // fail-closed link reject before any journal append).
+    struct OcoMember {
+        uint64_t order_id = 0;      // key; 0 = empty
+        uint64_t link_id = 0;       // OCO group id (orders.oco_group_id)
+        uint64_t sibling_id = 0;
+        uint32_t instrument_id = 0; // link's instrument — leg sanity check
+        uint8_t  state = 0;         // kOcoArmed / kOcoDoomed
+    };
+    static constexpr uint8_t kOcoArmed  = 0;
+    static constexpr uint8_t kOcoDoomed = 1;  // sibling filled first
+
     struct TakerResult {
         int64_t remaining;
         bool dead;      // taker remainder must be cancelled (STP/FOK guard)
@@ -413,6 +459,18 @@ private:
     // remainder (slice + unseen) — the qty STP suppression accounts for.
     [[nodiscard]] int64_t effective_remaining_units(
         const Order* maker) const noexcept;
+
+    // OCO member map (open addressing, linear probe, load <= 0.5 — same
+    // scheme as the meta table). oco_on_dead is THE terminal funnel: every
+    // code path that makes an order dead must call it — by_fill=true marks
+    // the fill winner (sibling cancelled atomically or doomed if its
+    // OrderNew is still in flight); by_fill=false releases the pair so the
+    // surviving leg continues as a standalone order.
+    OcoMember* oco_find(uint64_t order_id) noexcept;
+    const OcoMember* oco_find(uint64_t order_id) const noexcept;
+    OcoMember* oco_ensure(uint64_t order_id) noexcept;  // nullptr when full
+    void oco_erase(uint64_t order_id) noexcept;
+    void oco_on_dead(uint64_t order_id, bool by_fill) noexcept;
 
     // meta map
     OrderMeta* meta_find(uint64_t order_id) noexcept;
@@ -490,6 +548,12 @@ private:
     ExpiryEntry* heap_ = nullptr;
     std::size_t heap_cap_ = 0;
     std::size_t heap_size_ = 0;
+
+    // Phase-14 Task 14.3.1 — bounded OCO member table (ctor-allocated once,
+    // nothrow; null => links reject fail-closed).
+    OcoMember* oco_ = nullptr;
+    std::size_t oco_cap_ = 0;
+    std::size_t oco_live_ = 0;
 
     risk_check_fn risk_fn_ = nullptr;
     void* risk_ctx_ = nullptr;

@@ -86,7 +86,9 @@ func applyKYCSchema(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 	if _, err := pool.Exec(ctx, `
 		CREATE TABLE accounts (
 		    id       BIGSERIAL PRIMARY KEY,
-		    kyc_tier VARCHAR(4) NOT NULL DEFAULT 'T0'
+		    kyc_tier VARCHAR(4) NOT NULL DEFAULT 'T0',
+		    client_category VARCHAR(24) NOT NULL DEFAULT 'RETAIL',
+		    nbp      BOOLEAN NOT NULL DEFAULT TRUE
 		);
 		CREATE TABLE risk_limits (
 		    id                   BIGSERIAL PRIMARY KEY,
@@ -124,7 +126,9 @@ func TestITMigrationRoundTrip(t *testing.T) {
 	if _, err := pool.Exec(ctx, `
 		CREATE TABLE accounts (
 		    id       BIGSERIAL PRIMARY KEY,
-		    kyc_tier VARCHAR(4) NOT NULL DEFAULT 'T0'
+		    kyc_tier VARCHAR(4) NOT NULL DEFAULT 'T0',
+		    client_category VARCHAR(24) NOT NULL DEFAULT 'RETAIL',
+		    nbp      BOOLEAN NOT NULL DEFAULT TRUE
 		);
 		CREATE TABLE risk_limits (
 		    id                   BIGSERIAL PRIMARY KEY,

@@ -124,6 +124,14 @@ func SuspenseDeposits(ccy string) string { // §5.46 default gl_account '2150'
 }
 func ClearingTransit(ccy string) string { return code("2160_CLEARING_TRANSIT", ccy) }
 
+// PAMMPoolLiability is the pooled-capital obligation of internal PAMM
+// investment accounts — the GL mirror of the dedicated PAMM sub-ledger
+// (Task 14.3.8). It stays inside the 2000–2199 client-liability range
+// because pooled capital remains client money; a distinct code keeps
+// invested capital OUT of 2010 so daily fiat withdrawal-cap accounting
+// never sees it.
+func PAMMPoolLiability(ccy string) string { return code("2170_PAMM_POOL_LIABILITY", ccy) }
+
 // House liabilities (2200+).
 func InsuranceFundLiability(ccy string) string {
 	return code("2210_INSURANCE_FUND_LIABILITY", ccy)
@@ -157,7 +165,8 @@ func NBPRestitutionExpense(ccy string) string  { return code("5200_NBP_RESTITUTI
 func BankRailFeeExpense(ccy string) string     { return code("5300_BANK_RAIL_FEE_EXPENSE", ccy) }
 
 // ---------------------------------------------------------------------------
-// Seed descriptors — mirror of migrations 036 + 088 INSERT sets. Anything
+// Seed descriptors — mirror of migrations 036 + 088 (+ 216 for
+// 2170_PAMM_POOL_LIABILITY) INSERT sets. Anything
 // posted through these builders must resolve to a seeded row; DefaultChart
 // is built from this list and is the offline validation fixture.
 // ---------------------------------------------------------------------------
@@ -197,6 +206,7 @@ var seed088 = []accountSeed{
 	{"2100_CLIENT_COLLATERAL", "Client collateral held", AccountLiability},
 	{"2150_SUSPENSE_DEPOSITS", "Suspense — unmatched deposits", AccountLiability},
 	{"2160_CLEARING_TRANSIT", "Suspense — clearing transit", AccountLiability},
+	{"2170_PAMM_POOL_LIABILITY", "PAMM pooled-investment liability", AccountLiability},
 	// house liabilities
 	{"2210_INSURANCE_FUND_LIABILITY", "Insurance fund liability", AccountLiability},
 	// house equity

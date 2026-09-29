@@ -222,3 +222,86 @@ func TestIntegrationResetAccount(t *testing.T) {
 		t.Fatal("second reset inside cooldown accepted")
 	}
 }
+
+// Task 14.3.3 — preset seeding + simulated funding round-trip. The
+// fixture: balances only — zero funding_transactions rows must ever be
+// written by the simulated rails (structural no-banking proof).
+func TestIntegrationSeedAndSimulatedFunding(t *testing.T) {
+	svc, pool, ctx := itest(t)
+
+	amounts, err := svc.Seed(ctx, 1, PresetStandard)
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if len(amounts) == 0 {
+		t.Fatal("seed returned no preset balances")
+	}
+	for ccy, amt := range amounts {
+		var avail string
+		if err := pool.QueryRow(ctx,
+			`SELECT available::text FROM balances WHERE account_id=1 AND currency=$1`,
+			ccy).Scan(&avail); err != nil {
+			t.Fatalf("preset %s not written: %v", ccy, err)
+		}
+		if avail != amt {
+			t.Fatalf("preset %s available=%s want %s", ccy, avail, amt)
+		}
+	}
+
+	// Faucet credit adds to the wallet.
+	avail, err := svc.SimulateDeposit(ctx, 1, "usd", "5000.50")
+	if err != nil {
+		t.Fatalf("simulated deposit: %v", err)
+	}
+	if avail != "105000.50000000" {
+		t.Fatalf("deposit available=%s want 105000.50000000", avail)
+	}
+	// Simulated withdrawal debits: 105000.50 - 500.50 = 104500.00.
+	avail, err = svc.SimulateWithdrawal(ctx, 1, "USD", "500.50")
+	if err != nil {
+		t.Fatalf("simulated withdrawal: %v", err)
+	}
+	if avail != "104500.00000000" {
+		t.Fatalf("withdrawal available=%s want 104500.00000000", avail)
+	}
+	// Shortfall → typed insufficient-balance, no write.
+	if _, err := svc.SimulateWithdrawal(ctx, 1, "USD", "999999999"); err == nil {
+		t.Fatal("oversized simulated withdrawal accepted")
+	}
+	// NO banking rails: zero funding_transactions rows may exist.
+	if n := count(t, ctx, pool,
+		`SELECT count(*) FROM funding_transactions WHERE account_id=1`); n != 0 {
+		t.Fatalf("simulated funding wrote %d funding_transactions rows — rails touched", n)
+	}
+	// Seed does not consume the reset cooldown — ResetAccount still fires.
+	if _, err := svc.ResetAccount(ctx, 1); err != nil {
+		t.Fatalf("reset after seed hit cooldown: %v", err)
+	}
+}
+
+// Task 14.3.3 — ResetTo: one cooldown slot covers reset + preset seed.
+func TestIntegrationResetTo(t *testing.T) {
+	svc, pool, ctx := itest(t)
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO orders (id, account_id) VALUES (10, 1)`); err != nil {
+		t.Fatalf("seed order: %v", err)
+	}
+	counts, amounts, err := svc.ResetTo(ctx, 1, PresetStandard)
+	if err != nil {
+		t.Fatalf("reset-to: %v", err)
+	}
+	if counts["orders"] != 1 {
+		t.Fatalf("reset counts.orders=%d want 1", counts["orders"])
+	}
+	if len(amounts) == 0 {
+		t.Fatal("reset-to returned no preset balances")
+	}
+	if n := count(t, ctx, pool,
+		`SELECT count(*) FROM balances WHERE account_id=1 AND available>0`); n != int64(len(amounts)) {
+		t.Fatalf("seeded wallet rows=%d want %d", n, len(amounts))
+	}
+	// One slot consumed — immediate second ResetTo is rate-limited.
+	if _, _, err := svc.ResetTo(ctx, 1, PresetStandard); err == nil {
+		t.Fatal("second reset-to inside cooldown accepted")
+	}
+}

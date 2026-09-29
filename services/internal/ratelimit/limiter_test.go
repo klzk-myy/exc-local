@@ -353,6 +353,65 @@ func TestBothBackendsDownFailsClosed(t *testing.T) {
 	}
 }
 
+// Task 14.3.6 — the UtilizationObserver fires once per identity per
+// window-second when the 1s window count reaches 80% of the effective
+// rate; denied hits count too (charged), and a fresh window re-arms.
+func TestUtilizationObserver80Percent(t *testing.T) {
+	ck := newTestClock()
+	mem := NewMemBackend()
+	mem.SetNow(ck.now)
+	type obs struct {
+		key   string
+		limit int64
+		count int64
+	}
+	var seen []obs
+	l := NewLimiter(mem, LimiterOptions{
+		Now: ck.now, Fallback: mem,
+		Utilization: func(id Identity, limit, windowCount int64) {
+			seen = append(seen, obs{id.Key, limit, windowCount})
+		},
+	})
+	id := ipIdentity("203.0.113.60") // Public: 5/s → 80% = 4
+	for i := 0; i < 3; i++ {         // counts 1,2,3 — under 80%
+		if _, err := l.Check(context.Background(), id, 1, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(seen) != 0 {
+		t.Fatalf("emitted below 80%%: %+v", seen)
+	}
+	if _, err := l.Check(context.Background(), id, 1, false); err != nil {
+		t.Fatal(err) // count 4 = 80% → emit once
+	}
+	if len(seen) != 1 || seen[0].count != 4 || seen[0].limit != 5 {
+		t.Fatalf("one emission at count=4/limit=5 expected: %+v", seen)
+	}
+	// Same window-second: further crossings must not re-emit.
+	for i := 0; i < 6; i++ {
+		_, _ = l.Check(context.Background(), id, 1, false)
+	}
+	if len(seen) != 1 {
+		t.Fatalf("dedup must hold within the window: %d emissions", len(seen))
+	}
+	// Next second: the counter restarts — crossing 80% re-arms.
+	ck.advance(time.Second)
+	for i := 0; i < 4; i++ {
+		_, _ = l.Check(context.Background(), id, 1, false)
+	}
+	if len(seen) != 2 {
+		t.Fatalf("next-window crossing must emit again: %d", len(seen))
+	}
+	// A different identity crossing in the same window emits its own.
+	id2 := acctIdentity(7) // Basic: 20/s → 80% = 16
+	for i := 0; i < 16; i++ {
+		_, _ = l.Check(context.Background(), id2, 1, false)
+	}
+	if len(seen) != 3 || seen[2].key != "7" {
+		t.Fatalf("per-identity emission expected: %+v", seen)
+	}
+}
+
 func TestAuthenticatedKeysIsolateAccounts(t *testing.T) {
 	l, _, _ := newTestRig(t)
 	a := Identity{Tier: TierBasic, Key: "1", IP: "10.0.1.1"}

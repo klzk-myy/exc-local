@@ -53,6 +53,10 @@ inline constexpr uint8_t kWalCancelReasonExpired     = 1;  // GTD/DAY expiry
 inline constexpr uint8_t kWalCancelReasonStp         = 2;
 inline constexpr uint8_t kWalCancelReasonFokUnfilled = 3;
 inline constexpr uint8_t kWalCancelReasonIocRemainder = 4;  // also MARKET rest
+// 5 = kWalCancelReasonSlippageExceeded, 6 = kWalCancelReasonExecRuleRange
+// (MatchingEngine.hpp — Wave-B header). 7 = OCO sibling: journaled on the
+// atomic one-cancels-other cancel (Phase-14 Task 14.3.1, spec §6.5).
+inline constexpr uint8_t kWalCancelReasonOcoLink     = 7;
 
 // Internal OrderType::ICEBERG marker for WalOrderNewPayload.type — the
 // wire::OrderType enum tops out at StopLimit=3.
@@ -113,6 +117,12 @@ public:
     // Phase-03 GL service consumes it for the balanced ledger posting.
     [[nodiscard]] WalStatus write_prevented_match(
         const WalPreventedMatchPayload& p, uint64_t ts_ns) noexcept;
+    // Phase-14 Task 14.3.1 — OCO pair linkage (WalOcoLinkPayload,
+    // spec §6.2/§6.5). Journaled at link install, before either member's
+    // ORDER_NEW, so replay reconstructs the pair before the events that
+    // exercise it.
+    [[nodiscard]] WalStatus write_oco_link(
+        const WalOcoLinkPayload& p, uint64_t ts_ns) noexcept;
 
     // Durability barrier passthrough (batch fsync).
     [[nodiscard]] WalStatus flush() noexcept;

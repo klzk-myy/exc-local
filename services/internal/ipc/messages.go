@@ -21,6 +21,15 @@ type OrderNewMsg struct {
 	Price         int64 // scaled 1e8
 	TIF           wire.TimeInForce
 	ClientOrderID string
+	// Aux fields added for stop/GTD/iceberg/STP/OCO leg fidelity
+	// (Phase-14 Task 14.3.1) — 0 values are the wire "unset" convention.
+	StpMode                 byte   // StpMode enum ordinal; 0xFF = unset
+	Flags                   byte   // bit0 post_only, bit1 reduce_only
+	StopPrice               int64  // scaled 1e8; 0 = none
+	GtdExpiryNs             int64  // unixns; 0 = none
+	DisplayQty              int64  // iceberg visible slice; 0 = full
+	TradeGroupID            uint32 // 0 = none
+	DiscretionaryOffsetPips int64  // 0 = none
 }
 
 // EncodeOrderNewEvent serializes Event{seq, ts, type=OrderNew} into b and
@@ -37,6 +46,13 @@ func EncodeOrderNewEvent(b *flatbuffers.Builder, seq, ts uint64, m OrderNewMsg) 
 	wire.OrderNewAddPrice(b, m.Price)
 	wire.OrderNewAddTif(b, m.TIF)
 	wire.OrderNewAddClientOrderId(b, coid)
+	wire.OrderNewAddStpMode(b, m.StpMode)
+	wire.OrderNewAddFlags(b, m.Flags)
+	wire.OrderNewAddStopPrice(b, m.StopPrice)
+	wire.OrderNewAddGtdExpiryNs(b, m.GtdExpiryNs)
+	wire.OrderNewAddDisplayQty(b, m.DisplayQty)
+	wire.OrderNewAddTradeGroupId(b, m.TradeGroupID)
+	wire.OrderNewAddDiscretionaryOffsetPips(b, m.DiscretionaryOffsetPips)
 	on := wire.OrderNewEnd(b)
 
 	wire.EventStart(b)

@@ -1,7 +1,10 @@
 package accounts
 
 import (
+	"errors"
 	"fmt"
+
+	"github.com/jackc/pgx/v5/pgconn"
 
 	excerrors "exchange/pkg/errors"
 )
@@ -24,10 +27,23 @@ const (
 	CodeCountdownInvalid       = "COUNTDOWN_INVALID_DURATION" // 400, §23
 	CodeCountdownAlreadyActive = "COUNTDOWN_ALREADY_ACTIVE"   // 409, §23
 	CodeCloseAllPartialFailure = "CLOSE_ALL_PARTIAL_FAILURE"  // 409, §23
+	CodeAccountCloseBlocked    = "ACCOUNT_CLOSE_BLOCKED"      // 409, §23
+	CodeCoolingOffActive       = "COOLING_OFF_ACTIVE"         // 409, §23
+	CodeServiceDegraded        = "SERVICE_DEGRADED"           // 503, §23
+	CodeProductNotPermitted    = "PRODUCT_NOT_PERMITTED"      // 403, §23
+	CodeAccountNotFound        = "ACCOUNT_NOT_FOUND"          // 404, §23
 )
 
 func newError(code, msg string) *excerrors.Error { return excerrors.New(code, msg) }
 
 func errorf(code, format string, args ...any) *excerrors.Error {
 	return excerrors.New(code, fmt.Sprintf(format, args...))
+}
+
+// isUniqueViolation reports the Postgres 23505 unique-constraint breach —
+// used to map the swapfree live-request and profile-code uniqueness
+// guards onto client-visible INVALID_REQUEST rejections.
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }

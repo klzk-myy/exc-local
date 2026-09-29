@@ -22,6 +22,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	goredis "github.com/redis/go-redis/v9"
@@ -88,6 +89,10 @@ type HitResult struct {
 	ResetEpoch int64 // epoch seconds when the 1s window counter resets
 	RetryAfter int64 // seconds to tell the client (429) / until ban expiry (418)
 	Ban        *Ban  // populated on HitBanned/HitBannedNew
+	// WindowCount is the identity's request count in the current 1-second
+	// window — the denied hit is included (failed requests stay charged,
+	// spec §4.1). Zero on ban-path results where the counter was not read.
+	WindowCount int64
 }
 
 // Backend is the decision store seam. RedisBackend is authoritative;
@@ -289,9 +294,11 @@ func parseHitResult(res []interface{}, in HitInput, secWin, minWin int64) (HitRe
 	case HitOK:
 		out.Status = HitOK
 		out.Remaining, _ = res[1].(int64)
+		out.WindowCount, _ = res[2].(int64)
 	case HitRateLimited:
 		out.Status = HitRateLimited
 		out.Remaining, _ = res[1].(int64)
+		out.WindowCount, _ = res[2].(int64)
 		out.RetryAfter = secWin + 1 - in.Now.Unix()
 		if out.RetryAfter < 1 {
 			out.RetryAfter = 1
@@ -299,6 +306,7 @@ func parseHitResult(res []interface{}, in HitInput, secWin, minWin int64) (HitRe
 	case HitWeightExceeded:
 		out.Status = HitWeightExceeded
 		out.Remaining, _ = res[1].(int64)
+		out.WindowCount, _ = res[2].(int64)
 		out.RetryAfter = (minWin+1)*60 - in.Now.Unix()
 		if out.RetryAfter < 1 {
 			out.RetryAfter = 1
@@ -515,7 +523,22 @@ type LimiterOptions struct {
 	Mode     ModeReader       // nil ⇒ always Normal
 	Now      func() time.Time // nil ⇒ time.Now
 	Fallback Backend          // nil ⇒ fresh MemBackend
+	// Utilization is the Task 14.3.6 observer hook: invoked at most once
+	// per identity per window-second when the identity's 1s request count
+	// reaches UtilizationThreshold of its effective rate — the "account
+	// >80% of tier limit" signal the gateway exports for alerting.
+	// Nil ⇒ no emission. Must be non-blocking.
+	Utilization UtilizationObserver
 }
+
+// UtilizationThreshold is the Task 14.3.6 tripwire: windowCount/limit
+// crossing 80% emits one observation per identity per second-window.
+const UtilizationThreshold = 0.80
+
+// UtilizationObserver receives one identity-crossing-80% observation.
+// limit is the effective req/s enforced this hit; windowCount is the
+// 1-second window counter (charged hits included).
+type UtilizationObserver func(id Identity, limit, windowCount int64)
 
 // Limiter is the facade the middleware calls: resolves the effective
 // tier rate (× throttle under Throttled mode), executes Hit against the
@@ -527,6 +550,10 @@ type Limiter struct {
 	throttle map[Tier]float64
 	mode     ModeReader
 	now      func() time.Time
+
+	utilObs  UtilizationObserver
+	utilMu   sync.Mutex
+	utilSeen map[string]int64 // identity key → last window-second emitted
 }
 
 // NewLimiter wires a limiter over the primary backend.
@@ -537,6 +564,8 @@ func NewLimiter(primary Backend, opts LimiterOptions) *Limiter {
 		throttle: opts.Throttle,
 		mode:     opts.Mode,
 		now:      opts.Now,
+		utilObs:  opts.Utilization,
+		utilSeen: map[string]int64{},
 	}
 	if l.fallback == nil {
 		l.fallback = NewMemBackend()
@@ -589,13 +618,46 @@ func (l *Limiter) Check(ctx context.Context, id Identity, weight int64, order bo
 	}
 	res, err := l.primary.Hit(ctx, in)
 	if err == nil {
+		l.emitUtilization(id, res, in.Now.Unix())
 		return res, nil
 	}
 	fb, ferr := l.fallback.Hit(ctx, in)
 	if ferr != nil {
 		return HitResult{}, fmt.Errorf("ratelimit: primary %v; fallback %v", err, ferr)
 	}
+	l.emitUtilization(id, fb, in.Now.Unix())
 	return fb, nil
+}
+
+// emitUtilization fires the Task 14.3.6 observer at most once per
+// identity per window-second when the identity's 1-second count reaches
+// 80% of the effective rate — the "account nearing tier exhaustion"
+// signal. A banned identity is excluded upstream (WindowCount 0).
+func (l *Limiter) emitUtilization(id Identity, res HitResult, secWin int64) {
+	if l.utilObs == nil || res.Limit <= 0 || res.WindowCount <= 0 {
+		return
+	}
+	if float64(res.WindowCount) < UtilizationThreshold*float64(res.Limit) {
+		return
+	}
+	seenKey := string(id.Tier) + "|" + id.Key
+	l.utilMu.Lock()
+	if l.utilSeen[seenKey] == secWin {
+		l.utilMu.Unlock()
+		return
+	}
+	l.utilSeen[seenKey] = secWin
+	// Opportunistic prune — stale windows age out so a busy edge never
+	// grows the dedup map without bound.
+	if len(l.utilSeen) > 10000 {
+		for k, w := range l.utilSeen {
+			if w < secWin {
+				delete(l.utilSeen, k)
+			}
+		}
+	}
+	l.utilMu.Unlock()
+	l.utilObs(id, res.Limit, res.WindowCount)
 }
 
 // Usage exposes the backend for introspection/admin plumbing.

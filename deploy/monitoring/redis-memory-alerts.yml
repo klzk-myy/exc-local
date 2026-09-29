@@ -1,0 +1,57 @@
+# Prometheus alert rules — Redis memory & eviction pressure
+# (Phase-14 Task 14.3.6; exporter metrics: redis_evicted_keys,
+# redis_memory_used_bytes, redis_memory_max_bytes).
+#
+# Policy contract being monitored (deploy/redis/):
+#   redis.conf       — coordination instance: maxmemory 4gb, noeviction.
+#                      ANY eviction here is a defect — the policy can't
+#                      evict, so a nonzero counter means a mis-configured
+#                      replica/replacement process, not pressure.
+#   redis-cache.conf — cache instance: maxmemory 1gb, volatile-lru.
+#                      Evictions are legal but signal pressure.
+groups:
+  - name: redis-memory
+    interval: 15s
+    rules:
+      # Any eviction on the coordination instance (noeviction policy) —
+      # halts/breakers/leases must never be evicted; a nonzero counter
+      # means the running process does not match redis.conf.
+      - alert: RedisEvictionsObserved
+        expr: increase(redis_evicted_keys[5m]) > 0
+        for: 0m
+        labels: {severity: p2, component: redis, domain: memory}
+        annotations:
+          summary: "Redis evictions on {{ $labels.instance }} ({{ $value }} keys/5m)"
+          description: "Coordination Redis is configured noeviction — any evicted key indicates a policy/monitoring mismatch; on the cache instance this is memory pressure. Verify maxmemory-policy and instance role."
+          runbook: docs/runbooks/redis-eviction-pressure.md
+
+      # Sustained eviction throughput — cache instance churning, or a
+      # coordination instance actively shedding keys (worst case).
+      - alert: RedisEvictionsSustained
+        expr: rate(redis_evicted_keys[2m]) > 10
+        for: 5m
+        labels: {severity: p1, component: redis, domain: memory}
+        annotations:
+          summary: "Sustained Redis evictions on {{ $labels.instance }} ({{ $value }}/s)"
+          description: "Eviction rate >10/s for 5m — cache effectiveness degraded and coordination-key risk if the instance is the primary. Check maxmemory headroom and key TTL churn."
+          runbook: docs/runbooks/redis-eviction-pressure.md
+
+      # Approaching maxmemory — eviction (or noeviction write-refusal)
+      # is imminent. 85% is the ticket line; 95% pages harder.
+      - alert: RedisMemoryHeadroomLow
+        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.85
+        for: 5m
+        labels: {severity: p2, component: redis, domain: memory}
+        annotations:
+          summary: "Redis memory at {{ $value | humanizePercentage }} of maxmemory on {{ $labels.instance }}"
+          description: "At 85%+ the eviction threshold is close — on the noeviction coordination instance the symptom is write refusal (SET failures), not evictions. Grow maxmemory or shed keys before the cliff."
+          runbook: docs/runbooks/redis-eviction-pressure.md
+
+      - alert: RedisMemoryHeadroomCritical
+        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.95
+        for: 1m
+        labels: {severity: p1, component: redis, domain: memory}
+        annotations:
+          summary: "Redis memory critical on {{ $labels.instance }} ({{ $value | humanizePercentage }} of maxmemory)"
+          description: "95%+ of maxmemory — the noeviction coordination instance is about to refuse writes (rate-limit state, circuit breakers, degradation mode at risk); the cache instance is evicting at maximum rate. Immediate headroom required."
+          runbook: docs/runbooks/redis-eviction-pressure.md

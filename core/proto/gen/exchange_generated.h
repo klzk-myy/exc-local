@@ -15,6 +15,15 @@ struct OrderNewBuilder;
 struct OrderCancel;
 struct OrderCancelBuilder;
 
+struct TimeTick;
+struct TimeTickBuilder;
+
+struct OrderAmend;
+struct OrderAmendBuilder;
+
+struct OcoLink;
+struct OcoLinkBuilder;
+
 struct TradeFill;
 struct TradeFillBuilder;
 
@@ -62,33 +71,36 @@ enum OrderType {
   OrderType_Limit = 1,
   OrderType_StopMarket = 2,
   OrderType_StopLimit = 3,
+  OrderType_Iceberg = 4,
   OrderType_MIN = OrderType_Market,
-  OrderType_MAX = OrderType_StopLimit
+  OrderType_MAX = OrderType_Iceberg
 };
 
-inline const OrderType (&EnumValuesOrderType())[4] {
+inline const OrderType (&EnumValuesOrderType())[5] {
   static const OrderType values[] = {
     OrderType_Market,
     OrderType_Limit,
     OrderType_StopMarket,
-    OrderType_StopLimit
+    OrderType_StopLimit,
+    OrderType_Iceberg
   };
   return values;
 }
 
 inline const char * const *EnumNamesOrderType() {
-  static const char * const names[5] = {
+  static const char * const names[6] = {
     "Market",
     "Limit",
     "StopMarket",
     "StopLimit",
+    "Iceberg",
     nullptr
   };
   return names;
 }
 
 inline const char *EnumNameOrderType(OrderType e) {
-  if (flatbuffers::IsOutRange(e, OrderType_Market, OrderType_StopLimit)) return "";
+  if (flatbuffers::IsOutRange(e, OrderType_Market, OrderType_Iceberg)) return "";
   const size_t index = static_cast<size_t>(e);
   return EnumNamesOrderType()[index];
 }
@@ -138,35 +150,44 @@ enum EventType {
   EventType_OrderCancel = 2,
   EventType_TradeFill = 3,
   EventType_BookSnapshot = 4,
+  EventType_TimeTick = 5,
+  EventType_OrderAmend = 6,
+  EventType_OcoLink = 7,
   EventType_MIN = EventType_NONE,
-  EventType_MAX = EventType_BookSnapshot
+  EventType_MAX = EventType_OcoLink
 };
 
-inline const EventType (&EnumValuesEventType())[5] {
+inline const EventType (&EnumValuesEventType())[8] {
   static const EventType values[] = {
     EventType_NONE,
     EventType_OrderNew,
     EventType_OrderCancel,
     EventType_TradeFill,
-    EventType_BookSnapshot
+    EventType_BookSnapshot,
+    EventType_TimeTick,
+    EventType_OrderAmend,
+    EventType_OcoLink
   };
   return values;
 }
 
 inline const char * const *EnumNamesEventType() {
-  static const char * const names[6] = {
+  static const char * const names[9] = {
     "NONE",
     "OrderNew",
     "OrderCancel",
     "TradeFill",
     "BookSnapshot",
+    "TimeTick",
+    "OrderAmend",
+    "OcoLink",
     nullptr
   };
   return names;
 }
 
 inline const char *EnumNameEventType(EventType e) {
-  if (flatbuffers::IsOutRange(e, EventType_NONE, EventType_BookSnapshot)) return "";
+  if (flatbuffers::IsOutRange(e, EventType_NONE, EventType_OcoLink)) return "";
   const size_t index = static_cast<size_t>(e);
   return EnumNamesEventType()[index];
 }
@@ -191,10 +212,24 @@ template<> struct EventTypeTraits<exc::wire::BookSnapshot> {
   static const EventType enum_value = EventType_BookSnapshot;
 };
 
+template<> struct EventTypeTraits<exc::wire::TimeTick> {
+  static const EventType enum_value = EventType_TimeTick;
+};
+
+template<> struct EventTypeTraits<exc::wire::OrderAmend> {
+  static const EventType enum_value = EventType_OrderAmend;
+};
+
+template<> struct EventTypeTraits<exc::wire::OcoLink> {
+  static const EventType enum_value = EventType_OcoLink;
+};
+
 bool VerifyEventType(flatbuffers::Verifier &verifier, const void *obj, EventType type);
 bool VerifyEventTypeVector(flatbuffers::Verifier &verifier, const flatbuffers::Vector<flatbuffers::Offset<void>> *values, const flatbuffers::Vector<uint8_t> *types);
 
 /// Inbound: order submission from the Go gateway to the matching core.
+/// Phase-02 extension fields are additive (FlatBuffers table append —
+/// old writers still decode, new fields default 0).
 struct OrderNew FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   typedef OrderNewBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
@@ -206,7 +241,14 @@ struct OrderNew FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
     VT_QTY = 14,
     VT_PRICE = 16,
     VT_TIF = 18,
-    VT_CLIENT_ORDER_ID = 20
+    VT_CLIENT_ORDER_ID = 20,
+    VT_STP_MODE = 22,
+    VT_FLAGS = 24,
+    VT_STOP_PRICE = 26,
+    VT_GTD_EXPIRY_NS = 28,
+    VT_DISPLAY_QTY = 30,
+    VT_TRADE_GROUP_ID = 32,
+    VT_DISCRETIONARY_OFFSET_PIPS = 34
   };
   uint64_t order_id() const {
     return GetField<uint64_t>(VT_ORDER_ID, 0);
@@ -235,6 +277,27 @@ struct OrderNew FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const flatbuffers::String *client_order_id() const {
     return GetPointer<const flatbuffers::String *>(VT_CLIENT_ORDER_ID);
   }
+  uint8_t stp_mode() const {
+    return GetField<uint8_t>(VT_STP_MODE, 0);
+  }
+  uint8_t flags() const {
+    return GetField<uint8_t>(VT_FLAGS, 0);
+  }
+  int64_t stop_price() const {
+    return GetField<int64_t>(VT_STOP_PRICE, 0);
+  }
+  int64_t gtd_expiry_ns() const {
+    return GetField<int64_t>(VT_GTD_EXPIRY_NS, 0);
+  }
+  int64_t display_qty() const {
+    return GetField<int64_t>(VT_DISPLAY_QTY, 0);
+  }
+  uint32_t trade_group_id() const {
+    return GetField<uint32_t>(VT_TRADE_GROUP_ID, 0);
+  }
+  int64_t discretionary_offset_pips() const {
+    return GetField<int64_t>(VT_DISCRETIONARY_OFFSET_PIPS, 0);
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<uint64_t>(verifier, VT_ORDER_ID) &&
@@ -247,6 +310,13 @@ struct OrderNew FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
            VerifyField<uint8_t>(verifier, VT_TIF) &&
            VerifyOffset(verifier, VT_CLIENT_ORDER_ID) &&
            verifier.VerifyString(client_order_id()) &&
+           VerifyField<uint8_t>(verifier, VT_STP_MODE) &&
+           VerifyField<uint8_t>(verifier, VT_FLAGS) &&
+           VerifyField<int64_t>(verifier, VT_STOP_PRICE) &&
+           VerifyField<int64_t>(verifier, VT_GTD_EXPIRY_NS) &&
+           VerifyField<int64_t>(verifier, VT_DISPLAY_QTY) &&
+           VerifyField<uint32_t>(verifier, VT_TRADE_GROUP_ID) &&
+           VerifyField<int64_t>(verifier, VT_DISCRETIONARY_OFFSET_PIPS) &&
            verifier.EndTable();
   }
 };
@@ -282,6 +352,27 @@ struct OrderNewBuilder {
   void add_client_order_id(flatbuffers::Offset<flatbuffers::String> client_order_id) {
     fbb_.AddOffset(OrderNew::VT_CLIENT_ORDER_ID, client_order_id);
   }
+  void add_stp_mode(uint8_t stp_mode) {
+    fbb_.AddElement<uint8_t>(OrderNew::VT_STP_MODE, stp_mode, 0);
+  }
+  void add_flags(uint8_t flags) {
+    fbb_.AddElement<uint8_t>(OrderNew::VT_FLAGS, flags, 0);
+  }
+  void add_stop_price(int64_t stop_price) {
+    fbb_.AddElement<int64_t>(OrderNew::VT_STOP_PRICE, stop_price, 0);
+  }
+  void add_gtd_expiry_ns(int64_t gtd_expiry_ns) {
+    fbb_.AddElement<int64_t>(OrderNew::VT_GTD_EXPIRY_NS, gtd_expiry_ns, 0);
+  }
+  void add_display_qty(int64_t display_qty) {
+    fbb_.AddElement<int64_t>(OrderNew::VT_DISPLAY_QTY, display_qty, 0);
+  }
+  void add_trade_group_id(uint32_t trade_group_id) {
+    fbb_.AddElement<uint32_t>(OrderNew::VT_TRADE_GROUP_ID, trade_group_id, 0);
+  }
+  void add_discretionary_offset_pips(int64_t discretionary_offset_pips) {
+    fbb_.AddElement<int64_t>(OrderNew::VT_DISCRETIONARY_OFFSET_PIPS, discretionary_offset_pips, 0);
+  }
   explicit OrderNewBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -303,14 +394,28 @@ inline flatbuffers::Offset<OrderNew> CreateOrderNew(
     int64_t qty = 0,
     int64_t price = 0,
     exc::wire::TimeInForce tif = exc::wire::TimeInForce_GTC,
-    flatbuffers::Offset<flatbuffers::String> client_order_id = 0) {
+    flatbuffers::Offset<flatbuffers::String> client_order_id = 0,
+    uint8_t stp_mode = 0,
+    uint8_t flags = 0,
+    int64_t stop_price = 0,
+    int64_t gtd_expiry_ns = 0,
+    int64_t display_qty = 0,
+    uint32_t trade_group_id = 0,
+    int64_t discretionary_offset_pips = 0) {
   OrderNewBuilder builder_(_fbb);
+  builder_.add_discretionary_offset_pips(discretionary_offset_pips);
+  builder_.add_display_qty(display_qty);
+  builder_.add_gtd_expiry_ns(gtd_expiry_ns);
+  builder_.add_stop_price(stop_price);
   builder_.add_price(price);
   builder_.add_qty(qty);
   builder_.add_account_id(account_id);
   builder_.add_order_id(order_id);
+  builder_.add_trade_group_id(trade_group_id);
   builder_.add_client_order_id(client_order_id);
   builder_.add_instrument_id(instrument_id);
+  builder_.add_flags(flags);
+  builder_.add_stp_mode(stp_mode);
   builder_.add_tif(tif);
   builder_.add_type(type);
   builder_.add_side(side);
@@ -327,7 +432,14 @@ inline flatbuffers::Offset<OrderNew> CreateOrderNewDirect(
     int64_t qty = 0,
     int64_t price = 0,
     exc::wire::TimeInForce tif = exc::wire::TimeInForce_GTC,
-    const char *client_order_id = nullptr) {
+    const char *client_order_id = nullptr,
+    uint8_t stp_mode = 0,
+    uint8_t flags = 0,
+    int64_t stop_price = 0,
+    int64_t gtd_expiry_ns = 0,
+    int64_t display_qty = 0,
+    uint32_t trade_group_id = 0,
+    int64_t discretionary_offset_pips = 0) {
   auto client_order_id__ = client_order_id ? _fbb.CreateString(client_order_id) : 0;
   return exc::wire::CreateOrderNew(
       _fbb,
@@ -339,15 +451,29 @@ inline flatbuffers::Offset<OrderNew> CreateOrderNewDirect(
       qty,
       price,
       tif,
-      client_order_id__);
+      client_order_id__,
+      stp_mode,
+      flags,
+      stop_price,
+      gtd_expiry_ns,
+      display_qty,
+      trade_group_id,
+      discretionary_offset_pips);
 }
 
 /// Inbound: cancel request.
+/// `reason` is additive (Phase-14 Task 14.3.1): engine-emitted outbound
+/// cancels carry the kWalCancelReason* code (0=user, 1=expired, 2=STP,
+/// 3=FOK_unfilled, 4=IOC_remainder, 5=slippage, 6=exec-rule range,
+/// 7=OCO sibling) so the read model can distinguish a sibling-cancelled
+/// OCO leg for the OCO_SIBLING_CANCEL_RACE (409) API mapping. Inbound
+/// cancel requests leave it 0/unset.
 struct OrderCancel FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   typedef OrderCancelBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_ORDER_ID = 4,
-    VT_ACCOUNT_ID = 6
+    VT_ACCOUNT_ID = 6,
+    VT_REASON = 8
   };
   uint64_t order_id() const {
     return GetField<uint64_t>(VT_ORDER_ID, 0);
@@ -355,10 +481,14 @@ struct OrderCancel FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   uint64_t account_id() const {
     return GetField<uint64_t>(VT_ACCOUNT_ID, 0);
   }
+  uint8_t reason() const {
+    return GetField<uint8_t>(VT_REASON, 0);
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<uint64_t>(verifier, VT_ORDER_ID) &&
            VerifyField<uint64_t>(verifier, VT_ACCOUNT_ID) &&
+           VerifyField<uint8_t>(verifier, VT_REASON) &&
            verifier.EndTable();
   }
 };
@@ -372,6 +502,9 @@ struct OrderCancelBuilder {
   }
   void add_account_id(uint64_t account_id) {
     fbb_.AddElement<uint64_t>(OrderCancel::VT_ACCOUNT_ID, account_id, 0);
+  }
+  void add_reason(uint8_t reason) {
+    fbb_.AddElement<uint8_t>(OrderCancel::VT_REASON, reason, 0);
   }
   explicit OrderCancelBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -387,10 +520,236 @@ struct OrderCancelBuilder {
 inline flatbuffers::Offset<OrderCancel> CreateOrderCancel(
     flatbuffers::FlatBufferBuilder &_fbb,
     uint64_t order_id = 0,
-    uint64_t account_id = 0) {
+    uint64_t account_id = 0,
+    uint8_t reason = 0) {
   OrderCancelBuilder builder_(_fbb);
   builder_.add_account_id(account_id);
   builder_.add_order_id(order_id);
+  builder_.add_reason(reason);
+  return builder_.Finish();
+}
+
+/// Inbound: deterministic clock tick (Task 2.3.10). The matching thread turns
+/// each tick into a WAL TIME_TICK entry — the gateway never writes the WAL.
+struct TimeTick FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef TimeTickBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_TICK_NS = 4
+  };
+  uint64_t tick_ns() const {
+    return GetField<uint64_t>(VT_TICK_NS, 0);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<uint64_t>(verifier, VT_TICK_NS) &&
+           verifier.EndTable();
+  }
+};
+
+struct TimeTickBuilder {
+  typedef TimeTick Table;
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_tick_ns(uint64_t tick_ns) {
+    fbb_.AddElement<uint64_t>(TimeTick::VT_TICK_NS, tick_ns, 0);
+  }
+  explicit TimeTickBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  flatbuffers::Offset<TimeTick> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<TimeTick>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<TimeTick> CreateTimeTick(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    uint64_t tick_ns = 0) {
+  TimeTickBuilder builder_(_fbb);
+  builder_.add_tick_ns(tick_ns);
+  return builder_.Finish();
+}
+
+/// Inbound: atomic amend/replace (Task 2.3.20). Single-thread total order —
+/// concurrent amends on the same order_seq resolve to exactly one winner.
+struct OrderAmend FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef OrderAmendBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_ORDER_ID = 4,
+    VT_ORDER_SEQ = 6,
+    VT_PRICE = 8,
+    VT_QTY = 10,
+    VT_STOP_PRICE = 12,
+    VT_GTD_EXPIRY_NS = 14
+  };
+  uint64_t order_id() const {
+    return GetField<uint64_t>(VT_ORDER_ID, 0);
+  }
+  uint64_t order_seq() const {
+    return GetField<uint64_t>(VT_ORDER_SEQ, 0);
+  }
+  int64_t price() const {
+    return GetField<int64_t>(VT_PRICE, 0);
+  }
+  int64_t qty() const {
+    return GetField<int64_t>(VT_QTY, 0);
+  }
+  int64_t stop_price() const {
+    return GetField<int64_t>(VT_STOP_PRICE, 0);
+  }
+  int64_t gtd_expiry_ns() const {
+    return GetField<int64_t>(VT_GTD_EXPIRY_NS, 0);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<uint64_t>(verifier, VT_ORDER_ID) &&
+           VerifyField<uint64_t>(verifier, VT_ORDER_SEQ) &&
+           VerifyField<int64_t>(verifier, VT_PRICE) &&
+           VerifyField<int64_t>(verifier, VT_QTY) &&
+           VerifyField<int64_t>(verifier, VT_STOP_PRICE) &&
+           VerifyField<int64_t>(verifier, VT_GTD_EXPIRY_NS) &&
+           verifier.EndTable();
+  }
+};
+
+struct OrderAmendBuilder {
+  typedef OrderAmend Table;
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_order_id(uint64_t order_id) {
+    fbb_.AddElement<uint64_t>(OrderAmend::VT_ORDER_ID, order_id, 0);
+  }
+  void add_order_seq(uint64_t order_seq) {
+    fbb_.AddElement<uint64_t>(OrderAmend::VT_ORDER_SEQ, order_seq, 0);
+  }
+  void add_price(int64_t price) {
+    fbb_.AddElement<int64_t>(OrderAmend::VT_PRICE, price, 0);
+  }
+  void add_qty(int64_t qty) {
+    fbb_.AddElement<int64_t>(OrderAmend::VT_QTY, qty, 0);
+  }
+  void add_stop_price(int64_t stop_price) {
+    fbb_.AddElement<int64_t>(OrderAmend::VT_STOP_PRICE, stop_price, 0);
+  }
+  void add_gtd_expiry_ns(int64_t gtd_expiry_ns) {
+    fbb_.AddElement<int64_t>(OrderAmend::VT_GTD_EXPIRY_NS, gtd_expiry_ns, 0);
+  }
+  explicit OrderAmendBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  flatbuffers::Offset<OrderAmend> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<OrderAmend>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<OrderAmend> CreateOrderAmend(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    uint64_t order_id = 0,
+    uint64_t order_seq = 0,
+    int64_t price = 0,
+    int64_t qty = 0,
+    int64_t stop_price = 0,
+    int64_t gtd_expiry_ns = 0) {
+  OrderAmendBuilder builder_(_fbb);
+  builder_.add_gtd_expiry_ns(gtd_expiry_ns);
+  builder_.add_stop_price(stop_price);
+  builder_.add_qty(qty);
+  builder_.add_price(price);
+  builder_.add_order_seq(order_seq);
+  builder_.add_order_id(order_id);
+  return builder_.Finish();
+}
+
+/// Inbound: OCO (one-cancels-other) link command — Phase-14 Task 14.3.1,
+/// spec §6.2/§6.5. The gateway sends this event on the pair's shard BEFORE
+/// either leg's OrderNew, so the engine installs the linkage while both
+/// members are still unplaced: a leg that fills first then cancels the
+/// sibling atomically, and a leg whose sibling already terminated is
+/// rejected OCO_SIBLING_CANCEL_RACE on arrival (deterministic WAL order).
+/// link_id is the OCO group identifier persisted as orders.oco_group_id.
+struct OcoLink FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef OcoLinkBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_LINK_ID = 4,
+    VT_ORDER_ID_A = 6,
+    VT_ORDER_ID_B = 8,
+    VT_ACCOUNT_ID = 10,
+    VT_INSTRUMENT_ID = 12
+  };
+  uint64_t link_id() const {
+    return GetField<uint64_t>(VT_LINK_ID, 0);
+  }
+  uint64_t order_id_a() const {
+    return GetField<uint64_t>(VT_ORDER_ID_A, 0);
+  }
+  uint64_t order_id_b() const {
+    return GetField<uint64_t>(VT_ORDER_ID_B, 0);
+  }
+  uint64_t account_id() const {
+    return GetField<uint64_t>(VT_ACCOUNT_ID, 0);
+  }
+  uint32_t instrument_id() const {
+    return GetField<uint32_t>(VT_INSTRUMENT_ID, 0);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<uint64_t>(verifier, VT_LINK_ID) &&
+           VerifyField<uint64_t>(verifier, VT_ORDER_ID_A) &&
+           VerifyField<uint64_t>(verifier, VT_ORDER_ID_B) &&
+           VerifyField<uint64_t>(verifier, VT_ACCOUNT_ID) &&
+           VerifyField<uint32_t>(verifier, VT_INSTRUMENT_ID) &&
+           verifier.EndTable();
+  }
+};
+
+struct OcoLinkBuilder {
+  typedef OcoLink Table;
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_link_id(uint64_t link_id) {
+    fbb_.AddElement<uint64_t>(OcoLink::VT_LINK_ID, link_id, 0);
+  }
+  void add_order_id_a(uint64_t order_id_a) {
+    fbb_.AddElement<uint64_t>(OcoLink::VT_ORDER_ID_A, order_id_a, 0);
+  }
+  void add_order_id_b(uint64_t order_id_b) {
+    fbb_.AddElement<uint64_t>(OcoLink::VT_ORDER_ID_B, order_id_b, 0);
+  }
+  void add_account_id(uint64_t account_id) {
+    fbb_.AddElement<uint64_t>(OcoLink::VT_ACCOUNT_ID, account_id, 0);
+  }
+  void add_instrument_id(uint32_t instrument_id) {
+    fbb_.AddElement<uint32_t>(OcoLink::VT_INSTRUMENT_ID, instrument_id, 0);
+  }
+  explicit OcoLinkBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  flatbuffers::Offset<OcoLink> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<OcoLink>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<OcoLink> CreateOcoLink(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    uint64_t link_id = 0,
+    uint64_t order_id_a = 0,
+    uint64_t order_id_b = 0,
+    uint64_t account_id = 0,
+    uint32_t instrument_id = 0) {
+  OcoLinkBuilder builder_(_fbb);
+  builder_.add_account_id(account_id);
+  builder_.add_order_id_b(order_id_b);
+  builder_.add_order_id_a(order_id_a);
+  builder_.add_link_id(link_id);
+  builder_.add_instrument_id(instrument_id);
   return builder_.Finish();
 }
 
@@ -674,6 +1033,15 @@ struct Event FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const exc::wire::BookSnapshot *type_as_BookSnapshot() const {
     return type_type() == exc::wire::EventType_BookSnapshot ? static_cast<const exc::wire::BookSnapshot *>(type()) : nullptr;
   }
+  const exc::wire::TimeTick *type_as_TimeTick() const {
+    return type_type() == exc::wire::EventType_TimeTick ? static_cast<const exc::wire::TimeTick *>(type()) : nullptr;
+  }
+  const exc::wire::OrderAmend *type_as_OrderAmend() const {
+    return type_type() == exc::wire::EventType_OrderAmend ? static_cast<const exc::wire::OrderAmend *>(type()) : nullptr;
+  }
+  const exc::wire::OcoLink *type_as_OcoLink() const {
+    return type_type() == exc::wire::EventType_OcoLink ? static_cast<const exc::wire::OcoLink *>(type()) : nullptr;
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<uint64_t>(verifier, VT_SEQ) &&
@@ -699,6 +1067,18 @@ template<> inline const exc::wire::TradeFill *Event::type_as<exc::wire::TradeFil
 
 template<> inline const exc::wire::BookSnapshot *Event::type_as<exc::wire::BookSnapshot>() const {
   return type_as_BookSnapshot();
+}
+
+template<> inline const exc::wire::TimeTick *Event::type_as<exc::wire::TimeTick>() const {
+  return type_as_TimeTick();
+}
+
+template<> inline const exc::wire::OrderAmend *Event::type_as<exc::wire::OrderAmend>() const {
+  return type_as_OrderAmend();
+}
+
+template<> inline const exc::wire::OcoLink *Event::type_as<exc::wire::OcoLink>() const {
+  return type_as_OcoLink();
 }
 
 struct EventBuilder {
@@ -761,6 +1141,18 @@ inline bool VerifyEventType(flatbuffers::Verifier &verifier, const void *obj, Ev
     }
     case EventType_BookSnapshot: {
       auto ptr = reinterpret_cast<const exc::wire::BookSnapshot *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case EventType_TimeTick: {
+      auto ptr = reinterpret_cast<const exc::wire::TimeTick *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case EventType_OrderAmend: {
+      auto ptr = reinterpret_cast<const exc::wire::OrderAmend *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case EventType_OcoLink: {
+      auto ptr = reinterpret_cast<const exc::wire::OcoLink *>(obj);
       return verifier.VerifyTable(ptr);
     }
     default: return true;

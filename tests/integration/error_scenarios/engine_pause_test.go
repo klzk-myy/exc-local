@@ -102,6 +102,9 @@ func (f *fakeOrderStore) ApplyFill(context.Context, int64, decimal.Decimal, deci
 }
 func (f *fakeOrderStore) MarkActive(context.Context, int64) error   { return nil }
 func (f *fakeOrderStore) MarkRejected(context.Context, int64) error { return nil }
+func (f *fakeOrderStore) InsertOcoPairTx(context.Context, int64, orders.InsertParams, orders.InsertParams) (*orders.Order, *orders.Order, error) {
+	return nil, nil, fmt.Errorf("fake store: InsertOcoPairTx not implemented")
+}
 func (f *fakeOrderStore) AmendCAS(context.Context, int64, uint64, uint64,
 	orders.AmendFields, []orders.AuditEntry) (*orders.Order, bool, error) {
 	return nil, false, fmt.Errorf("fake store: AmendCAS not implemented")
@@ -263,7 +266,7 @@ func TestEnginePaused_CancelAckTimeout(t *testing.T) {
 		ID: 42, AccountID: 7, InstrumentID: 1, Status: "ACTIVE", OrderSeq: 1,
 	}}
 	svc, err := orders.NewService(orders.Options{
-		KillSwitch: openKillSwitch{}, Breakers: openBreakers{},
+		KillSwitch: openKillSwitch{}, Breakers: openBreakers{}, Product: admitAppropriateness{},
 		Store:      store,
 		Submitter:  &silentSubmitter{},
 		ShardMap:   mustShardMap(t),
@@ -367,3 +370,13 @@ func (openKillSwitch) OrderHalt(context.Context, int64, string, string, string) 
 type openBreakers struct{}
 
 func (openBreakers) AdmitOrder(context.Context, int64, string) error { return nil }
+
+// admitAppropriateness is the permissive Phase-14 MiFID II
+// appropriateness/categorization fake — the production gate fails closed
+// on nil (SERVICE_DEGRADED), so error-scenario tests that exercise the
+// halt/balance paths must supply an explicit admit seam.
+type admitAppropriateness struct{}
+
+func (admitAppropriateness) Appropriateness(context.Context, int64, string) error {
+	return nil
+}

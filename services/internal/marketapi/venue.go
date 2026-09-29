@@ -67,6 +67,20 @@ type VenueInfo struct {
 	RateLimits   []RateLimitDoc   `json:"rate_limits"`
 	RouteWeights []RouteWeightDoc `json:"route_weights"`
 	Symbols      []SymbolDoc      `json:"symbols"`
+	// ProductProfiles publishes the per-profile instrument scope
+	// (Phase-14 Task 14.3.13) so clients discover which classes their
+	// account profile admits; omitted when no profile source is wired.
+	ProductProfiles []ProfileDoc `json:"product_profiles,omitempty"`
+}
+
+// ProfileDoc is the venue-facing view of one account_product_profiles
+// row — scope/divisor only; admin internals stay off the public doc.
+type ProfileDoc struct {
+	Code            string   `json:"code"`
+	PricingPlan     string   `json:"pricing_plan"`
+	InstrumentScope []string `json:"instrument_scope"`
+	SubunitDivisor  int64    `json:"subunit_divisor"`
+	MinDeposit      string   `json:"min_deposit"`
 }
 
 // VenueRateLimits renders the ratelimit.Specs tier table in a stable order.

@@ -251,7 +251,7 @@ Implement advanced order types: TWAP, VWAP, trailing stop, peg-to-best, benchmar
 2. Gateway validation: flags parsed, validated, and persisted on submit; `algo_params` schema-validated per `algo_type`; iceberg orders require `display_qty < qty`.
 3. Algo parameter validation: TWAP interval 1s–1h; trailing offset > 0; scaled ≤ 20 levels; fixing benchmark identifier enum (Task 16.3.9).
 4. Recovery: fields are part of WAL order state (Phase-2 WAL schema already carries order payload — verify all new fields included in WAL record + snapshot serialization).
-5. `oco_group_id` formalizes Task 14.3.1's OCO linkage (previously implied); brackets store TP/SL order ids in `algo_params`.
+5. `oco_group_id` formalizes Task 14.3.1's OCO linkage (previously implied); brackets store TP/SL order ids in `algo_params`. *(Superseded in part 2026-10-07 — Task 14.3.1 landed first: `oco_group_id` now ships as `BIGINT` in migration **218** (`218_oco_group_link.up.sql`), not UUID here — the group id is the same monotonic `link_id` the engine journals in `WalOcoLinkPayload`, so it must stay integral for wire/WAL parity. Migration 038 must NOT re-add the column; this task retains `post_only`/`reduce_only`/`display_qty`/`peg_offset`/`stp_mode`/`algo_type`/`algo_params` only.)*
 
 **Definition of Done (Acceptance Criteria):**
 * [ ] All execution params persisted on `orders` and round-trip through WAL replay/snapshot (§24 #131)

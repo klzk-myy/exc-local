@@ -149,6 +149,13 @@ ANNOTATIONS = {
     ("chargebacks", "reason"): ("FREE_TEXT", "plaintext", "dispute record", "financial record floor"),
     ("chargebacks", "resolution_note"): ("FREE_TEXT", "plaintext", "dispute record", "financial record floor"),
     ("chargeback_evidence", "payload"): ("FREE_TEXT", "plaintext JSONB — may embed account/trade linkage", "evidence bundle", "financial record floor"),
+    # ---- Phase-14 lifecycle/product records ----------------------------
+    ("account_closures", "reason"): ("FREE_TEXT", "plaintext", "closure record — client/officer-entered", "financial record floor"),
+    ("swapfree_verifications", "decision_note"): ("FREE_TEXT", "plaintext", "verifier note", "account close +5y"),
+    ("strategy_profiles", "display_name"): ("FREE_TEXT", "plaintext", "manager-chosen public label", "strategy lifetime"),
+    ("strategy_profiles", "suspend_reason"): ("FREE_TEXT", "plaintext", "compliance note", "strategy lifetime"),
+    ("compliance_holds", "reason"): ("FREE_TEXT", "plaintext", "officer-entered hold justification", "financial record floor"),
+    ("pamm_pools", "name"): ("FREE_TEXT", "plaintext", "manager-chosen pool label", "pool lifetime"),
     # ---- trading records (linkage, immutable) ----------------------------
     ("orders", "account_id"): ("LINKAGE", "n/a (FK)", "all order paths", "MiFID 5y — Art.17(3)(b) immutable"),
     ("orders", "client_order_id"): ("FREE_TEXT", "plaintext", "client-supplied id; may embed identifiers", "MiFID 5y"),
@@ -250,6 +257,7 @@ NONPII = {
     ("environments", "name"): "deploy environment name (dev/staging/prod)",
     ("release_promotions", "reason"): "release-train vocabulary",
     ("deploy_windows", "reason"): "deploy window note",
+    ("strategy_profiles", "incubating_since"): "incubation start timestamp — no person data",
 
     ("governance_packs", "release_reason"): "governance pack vocabulary",
     ("suspense_account_mappings", "name_match_score"): "derived Jaro-Winkler score",

@@ -155,6 +155,7 @@ uint32_t expected_payload_len(WalEventType t) noexcept {
         case WalEventType::TRADE:          return sizeof(WalTradePayload);
         case WalEventType::TIME_TICK:      return sizeof(WalTimeTickPayload);
         case WalEventType::PREVENTED_MATCH:return sizeof(WalPreventedMatchPayload);
+        case WalEventType::OCO_LINK:      return sizeof(WalOcoLinkPayload);
         default:                           return 0;  // BOOK_SNAPSHOT/MARGIN_*
     }
 }
@@ -934,6 +935,17 @@ RecoveryResult RecoveryManager::recover(
                         continue;
                     }
                     target = it->second;
+                } else if (ev.type == WalEventType::OCO_LINK) {
+                    // Phase-14 Task 14.3.1 — link carries instrument_id so
+                    // it routes to exactly one book like ORDER_NEW/TRADE.
+                    WalOcoLinkPayload p;
+                    std::memcpy(&p, ev.payload, sizeof(p));
+                    const auto it = by_instrument.find(p.instrument_id);
+                    if (it == by_instrument.end()) {
+                        ++res.foreign_entries;
+                        continue;
+                    }
+                    target = it->second;
                 } else {  // ORDER_CANCEL / ORDER_MODIFY — no instrument field
                     if (ev.type == WalEventType::ORDER_CANCEL) {
                         WalOrderCancelPayload p;
@@ -1082,6 +1094,31 @@ RecoveryResult RecoveryManager::recover(
                             ++res.mutations_applied;
                             ++bs.mutations_applied;
                         } else {
+                            ++res.dedup_skips;
+                            ++bs.dedup_skips;
+                        }
+                        break;
+                    }
+                    case WalEventType::OCO_LINK: {
+                        WalOcoLinkPayload p;
+                        std::memcpy(&p, ev.payload, sizeof(p));
+                        // Replays install the link into the journal-free
+                        // replay engine exactly as live — the journaled
+                        // row precedes both legs' ORDER_NEW, so the armed
+                        // members are in place before any replayed fill
+                        // re-derives the sibling cancel (or marks a doomed
+                        // leg for its replayed ORDER_NEW to reject).
+                        const uint64_t members_before =
+                            bs.engine->oco_member_count();
+                        bs.engine->on_oco_link_received(
+                            p.link_id, p.order_id_a, p.order_id_b,
+                            p.account_id, p.instrument_id);
+                        if (bs.engine->oco_member_count() != members_before) {
+                            ++res.mutations_applied;
+                            ++bs.mutations_applied;
+                        } else {
+                            // Idempotent re-send or engine-level reject —
+                            // the journal row is still consumed.
                             ++res.dedup_skips;
                             ++bs.dedup_skips;
                         }

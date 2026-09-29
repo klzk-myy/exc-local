@@ -6,7 +6,7 @@ import (
 	flatbuffers "github.com/google/flatbuffers/go"
 )
 
-// / Outbound: execution report emitted by the matching core.
+/// Outbound: execution report emitted by the matching core.
 type TradeFill struct {
 	_tab flatbuffers.Table
 }

@@ -1,0 +1,23 @@
+# Testnet shared configuration — Phase-14 Task 14.3.3.
+# THE separating contract is EXC_ENVIRONMENT=testnet: it makes
+# config.IsProduction() false, enables the testenv.Service surface
+# (reset / seed / simulated funding), and is the only label a testnet
+# workload may carry. A pod scheduled into this namespace that resolves
+# EXC_ENVIRONMENT=production fails closed — testenv.Enabled() is false
+# and every /api/v1/test/* endpoint returns 403.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: exchange-env
+  namespace: exchange-testnet
+data:
+  EXC_ENVIRONMENT: "testnet"
+  EXC_LOGGING_LEVEL: "info"
+  EXC_LOGGING_FORMAT: "json"
+  # Testnet data plane — separate instances, never production endpoints.
+  # NATS and Redis addresses resolve inside the exchange-testnet
+  # namespace; adjust to the testnet cluster's actual service names.
+  EXC_NATS_URLS: "nats://nats.exchange-testnet.svc:4222"
+  EXC_SENTINEL_ADDRS: "redis-sentinel.exchange-testnet.svc:26379"
+  EXC_REDIS_ADDR: "mymaster"
+  EXC_SHARDING_CONFIG: "/etc/exchange/sharding.yaml"

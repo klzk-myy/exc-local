@@ -12,145 +12,22 @@ r.Register("P05-T5.3.1-C1", func(ctx context.Context, env *spec.Env) spec.Result
 
 | Checkpoint | Task | Status | Text |
 |---|---|---|---|
-| `P08-T8.3.1-C1` | 8.3.1 (Phase-08-Integration-Testing.md:42) | [ ] | **419** §24 criteria mapped to test contracts; Phase 1–7 subset executable in Phase 8; all executab… |
-| `P08-T8.3.2-C1` | 8.3.2 (Phase-08-Integration-Testing.md:68) | [ ] | 50k/sec sustained p99 ≤ 50µs (supersedes prior ≤ 1ms) |
-| `P08-T8.3.3-C1` | 8.3.3 (Phase-08-Integration-Testing.md:92) | [ ] | performance tuning to hit targets |
-| `P08-T8.3.4-C1` | 8.3.4 (Phase-08-Integration-Testing.md:114) | [ ] | §24 traceability matrix CI-gated |
-| `P08-T8.3.5-C1` | 8.3.5 (Phase-08-Integration-Testing.md:134) | [ ] | End-to-end error scenario test suite and circuit breaker assertions (§24 #307) |
 | `P08.5-T8.5.3.1-C1` | 8.5.3.1 (Phase-08.5-PreProduction-LoadTest.md:45) | [ ] | 75k/sec staging gate |
 | `P08.5-T8.5.3.2-C1` | 8.5.3.2 (Phase-08.5-PreProduction-LoadTest.md:55) | [ ] | isolated demo environment mirrors the production API without real funds (§24 #266) |
 | `P08.5-T8.5.3.3-C1` | 8.5.3.3 (Phase-08.5-PreProduction-LoadTest.md:75) | [ ] | High-stress error injection and degradation mode hysteresis validated (§24 #308) |
-| `P09-T9.3.1-C1` | 9.3.1 (Phase-09-Deployment-Operations.md:43) | [ ] | bare metal C++ core with NUMA pinning |
-| `P09-T9.3.2-C1` | 9.3.2 (Phase-09-Deployment-Operations.md:68) | [ ] | K8s Go services with HPA |
-| `P09-T9.3.3-C1` | 9.3.3 (Phase-09-Deployment-Operations.md:93) | [ ] | blue-green with rollback |
-| `P09-T9.3.4-C1` | 9.3.4 (Phase-09-Deployment-Operations.md:123) | [ ] | multi-region DR with RTO targets |
-| `P09-T9.3.4-C2` | 9.3.4 (Phase-09-Deployment-Operations.md:124) | [ ] | PostgreSQL RPO ≤ 15s / RTO ≤ 5min |
-| `P09-T9.3.4-C3` | 9.3.4 (Phase-09-Deployment-Operations.md:125) | [ ] | Redis RPO ≤ 5s / RTO ≤ 30s |
-| `P09-T9.3.5-C1` | 9.3.5 (Phase-09-Deployment-Operations.md:150) | [ ] | 47+ alert runbooks |
-| `P09-T9.3.5-C2` | 9.3.5 (Phase-09-Deployment-Operations.md:151) | [ ] | 4 tabletops < SLA |
-| `P09-T9.3.6-C1` | 9.3.6 (Phase-09-Deployment-Operations.md:175) | [ ] | 6-month API deprecation notice |
-| `P09-T9.3.7-C1` | 9.3.7 (Phase-09-Deployment-Operations.md:198) | [ ] | feature flags for canary deploys |
-| `P09-T9.3.8-C1` | 9.3.8 (Phase-09-Deployment-Operations.md:222) | [ ] | cache warming P0 30s / P1 5s |
-| `P09-T9.3.9-C1` | 9.3.9 (Phase-09-Deployment-Operations.md:244) | [ ] | post-mortem within 48h |
-| `P09-T9.3.10-C1` | 9.3.10 (Phase-09-Deployment-Operations.md:273) | [ ] | graceful load shedding |
-| `P09-T9.3.11-C1` | 9.3.11 (Phase-09-Deployment-Operations.md:296) | [ ] | trace_id continuity HTTP → Aeron → C++ |
-| `P09-T9.3.12-C1` | 9.3.12 (Phase-09-Deployment-Operations.md:321) | [ ] | PTP clock sync within 100µs (MiFID II RTS 25) |
-| `P09-T9.3.13-C1` | 9.3.13 (Phase-09-Deployment-Operations.md:346) | [ ] | WAF/DDoS edge protection (§19.1, §24 #160) |
-| `P09-T9.3.14-C1` | 9.3.14 (Phase-09-Deployment-Operations.md:370) | [ ] | SLOs + error budgets defined and wired (§19.3, §24 #162) |
-| `P09-T9.3.15-C1` | 9.3.15 (Phase-09-Deployment-Operations.md:397) | [ ] | DORA ICT governance, reporting, testing and third-party register (§19.5, §24 #171) |
-| `P09-T9.3.16-C1` | 9.3.16 (Phase-09-Deployment-Operations.md:428) | [ ] | C++ bare-metal deployment and shard drain procedure (§19.6, §24 #177) |
-| `P09-T9.3.17-C1` | 9.3.17 (Phase-09-Deployment-Operations.md:454) | [ ] | PostgreSQL 5-year partition archival pipeline (§19.7, §24 #179) |
-| `P09-T9.3.18-C1` | 9.3.18 (Phase-09-Deployment-Operations.md:483) | [ ] | Incident classification P0–P3 and escalation matrix (§19.8, §24 #183) |
-| `P09-T9.3.19-C1` | 9.3.19 (Phase-09-Deployment-Operations.md:512) | [ ] | Capacity planning and sizing models (§19.9, §24 #191) |
-| `P09-T9.3.20-C1` | 9.3.20 (Phase-09-Deployment-Operations.md:537) | [ ] | Redis Sentinel 3-node HA deployment and failover (§4.5, §24 #181) |
-| `P09-T9.3.21-C1` | 9.3.21 (Phase-09-Deployment-Operations.md:563) | [ ] | Quarterly DR Drill Program (§18.3, §19.5 DORA, §24 #211) |
-| `P09-T9.3.22-C1` | 9.3.22 (Phase-09-Deployment-Operations.md:587) | [ ] | Unified Data Retention Policy (§19.12, §24 #212) |
-| `P09-T9.3.23-C1` | 9.3.23 (Phase-09-Deployment-Operations.md:612) | [ ] | Go Service Graceful Shutdown (§24 #216) |
-| `P09-T9.3.24-C1` | 9.3.24 (Phase-09-Deployment-Operations.md:640) | [ ] | data tiering policy |
-| `P09-T9.3.25-C1` | 9.3.25 (Phase-09-Deployment-Operations.md:664) | [ ] | public status page infrastructure and operational health monitoring (§19.3) |
-| `P09-T9.3.26-C1` | 9.3.26 (Phase-09-Deployment-Operations.md:684) | [ ] | Automated canary rollback and blue-green health verification (§24 #309) |
-| `P09-T9.3.27-C1` | 9.3.27 (Phase-09-Deployment-Operations.md:712) | [ ] | documented, annually exercised BCP with stand-down/go-forward criteria, alternate site and regulato… |
-| `P09-T9.3.28-C1` | 9.3.28 (Phase-09-Deployment-Operations.md:739) | [ ] | Daemon execution inventory, systemd templates, and multi-tier watchdog architecture (§19.13, §24 #3… |
-| `P09-T9.3.29-C1` | 9.3.29 (Phase-09-Deployment-Operations.md:765) | [ ] | observability budgets, capacity proof with burst headroom, residency-gated failover, and per-secret… |
-| `P09-T9.3.30-C1` | 9.3.30 (Phase-09-Deployment-Operations.md:789) | [ ] | environment context model, fleet inventory with dual-controlled actions, and direction-enforced pro… |
-| `P10-T10.3.1-C1` | 10.3.1 (Phase-10-Trader-UI.md:47) | [ ] | React 18 + TypeScript + Vite |
-| `P10-T10.3.2-C1` | 10.3.2 (Phase-10-Trader-UI.md:72) | [ ] | virtualized order book |
-| `P10-T10.3.3-C1` | 10.3.3 (Phase-10-Trader-UI.md:95) | [ ] | order entry with validation |
-| `P10-T10.3.4-C1` | 10.3.4 (Phase-10-Trader-UI.md:120) | [ ] | TradingView Lightweight Charts |
-| `P10-T10.3.5-C1` | 10.3.5 (Phase-10-Trader-UI.md:144) | [ ] | real-time positions + balances |
-| `P10-T10.3.6-C1` | 10.3.6 (Phase-10-Trader-UI.md:172) | [ ] | RBAC-gated admin dashboard |
-| `P10-T10.3.7-C1` | 10.3.7 (Phase-10-Trader-UI.md:194) | [ ] | advanced order UI |
-| `P10-T10.3.8-C1` | 10.3.8 (Phase-10-Trader-UI.md:204) | [ ] | calculator outputs use live marks and account leverage (§24 #267) |
-| `P10-T10.3.9-C1` | 10.3.9 (Phase-10-Trader-UI.md:213) | [ ] | persistent Lite/Pro modes expose appropriate complexity (§24 #268) |
-| `P10-T10.3.10-C1` | 10.3.10 (Phase-10-Trader-UI.md:222) | [ ] | quick actions require projected-execution confirmation (§24 #268) |
-| `P10-T10.3.11-C1` | 10.3.11 (Phase-10-Trader-UI.md:231) | [ ] | percentage sizing respects free margin and lot filters (§24 #268) |
-| `P10-T10.3.12-C1` | 10.3.12 (Phase-10-Trader-UI.md:240) | [ ] | interactive depth chart consumes canonical L2 data (§24 #268) |
-| `P10-T10.3.13-C1` | 10.3.13 (Phase-10-Trader-UI.md:249) | [ ] | ADL rank is visible with clear risk explanation (§24 #269) |
-| `P10-T10.3.14-C1` | 10.3.14 (Phase-10-Trader-UI.md:261) | [ ] | users can save, restore, and reset accessible trading layouts (§24 #292) |
-| `P10-T10.3.15-C1` | 10.3.15 (Phase-10-Trader-UI.md:270) | [ ] | chart overlays support safe inspect/modify/cancel with explicit priority semantics (§24 #292) |
-| `P10-T10.3.16-C1` | 10.3.16 (Phase-10-Trader-UI.md:279) | [ ] | indicator presets and cost-aware sandboxed backtests are reproducible (§24 #293) |
-| `P10-T10.3.17-C1` | 10.3.17 (Phase-10-Trader-UI.md:288) | [ ] | FX discovery views, watchlists, and rate alerts use canonical market data (§24 #294) |
-| `P10-T10.3.18-C1` | 10.3.18 (Phase-10-Trader-UI.md:297) | [ ] | client performance dashboard reconciles to ledger-backed reports (§24 #295) |
-| `P10-T10.3.19-C1` | 10.3.19 (Phase-10-Trader-UI.md:333) | [ ] | UI network reconnection, stale pricing indicators, and optimistic rollback (§24 #310) |
-| `P10-T10.3.20-C1` | 10.3.20 (Phase-10-Trader-UI.md:354) | [ ] | environment switcher with context-bound client, fleet/release pages, and ops-board UI with dual-con… |
-| `P10-T10.3.21-C1` | 10.3.21 (Phase-10-Trader-UI.md:380) | [ ] | auth screens gate the SPA, 2FA is mandatory before trading, sessions are revocable (§24 #382) |
-| `P10-T10.3.22-C1` | 10.3.22 (Phase-10-Trader-UI.md:410) | [ ] | account-security center covers profile, WebAuthn, anti-phishing, devices, emergency freeze, cooling… |
-| `P10-T10.3.23-C1` | 10.3.23 (Phase-10-Trader-UI.md:437) | [ ] | funding screens cover deposits, withdrawals with 15-min confirm, internal transfers, fee estimate, … |
-| `P10-T10.3.24-C1` | 10.3.24 (Phase-10-Trader-UI.md:461) | [ ] | KYC UI shows tier/status, trading-limit impact, multi-step upload, and re-verification prompts (§24… |
-| `P10-T10.3.25-C1` | 10.3.25 (Phase-10-Trader-UI.md:485) | [ ] | support UI covers ticket submission with attachments, conversation thread, status lifecycle, and st… |
-| `P10-T10.3.26-C1` | 10.3.26 (Phase-10-Trader-UI.md:511) | [ ] | copy-trading browser/follow and grid-bot wizard/management UI enforce limits and display risk discl… |
-| `P10-T10.3.27-C1` | 10.3.27 (Phase-10-Trader-UI.md:543) | [ ] | order history, algo management, OPO lists, dead-man switch, and test/preview are functional; BBO/ag… |
-| `P10-T10.3.28-C1` | 10.3.28 (Phase-10-Trader-UI.md:576) | [ ] | report-download, statement, solvency-proof, fee-schedule, and system-info surfaces are functional; … |
-| `P10-T10.3.29-C1` | 10.3.29 (Phase-10-Trader-UI.md:691) | [ ] | centralized input-helper framework with OpenAPI-synced validation, instrument-aware formatting, pre… |
-| `P11-T11.3.1-C1` | 11.3.1 (Phase-11-Funding-Suspension.md:49) | [ ] | SWIFT/SEPA/FedNow/ACH/CHAPS/TARGET2 banking rails |
-| `P11-T11.3.2-C1` | 11.3.2 (Phase-11-Funding-Suspension.md:83) | [ ] | 15min withdrawal confirmation window |
-| `P11-T11.3.2-C2` | 11.3.2 (Phase-11-Funding-Suspension.md:84) | [ ] | review tiers <$10K/$10K–$50K/>$50K+4h |
-| `P11-T11.3.2-C3` | 11.3.2 (Phase-11-Funding-Suspension.md:85) | [ ] | 30min cooldown + 24h new account hold |
-| `P11-T11.3.3-C1` | 11.3.3 (Phase-11-Funding-Suspension.md:116) | [ ] | deposit anti-fraud tiers |
-| `P11-T11.3.3-C2` | 11.3.3 (Phase-11-Funding-Suspension.md:117) | [ ] | dual-source bank confirmation |
-| `P11-T11.3.4-C1` | 11.3.4 (Phase-11-Funding-Suspension.md:142) | [ ] | global kill-switch with dual control |
-| `P11-T11.3.5-C1` | 11.3.5 (Phase-11-Funding-Suspension.md:167) | [ ] | 24h market statistics |
-| `P11-T11.3.6-C1` | 11.3.6 (Phase-11-Funding-Suspension.md:189) | [ ] | nostro-aware withdrawals (nostro tracking) |
-| `P11-T11.3.7-C1` | 11.3.7 (Phase-11-Funding-Suspension.md:216) | [ ] | verified beneficiary registry + third-party rejection (§5.23, §24 #141) |
-| `P11-T11.3.7-C2` | 11.3.7 (Phase-11-Funding-Suspension.md:217) | [ ] | per-rail cut-off enforcement (§24 #164) |
-| `P11-T11.3.8-C1` | 11.3.8 (Phase-11-Funding-Suspension.md:242) | [ ] | scoped kill-switch (§7.2, §24 #152) |
-| `P11-T11.3.9-C1` | 11.3.9 (Phase-11-Funding-Suspension.md:272) | [ ] | funding fee schedule |
-| `P11-T11.3.10-C1` | 11.3.10 (Phase-11-Funding-Suspension.md:296) | [ ] | withdrawal whitelist mode with 24-hour addition timelock and 24-hour deactivation safety lock (migr… |
-| `P11-T11.3.11-C1` | 11.3.11 (Phase-11-Funding-Suspension.md:316) | [ ] | Banking rail return code mapping and third-party deposit fraud quarantine (§24 #311) |
-| `P11-T11.3.12-C1` | 11.3.12 (Phase-11-Funding-Suspension.md:340) | [ ] | multi-dimensional scoped emergency kill-switches (§24 #409) |
-| `P12-T12.3.1-C1` | 12.3.1 (Phase-12-User-Self-Service.md:46) | [ ] | user registration + email verification |
-| `P12-T12.3.2-C1` | 12.3.2 (Phase-12-User-Self-Service.md:73) | [ ] | TOTP 2FA with backup codes |
-| `P12-T12.3.3-C1` | 12.3.3 (Phase-12-User-Self-Service.md:98) | [ ] | profile + API key management |
-| `P12-T12.3.4-C1` | 12.3.4 (Phase-12-User-Self-Service.md:124) | [ ] | KYC tiers T0/T1/T2/institutional |
-| `P12-T12.3.4-C2` | 12.3.4 (Phase-12-User-Self-Service.md:125) | [ ] | re-verification 12mo/24mo |
-| `P12-T12.3.5-C1` | 12.3.5 (Phase-12-User-Self-Service.md:154) | [ ] | notifications with retry + preferences |
-| `P12-T12.3.6-C1` | 12.3.6 (Phase-12-User-Self-Service.md:177) | [ ] | notification preferences with quiet hours |
-| `P12-T12.3.7-C1` | 12.3.7 (Phase-12-User-Self-Service.md:188) | [ ] | passkey registration/authentication verifies challenge, origin, signature, and counter (§24 #270) |
-| `P12-T12.3.8-C1` | 12.3.8 (Phase-12-User-Self-Service.md:197) | [ ] | anti-phishing code appears on every official user message (§24 #271) |
-| `P12-T12.3.9-C1` | 12.3.9 (Phase-12-User-Self-Service.md:206) | [ ] | users can review login history and revoke active sessions (§24 #271) |
-| `P12-T12.3.10-C1` | 12.3.10 (Phase-12-User-Self-Service.md:215) | [ ] | self-freeze cancels orders, revokes credentials, and requires identity re-verification (§24 #271) |
-| `P12-T12.3.11-C1` | 12.3.11 (Phase-12-User-Self-Service.md:231) | [ ] | institutional delegated logins enforce scoped client RBAC and M-of-N validation (§24 #285) |
-| `P12-T12.3.12-C1` | 12.3.12 (Phase-12-User-Self-Service.md:251) | [ ] | Auth lockout, WebAuthn clone detection, and freeze partial-failure recovery (§24 #312) |
-| `P12-T12.3.13-C1` | 12.3.13 (Phase-12-User-Self-Service.md:270) | [ ] | KYC operations matrix with SLAs and owned tax inputs with FIFO book of record (§24 #341) |
-| `P13-T13.3.1-C1` | 13.3.1 (Phase-13-Production-Hardening.md:57) | [ ] | five-tier circuit breaker with exact scopes (INSTRUMENT, ACCOUNT, VOLUME_SPIKE, OPTIONS_VOLATILITY,… |
-| `P13-T13.3.1-C2` | 13.3.1 (Phase-13-Production-Hardening.md:58) | [ ] | exact triggers (5%/60s, 3+ losses/5%/5min, z≥4.0σ, IV>200%, >20%/>2 instruments) |
-| `P13-T13.3.1-C3` | 13.3.1 (Phase-13-Production-Hardening.md:59) | [ ] | hold times (5min, 30min, 10min, 15min, manual) |
-| `P13-T13.3.1-C4` | 13.3.1 (Phase-13-Production-Hardening.md:60) | [ ] | state machine CLOSED → OPEN → HALF_OPEN → CLOSED |
-| `P13-T13.3.1-C5` | 13.3.1 (Phase-13-Production-Hardening.md:61) | [ ] | admin endpoints with dual control on reset |
-| `P13-T13.3.2-C1` | 13.3.2 (Phase-13-Production-Hardening.md:90) | [ ] | 9 financial correctness categories (incl. GL zero-sum) |
-| `P13-T13.3.3-C1` | 13.3.3 (Phase-13-Production-Hardening.md:113) | [ ] | 47+ alert rules |
-| `P13-T13.3.4-C1` | 13.3.4 (Phase-13-Production-Hardening.md:140) | [ ] | real-time P&L |
-| `P13-T13.3.5-C1` | 13.3.5 (Phase-13-Production-Hardening.md:161) | [ ] | pen test prep |
-| `P13-T13.3.6-C1` | 13.3.6 (Phase-13-Production-Hardening.md:188) | [ ] | OTR limits per RTS 9 (§13.6a, §24 #140) |
-| `P13-T13.3.7-C1` | 13.3.7 (Phase-13-Production-Hardening.md:216) | [ ] | Proof of Reserves Merkle tree and verification API (§17.11, §24 #186) |
-| `P13-T13.3.8-C1` | 13.3.8 (Phase-13-Production-Hardening.md:227) | [ ] | non-allowlisted privileged API keys auto-expire with warning and audit (§24 #272) |
-| `P13-T13.3.9-C1` | 13.3.9 (Phase-13-Production-Hardening.md:247) | [ ] | Circuit breaker automated reset, flapping penalty, and probe verification (§24 #313) |
-| `P13.5-T13.5.3.1-C1` | 13.5.3.1 (Phase-13.5-Security-Compliance-Audit.md:43) | [ ] | pen test 0 Critical / <3 High |
-| `P13.5-T13.5.3.2-C1` | 13.5.3.2 (Phase-13.5-Security-Compliance-Audit.md:67) | [ ] | PII audit 0 leaks |
-| `P13.5-T13.5.3.3-C1` | 13.5.3.3 (Phase-13.5-Security-Compliance-Audit.md:89) | [ ] | sanctions/dual-control/audit-chain |
-| `P13.5-T13.5.3.4-C1` | 13.5.3.4 (Phase-13.5-Security-Compliance-Audit.md:110) | [ ] | 47+ runbooks + 4 tabletops < SLA |
-| `P13.5-T13.5.3.5-C1` | 13.5.3.5 (Phase-13.5-Security-Compliance-Audit.md:141) | [ ] | secret rotation 90-day schedule with zero downtime |
-| `P13.5-T13.5.3.6-C1` | 13.5.3.6 (Phase-13.5-Security-Compliance-Audit.md:167) | [ ] | Bare-Metal Secrets Management (§24 #213) |
-| `P13.5-T13.5.3.7-C1` | 13.5.3.7 (Phase-13.5-Security-Compliance-Audit.md:187) | [ ] | Security fault injection and penetration drills validate zero leakage (§24 #314) |
-| `P13.5-T13.5.3.8-C1` | 13.5.3.8 (Phase-13.5-Security-Compliance-Audit.md:213) | [ ] | standing vulnerability disclosure program with SLA enforcement and coordinated patching (§19.11.2, … |
-| `P13.5-T13.5.3.9-C1` | 13.5.3.9 (Phase-13.5-Security-Compliance-Audit.md:234) | [ ] | full-surface pentest scope with severity ETAs and field-level GDPR erasure runbook (§24 #342) |
 | `P14-T14.3.1-C1` | 14.3.1 (Phase-14-Extended-Features.md:41) | [ ] | OCO atomic cancel |
-| `P14-T14.3.2-C1` | 14.3.2 (Phase-14-Extended-Features.md:65) | [ ] | auto-halt on anomaly |
-| `P14-T14.3.3-C1` | 14.3.3 (Phase-14-Extended-Features.md:90) | [ ] | testnet with reset |
-| `P14-T14.3.4-C1` | 14.3.4 (Phase-14-Extended-Features.md:121) | [ ] | KYC lifecycle T0/T1/T2/institutional |
-| `P14-T14.3.4-C2` | 14.3.4 (Phase-14-Extended-Features.md:122) | [ ] | re-verification 12mo/24mo with auto-downgrade |
-| `P14-T14.3.5-C1` | 14.3.5 (Phase-14-Extended-Features.md:147) | [ ] | PostgreSQL PITR RPO ≤ 15s / RTO ≤ 5min (supersedes prior ≤ 5min / ≤ 30min) |
-| `P14-T14.3.6-C1` | 14.3.6 (Phase-14-Extended-Features.md:171) | [ ] | production hardening |
-| `P14-T14.3.7-C1` | 14.3.7 (Phase-14-Extended-Features.md:198) | [ ] | MiFID client categorization + appropriateness (§14.2, §24 #132) |
+| `P14-T14.3.2-C1` | 14.3.2 (Phase-14-Extended-Features.md:65) | [x] | auto-halt on anomaly |
+| `P14-T14.3.3-C1` | 14.3.3 (Phase-14-Extended-Features.md:90) | [x] | testnet with reset |
+| `P14-T14.3.4-C1` | 14.3.4 (Phase-14-Extended-Features.md:121) | [x] | KYC lifecycle T0/T1/T2/institutional |
+| `P14-T14.3.4-C2` | 14.3.4 (Phase-14-Extended-Features.md:122) | [x] | re-verification 12mo/24mo with auto-downgrade |
+| `P14-T14.3.5-C1` | 14.3.5 (Phase-14-Extended-Features.md:147) | [x] | PostgreSQL PITR RPO ≤ 15s / RTO ≤ 5min (supersedes prior ≤ 5min / ≤ 30min) |
+| `P14-T14.3.6-C1` | 14.3.6 (Phase-14-Extended-Features.md:171) | [x] | production hardening |
+| `P14-T14.3.7-C1` | 14.3.7 (Phase-14-Extended-Features.md:198) | [x] | MiFID client categorization + appropriateness (§14.2, §24 #132) |
 | `P14-T14.3.8-C1` | 14.3.8 (Phase-14-Extended-Features.md:225) | [ ] | PAMM/MAM & Copy Trading Framework |
-| `P14-T14.3.9-C1` | 14.3.9 (Phase-14-Extended-Features.md:251) | [ ] | account closure & offboarding (§12.5, §24 #204) |
-| `P14-T14.3.10-C1` | 14.3.10 (Phase-14-Extended-Features.md:277) | [ ] | Compliance Hold Workflow (§24 #219) |
-| `P14-T14.3.11-C1` | 14.3.11 (Phase-14-Extended-Features.md:287) | [ ] | cooling-off is irrevocable for its term and blocks leveraged trading (§24 #273) |
-| `P14-T14.3.12-C1` | 14.3.12 (Phase-14-Extended-Features.md:307) | [ ] | Cooling-off invariant enforcement and webhook delivery retries (§24 #315) |
-| `P14-T14.3.13-C1` | 14.3.13 (Phase-14-Extended-Features.md:329) | [ ] | product profiles gate pricing, scope and denomination with guarded switching (§24 #369) |
+| `P14-T14.3.13-C1` | 14.3.13 (Phase-14-Extended-Features.md:329) | [x] | product profiles gate pricing, scope and denomination with guarded switching (§24 #369) |
 | `P14-T14.3.14-C1` | 14.3.14 (Phase-14-Extended-Features.md:352) | [ ] | copy discovery, safety-scaled follows and HWM profit-share over the PAMM engine (§24 #372) |
-| `P14-T14.3.15-C1` | 14.3.15 (Phase-14-Extended-Features.md:376) | [ ] | swap-free verification lifecycle with prospective enforcement and abuse guards (§24 #373) |
-| `P14-T14.3.16-C1` | 14.3.16 (Phase-14-Extended-Features.md:399) | [ ] | per-profile target markets with dual-gate enforcement and periodic review (§24 #376) |
+| `P14-T14.3.15-C1` | 14.3.15 (Phase-14-Extended-Features.md:376) | [x] | swap-free verification lifecycle with prospective enforcement and abuse guards (§24 #373) |
+| `P14-T14.3.16-C1` | 14.3.16 (Phase-14-Extended-Features.md:399) | [x] | per-profile target markets with dual-gate enforcement and periodic review (§24 #376) |
 | `P15-T15.3.1-C1` | 15.3.1 (Phase-15-Market-Admin-Lifecycle.md:53) | [ ] | instrument lifecycle 7 states including persistent CANCEL_ONLY (§24 #290) |
 | `P15-T15.3.1-C2` | 15.3.1 (Phase-15-Market-Admin-Lifecycle.md:54) | [ ] | SUSPENDED 5min cancel-only grace (spec §7.1); RESTRICTED 24h; DELISTED 30d |
 | `P15-T15.3.2-C1` | 15.3.2 (Phase-15-Market-Admin-Lifecycle.md:83) | [ ] | admin instrument management API |

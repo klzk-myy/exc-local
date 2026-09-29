@@ -90,6 +90,8 @@ type Account struct {
 	UserID             int64
 	Type               string // SPOT | MARGIN | PORTFOLIO
 	KycTier            string // T0 | T1 | T2
+	ClientCategory     string // RETAIL | PROFESSIONAL | ELIGIBLE_COUNTERPARTY (migration 042)
+	NBP                bool   // §13.6c retail NBP entitlement flag (migration 042)
 	Status             string // ACTIVE | SUSPENDED | FROZEN | CLOSED
 	TradeGroupID       *int64
 	DefaultSTPMode     string
@@ -120,8 +122,11 @@ type Order struct {
 	ReduceOnly    bool
 	STPMode       string
 	SessionID     string
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	// OcoGroupID links both legs of an OCO pair (Phase-14 Task 14.3.1,
+	// migration 218) — nil = standalone order.
+	OcoGroupID *int64
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
 // View serializes an Order for REST responses — all decimals rendered as
@@ -161,6 +166,9 @@ func (o *Order) View() map[string]any {
 	}
 	if o.STPMode != "" {
 		v["stp_mode"] = o.STPMode
+	}
+	if o.OcoGroupID != nil {
+		v["oco_group_id"] = *o.OcoGroupID
 	}
 	return v
 }
@@ -394,6 +402,43 @@ func ParseSubmit(body []byte) (*SubmitRequest, error) {
 	}
 	if req.ReduceOnly, err = boolField(obj, "reduce_only"); err != nil {
 		return nil, err
+	}
+	return req, nil
+}
+
+// ParseSubmitOco decodes POST /orders/oco (Phase-14 Task 14.3.1):
+// {"symbol": "...", "legs": [{<leg1>}, {<leg2>}]} — each leg is a full
+// POST /orders payload (symbol optional, defaults to the pair-level one;
+// the service enforces same-instrument). Exactly two legs required.
+func ParseSubmitOco(body []byte) (*SubmitOcoRequest, error) {
+	obj, err := decodeBody(body)
+	if err != nil {
+		return nil, err
+	}
+	req := &SubmitOcoRequest{}
+	if v, present, err := strField(obj, "symbol"); err != nil {
+		return nil, err
+	} else if present {
+		req.Symbol = strings.TrimSpace(v)
+	}
+	raw, ok := obj["legs"]
+	if !ok {
+		return nil, fmt.Errorf("oco submit requires a \"legs\" array")
+	}
+	var legRaws []json.RawMessage
+	if err := json.Unmarshal(raw, &legRaws); err != nil {
+		return nil, fmt.Errorf("field \"legs\" must be an array of two orders")
+	}
+	if len(legRaws) != 2 {
+		return nil, fmt.Errorf("oco pair requires exactly two legs, got %d",
+			len(legRaws))
+	}
+	for i, lr := range legRaws {
+		leg, err := ParseSubmit(lr)
+		if err != nil {
+			return nil, fmt.Errorf("oco leg %d: %w", i, err)
+		}
+		req.Legs[i] = leg
 	}
 	return req, nil
 }

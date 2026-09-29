@@ -10,6 +10,14 @@ kubectl apply -f 00-namespace.yaml -f 01-configmap.yaml \
 kubectl apply -f services/ -f cronjobs/
 ```
 
+## Testnet (Task 14.3.3)
+
+`testnet/` is a separate deployment identity — dedicated
+`exchange-testnet` namespace + `EXC_ENVIRONMENT=testnet` configmap for
+`testnet.exchange.com`. Apply the same `services/` manifests into that
+namespace (minus `banking-rails-worker`); see `testnet/README.md` for
+the fail-closed and simulated-funding contracts.
+
 ## Inventory coverage
 
 | Manifest | §19.13.1 daemon | Kind | Health port | HPA |

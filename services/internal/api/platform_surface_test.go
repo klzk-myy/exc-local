@@ -292,6 +292,50 @@ func TestTestResetHandler(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Task 14.3.3 — testnet handler gating. Every path asserted below
+// short-circuits before the service reaches PG (nil pool is safe):
+// UNAUTHORIZED precedes decode, FORBIDDEN precedes store access, and
+// INVALID_REQUEST precedes the seed/fund call.
+// ---------------------------------------------------------------------------
+
+func TestTestnetHandlers(t *testing.T) {
+	handlers := map[string]http.HandlerFunc{
+		"seed":       TestSeed(testenv.New(nil, "production")),
+		"reset-seed": TestResetSeed(testenv.New(nil, "production")),
+		"deposit":    TestFundDeposit(testenv.New(nil, "production")),
+		"withdrawal": TestFundWithdraw(testenv.New(nil, "production")),
+	}
+	for name, h := range handlers {
+		// Unauthenticated → UNAUTHORIZED.
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest("POST", "/x", nil))
+		if problemErr(t, rec) != "UNAUTHORIZED" {
+			t.Fatalf("%s unauth: %s", name, rec.Body.String())
+		}
+		// Production env fails closed → FORBIDDEN (authed, valid body).
+		rec = httptest.NewRecorder()
+		h.ServeHTTP(rec, withClaims(t, "POST", "/x", "{}", 7))
+		if problemErr(t, rec) != "FORBIDDEN" || rec.Code != http.StatusForbidden {
+			t.Fatalf("%s prod: %d %s", name, rec.Code, rec.Body.String())
+		}
+	}
+	// Empty env fails closed too — the testnet/production mismatch case.
+	rec := httptest.NewRecorder()
+	TestSeed(testenv.New(nil, "")).ServeHTTP(rec,
+		withClaims(t, "POST", "/x", "{}", 7))
+	if problemErr(t, rec) != "FORBIDDEN" {
+		t.Fatalf("empty-env seed: %s", rec.Body.String())
+	}
+	// Malformed body on an enabled env → INVALID_REQUEST (no PG touch).
+	rec = httptest.NewRecorder()
+	TestSeed(testenv.New(nil, "testnet")).ServeHTTP(rec,
+		withClaims(t, "POST", "/x", "{not json", 7))
+	if problemErr(t, rec) != "INVALID_REQUEST" {
+		t.Fatalf("malformed seed: %s", rec.Body.String())
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Task 5.3.20 — migration guide + admin auth gating.
 // ---------------------------------------------------------------------------
 

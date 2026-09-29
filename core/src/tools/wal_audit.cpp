@@ -122,11 +122,12 @@ const char* type_name(WalEventType t) noexcept {
         case WalEventType::MARGIN_RESERVE:  return "MARGIN_RESERVE";
         case WalEventType::MARGIN_RELEASE:  return "MARGIN_RELEASE";
         case WalEventType::PREVENTED_MATCH: return "PREVENTED_MATCH";
+        case WalEventType::OCO_LINK:      return "OCO_LINK";
     }
     return "?";
 }
 constexpr std::size_t kTypeCount =
-    static_cast<std::size_t>(WalEventType::PREVENTED_MATCH) + 1;
+    static_cast<std::size_t>(WalEventType::OCO_LINK) + 1;
 
 void json_escape(FILE* f, const std::string& s) {
     for (const char c : s) {

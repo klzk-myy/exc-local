@@ -192,7 +192,8 @@ if(EXCH_BUILD_TESTS)
             test_trade_through
             test_discretionary
             test_stp
-            test_snapshot_manager)
+            test_snapshot_manager
+            test_oco)
         add_executable(${t} tests/${t}.cpp)
         target_link_libraries(${t} PRIVATE exch_core gtest_main)
         add_test(NAME ${t} COMMAND ${t})

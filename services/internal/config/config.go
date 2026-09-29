@@ -64,7 +64,7 @@ type SecretsConfig struct {
 func (c *Config) IsProduction() bool {
 	switch strings.ToLower(strings.TrimSpace(c.Environment)) {
 	case "development", "dev", "staging", "stage", "test", "testing",
-		"sandbox", "local", "ci":
+		"sandbox", "local", "ci", "testnet":
 		return false
 	}
 	return true

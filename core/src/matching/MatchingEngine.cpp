@@ -64,11 +64,17 @@ MatchingEngine::MatchingEngine(uint32_t shard_id, OrderBook& book,
         heap_ = new (std::nothrow) ExpiryEntry[cap];
         heap_cap_ = heap_ != nullptr ? cap : 0;
     }
+    // Phase-14 Task 14.3.1 — OCO member side table: two entries per linked
+    // pair, same bounded capacity domain as meta_. A null table degrades
+    // link install to a fail-closed reject (oco_ensure returns nullptr).
+    oco_ = new (std::nothrow) OcoMember[cap]();
+    oco_cap_ = oco_ != nullptr ? cap : 0;
 }
 
 MatchingEngine::~MatchingEngine() {
     delete[] heap_;
     delete[] meta_;
+    delete[] oco_;
 }
 
 // ---------------------------------------------------------------------------
@@ -148,6 +154,192 @@ void MatchingEngine::meta_erase(uint64_t id) noexcept {
 uint32_t MatchingEngine::group_of(uint64_t order_id) const noexcept {
     const OrderMeta* m = meta_find(order_id);
     return m != nullptr ? m->trade_group_id : 0;
+}
+
+// ---------------------------------------------------------------------------
+// OCO member map + link lifecycle (Phase-14 Task 14.3.1, spec §6.2/§6.5)
+//
+// The link arrives as a dedicated OcoLink wire event sequenced BEFORE both
+// legs' OrderNew on the shard ring. Each member occupies one open-addressed
+// entry pointing at its sibling; states:
+//   ARMED  — member live (book/pending-stop) or not yet arrived; its fill
+//            cancels the sibling atomically (journaled reason-7 cancel).
+//   DOOMED — sibling already reached terminal FILLED while this leg's
+//            OrderNew was still in flight on the same ring; the arriving
+//            order is rejected OCO_SIBLING_CANCEL_RACE without a WAL
+//            ORDER_NEW (the deterministic loser of the §6.5 race).
+// Any non-fill terminal (user cancel, expiry, STP, IOC/FOK remainder,
+// admission reject) dissolves the pair: the surviving leg keeps running
+// unlinked — one-cancels-other is a fill contract, not a cancel cascade.
+// ---------------------------------------------------------------------------
+
+MatchingEngine::OcoMember* MatchingEngine::oco_find(uint64_t id) noexcept {
+    if (oco_ == nullptr || oco_live_ == 0) return nullptr;
+    const std::size_t mask = oco_cap_ - 1;
+    std::size_t i =
+        static_cast<std::size_t>(id * 0x9E3779B97F4A7C15ull) & mask;
+    for (;;) {
+        if (oco_[i].order_id == 0) return nullptr;
+        if (oco_[i].order_id == id) return &oco_[i];
+        i = (i + 1) & mask;
+    }
+}
+
+const MatchingEngine::OcoMember* MatchingEngine::oco_find(
+    uint64_t id) const noexcept {
+    return const_cast<MatchingEngine*>(this)->oco_find(id);
+}
+
+MatchingEngine::OcoMember* MatchingEngine::oco_ensure(uint64_t id) noexcept {
+    if (oco_ == nullptr) return nullptr;
+    const std::size_t mask = oco_cap_ - 1;
+    std::size_t i =
+        static_cast<std::size_t>(id * 0x9E3779B97F4A7C15ull) & mask;
+    for (;;) {
+        if (oco_[i].order_id == 0) {
+            if (oco_live_ * 2 >= oco_cap_) return nullptr;  // full
+            oco_[i].order_id = id;
+            oco_[i].link_id = 0;
+            oco_[i].sibling_id = 0;
+            oco_[i].instrument_id = 0;
+            oco_[i].state = kOcoArmed;
+            ++oco_live_;
+            return &oco_[i];
+        }
+        if (oco_[i].order_id == id) return &oco_[i];
+        i = (i + 1) & mask;
+    }
+}
+
+void MatchingEngine::oco_erase(uint64_t id) noexcept {
+    if (oco_ == nullptr || oco_live_ == 0) return;
+    const std::size_t mask = oco_cap_ - 1;
+    std::size_t i =
+        static_cast<std::size_t>(id * 0x9E3779B97F4A7C15ull) & mask;
+    for (;;) {
+        if (oco_[i].order_id == 0) return;
+        if (oco_[i].order_id == id) break;
+        i = (i + 1) & mask;
+    }
+    // Probe-chain compaction (same scheme as meta_erase).
+    std::size_t j = i;
+    for (;;) {
+        j = (j + 1) & mask;
+        if (oco_[j].order_id == 0) break;
+        const std::size_t home = static_cast<std::size_t>(
+            oco_[j].order_id * 0x9E3779B97F4A7C15ull) & mask;
+        if (((i - home) & mask) < ((j - home) & mask)) {
+            oco_[i] = oco_[j];
+            i = j;
+        }
+    }
+    oco_[i] = OcoMember{};
+    --oco_live_;
+}
+
+void MatchingEngine::oco_on_dead(uint64_t order_id, bool by_fill) noexcept {
+    const OcoMember* m = oco_find(order_id);
+    if (m == nullptr) return;  // unlinked order — nothing to do
+    const uint64_t sibling = m->sibling_id;
+    oco_erase(order_id);  // the dead member releases the pair
+    if (!by_fill) {
+        // Non-fill terminal: the sibling continues as a standalone order —
+        // drop its member entry so a later fill of it finds no stale link.
+        oco_erase(sibling);
+        return;
+    }
+    // Fill winner (spec §6.5): cancel the sibling atomically on this thread.
+    // The member entry is authoritative for "link still open" while
+    // book/stops membership is authoritative for "sibling currently live":
+    //   * live sibling    -> journaled ORDER_CANCEL (reason OCO_LINK) +
+    //     published terminal notice, inside cancel_internal — identical to
+    //     a user cancel of a resting book order or a pending stop;
+    //   * entry but not live -> the sibling's OrderNew is still sequenced
+    //     behind us on the ring: mark DOOMED so the doomed-leg gate in
+    //     on_order_received rejects it OCO_SIBLING_CANCEL_RACE on arrival;
+    //   * no entry -> sibling already terminated; pair already closed.
+    OcoMember* s = oco_find(sibling);
+    if (s == nullptr || s->state == kOcoDoomed) return;
+    if (book_.find_order(sibling) != nullptr ||
+        stops_.find(sibling) != nullptr) {
+        oco_erase(sibling);  // unlink first — the cancel below then can't
+                             // re-enter this hook for the sibling
+        (void)cancel_internal(sibling, 0, kWalCancelReasonOcoLink,
+                              /*check_account*/ false);
+    } else {
+        s->state = kOcoDoomed;
+    }
+}
+
+int MatchingEngine::oco_member_state(uint64_t order_id) const noexcept {
+    const OcoMember* m = oco_find(order_id);
+    return m == nullptr ? -1 : static_cast<int>(m->state);
+}
+
+void MatchingEngine::on_oco_link_received(uint64_t link_id,
+                                          uint64_t order_id_a,
+                                          uint64_t order_id_b,
+                                          uint64_t account_id,
+                                          uint32_t instrument_id) noexcept {
+    if (wal_fault_) {
+        // Halted engine — fail closed, link is never silently half-applied.
+        last_reject_ = kRejectBookCapacity;
+        ++reject_count_;
+        return;
+    }
+    if (link_id == 0 || order_id_a == 0 || order_id_b == 0 ||
+        order_id_a == order_id_b) {
+        // Malformed link command — rejected pre-journal, so replay never
+        // sees it (rejects are not state changes).
+        last_reject_ = kRejectOcoLinkInvalid;
+        ++reject_count_;
+        return;
+    }
+    const OcoMember* ea = oco_find(order_id_a);
+    const OcoMember* eb = oco_find(order_id_b);
+    if (ea != nullptr || eb != nullptr) {
+        const bool same =
+            ea != nullptr && eb != nullptr && ea->link_id == link_id &&
+            ea->sibling_id == order_id_b && eb->link_id == link_id &&
+            eb->sibling_id == order_id_a;
+        if (same) return;  // idempotent re-send of an installed link
+        last_reject_ = kRejectOcoLinkConflict;
+        ++reject_count_;
+        return;
+    }
+    // Capacity check precedes the journal append: a rejected link leaves no
+    // WAL row, so replay stays consistent — a journaled link that failed
+    // to install in memory would diverge.
+    if (oco_ == nullptr || (oco_live_ + 2) * 2 >= oco_cap_) {
+        last_reject_ = kRejectBookCapacity;
+        ++reject_count_;
+        return;
+    }
+    // WAL first — the link is a committed state change.
+    WalOcoLinkPayload p{};
+    p.link_id = link_id;
+    p.order_id_a = order_id_a;
+    p.order_id_b = order_id_b;
+    p.account_id = account_id;
+    p.instrument_id = instrument_id;
+    if (wal_ != nullptr &&
+        wal_->write_oco_link(p, now_ns_) != WalStatus::Ok) {
+        wal_fault_ = true;
+        last_reject_ = kRejectBookCapacity;
+        ++reject_count_;
+        return;
+    }
+    OcoMember* ma = oco_ensure(order_id_a);
+    OcoMember* mb = oco_ensure(order_id_b);
+    // The capacity gate above guarantees both inserts succeed.
+    ma->link_id = link_id;
+    ma->sibling_id = order_id_b;
+    ma->instrument_id = instrument_id;
+    ma->state = kOcoArmed;
+    mb->link_id = link_id;
+    mb->sibling_id = order_id_a;
+    mb->instrument_id = instrument_id;
+    mb->state = kOcoArmed;
 }
 
 // ---------------------------------------------------------------------------
@@ -273,6 +465,9 @@ void MatchingEngine::reject(const Order* order, const char* code) noexcept {
         (void)publisher_->publish_order_cancel(order->id, order->account_id,
                                          now_ns_);
     }
+    // Phase-14 Task 14.3.1 — a rejected leg never trades; dissolve its OCO
+    // pair so the sibling (if already live) continues standalone.
+    if (order != nullptr) oco_on_dead(order->id, /*by_fill=*/false);
 }
 
 void MatchingEngine::emit_cancel_event(uint64_t order_id, uint64_t account_id,
@@ -283,8 +478,14 @@ void MatchingEngine::emit_cancel_event(uint64_t order_id, uint64_t account_id,
         wal_fault_ = true;
     }
     if (publisher_ != nullptr) {
-        (void)publisher_->publish_order_cancel(order_id, account_id, now_ns_);
+        (void)publisher_->publish_order_cancel(order_id, account_id, now_ns_,
+                                               wal_reason);
     }
+    // Phase-14 Task 14.3.1 — every emit_cancel_event caller is a
+    // non-fill terminal path (taker remainder kill, admission reject,
+    // STP taker death, iceberg replenish failure). Release the OCO pair:
+    // the surviving leg continues as a standalone order.
+    oco_on_dead(order_id, /*by_fill=*/false);
 }
 
 uint32_t MatchingEngine::instrument_id_of(const OrderAux& aux) const noexcept {
@@ -324,8 +525,10 @@ bool MatchingEngine::cancel_internal(uint64_t order_id, uint64_t account_id,
         s = stops_.remove(order_id);
         meta_erase(order_id);
         if (publisher_ != nullptr) {
-            (void)publisher_->publish_order_cancel(order_id, acct, now_ns_);
+            (void)publisher_->publish_order_cancel(order_id, acct, now_ns_,
+                                                   wal_reason);
         }
+        oco_on_dead(order_id, /*by_fill=*/false);
         orders_.free(s);
         return true;
     }
@@ -347,8 +550,10 @@ bool MatchingEngine::cancel_internal(uint64_t order_id, uint64_t account_id,
     meta_erase(order_id);
     icebergs_.erase(order_id);  // releases hidden remainder if iceberg
     if (publisher_ != nullptr) {
-        (void)publisher_->publish_order_cancel(order_id, acct, now_ns_);
+        (void)publisher_->publish_order_cancel(order_id, acct, now_ns_,
+                                               wal_reason);
     }
+    oco_on_dead(order_id, /*by_fill=*/false);
     return true;
 }
 
@@ -549,6 +754,12 @@ bool MatchingEngine::apply_stp(Order& taker, uint32_t taker_group,
             } else {
                 prevented_qty_total_ += dec;
             }
+            if (book_.find_order(maker_id) == nullptr &&
+                icebergs_.find(maker_id) == nullptr) {
+                // Maker fully dead under STP (non-fill terminal) — release
+                // its OCO pair; a live sibling continues standalone.
+                oco_on_dead(maker_id, /*by_fill=*/false);
+            }
             const int64_t taker_prevented = taker_rem - dec;
             note_prevented(taker.id, taker_prevented);
             taker_rem -= dec;
@@ -687,7 +898,16 @@ MatchingEngine::TakerResult MatchingEngine::walk_match(
         // Terminal makers release their meta slot — keeps the order-meta
         // table (and the Task 2.3.20 amend fence) free of dead ids so an
         // id cannot linger past its last fill.
-        if (book_.find_order(maker_id) == nullptr) meta_erase(maker_id);
+        if (book_.find_order(maker_id) == nullptr) {
+            meta_erase(maker_id);
+            // Phase-14 Task 14.3.1 — maker reached terminal FILLED: OCO
+            // winner arm. An iceberg maker whose slice died but whose
+            // hidden remainder replenished is still live — the trigger
+            // fires only when nothing of the order remains (record gone).
+            if (icebergs_.find(maker_id) == nullptr) {
+                oco_on_dead(maker_id, /*by_fill=*/true);
+            }
+        }
     }
     return res;
 }
@@ -822,6 +1042,10 @@ void MatchingEngine::finish_taker(Order& taker, const OrderAux& aux,
     }
     if (r.remaining <= 0) {
         meta_erase(taker.id);  // filled taker rests nothing — no meta to keep
+        // Phase-14 Task 14.3.1 — taker reached terminal FILLED: OCO winner
+        // arm; the sibling leg is cancelled atomically on this thread
+        // (journaled reason-7 ORDER_CANCEL) or doomed if still in flight.
+        oco_on_dead(taker.id, /*by_fill=*/true);
         return;
     }
 
@@ -1074,6 +1298,34 @@ void MatchingEngine::on_order_received(Order* order,
         reject(order, invalid);
         orders_.free(order);
         return;
+    }
+
+    // Phase-14 Task 14.3.1 — OCO doomed-leg gate (spec §6.5/§6.8, §24 #47):
+    // the sibling leg already reached terminal FILLED — its fill is
+    // sequenced before this OrderNew on the ring — so this order can never
+    // trade. Rejected OCO_SIBLING_CANCEL_RACE; the emitted reason-7
+    // ORDER_CANCEL is journaled + published so the order-service sees the
+    // terminal state for the leg it persisted. Deterministic on replay:
+    // the restored doomed mark reproduces the identical verdict, and a
+    // doomed leg's ORDER_NEW is never journaled (rejects aren't WAL rows).
+    if (const OcoMember* om = oco_find(order->id)) {
+        if (om->state == kOcoDoomed) {
+            emit_cancel_event(order->id, order->account_id,
+                              kWalCancelReasonOcoLink);
+            last_reject_ = kRejectOcoSiblingRace;
+            ++reject_count_;
+            orders_.free(order);
+            return;
+        }
+        // Defense-in-depth: a linked leg for a different instrument than
+        // its link is malformed input (the gateway validates pairs before
+        // dispatch; the link is still released to keep the table clean).
+        if (om->instrument_id != 0 && aux.instrument_id != 0 &&
+            om->instrument_id != aux.instrument_id) {
+            reject(order, kRejectOcoLinkInvalid);
+            orders_.free(order);
+            return;
+        }
     }
 
     // --- risk hook slot (Task 2.3.3) -----------------------------------------

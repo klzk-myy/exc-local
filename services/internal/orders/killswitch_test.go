@@ -34,7 +34,7 @@ func newSvcWithKill(t *testing.T, st *fakeStore, kill KillSwitch) *Service {
 	}
 	svc, err := NewService(Options{
 		Store: st, Submitter: &fakeSubmitter{}, ShardMap: shards,
-		KillSwitch: kill, Breakers: openBreakers{},
+		KillSwitch: kill, Breakers: openBreakers{}, Product: openProduct{},
 		AckTimeout: 200 * time.Millisecond,
 	})
 	if err != nil {

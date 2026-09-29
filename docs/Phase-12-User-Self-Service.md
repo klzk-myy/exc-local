@@ -144,7 +144,7 @@ Implement user self-service: registration, KYC submission, 2FA setup, profile ma
 
 **Definition of Done (Acceptance Criteria):**
 * [ ] Email, SMS, push channels work <!-- blocked: live provider credentials (SES/SendGrid/Twilio/FCM) unavailable on this host — channel interfaces, dev/file senders, WS push + full retry/dead-letter pipeline verified end-to-end -->
-* [x] All notification events delivered <!-- wired emitters: deposit_confirmed, withdrawal_completed, order_filled, security_alert; kyc_approved/rejected + liquidation_warning emit at their owner sites (Phase-14/Phase-19) — Notify accepts all 7 today -->
+* [x] All notification events delivered <!-- wired emitters: deposit_confirmed, withdrawal_completed, order_filled, security_alert, copy_child_skipped (Phase-14 Task 14.3.14); kyc_approved/rejected + liquidation_warning emit at their owner sites (Phase-14/Phase-19) — Notify accepts all 8 today -->
 * [x] Retry with exponential backoff
 * [x] Dead letter queue for failures (`notification_dead_letters` table)
 * [x] Delivery tracking per notification: channel, status, attempts, delivered_at (§24 #100)

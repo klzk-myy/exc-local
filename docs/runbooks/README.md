@@ -54,6 +54,8 @@ Runbooks exist for every alert rule currently deployed in `deploy/prometheus/rul
 | `IPCRingCritical` | — | p0 | [ipc-ring-pressure.md](./ipc-ring-pressure.md) |
 | `PTPClockOffsetExceeded` / `PTPNotSynchronized` / `PTPStale` / `PTPUnavailable` | — | p1 | [time-sync-loss-halt.md](./time-sync-loss-halt.md) |
 | `EdgeDeniesSustained` / `WAFBlocksSurge` / `WAFChallengesSustained` / `EdgeDDoSSuspected` | — | p2/p2/p2/p1 | [../../deploy/edge/ddos-playbook.md](../../deploy/edge/ddos-playbook.md) |
+| `RateLimitUtilizationHigh` | — | p2 | [rate-limit-utilization.md](./rate-limit-utilization.md) |
+| `RedisEvictionsObserved` / `RedisEvictionsSustained` / `RedisMemoryHeadroomLow` / `RedisMemoryHeadroomCritical` | — | p2/p1/p2/p1 | [redis-eviction-pressure.md](./redis-eviction-pressure.md) |
 
 ### Task 13.3.3 domain pack (`deploy/prometheus/alerts.yml`)
 
@@ -94,6 +96,7 @@ These fire as states or table rows rather than threshold alerts; they are the pa
 | `SECRET_ROTATION_OVERDUE` (spec §19.14; migration 089 pending) | P2 | [secret-rotation-overdue.md](./secret-rotation-overdue.md) |
 | Incident classification, paging tree, war-room protocol | all | [incident-escalation.md](./incident-escalation.md) |
 | Quarterly DR drill program & post-drill report | scheduled | [dr-drill.md](./dr-drill.md) |
+| Monthly PostgreSQL PITR drill (RPO ≤15s / RTO ≤5min proof) | scheduled | [pitr-monthly-drill.md](./pitr-monthly-drill.md) |
 | BCP stand-down decision | P0 governance | [bcp-standdown.md](./bcp-standdown.md) |
 | BCP go-forward modes (manual capture / withdrawal-only / frozen-reconcilable) | P0 governance | [bcp-goforward.md](./bcp-goforward.md) |
 

@@ -267,6 +267,9 @@ var specCodes = []CodeDef{
 	specRow("WITHDRAWAL_WHITELIST_LOCKED", 423, "Account-scoped withdrawal egress lock — whitelist-only mode was disabled less than 24 hours ago (Phase-11 Task 11.3.10 deactivation safety lock; account-scoped, never platform-wide — remediation #35 semantics)"),
 	specRow("WHITELIST_CHANGE_LOCKED", 429, "Whitelist-mode re-enable is rate-limited until timelock_until lapses (Phase-11 Task 11.3.10; the 24h deactivation latch — documented unlock path is to wait out the latch)"),
 	specRow("NOSTRO_INSUFFICIENT_FUNDS", 500, "Aggregate ACTIVE nostro balance cannot cover the withdrawal — the withdrawal is QUEUED for dispatch, never rejected (Phase-11 Task 11.3.6 Nostro-Aware Withdrawals; §27.1 Nostro/Vostro matrix code — emitted on the durable funding_ops_alerts trail)"),
+	specRow("PAMM_MIN_INVESTMENT_NOT_MET", 400, "PAMM investment below the pool's min_investment floor (Phase-14 Task 14.3.8 PAMM/MAM; §27.1 PAMM/MAM Investment Modules matrix code — registered with the Task 14.3.8 landing)"),
+	specRow("PAMM_INVESTOR_LOCKED", 403, "PAMM invest/redeem rejected: the investor account fails the FROZEN/SUSPENDED mutability gate (Phase-14 Task 14.3.8; §27.1 PAMM matrix code)"),
+	specRow("PAMM_ALLOCATION_MISMATCH", 500, "Pro-rata fill allocation failed conservation — residuals could not be distributed or the persisted child set diverges from the master fill; fail-closed, never silently misallocates (Phase-14 Task 14.3.8; §27.1 PAMM matrix code, L1/L2)"),
 }
 
 // localCodes are emitted by the gateway but carry no spec §23 row yet.

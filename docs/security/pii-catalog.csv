@@ -53,6 +53,7 @@ support_tickets,subject,VARCHAR(255),FREE_TEXT,plaintext,client-authored,complai
 support_tickets,body,TEXT,FREE_TEXT,plaintext — may embed PII,client-authored,complaints floor
 support_tickets,adr_reference,VARCHAR(128),LINKAGE,plaintext,ADR routing,complaints floor
 ticket_notes,body,TEXT,FREE_TEXT,plaintext — may embed PII,admin/client notes,complaints floor
+account_closures,reason,TEXT,FREE_TEXT,plaintext,closure record — client/officer-entered,financial record floor
 webauthn_credentials,user_id,BIGINT,LINKAGE,n/a (FK),passkey ceremonies,credential lifetime; revoked≠deleted (forensic)
 webauthn_credentials,credential_id,BYTEA,AUTH_SECRET,public credential id,assertion lookup,credential lifetime
 webauthn_credentials,public_key,BYTEA,AUTH_SECRET,public key (not secret),assertion verify,credential lifetime
@@ -88,6 +89,9 @@ server_actions,payload,JSONB,FREE_TEXT,plaintext JSONB — fleet command payload
 releases,notes,TEXT,FREE_TEXT,plaintext — release notes,release mgmt,ops log floor
 listing_proposals,proposer_id,BIGINT,LINKAGE,n/a (FK→users),instrument listing pipeline,audit floor
 listing_proposals,reason,TEXT,FREE_TEXT,plaintext — reviewer-entered text,listing review,audit floor
+swapfree_verifications,decision_note,TEXT,FREE_TEXT,plaintext,verifier note,account close +5y
+strategy_profiles,display_name,VARCHAR(128),FREE_TEXT,plaintext,manager-chosen public label,strategy lifetime
+strategy_profiles,suspend_reason,VARCHAR(255),FREE_TEXT,plaintext,compliance note,strategy lifetime
 suspense_account_mappings,originator_name,VARCHAR(255),DIRECT_ID,plaintext,quarantine routing screen,financial record floor
 suspense_account_mappings,originator_account,VARCHAR(64),FINANCIAL,plaintext,quarantine routing screen,financial record floor
 suspense_account_mappings,resolution_notes,TEXT,FREE_TEXT,plaintext,ops resolution note,financial record floor
@@ -130,3 +134,5 @@ tax_self_certifications,tin_country,CHAR(2),GOV_ID,plaintext,TIN validation,stat
 tax_self_certifications,fields,JSONB,GOV_ID,deprecated plaintext JSONB — migration-210 read-fallback window only; '{}' post-backfill (PII-F1 remediated),legacy read fallback only; never written,statutory tax retention
 tax_self_certifications,tin_sealed,BYTEA,GOV_ID,AES-256-GCM SecretBox nonce‖ct (secrets.data_key; Vault/KMS prod),compliance.InsertSelfCert writes; ListSelfCerts unseals; CRS/FATCA seam reads via box,statutory tax retention
 tax_self_certifications,fields_sealed,BYTEA,GOV_ID,AES-256-GCM SecretBox nonce‖ct of the whole fields document (legal_name/address/entity/treaty),compliance.InsertSelfCert writes; ListSelfCerts unseals; Phase-21 reporting via box,statutory tax retention
+compliance_holds,reason,TEXT,FREE_TEXT,plaintext,officer-entered hold justification,financial record floor
+pamm_pools,name,VARCHAR(128),FREE_TEXT,plaintext,manager-chosen pool label,pool lifetime

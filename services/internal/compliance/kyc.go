@@ -181,10 +181,14 @@ type Requirements struct {
 	Documents []MatrixRow `json:"documents"`
 }
 
-// StatusView is the GET /api/v1/kyc/status payload.
+// StatusView is the GET /api/v1/kyc/status payload. ClientCategory/NBP
+// surface the Task 14.3.7 MiFID II categorization state (migration 042)
+// so a client can see its regulatory classification beside its tier.
 type StatusView struct {
 	AccountID        int64       `json:"account_id"`
 	Tier             string      `json:"tier"`
+	ClientCategory   string      `json:"client_category"`
+	NBP              bool        `json:"nbp"`
 	Policy           *TierPolicy `json:"policy,omitempty"`
 	LatestSubmission *Submission `json:"latest_submission,omitempty"`
 	Documents        []Document  `json:"documents"`
@@ -196,6 +200,10 @@ type StatusView struct {
 
 type Store interface {
 	AccountTier(ctx context.Context, accountID int64) (string, error)
+	// ClientCategory reads accounts.client_category + nbp (migration 042,
+	// Task 14.3.7) for the status projection; the same seam the
+	// categorization store declares — one read path, not two.
+	ClientCategory(ctx context.Context, accountID int64) (category string, nbp bool, err error)
 	CreateSubmission(ctx context.Context, sub *Submission) error
 	AttachDocument(ctx context.Context, doc *Document) error
 	FailSubmission(ctx context.Context, submissionID int64) error
@@ -272,6 +280,10 @@ func (s *Service) StatusView(ctx context.Context, accountID int64) (*StatusView,
 	if err != nil {
 		return nil, err
 	}
+	cat, nbp, err := s.store.ClientCategory(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
 	pol, err := s.store.TierPolicy(ctx, tier)
 	if err != nil {
 		return nil, err
@@ -288,8 +300,8 @@ func (s *Service) StatusView(ctx context.Context, accountID int64) (*StatusView,
 		docs[i].ObjectKey = "" // never leak object keys
 	}
 	return &StatusView{
-		AccountID: accountID, Tier: tier, Policy: pol,
-		LatestSubmission: latest, Documents: docs,
+		AccountID: accountID, Tier: tier, ClientCategory: cat, NBP: nbp,
+		Policy: pol, LatestSubmission: latest, Documents: docs,
 	}, nil
 }
 

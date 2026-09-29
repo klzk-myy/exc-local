@@ -91,6 +91,11 @@ WalStatus WalWriter::write_prevented_match(
     return append(WalEventType::PREVENTED_MATCH, &p, sizeof(p), ts_ns);
 }
 
+WalStatus WalWriter::write_oco_link(
+    const WalOcoLinkPayload& p, uint64_t ts_ns) noexcept {
+    return append(WalEventType::OCO_LINK, &p, sizeof(p), ts_ns);
+}
+
 WalStatus WalWriter::flush() noexcept {
     if (wal_ == nullptr) return WalStatus::NotOpen;
     return wal_->flush();

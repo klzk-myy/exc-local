@@ -90,6 +90,17 @@ class IEngineIngress {
         (void)order_id; (void)price_ticks; (void)qty_units;
         (void)stop_price_ticks; (void)ingress_seq;
     }
+    // OCO pair linkage command (Phase-14 Task 14.3.1, spec §6.2/§6.5 —
+    // wire OcoLink, union member 7). Sequenced BEFORE both legs' OrderNew
+    // on the shard ring: the engine installs the bounded link while both
+    // legs are still unplaced. Default no-op keeps standalone fakes
+    // compiling; MatchingEngine overrides with the journaled install.
+    virtual void on_oco_link_received(uint64_t link_id, uint64_t order_id_a,
+                                      uint64_t order_id_b, uint64_t account_id,
+                                      uint32_t instrument_id) noexcept {
+        (void)link_id; (void)order_id_a; (void)order_id_b;
+        (void)account_id; (void)instrument_id;
+    }
 };
 
 // Adapter binding the concrete Task 2.3.2 MatchingEngine to IEngineIngress.
@@ -109,15 +120,20 @@ class MatchingEngineIngress final : public IEngineIngress {
     void on_amend_received(uint64_t order_id, int64_t price_ticks,
                            int64_t qty_units, int64_t stop_price_ticks,
                            uint64_t ingress_seq) noexcept override;
+    void on_oco_link_received(uint64_t link_id, uint64_t order_id_a,
+                              uint64_t order_id_b, uint64_t account_id,
+                              uint32_t instrument_id) noexcept override;
 
     // Ingress calls that had nowhere to go (pre-B1 stub engine).
     [[nodiscard]] uint64_t unrouted_cancels() const noexcept { return unrouted_cancels_; }
     [[nodiscard]] uint64_t unrouted_ticks() const noexcept { return unrouted_ticks_; }
+    [[nodiscard]] uint64_t unrouted_links() const noexcept { return unrouted_links_; }
 
    private:
     MatchingEngine* engine_ = nullptr;
     uint64_t unrouted_cancels_ = 0;
     uint64_t unrouted_ticks_ = 0;
+    uint64_t unrouted_links_ = 0;
 };
 
 // --- Bounded latency histogram ----------------------------------------------

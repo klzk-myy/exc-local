@@ -103,6 +103,15 @@ func (h *PgHalter) Halt(ctx context.Context, scope, target, reason string) (int6
 		   AND state = 'ACTIVE'`, sc, t).Scan(&existing)
 	if err == nil {
 		_ = tx.Rollback(ctx)
+		// The suspension row already exists but the halt flag is NOT
+		// necessarily raised — Redis flag loss (flush/restart) is only
+		// repaired at boot by ReconcileFlags. Re-raise here so a reused
+		// suspension reasserts enforcement immediately; SetHaltScope is
+		// itself idempotent.
+		if ferr := h.flags.SetHaltScope(ctx, sc, t, reason); ferr != nil {
+			return existing, fmt.Errorf("reconciliation halt: suspension %d "+
+				"active but halt flag re-raise failed: %w", existing, ferr)
+		}
 		return existing, nil
 	}
 	if err != pgx.ErrNoRows {

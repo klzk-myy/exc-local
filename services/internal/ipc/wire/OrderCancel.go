@@ -6,7 +6,13 @@ import (
 	flatbuffers "github.com/google/flatbuffers/go"
 )
 
-// / Inbound: cancel request.
+/// Inbound: cancel request.
+/// `reason` is additive (Phase-14 Task 14.3.1): engine-emitted outbound
+/// cancels carry the kWalCancelReason* code (0=user, 1=expired, 2=STP,
+/// 3=FOK_unfilled, 4=IOC_remainder, 5=slippage, 6=exec-rule range,
+/// 7=OCO sibling) so the read model can distinguish a sibling-cancelled
+/// OCO leg for the OCO_SIBLING_CANCEL_RACE (409) API mapping. Inbound
+/// cancel requests leave it 0/unset.
 type OrderCancel struct {
 	_tab flatbuffers.Table
 }
@@ -51,14 +57,29 @@ func (rcv *OrderCancel) MutateAccountId(n uint64) bool {
 	return rcv._tab.MutateUint64Slot(6, n)
 }
 
+func (rcv *OrderCancel) Reason() byte {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(8))
+	if o != 0 {
+		return rcv._tab.GetByte(o + rcv._tab.Pos)
+	}
+	return 0
+}
+
+func (rcv *OrderCancel) MutateReason(n byte) bool {
+	return rcv._tab.MutateByteSlot(8, n)
+}
+
 func OrderCancelStart(builder *flatbuffers.Builder) {
-	builder.StartObject(2)
+	builder.StartObject(3)
 }
 func OrderCancelAddOrderId(builder *flatbuffers.Builder, orderId uint64) {
 	builder.PrependUint64Slot(0, orderId, 0)
 }
 func OrderCancelAddAccountId(builder *flatbuffers.Builder, accountId uint64) {
 	builder.PrependUint64Slot(1, accountId, 0)
+}
+func OrderCancelAddReason(builder *flatbuffers.Builder, reason byte) {
+	builder.PrependByteSlot(2, reason, 0)
 }
 func OrderCancelEnd(builder *flatbuffers.Builder) flatbuffers.UOffsetT {
 	return builder.EndObject()

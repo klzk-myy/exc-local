@@ -48,6 +48,15 @@ enum class WalEventType : uint8_t {
     // carry the actual state change); Phase-03's GL service consumes it for
     // the balanced prevented-notional posting.
     PREVENTED_MATCH,
+    // Phase-14 Task 14.3.1 — OCO (one-cancels-other) linkage record
+    // (spec §6.2/§6.5, §24 #47). Journaled when the engine installs an OCO
+    // pair — BEFORE either member's ORDER_NEW entry per the wire protocol
+    // (the OcoLink IPC event precedes both legs), so replay reconstructs
+    // the link before the fills/cancels that exercise it. Payload is
+    // WalOcoLinkPayload. The sibling cancel itself is journaled as an
+    // ORDER_CANCEL with reason kWalCancelReasonOcoLink (7) — it re-derives
+    // on replay exactly like every other engine-driven cancel.
+    OCO_LINK,
 };
 
 #pragma pack(push, 1)
@@ -168,6 +177,21 @@ struct WalPreventedMatchPayload {
     uint8_t  _pad0[3];
     uint64_t ts_ns;                      // engine logical clock (== header ts)
 };
+
+// Phase-14 Task 14.3.1 — OCO_LINK payload: the durable record that two
+// order ids form one OCO pair. link_id doubles as orders.oco_group_id on
+// the service side; order_id_a/order_id_b are the two member legs.
+// Replayed verbatim into the replay engine's link table — recovery
+// validates exact payload length and re-runs the engine's own link
+// validation (conflict/duplicate arms are idempotent no-ops there).
+struct WalOcoLinkPayload {
+    uint64_t link_id;
+    uint64_t order_id_a;
+    uint64_t order_id_b;
+    uint64_t account_id;
+    uint32_t instrument_id;
+    uint8_t  _pad[4];
+};
 #pragma pack(pop)
 
 static_assert(sizeof(WalFileHeader) == 8);
@@ -181,6 +205,7 @@ static_assert(sizeof(WalBookSnapshotHeader) == 24);
 static_assert(sizeof(WalSnapshotLevel) == 16);
 static_assert(sizeof(WalSnapshotOrder) == 48);
 static_assert(sizeof(WalPreventedMatchPayload) == 80);
+static_assert(sizeof(WalOcoLinkPayload) == 40);
 static_assert(__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__,
               "WAL wire format is little-endian (spec §3.4)");
 

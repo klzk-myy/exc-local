@@ -37,6 +37,9 @@ type fakeKYCStore struct {
 func (f *fakeKYCStore) AccountTier(ctx context.Context, id int64) (string, error) {
 	return f.tier, nil
 }
+func (f *fakeKYCStore) ClientCategory(ctx context.Context, id int64) (string, bool, error) {
+	return string(compliance.CategoryRetail), true, nil
+}
 func (f *fakeKYCStore) CreateSubmission(ctx context.Context, s *compliance.Submission) error {
 	f.next++
 	s.ID = f.next

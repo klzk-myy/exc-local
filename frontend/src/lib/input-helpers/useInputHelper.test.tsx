@@ -11,9 +11,12 @@ describe('useInputHelper', () => {
     expect(result.current.fields.length).toBeGreaterThan(0);
   });
 
-  it('flags stub routes (copy strategies are 501 until Phase-14)', () => {
-    const { result } = renderHook(() => useInputHelper('GET /api/v1/copy/strategies'));
+  it('flags stub routes (trade confirmations remain 501 pending Phase-20)', () => {
+    const { result } = renderHook(() => useInputHelper('GET /api/v1/account/confirmations/{trade_id}'));
     expect(result.current.isStub).toBe(true);
+    // Phase-14 landed copy trading — the same hook reports live now.
+    const live = renderHook(() => useInputHelper('GET /api/v1/copy/strategies'));
+    expect(live.result.current.isStub).toBe(false);
   });
 
   it('validate() surfaces field + cross-field errors', () => {

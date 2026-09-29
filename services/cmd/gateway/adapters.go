@@ -19,6 +19,7 @@ import (
 	"exchange/internal/admin"
 	"exchange/internal/api"
 	"exchange/internal/auth"
+	"exchange/internal/compliance"
 	"exchange/internal/config"
 	"exchange/internal/funding"
 	"exchange/internal/marketapi"
@@ -387,4 +388,149 @@ func (r pgLegalNameResolver) LegalName(ctx context.Context, accountID int64) (st
 		return "", fmt.Errorf("legal name lookup: %w", err)
 	}
 	return name, nil
+}
+
+// ---------------------------------------------------------------------------
+// Phase-14 account-lifecycle adapters (Tasks 14.3.9–14.3.12)
+// ---------------------------------------------------------------------------
+
+// closureSweeper sends one residual balance through the Phase-11
+// withdrawal pipeline: flow.Create applies the same beneficiary /
+// sanctions / cooldown gates a client withdrawal sees, inner.Confirm
+// consumes the minted email token the create returned, and
+// dispatch.Release hands CONFIRMED rows to the banking rails. Amounts
+// in the >$50K tier land PENDING_REVIEW — the sweep still counts as
+// dispatched (funds locked to the beneficiary in transit, ops reviews
+// through the existing admin route); the status lands in sweep_refs.
+type closureSweeper struct {
+	flow  *funding.FlowService
+	inner *funding.WithdrawalService
+	disp  *funding.DispatchService
+}
+
+func (s closureSweeper) SweepWithdrawal(ctx context.Context,
+	req accounts.SweepRequest) (*accounts.SweepResult, error) {
+	res, err := s.flow.Create(ctx, funding.CreateWithdrawalRequest{
+		AccountID:        req.AccountID,
+		UserID:           req.UserID,
+		Currency:         req.Currency,
+		Amount:           req.Amount,
+		ReferenceAccount: req.DestinationRef,
+		ConfirmMethod:    "email",
+		IdempotencyKey:   req.IdempotencyKey,
+	})
+	if err != nil {
+		return nil, err
+	}
+	conf, err := s.inner.Confirm(ctx, funding.ConfirmWithdrawalRequest{
+		WithdrawalID: res.WithdrawalID,
+		AccountID:    req.AccountID,
+		UserID:       req.UserID,
+		Token:        res.ConfirmToken,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if conf.Status == "CONFIRMED" && s.disp != nil {
+		if _, derr := s.disp.Release(ctx, conf.WithdrawalID); derr != nil {
+			// The confirmation committed — a failed rail hand-off is
+			// picked up by the dispatcher sweep; never mask it as a
+			// sweep failure (same contract as FlowService.ConfirmStepUp).
+			return &accounts.SweepResult{
+				WithdrawalID: conf.WithdrawalID,
+				Status:       conf.Status + "/DISPATCH_PENDING",
+			}, nil
+		}
+	}
+	return &accounts.SweepResult{
+		WithdrawalID: conf.WithdrawalID,
+		Status:       conf.Status,
+	}, nil
+}
+
+// closureBens resolves the verified (unlocked) beneficiary for a
+// residual currency — bank_accounts rows past the 24h verification
+// hold are the only legal sweep destinations.
+type closureBens struct {
+	pool *pgxpool.Pool
+}
+
+func (b closureBens) VerifiedBeneficiaryFor(ctx context.Context,
+	accountID int64, currency string) (string, bool, error) {
+	var ref string
+	err := b.pool.QueryRow(ctx,
+		`SELECT COALESCE(iban, account_number)
+		   FROM bank_accounts
+		  WHERE account_id = $1 AND currency = $2
+		    AND status = 'VERIFIED' AND unlocked_at <= now()
+		  ORDER BY bank_account_id LIMIT 1`,
+		accountID, currency).Scan(&ref)
+	if err == pgx.ErrNoRows {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("beneficiary lookup: %w", err)
+	}
+	if ref == "" {
+		return "", false, nil
+	}
+	return ref, true, nil
+}
+
+// holdRestingCanceller adapts compliance.RestingCanceller onto the
+// existing order dispatcher — the hold placement drains the book via
+// the same mass-cancel path every other freeze flow uses.
+type holdRestingCanceller struct {
+	disp accounts.OrderDispatcher
+}
+
+func (c holdRestingCanceller) CancelResting(ctx context.Context,
+	accountID int64, reason string) (int, error) {
+	res, err := c.disp.MassCancel(ctx, accounts.MassCancelScope{
+		AccountID: accountID, Reason: reason})
+	if err != nil {
+		return 0, err
+	}
+	return res.Cancelled, nil
+}
+
+// holdOpsAlerter bridges compliance.HoldAlerter onto the durable
+// funding_ops_alerts + pager seam the freeze flows already use.
+type holdOpsAlerter struct {
+	inner accounts.FreezeAlerter
+}
+
+func (a holdOpsAlerter) RaiseHold(ctx context.Context,
+	al compliance.HoldAlert) error {
+	return a.inner.Raise(ctx, accounts.FreezeAlert{
+		Severity: al.Severity, Code: al.Code, AccountID: al.AccountID,
+		Summary: al.Summary, Details: al.Details,
+	})
+}
+
+// closureEscalation adapts compliance.ClosureEscalation onto the
+// four-eyes queue — an escalate-to-closure disposition creates the
+// OpAccountClosure request a second officer approves through the
+// existing /admin/dual-control/* routes.
+type closureEscalation struct {
+	dual *admin.DualControlService
+}
+
+func (e closureEscalation) RequestForcedClosure(ctx context.Context,
+	accountID int64, reason string, requestedBy int64) (int64, error) {
+	req, err := e.dual.Submit(ctx, admin.SubmitInput{
+		Operation:  admin.OpAccountClosure,
+		TargetType: "account",
+		TargetID:   strconv.FormatInt(accountID, 10),
+		Payload: map[string]any{
+			"account_id": accountID, "reason": reason,
+		},
+		RequiredRole: admin.RoleComplianceOfficer,
+		RequestedBy:  requestedBy,
+		Reason:       "compliance hold escalate-to-closure: " + reason,
+	})
+	if err != nil {
+		return 0, err
+	}
+	return req.ID, nil
 }

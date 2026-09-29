@@ -59,6 +59,13 @@ type Store interface {
 	// failure so PG never diverges from the engine's untouched state.
 	RevertAmend(ctx context.Context, prev *Order) error
 
+	// InsertOcoPairTx persists both legs of an OCO pair + the shared
+	// oco_group_id in ONE transaction (Phase-14 Task 14.3.1, spec §6.5):
+	// a dedup conflict or insert failure on either leg aborts the pair —
+	// the engine link can never outlive its rows. The conflict path returns
+	// the colliding DedupRow via dedupConflict exactly like InsertOrderTx.
+	InsertOcoPairTx(ctx context.Context, groupID int64, a, b InsertParams) (*Order, *Order, error)
+
 	WriteAudit(ctx context.Context, entries []AuditEntry) error
 	AuditTrail(ctx context.Context, orderID int64) ([]AuditEntry, error)
 	Amendments(ctx context.Context, orderID int64) ([]AuditEntry, error)
@@ -120,6 +127,9 @@ type InsertParams struct {
 	STPMode       string
 	SessionID     string
 	RequestHash   string // dedup payload fingerprint ("" when no client_order_id)
+	// OcoGroupID links both legs of an OCO pair (migration 218); nil =
+	// standalone order.
+	OcoGroupID *int64
 }
 
 // ListQuery is the §8.8 cursor-paginated history query. The filterable
@@ -229,9 +239,11 @@ func (s *PgStore) AccountByID(ctx context.Context, id int64) (*Account, error) {
 	a := &Account{}
 	err := s.pool.QueryRow(ctx, `
 		SELECT id, user_id, account_type::text, kyc_tier::text, status::text,
+		       client_category::text, nbp,
 		       trade_group_id, default_stp_mode, cancel_on_disconnect
 		FROM accounts WHERE id = $1`, id).
 		Scan(&a.ID, &a.UserID, &a.Type, &a.KycTier, &a.Status,
+			&a.ClientCategory, &a.NBP,
 			&a.TradeGroupID, &a.DefaultSTPMode, &a.CancelOnDisconnect)
 	if isNoRows(err) {
 		return nil, nil
@@ -293,6 +305,7 @@ const orderCols = `
 	stop_price::text, display_qty::text, time_in_force::text, status::text,
 	filled_qty::text, avg_fill_price::text, shard_id, book_seq, order_seq,
 	post_only, reduce_only, COALESCE(stp_mode,''), COALESCE(session_id,''),
+	oco_group_id,
 	created_at, updated_at`
 
 func scanOrder(row pgx.Row) (*Order, error) {
@@ -305,6 +318,7 @@ func scanOrder(row pgx.Row) (*Order, error) {
 		&side, &otype, &qty, &quote, &price, &stop, &display, &tif, &status,
 		&filled, &avg, &o.ShardID, &o.BookSeq, &o.OrderSeq,
 		&o.PostOnly, &o.ReduceOnly, &o.STPMode, &o.SessionID,
+		&o.OcoGroupID,
 		&o.CreatedAt, &o.UpdatedAt)
 	if err != nil {
 		return nil, err
@@ -436,6 +450,94 @@ func (s *PgStore) MarkRejected(ctx context.Context, orderID int64) error {
 	return err
 }
 
+// dedupLookupTx is DedupLookup scoped to an open transaction — the pair
+// insert must resolve conflicts inside its own snapshot.
+func dedupLookupTx(ctx context.Context, tx pgx.Tx, accountID int64,
+	clientOrderID string) (*DedupRow, error) {
+	row := &DedupRow{}
+	err := tx.QueryRow(ctx, `
+		SELECT account_id, client_order_id, order_id, request_hash, created_at
+		FROM client_order_id_dedup
+		WHERE account_id = $1 AND client_order_id = $2`,
+		accountID, clientOrderID).
+		Scan(&row.AccountID, &row.ClientOrderID, &row.OrderID,
+			&row.RequestHash, &row.CreatedAt)
+	if isNoRows(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return row, nil
+}
+
+// insertOrderInTx is the single-leg insert body shared by InsertOrderTx
+// and InsertOcoPairTx: dedup fast-path → orders insert → dedup row. On a
+// unique-constraint race it returns the colliding row via dedupConflict so
+// the caller can replay or reject deterministically.
+func insertOrderInTx(ctx context.Context, tx pgx.Tx, p InsertParams) (int64, error) {
+	if p.ClientOrderID != "" {
+		dup, err := dedupLookupTx(ctx, tx, p.AccountID, p.ClientOrderID)
+		if err != nil {
+			return 0, fmt.Errorf("dedup lookup: %w", err)
+		}
+		if dup != nil {
+			return 0, &dedupConflict{row: dup}
+		}
+	}
+
+	var id int64
+	err := tx.QueryRow(ctx, `
+		INSERT INTO orders (account_id, instrument_id, client_order_id,
+		    side, order_type, quantity, quote_quantity, price, stop_price,
+		    display_qty, time_in_force, status, shard_id, order_seq,
+		    post_only, reduce_only, stp_mode, session_id, oco_group_id)
+		VALUES ($1,$2,NULLIF($3,''),$4,$5,$6::numeric,$7::numeric,$8::numeric,
+		        $9::numeric,$10::numeric,$11,'PENDING',$12,$13,$14,$15,
+		        NULLIF($16,''),NULLIF($17,''),$18)
+		RETURNING id`,
+		p.AccountID, p.InstrumentID, p.ClientOrderID, p.Side, p.OrderType,
+		p.Quantity.String(), decPtrStr(p.QuoteQuantity), decPtrStr(p.Price),
+		decPtrStr(p.StopPrice), decPtrStr(p.DisplayQty), p.TimeInForce,
+		p.ShardID, p.OrderSeq, p.PostOnly, p.ReduceOnly, p.STPMode,
+		p.SessionID, p.OcoGroupID).
+		Scan(&id)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if stderrors.As(err, &pgErr) && pgErr.Code == pgUniqueViolation &&
+			p.ClientOrderID != "" {
+			// Legacy row pre-dating the dedup table (or a race between the
+			// lookup and the insert) — resolve to the stored dedup row so
+			// the caller still replays/rejects deterministically.
+			row, lerr := dedupLookupTx(ctx, tx, p.AccountID, p.ClientOrderID)
+			if lerr != nil || row == nil {
+				return 0, fmt.Errorf("insert order: %w", err)
+			}
+			return 0, &dedupConflict{row: row}
+		}
+		return 0, fmt.Errorf("insert order: %w", err)
+	}
+	if p.ClientOrderID != "" {
+		_, err = tx.Exec(ctx, `
+			INSERT INTO client_order_id_dedup
+			    (account_id, client_order_id, order_id, request_hash)
+			VALUES ($1,$2,$3,$4)`,
+			p.AccountID, p.ClientOrderID, id, p.RequestHash)
+		if err != nil {
+			var pgErr *pgconn.PgError
+			if stderrors.As(err, &pgErr) && pgErr.Code == pgUniqueViolation {
+				row, lerr := dedupLookupTx(ctx, tx, p.AccountID, p.ClientOrderID)
+				if lerr != nil || row == nil {
+					return 0, fmt.Errorf("dedup insert: %w", err)
+				}
+				return 0, &dedupConflict{row: row}
+			}
+			return 0, fmt.Errorf("dedup insert: %w", err)
+		}
+	}
+	return id, nil
+}
+
 // InsertOrderTx inserts the dedup row and the order in one transaction —
 // dedup first so a 23505 on it means "already submitted" (the orders
 // table's own partial unique index on (account_id, client_order_id) is
@@ -447,77 +549,57 @@ func (s *PgStore) InsertOrderTx(ctx context.Context, p InsertParams) (*Order, *D
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if p.ClientOrderID != "" {
-		// Fast path: existing dedup row → replay/collision decision.
-		var dup DedupRow
-		err = tx.QueryRow(ctx, `
-			SELECT account_id, client_order_id, order_id, request_hash, created_at
-			FROM client_order_id_dedup
-			WHERE account_id = $1 AND client_order_id = $2`,
-			p.AccountID, p.ClientOrderID).
-			Scan(&dup.AccountID, &dup.ClientOrderID, &dup.OrderID,
-				&dup.RequestHash, &dup.CreatedAt)
-		if err == nil {
-			return nil, &dup, &dedupConflict{row: &dup}
-		}
-		if !isNoRows(err) {
-			return nil, nil, fmt.Errorf("dedup lookup: %w", err)
-		}
-	}
-
-	var id int64
-	err = tx.QueryRow(ctx, `
-		INSERT INTO orders (account_id, instrument_id, client_order_id,
-		    side, order_type, quantity, quote_quantity, price, stop_price,
-		    display_qty, time_in_force, status, shard_id, order_seq,
-		    post_only, reduce_only, stp_mode, session_id)
-		VALUES ($1,$2,NULLIF($3,''),$4,$5,$6::numeric,$7::numeric,$8::numeric,
-		        $9::numeric,$10::numeric,$11,'PENDING',$12,$13,$14,$15,
-		        NULLIF($16,''),NULLIF($17,''))
-		RETURNING id`,
-		p.AccountID, p.InstrumentID, p.ClientOrderID, p.Side, p.OrderType,
-		p.Quantity.String(), decPtrStr(p.QuoteQuantity), decPtrStr(p.Price),
-		decPtrStr(p.StopPrice), decPtrStr(p.DisplayQty), p.TimeInForce,
-		p.ShardID, p.OrderSeq, p.PostOnly, p.ReduceOnly, p.STPMode, p.SessionID).
-		Scan(&id)
+	id, err := insertOrderInTx(ctx, tx, p)
 	if err != nil {
-		var pgErr *pgconn.PgError
-		if stderrors.As(err, &pgErr) && pgErr.Code == pgUniqueViolation &&
-			p.ClientOrderID != "" {
-			// Legacy row pre-dating the dedup table (or a race between the
-			// lookup and the insert) — resolve to the stored dedup row so
-			// the caller still replays/rejects deterministically.
-			row, lerr := s.DedupLookup(ctx, p.AccountID, p.ClientOrderID)
-			if lerr != nil || row == nil {
-				return nil, nil, fmt.Errorf("insert order: %w", err)
-			}
-			return nil, row, &dedupConflict{row: row}
+		var c *dedupConflict
+		if stderrors.As(err, &c) {
+			return nil, c.row, err
 		}
-		return nil, nil, fmt.Errorf("insert order: %w", err)
-	}
-	if p.ClientOrderID != "" {
-		_, err = tx.Exec(ctx, `
-			INSERT INTO client_order_id_dedup
-			    (account_id, client_order_id, order_id, request_hash)
-			VALUES ($1,$2,$3,$4)`,
-			p.AccountID, p.ClientOrderID, id, p.RequestHash)
-		if err != nil {
-			var pgErr *pgconn.PgError
-			if stderrors.As(err, &pgErr) && pgErr.Code == pgUniqueViolation {
-				row, lerr := s.DedupLookup(ctx, p.AccountID, p.ClientOrderID)
-				if lerr != nil || row == nil {
-					return nil, nil, fmt.Errorf("dedup insert: %w", err)
-				}
-				return nil, row, &dedupConflict{row: row}
-			}
-			return nil, nil, fmt.Errorf("dedup insert: %w", err)
-		}
+		return nil, nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, nil, fmt.Errorf("commit order insert: %w", err)
 	}
 	o, err := s.GetOrder(ctx, id)
 	return o, nil, err
+}
+
+// InsertOcoPairTx persists both OCO legs + their shared oco_group_id in
+// one transaction (Phase-14 Task 14.3.1, spec §6.5): both dedup checks,
+// both order rows and both dedup rows commit or roll back together, so an
+// engine link never outlives its rows. A dedup conflict on either leg
+// aborts the pair and surfaces via dedupConflict exactly like the
+// single-leg path.
+func (s *PgStore) InsertOcoPairTx(ctx context.Context, groupID int64,
+	a, b InsertParams) (*Order, *Order, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	a.OcoGroupID = &groupID
+	b.OcoGroupID = &groupID
+	ida, err := insertOrderInTx(ctx, tx, a)
+	if err != nil {
+		return nil, nil, err
+	}
+	idb, err := insertOrderInTx(ctx, tx, b)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, nil, fmt.Errorf("commit oco pair insert: %w", err)
+	}
+	oa, err := s.GetOrder(ctx, ida)
+	if err != nil {
+		return nil, nil, err
+	}
+	ob, err := s.GetOrder(ctx, idb)
+	if err != nil {
+		return nil, nil, err
+	}
+	return oa, ob, nil
 }
 
 func decPtrStr(d *decimal.Decimal) any {

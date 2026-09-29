@@ -8,9 +8,10 @@ import (
 )
 
 func TestSpecTableSizeAndUniqueness(t *testing.T) {
-	// 182 = 181 + DISCLOSURE_NOT_FOUND (Phase-13.5 Task 13.5.3.8).
-	if got := len(specCodes); got != 182 {
-		t.Fatalf("spec §23 table must carry 182 codes, got %d", got)
+	// 185 = 182 + PAMM_{MIN_INVESTMENT_NOT_MET,INVESTOR_LOCKED,ALLOCATION_MISMATCH}
+	// (Phase-14 Task 14.3.8 — §27.1 PAMM matrix codes registered on landing).
+	if got := len(specCodes); got != 185 {
+		t.Fatalf("spec §23 table must carry 185 codes, got %d", got)
 	}
 	seen := map[string]bool{}
 	for _, d := range specCodes {

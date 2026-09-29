@@ -29,6 +29,19 @@ const (
 	EventKYCRejected         = "kyc_rejected"
 	EventLiquidationWarning  = "liquidation_warning"
 	EventSecurityAlert       = "security_alert"
+	// EventTradingHalt (Phase-14 Task 14.3.2): anomaly-driven auto-halt —
+	// instrument suspended by the circuit breaker; users holding an open
+	// position or working order on the symbol are notified.
+	EventTradingHalt = "trading_halt"
+	// EventKYCTierDowngraded (Phase-14 Task 14.3.4): the hourly
+	// re-verification sweep auto-downgraded an overdue T2 account to T1
+	// (an INSTITUTIONAL lapse additionally reverts client_category).
+	EventKYCTierDowngraded = "kyc_tier_downgraded"
+	// EventCopyChildSkipped (Phase-14 Task 14.3.14): a copied child order
+	// was skipped — safety-mode scaling pushed the pro-rata quantity
+	// below the instrument minimum. Never silently dropped: the durable
+	// copy_child_orders row is written first, this notice explains it.
+	EventCopyChildSkipped = "copy_child_skipped"
 )
 
 var validChannels = map[string]bool{
@@ -43,15 +56,20 @@ var validEvents = map[string]bool{
 	EventKYCRejected:         true,
 	EventLiquidationWarning:  true,
 	EventSecurityAlert:       true,
+	EventTradingHalt:         true,
+	EventKYCTierDowngraded:   true,
+	EventCopyChildSkipped:    true,
 }
 
 // criticalEvents bypass quiet hours (Task 12.3.6 item 4 ruling):
-// security alerts and margin-safety warnings are never deferred — the
-// harm of a delayed credential-theft or liquidation notice outweighs a
-// do-not-disturb preference. All other events defer to window end.
+// security alerts, margin-safety warnings and trading-halt notices are
+// never deferred — the harm of a delayed credential-theft, liquidation
+// or market-suspension notice outweighs a do-not-disturb preference.
+// All other events defer to window end.
 var criticalEvents = map[string]bool{
 	EventSecurityAlert:      true,
 	EventLiquidationWarning: true,
+	EventTradingHalt:        true,
 }
 
 // ValidChannel reports whether c is a known channel token.
@@ -68,8 +86,8 @@ func IsCritical(event string) bool { return criticalEvents[event] }
 func Events() []string {
 	return []string{
 		EventDepositConfirmed, EventKYCApproved, EventKYCRejected,
-		EventLiquidationWarning, EventOrderFilled, EventSecurityAlert,
-		EventWithdrawalCompleted,
+		EventKYCTierDowngraded, EventLiquidationWarning, EventOrderFilled,
+		EventSecurityAlert, EventTradingHalt, EventWithdrawalCompleted,
 	}
 }
 

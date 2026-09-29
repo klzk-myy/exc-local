@@ -1,14 +1,14 @@
 # Attack Surface Map — Penetration Test Preparation
 
-**Generated:** 2026-09-29 09:53 UTC by `scripts/security/gen-attack-surface.py` (Task 13.3.5). Regenerate before each test window — the table is derived from `gateway.SeedRoutes()` (`services/internal/gateway/routes_v1.go`), the same table the gateway mounts and `GET /api/v1/routes` serves. Do not hand-edit; update the registry or this generator.
+**Generated:** 2026-09-29 13:41 UTC by `scripts/security/gen-attack-surface.py` (Task 13.3.5). Regenerate before each test window — the table is derived from `gateway.SeedRoutes()` (`services/internal/gateway/routes_v1.go`), the same table the gateway mounts and `GET /api/v1/routes` serves. Do not hand-edit; update the registry or this generator.
 
 Scope/ROE live in [pentest-scope.md](./pentest-scope.md); fixtures in `tests/pentest/`.
 
 ## 1. Summary
 
-- **375 registered routes**: 233 live, 142 stub (501-until-implemented — still routable surface: they consume auth/rate-limit middleware and are part of the attack surface)
-- **7 WebSocket endpoints**, 15 public channel types, 5 private channels, 15 control/order actions
-- **22 dual-control routes** (four-eyes operations), **5 env-gated routes** (nonprod/env-scoped only)
+- **411 registered routes**: 286 live, 125 stub (501-until-implemented — still routable surface: they consume auth/rate-limit middleware and are part of the attack surface)
+- **7 WebSocket endpoints**, 15 public channel types, 6 private channels, 15 control/order actions
+- **28 dual-control routes** (four-eyes operations), **9 env-gated routes** (nonprod/env-scoped only)
 - FIX surface: scaffold only — see §4
 
 ## 2. HTTP/REST routes (full registry)
@@ -20,6 +20,8 @@ Columns: auth = `public` (no credentials) or required credential/scope/role; tie
 | `GET` | `/api/v1/account/api-keys` | auth (scope:read) | basic | live |  |  |
 | `POST` | `/api/v1/account/api-keys` | auth (cred:jwt|hmac|oauth2) | basic | live |  |  |
 | `DELETE` | `/api/v1/account/api-keys/{id}` | auth (cred:jwt|hmac|oauth2) | basic | live |  |  |
+| `GET` | `/api/v1/account/appropriateness` | auth (scope:read) | basic | live |  |  |
+| `POST` | `/api/v1/account/appropriateness` | auth (cred:jwt|hmac|oauth2) | basic | live |  |  |
 | `GET` | `/api/v1/account/approval-policies` | auth (scope:read) | basic | live |  |  |
 | `PUT` | `/api/v1/account/approval-policies` | auth (cred:jwt|hmac|oauth2) | basic | live |  |  |
 | `DELETE` | `/api/v1/account/approval-policies/{id}` | auth (cred:jwt|hmac|oauth2) | basic | live |  |  |
@@ -27,11 +29,11 @@ Columns: auth = `public` (no credentials) or required credential/scope/role; tie
 | `POST` | `/api/v1/account/approval-requests/{id}/decide` | auth (cred:jwt|hmac|oauth2) | basic | live |  |  |
 | `GET` | `/api/v1/account/balances` | auth (scope:read) | basic | live |  |  |
 | `POST` | `/api/v1/account/change-password` | auth (cred:jwt|hmac|oauth2) | basic | live |  |  |
-| `POST` | `/api/v1/account/close` | auth (cred:jwt|hmac|oauth2) | basic | stub |  |  |
+| `POST` | `/api/v1/account/close` | auth (cred:jwt|hmac|oauth2) | basic | live |  |  |
 | `GET` | `/api/v1/account/commission/{symbol}` | auth (scope:read) | basic | live |  |  |
 | `GET` | `/api/v1/account/confirmations/{trade_id}` | auth (scope:read) | basic | stub |  |  |
 | `PUT` | `/api/v1/account/consent` | auth (cred:jwt|hmac|oauth2) | basic | stub |  |  |
-| `POST` | `/api/v1/account/cooling-off` | auth (cred:jwt|hmac|oauth2) | basic | stub |  |  |
+| `POST` | `/api/v1/account/cooling-off` | auth (cred:jwt|hmac|oauth2) | basic | live |  |  |
 | `GET` | `/api/v1/account/cost-preview` | auth (scope:read) | basic | stub |  |  |
 | `GET` | `/api/v1/account/delegated-users` | auth (scope:read) | basic | live |  |  |
 | `POST` | `/api/v1/account/delegated-users` | auth (cred:jwt|hmac|oauth2) | basic | live |  |  |
@@ -49,7 +51,7 @@ Columns: auth = `public` (no credentials) or required credential/scope/role; tie
 | `POST` | `/api/v1/account/margin-mode` | auth (cred:jwt|hmac|oauth2) | basic | stub |  |  |
 | `GET` | `/api/v1/account/notifications/preferences` | auth (scope:read) | basic | live |  |  |
 | `PUT` | `/api/v1/account/notifications/preferences` | auth (cred:jwt|hmac|oauth2) | basic | live |  |  |
-| `GET` | `/api/v1/account/pnl` | auth (scope:read) | basic | stub |  |  |
+| `GET` | `/api/v1/account/pnl` | auth (scope:read) | basic | live |  |  |
 | `GET` | `/api/v1/account/positions` | auth (scope:read) | basic | stub |  |  |
 | `GET` | `/api/v1/account/profile` | auth (scope:read) | basic | live |  |  |
 | `PUT` | `/api/v1/account/profile` | auth (cred:jwt|hmac|oauth2) | basic | live |  |  |
@@ -60,18 +62,21 @@ Columns: auth = `public` (no credentials) or required credential/scope/role; tie
 | `DELETE` | `/api/v1/account/sessions/{id}` | auth (cred:jwt|hmac|oauth2) | basic | live |  |  |
 | `PUT` | `/api/v1/account/settings/anti-phishing-code` | auth (cred:jwt|hmac|oauth2) | basic | live |  |  |
 | `GET` | `/api/v1/account/snapshots` | auth (scope:read) | basic | stub |  |  |
-| `GET` | `/api/v1/account/solvency-proof` | auth (scope:read) | basic | stub |  |  |
+| `GET` | `/api/v1/account/solvency-proof` | auth (scope:read) | basic | live |  |  |
 | `GET` | `/api/v1/account/statements` | auth (scope:read) | basic | stub |  |  |
 | `GET` | `/api/v1/account/sub-accounts` | auth (scope:read) | basic | stub |  |  |
 | `POST` | `/api/v1/account/sub-accounts` | auth (cred:jwt|hmac|oauth2) | basic | stub |  |  |
 | `POST` | `/api/v1/account/sub-accounts/{id}/api-keys` | auth (cred:jwt|hmac|oauth2) | basic | stub |  |  |
-| `POST` | `/api/v1/account/swap-free/request` | auth (cred:jwt|hmac|oauth2) | basic | stub |  |  |
+| `GET` | `/api/v1/account/swap-free` | auth (scope:read) | basic | live |  |  |
+| `POST` | `/api/v1/account/swap-free/request` | auth (cred:jwt|hmac|oauth2) | basic | live |  |  |
 | `GET` | `/api/v1/account/tax-report` | auth (scope:read) | basic | live |  |  |
 | `POST` | `/api/v1/account/unfreeze-request` | auth (cred:jwt|hmac|oauth2) | basic | live |  |  |
 | `POST` | `/api/v1/account/webauthn/authenticate` | auth (cred:jwt|hmac|oauth2) | basic | live |  |  |
 | `POST` | `/api/v1/account/webauthn/register` | auth (cred:jwt|hmac|oauth2) | basic | live |  |  |
+| `POST` | `/api/v1/admin/accounts/{id}/close` | auth (role:Compliance Officer) | basic | live | yes |  |
 | `POST` | `/api/v1/admin/accounts/{id}/freeze` | auth (role:Compliance Officer) | basic | stub | yes |  |
-| `PUT` | `/api/v1/admin/accounts/{id}/product-profile` | auth (role:Compliance Officer) | basic | stub |  |  |
+| `POST` | `/api/v1/admin/accounts/{id}/product-profile` | auth (role:Compliance Officer) | basic | live |  |  |
+| `PUT` | `/api/v1/admin/accounts/{id}/product-profile` | auth (role:Compliance Officer) | basic | live |  |  |
 | `PUT` | `/api/v1/admin/accounts/{id}/sub-account-limit` | auth (role:Risk Manager) | basic | stub |  |  |
 | `POST` | `/api/v1/admin/accounts/{id}/unfreeze` | auth (role:Compliance Officer) | basic | stub | yes |  |
 | `GET` | `/api/v1/admin/announcements` | auth (role:Support Agent) | basic | live |  |  |
@@ -81,7 +86,7 @@ Columns: auth = `public` (no credentials) or required credential/scope/role; tie
 | `GET` | `/api/v1/admin/api-deprecations` | auth (role:Read-Only Auditor) | basic | live |  |  |
 | `POST` | `/api/v1/admin/api-deprecations` | auth (role:Super Admin) | basic | live |  |  |
 | `GET` | `/api/v1/admin/api-deprecations/usage` | auth (role:Read-Only Auditor) | basic | live |  |  |
-| `PUT` | `/api/v1/admin/api-keys/{id}/extend-expiry` | auth (role:Super Admin) | basic | stub |  |  |
+| `PUT` | `/api/v1/admin/api-keys/{id}/extend-expiry` | auth (role:Super Admin) | basic | live | yes |  |
 | `GET` | `/api/v1/admin/archive/status` | auth (role:Read-Only Auditor) | basic | stub |  |  |
 | `GET` | `/api/v1/admin/audit` | auth (role:Read-Only Auditor) | basic | live |  |  |
 | `GET` | `/api/v1/admin/audit-log` | auth (role:Read-Only Auditor) | basic | live |  |  |
@@ -105,6 +110,11 @@ Columns: auth = `public` (no credentials) or required credential/scope/role; tie
 | `POST` | `/api/v1/admin/client-money/certifications` | auth (role:Finance Ops) | basic | stub |  |  |
 | `PUT` | `/api/v1/admin/collateral-schedule` | auth (role:Risk Manager) | basic | stub |  |  |
 | `GET` | `/api/v1/admin/compliance-report` | auth (role:Compliance Officer) | basic | stub |  |  |
+| `GET` | `/api/v1/admin/compliance/holds` | auth (role:Compliance Officer) | basic | live |  |  |
+| `POST` | `/api/v1/admin/compliance/holds` | auth (role:Compliance Officer) | basic | live |  |  |
+| `POST` | `/api/v1/admin/compliance/holds/{id}/escalate` | auth (role:Compliance Officer) | basic | live |  |  |
+| `POST` | `/api/v1/admin/compliance/holds/{id}/release` | auth (role:Compliance Officer) | basic | live | yes |  |
+| `POST` | `/api/v1/admin/copy/strategies/{id}/suspend` | auth (role:Compliance Officer) | basic | live |  |  |
 | `GET` | `/api/v1/admin/dlq` | auth (role:Support Agent) | basic | live |  |  |
 | `GET` | `/api/v1/admin/dual-control` | auth (role:Read-Only Auditor) | basic | live |  |  |
 | `POST` | `/api/v1/admin/dual-control/{id}/approve` | auth (role:*) | basic | live |  |  |
@@ -183,7 +193,8 @@ Columns: auth = `public` (no credentials) or required credential/scope/role; tie
 | `GET` | `/api/v1/admin/kill-switch` | auth (role:Read-Only Auditor) | basic | live |  |  |
 | `POST` | `/api/v1/admin/kill-switch` | auth (role:Risk Manager) | basic | live | yes |  |
 | `POST` | `/api/v1/admin/kill-switch/reset` | auth (role:Risk Manager) | basic | live | yes |  |
-| `POST` | `/api/v1/admin/kyc/{id}/approve` | auth (role:Compliance Officer) | basic | stub |  |  |
+| `POST` | `/api/v1/admin/kyc/{id}/approve` | auth (role:Compliance Officer) | basic | live |  |  |
+| `POST` | `/api/v1/admin/kyc/{id}/reject` | auth (role:Compliance Officer) | basic | live |  |  |
 | `POST` | `/api/v1/admin/liquidation/manual` | auth (role:Risk Manager) | basic | live | yes |  |
 | `GET` | `/api/v1/admin/liquidity-providers` | auth (role:Risk Manager) | basic | live |  |  |
 | `POST` | `/api/v1/admin/liquidity-providers` | auth (role:Risk Manager) | basic | live |  |  |
@@ -209,7 +220,12 @@ Columns: auth = `public` (no credentials) or required credential/scope/role; tie
 | `GET` | `/api/v1/admin/orders/{id}/audit` | auth (role:Compliance Officer) | basic | live |  |  |
 | `GET` | `/api/v1/admin/pb-reconciliation` | auth (role:Read-Only Auditor) | basic | stub |  |  |
 | `POST` | `/api/v1/admin/pre-clearance` | auth (role:Compliance Officer) | basic | stub |  |  |
-| `PUT` | `/api/v1/admin/product-profiles` | auth (role:Compliance Officer) | basic | stub |  |  |
+| `GET` | `/api/v1/admin/product-profiles` | auth (role:Read-Only Auditor) | basic | live |  |  |
+| `POST` | `/api/v1/admin/product-profiles` | auth (role:Compliance Officer) | basic | live | yes |  |
+| `PUT` | `/api/v1/admin/product-profiles` | auth (role:Compliance Officer) | basic | live | yes |  |
+| `PUT` | `/api/v1/admin/product-profiles/{id}/target-market` | auth (role:Compliance Officer) | basic | live |  |  |
+| `GET` | `/api/v1/admin/product-target-markets` | auth (role:Compliance Officer) | basic | live |  |  |
+| `POST` | `/api/v1/admin/product-target-markets/{id}/review` | auth (role:Compliance Officer) | basic | live |  |  |
 | `GET` | `/api/v1/admin/promotions` | auth (role:Compliance Officer) | basic | stub |  |  |
 | `PUT` | `/api/v1/admin/promotions` | auth (role:Compliance Officer) | basic | stub |  |  |
 | `GET` | `/api/v1/admin/promotions/report` | auth (role:Read-Only Auditor) | basic | stub |  |  |
@@ -228,19 +244,27 @@ Columns: auth = `public` (no credentials) or required credential/scope/role; tie
 | `GET` | `/api/v1/admin/restricted-lists` | auth (role:Compliance Officer) | basic | stub |  |  |
 | `GET` | `/api/v1/admin/roles` | auth (role:Super Admin) | basic | live |  |  |
 | `POST` | `/api/v1/admin/sar` | auth (role:Compliance Officer) | basic | stub |  |  |
-| `POST` | `/api/v1/admin/settlement-exceptions/{id}/resolve` | auth (role:Finance Ops) | basic | stub |  |  |
+| `GET` | `/api/v1/admin/security/disclosures` | auth (role:*) | basic | live |  |  |
+| `POST` | `/api/v1/admin/security/disclosures/intake` | auth (role:*) | basic | live |  |  |
+| `GET` | `/api/v1/admin/security/disclosures/{id}` | auth (role:*) | basic | live |  |  |
+| `PUT` | `/api/v1/admin/security/disclosures/{id}` | auth (role:*) | basic | live |  |  |
+| `POST` | `/api/v1/admin/security/disclosures/{id}/triage` | auth (role:*) | basic | live |  |  |
+| `POST` | `/api/v1/admin/settlement-exceptions/{id}/resolve` | auth (role:Finance Ops) | basic | stub | yes |  |
 | `GET` | `/api/v1/admin/support/accounts/{id}` | auth (role:Support Agent) | basic | live |  |  |
 | `GET` | `/api/v1/admin/support/complaints/register` | auth (role:Compliance Officer) | basic | live |  |  |
 | `GET` | `/api/v1/admin/support/tickets` | auth (role:Support Agent) | basic | live |  |  |
 | `PUT` | `/api/v1/admin/support/tickets` | auth (role:Support Agent) | basic | live |  |  |
 | `GET` | `/api/v1/admin/support/tickets/{id}` | auth (role:Support Agent) | basic | live |  |  |
 | `POST` | `/api/v1/admin/support/tickets/{id}/notes` | auth (role:Support Agent) | basic | live |  |  |
-| `POST` | `/api/v1/admin/swap-free/{id}/approve` | auth (role:Compliance Officer) | basic | stub |  |  |
-| `POST` | `/api/v1/admin/swap-free/{id}/reject` | auth (role:Compliance Officer) | basic | stub |  |  |
+| `POST` | `/api/v1/admin/swap-free/{id}/approve` | auth (role:Compliance Officer) | basic | live |  |  |
+| `POST` | `/api/v1/admin/swap-free/{id}/reject` | auth (role:Compliance Officer) | basic | live |  |  |
+| `POST` | `/api/v1/admin/swap-free/{id}/revoke` | auth (role:Compliance Officer) | basic | live |  |  |
 | `GET` | `/api/v1/admin/swift-messages` | auth (role:Finance Ops) | basic | stub |  |  |
 | `POST` | `/api/v1/admin/trades/{id}/bust` | auth (role:Risk Manager) | basic | stub |  |  |
 | `POST` | `/api/v1/admin/treasury/contingent-capital` | auth (role:Finance Ops) | basic | stub |  |  |
 | `GET` | `/api/v1/admin/treasury/own-funds` | auth (role:Finance Ops) | basic | stub |  |  |
+| `GET` | `/api/v1/admin/webhooks/dead-letters` | auth (role:Support Agent) | basic | live |  |  |
+| `POST` | `/api/v1/admin/webhooks/dead-letters/{id}/retransmit` | auth (role:Support Agent) | basic | live |  |  |
 | `POST` | `/api/v1/admin/withdrawals/{id}/approve` | auth (role:Finance Ops) | basic | live | yes |  |
 | `POST` | `/api/v1/admin/withdrawals/{id}/reject` | auth (role:Finance Ops) | basic | live | yes |  |
 | `DELETE` | `/api/v1/algo-orders` | auth (scope:trade) | basic | stub |  |  |
@@ -271,8 +295,11 @@ Columns: auth = `public` (no credentials) or required credential/scope/role; tie
 | `POST` | `/api/v1/bots/grid` | auth (cred:jwt|hmac|oauth2) | basic | stub |  |  |
 | `DELETE` | `/api/v1/bots/grid/{id}` | auth (cred:jwt|hmac|oauth2) | basic | stub |  |  |
 | `GET` | `/api/v1/bots/grid/{id}` | auth (scope:read) | basic | stub |  |  |
-| `POST` | `/api/v1/copy/follows` | auth (cred:jwt|hmac|oauth2) | basic | stub |  |  |
-| `GET` | `/api/v1/copy/strategies` | public | public | stub |  |  |
+| `POST` | `/api/v1/copy/follows` | auth (cred:jwt|hmac|oauth2) | basic | live |  |  |
+| `DELETE` | `/api/v1/copy/follows/{id}` | auth (cred:jwt|hmac|oauth2) | basic | live |  |  |
+| `GET` | `/api/v1/copy/strategies` | public | public | live |  |  |
+| `POST` | `/api/v1/copy/strategies` | auth (cred:jwt|hmac|oauth2) | basic | live |  |  |
+| `POST` | `/api/v1/copy/strategies/{id}/list` | auth (cred:jwt|hmac|oauth2) | basic | live |  |  |
 | `POST` | `/api/v1/deposits` | auth (cred:jwt|hmac|oauth2) | basic | live |  |  |
 | `GET` | `/api/v1/deposits/{currency}` | auth (scope:read) | basic | live |  |  |
 | `GET` | `/api/v1/developer/api-keys` | auth (scope:read) | basic | live |  |  |
@@ -336,7 +363,7 @@ Columns: auth = `public` (no credentials) or required credential/scope/role; tie
 | `POST` | `/api/v1/orders/bracket` | auth (scope:trade) | basic | stub |  |  |
 | `POST` | `/api/v1/orders/cancel-all-after` | auth (scope:trade) | basic | stub |  |  |
 | `POST` | `/api/v1/orders/countdown-cancel-all` | auth (scope:trade) | basic | stub |  |  |
-| `POST` | `/api/v1/orders/oco` | auth (scope:trade) | basic | stub |  |  |
+| `POST` | `/api/v1/orders/oco` | auth (scope:trade) | basic | live |  |  |
 | `POST` | `/api/v1/orders/roll` | auth (scope:trade) | basic | stub |  |  |
 | `POST` | `/api/v1/orders/scaled` | auth (scope:trade) | basic | stub |  |  |
 | `POST` | `/api/v1/orders/spread` | auth (scope:trade) | basic | stub |  |  |
@@ -349,14 +376,19 @@ Columns: auth = `public` (no credentials) or required credential/scope/role; tie
 | `PUT` | `/api/v1/orders/{id}/amend/keep-priority` | auth (scope:trade) | basic | live |  |  |
 | `GET` | `/api/v1/orders/{id}/amendments` | auth (scope:read) | basic | live |  |  |
 | `POST` | `/api/v1/orders/{id}/cancel-replace` | auth (scope:trade) | basic | live |  |  |
+| `POST` | `/api/v1/pamm/pools` | auth (cred:jwt|hmac|oauth2) | basic | live |  |  |
+| `POST` | `/api/v1/pamm/pools/{id}/invest` | auth (scope:transfer) | basic | live |  |  |
+| `POST` | `/api/v1/pamm/pools/{id}/redeem` | auth (scope:transfer) | basic | live |  |  |
 | `GET` | `/api/v1/positions` | auth (scope:read) | basic | live |  |  |
 | `POST` | `/api/v1/positions/close-all` | auth (scope:trade) | basic | stub |  |  |
-| `GET` | `/api/v1/public/proof-of-reserves/daily-root` | public | public | stub |  |  |
+| `GET` | `/api/v1/public/proof-of-reserves/daily-root` | public | public | live |  |  |
 | `GET` | `/api/v1/reports/tca/{account_id}` | auth (scope:read) | basic | stub |  |  |
 | `GET` | `/api/v1/routes` | auth (role:Super Admin) | exempt | live |  |  |
+| `POST` | `/api/v1/security/disclosures` | public | public | live |  |  |
+| `GET` | `/api/v1/security/policy` | public | public | live |  |  |
 | `GET` | `/api/v1/session/status` | public | public | stub |  |  |
-| `GET` | `/api/v1/solvency/latest` | public | public | stub |  |  |
-| `GET` | `/api/v1/solvency/proof` | auth (scope:read) | basic | stub |  |  |
+| `GET` | `/api/v1/solvency/latest` | public | public | live |  |  |
+| `GET` | `/api/v1/solvency/proof` | auth (scope:read) | basic | live |  |  |
 | `GET` | `/api/v1/stats/24h` | public | public | live |  |  |
 | `GET` | `/api/v1/stats/24h/{symbol}` | public | public | live |  |  |
 | `GET` | `/api/v1/support/tickets` | auth (cred:jwt|hmac|oauth2) | basic | live |  |  |
@@ -365,7 +397,11 @@ Columns: auth = `public` (no credentials) or required credential/scope/role; tie
 | `GET` | `/api/v1/system/incidents` | public | public | live |  |  |
 | `GET` | `/api/v1/system/status` | public | public | live |  |  |
 | `GET` | `/api/v1/tax/report` | auth (scope:read) | basic | live |  |  |
+| `POST` | `/api/v1/test/funding/deposit` | auth (cred:jwt|hmac|oauth2) | basic | live |  | nonprod |
+| `POST` | `/api/v1/test/funding/withdrawal` | auth (cred:jwt|hmac|oauth2) | basic | live |  | nonprod |
 | `POST` | `/api/v1/test/reset` | auth (cred:jwt|hmac|oauth2) | basic | live |  | nonprod |
+| `POST` | `/api/v1/test/reset-seed` | auth (cred:jwt|hmac|oauth2) | basic | live |  | nonprod |
+| `POST` | `/api/v1/test/seed` | auth (cred:jwt|hmac|oauth2) | basic | live |  | nonprod |
 | `GET` | `/api/v1/ticker/{symbol}` | public | public | live |  |  |
 | `GET` | `/api/v1/time` | public | exempt | live |  |  |
 | `GET` | `/api/v1/trades/{symbol}` | public | public | live |  |  |
@@ -437,7 +473,7 @@ Interactive order actions (`internal/marketdata/ws_dispatcher.go` `orderActionSc
 
 ### 3.4 Private channels (`internal/ws/server.go` `PrivateChannels` — authenticated, account-scoped)
 
-`private:balances`, `private:executions`, `private:notifications`, `private:orders`, `private:positions`.
+`private:balances`, `private:executions`, `private:notifications`, `private:orders`, `private:pnl`, `private:positions`.
 
 ## 4. FIX surface (Phase-18 — scaffold today)
 

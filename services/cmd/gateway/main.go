@@ -29,6 +29,7 @@ import (
 	"exchange/internal/cache"
 	"exchange/internal/compliance"
 	"exchange/internal/config"
+	"exchange/internal/copy"
 	"exchange/internal/db"
 	"exchange/internal/delegation"
 	"exchange/internal/deprecation"
@@ -46,6 +47,7 @@ import (
 	"exchange/internal/observability"
 	"exchange/internal/ops"
 	"exchange/internal/orders"
+	"exchange/internal/pamm"
 	"exchange/internal/position"
 	"exchange/internal/promos"
 	"exchange/internal/ratelimit"
@@ -159,8 +161,18 @@ func run() error {
 	// gate → token bucket → weighted counters (internal/ratelimit); a
 	// Redis/Sentinel outage fails over to the in-memory backend (spec
 	// §4.1) and a total limiter outage is fail-closed 503.
+	// Task 14.3.6: identities crossing 80% of their effective tier rate
+	// increment a per-tier counter — the RateLimitUtilizationHigh P2
+	// alert reads it (per-account labels are rejected: cardinality).
+	rlUtil := metReg.Counter("exchange_rate_limit_utilization_over80_total",
+		"identities reaching >=80% of their effective tier rate limit in a 1s window")
 	limiter := ratelimit.NewLimiter(ratelimit.NewRedisBackend(rdb),
-		ratelimit.LimiterOptions{Mode: rdb})
+		ratelimit.LimiterOptions{
+			Mode: rdb,
+			Utilization: func(id ratelimit.Identity, _, _ int64) {
+				rlUtil.With("tier", string(id.Tier)).Inc()
+			},
+		})
 	banAdmin := &ratelimit.BanAdmin{B: limiter.Backend()}
 
 	// Task 5.3.40 introspection + tier resolution read PG (accounts →
@@ -502,6 +514,53 @@ func run() error {
 		compliance.CleanPassScanner{Log: func(f string, a ...any) {
 			log.Info(fmt.Sprintf(f, a...))
 		}})
+	// Phase-14 Task 14.3.7 — MiFID II client categorization: the
+	// order-admission gate consults catSvc.Appropriateness on every
+	// exposure-adding order (wired into orders.Options.Product below);
+	// the admin product-profile route sets client_category through it
+	// (Compliance Officer + evidence, audit-logged).
+	catSvc, err := compliance.NewCategorizationService(kycStore,
+		compliance.RoleResolver(adminRoleResolver))
+	if err != nil {
+		return fmt.Errorf("categorization service: %w", err)
+	}
+	// Phase-14 Tasks 14.3.13/14.3.15/14.3.16 — product governance
+	// cluster: ProfileService resolves account→profile (pricing_plan is
+	// the commission engine's single fee-model source via
+	// PgProfileFeeModelSource — no account-level override exists);
+	// SwapfreeService owns the request → Compliance decision lifecycle
+	// mirrored to accounts.swapfree_status (the Task 3.3.19/3.3.23
+	// rollover consumes that column for the zero-Tom-Next skip);
+	// TargetMarketService authors the MiFID II per-category target and
+	// drives the ≤12-month review sweep; ProductGateService folds
+	// instrument_scope + the RETAIL target-market check into the
+	// orders.ProductGate admission seam (appropriateness remains the
+	// separate Task 14.3.7 gate — both must pass).
+	profileSvc := accounts.NewProfileService(pool,
+		accounts.RoleResolver(adminRoleResolver))
+	swapfreeSvc := accounts.NewSwapfreeService(pool,
+		accounts.RoleResolver(adminRoleResolver), accounts.PgxHoldPlacer{})
+	var tmAlerter accounts.OpsAlerter
+	if opsAlerter != nil {
+		tmAlerter = opsAlerter
+	}
+	targetSvc := accounts.NewTargetMarketService(pool,
+		accounts.RoleResolver(adminRoleResolver), tmAlerter)
+	productGate := accounts.NewProductGateService(profileSvc, targetSvc,
+		categorizerAdapter{catSvc})
+
+	// Phase-14 Task 14.3.8 — PAMM/MAM engine. Invest/redeem post TRANSFER
+	// journals through ledgerSvc (2010 ↔ 2170_PAMM_POOL_LIABILITY) —
+	// never DEPOSIT/WITHDRAWAL, never the daily fiat counters.
+	pammStore, err := pamm.NewPgxStore(pool)
+	if err != nil {
+		return fmt.Errorf("pamm store: %w", err)
+	}
+	pammSvc, err := pamm.NewService(pammStore, ledgerSvc, freezeSvc)
+	if err != nil {
+		return fmt.Errorf("pamm service: %w", err)
+	}
+
 	depStore, err := deprecation.NewStore(pool)
 	if err != nil {
 		return fmt.Errorf("deprecation store: %w", err)
@@ -597,6 +656,27 @@ func run() error {
 			}
 		}
 	}()
+	// Phase-14 Task 14.3.16 — target-market review sweeper: flips
+	// APPROVED rows past review_due_at to REVIEW_OVERDUE (close-only for
+	// that category's opens) and raises one ops alert per newly overdue
+	// row; the order gate also evaluates review_due_at lazily so a
+	// delayed sweep can never admit a stale retail open.
+	go func() {
+		t := time.NewTicker(60 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-sweepCtx.Done():
+				return
+			case <-t.C:
+				if n, err := targetSvc.SweepOverdue(sweepCtx, 500); err != nil {
+					log.Warn("target-market overdue sweep failed", "err", err)
+				} else if n > 0 {
+					log.Info("target-market rows marked REVIEW_OVERDUE", "count", n)
+				}
+			}
+		}
+	}()
 	// --- end Wave-3 wiring ---
 
 	// Task 5.3.7/5.3.21: mount the route + error-code registries.
@@ -633,7 +713,8 @@ func run() error {
 	marketStore := marketapi.NewPgStore(pool)
 	marketCache := marketapi.NewCache(nil)
 	marketDeps := &api.MarketDeps{Store: marketStore, Book: marketStore, Cache: marketCache}
-	venueDeps := &api.VenueDeps{Store: marketStore, Cache: marketCache}
+	venueDeps := &api.VenueDeps{Store: marketStore, Cache: marketCache,
+		Profiles: profileSvc} // Task 14.3.13 — per-profile scope publication
 	announceDeps := &api.AnnounceDeps{Announcements: marketStore, Maintenance: marketStore}
 
 	// ---- Phase-05 wave-2 cluster E: WS surface, order pipeline, manual
@@ -653,6 +734,8 @@ func run() error {
 		Otr:        otrMon,       // Task 13.3.6 — RTS 9 OTR event counting + breach gate
 		Breakers:   breakerSvc,   // Tasks 13.3.1/13.3.9 — §2.6 five-tier breaker gate
 		BatchRL:    orders.NewRedisBatchLimiter(rdb.Client, 0),
+		Products:   productGate, // Tasks 14.3.13/14.3.16 — profile scope + retail target market
+		Product:    catSvc,      // Task 14.3.7 — MiFID II appropriateness gate
 	})
 	if err != nil {
 		return fmt.Errorf("order service: %w", err)
@@ -700,6 +783,33 @@ func run() error {
 		return fmt.Errorf("pnl service: %w", err)
 	}
 
+	// Phase-14 Task 14.3.14 — copy-trading product layer over the PAMM
+	// pro-rata engine. Discovery stats compute from persisted fills via
+	// the Task 3.3.9 index converter (same seam P&L uses); a missing rate
+	// excludes the strategy — computed-only, fail closed. Suspension runs
+	// the hash-chained admin audit BEFORE the status flip.
+	copyStore, err := copy.NewPgxStore(pool)
+	if err != nil {
+		return fmt.Errorf("copy store: %w", err)
+	}
+	copyAuditor, err := copy.NewAdminAuditor(pool)
+	if err != nil {
+		return fmt.Errorf("copy auditor: %w", err)
+	}
+	copySubledger, err := copy.NewSubledgerWriter(pammStore)
+	if err != nil {
+		return fmt.Errorf("copy subledger: %w", err)
+	}
+	copySvc, err := copy.NewService(copyStore, catSvc, freezeSvc,
+		settlement.ConverterIndexPricer{Conv: position.NewConverter(
+			risk.LastTradeRates{Instruments: pnlStore, Marks: orderStore}, "")},
+		copyAuditor,
+		copy.WithJournalPoster(ledgerSvc),
+		copy.WithSubledgerWriter(copySubledger))
+	if err != nil {
+		return fmt.Errorf("copy service: %w", err)
+	}
+
 	notifStore := notifications.NewPgStore(pool)
 	notifSvc, err := notifications.NewService(notifications.Options{
 		Store: notifStore,
@@ -727,6 +837,106 @@ func run() error {
 	// Dispatcher shares the sweeper lifecycle — a claimed-but-unacked
 	// item is requeued on next boot (RequeueAll), never dropped.
 	go notifSvc.NewDispatcher().Run(sweepCtx)
+
+	// Real-time copy/PAMM fill fan-out: consume the `trades` JetStream
+	// stream the settlements bridge already republishes (documented seam —
+	// no second engine subscription). At-least-once delivery is absorbed
+	// by the DB dedup keys; a NATS outage degrades copying (fail-
+	// operational, consistent with ledger dispatch) and redelivery replays
+	// safely. Child orders dispatch through the real order pipeline
+	// (copyChildSubmitter → orders.Service.Submit, MARKET/IOC); the
+	// durable-PENDING intent row precedes dispatch so a crash leaves a
+	// replayable intent, and the "copy:{trade}:{follow}" client order id
+	// dedups at the pipeline too.
+	pammEngine, err := pamm.NewEngine(pammStore)
+	if err != nil {
+		return fmt.Errorf("pamm engine: %w", err)
+	}
+	copyEngine, err := copy.NewEngine(copyStore,
+		copy.WithChildSubmitter(&copyChildSubmitter{svc: orderSvc, store: orderStore}),
+		copy.WithSkipNotifier(&copySkipNotifier{pool: pool, svc: notifSvc}))
+	if err != nil {
+		return fmt.Errorf("copy engine: %w", err)
+	}
+	if natsClient != nil {
+		fanout, ferr := pamm.NewTradesFanout(settlement.NewPgxTradeResolver(pool),
+			pamm.PoolLegHandler{Engine: pammEngine},
+			copy.ManagerLegHandler{Engine: copyEngine})
+		if ferr != nil {
+			return fmt.Errorf("trades fanout: %w", ferr)
+		}
+		cons, cerr := natsClient.EnsureConsumer(context.Background(), "trades",
+			"pamm_copy_fanout", nats.WithFilterSubject("trades.>"))
+		if cerr != nil {
+			// Consumer provisioning failure degrades copying only —
+			// orders/settlement are unaffected (fail-operational, NATS
+			// outage posture per the ledger dispatch comment above).
+			log.Warn("pamm/copy fanout consumer unavailable", "err", cerr)
+		} else {
+			go func() {
+				if cerr := fanout.Consume(sweepCtx, cons); cerr != nil {
+					log.Error("pamm/copy fanout consumer stopped", "err", cerr)
+				}
+			}()
+			log.Info("pamm/copy trades fanout consuming", "stream", "trades",
+				"durable", "pamm_copy_fanout")
+		}
+	}
+
+	// Phase-14 Task 14.3.2 — auto-halt on anomaly: the detector layer
+	// bound to the five-tier breaker (trips land on the canonical
+	// machinery; this service adds the P1 page, user notification and
+	// auto_halt_events audit — migration 217). Feeds bound below:
+	// price/volume via the fill consumer; admission latency + systemic
+	// error rate via orders.Service's observer seam. A missing PG pool
+	// piece fails closed at construction only for the breaker itself —
+	// nil seams degrade to logged skips, mirroring BreakerDeps.
+	autoHaltSvc, err := risk.NewAutoHaltService(risk.AutoHaltDeps{
+		CB:      breakerSvc,
+		Events:  risk.NewPgAutoHaltEventStore(pool),
+		Metrics: risk.NewAutoHaltMetrics(metReg),
+		Alerter: func(ctx context.Context, severity, code, summary string) error {
+			if opsAlerter == nil {
+				return nil
+			}
+			return opsAlerter.Raise(ctx, settlement.OpsAlert{
+				Severity: severity, Code: code, Summary: summary})
+		},
+		Notifier: notifSvc,
+		Users: func(ctx context.Context, symbol string) ([]int64, error) {
+			rows, err := pool.Query(ctx, `
+				SELECT DISTINCT a.user_id FROM accounts a
+				 WHERE a.id IN (
+				   SELECT p.account_id FROM positions p
+				     JOIN instruments i ON i.id = p.instrument_id
+				    WHERE i.symbol = $1 AND p.quantity <> 0
+				   UNION
+				   SELECT o.account_id FROM orders o
+				     JOIN instruments i ON i.id = o.instrument_id
+				    WHERE i.symbol = $1
+				      AND o.status IN ('PENDING','RESERVED','ACTIVE','PARTIALLY_FILLED'))`,
+				symbol)
+			if err != nil {
+				return nil, err
+			}
+			defer rows.Close()
+			var uids []int64
+			for rows.Next() {
+				var uid int64
+				if err := rows.Scan(&uid); err != nil {
+					return nil, err
+				}
+				uids = append(uids, uid)
+			}
+			return uids, rows.Err()
+		},
+		Logf: func(f string, a ...any) { log.Warn(fmt.Sprintf(f, a...)) },
+	})
+	if err != nil {
+		return fmt.Errorf("auto-halt service: %w", err)
+	}
+	orderSvc.WithAdmission(autoHaltSvc.ObserveAdmission)
+	go autoHaltSvc.Run(sweepCtx, 2*time.Second)
 	// funding.Notifier seam: account→user resolution then Notify —
 	// post-commit, best-effort (the funding services never see an
 	// error from this adapter).
@@ -746,6 +956,44 @@ func run() error {
 	depositSvc.WithNotifier(fundNotifier)
 	dispatchSvc.WithNotifier(fundNotifier)
 
+	// Phase-14 Task 14.3.4 — KYC lifecycle: the admin approve/reject
+	// surface (single write path to accounts.kyc_tier, audited in-tx)
+	// plus the hourly re-verification sweeper — overdue latest-APPROVED
+	// submissions auto-downgrade the account T2→T1 (INSTITUTIONAL lapses
+	// also revert client_category → RETAIL + re-arm nbp), each action
+	// audit-anchored, ops-alerted and user-notified.
+	lifecycleSvc, err := compliance.NewLifecycleService(compliance.LifecycleOptions{
+		Store:    kycStore,
+		Resolver: compliance.RoleResolver(adminRoleResolver),
+		Notifier: fundNotifier,
+		Alerter: func(ctx context.Context, severity, code, summary string) error {
+			if opsAlerter == nil {
+				return nil
+			}
+			return opsAlerter.Raise(ctx, settlement.OpsAlert{
+				Severity: severity, Code: code, Summary: summary})
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("kyc lifecycle service: %w", err)
+	}
+	go func() {
+		t := time.NewTicker(time.Hour)
+		defer t.Stop()
+		for {
+			select {
+			case <-sweepCtx.Done():
+				return
+			case <-t.C:
+				if n, err := lifecycleSvc.SweepReverify(sweepCtx, 200); err != nil {
+					log.Warn("kyc re-verification sweep had failures", "err", err)
+				} else if n > 0 {
+					log.Warn("kyc re-verification downgrades applied", "count", n)
+				}
+			}
+		}
+	}()
+
 	// Engine out-ring consumer: cancel echoes + trade fills update the PG
 	// read model; without it pending confirms only time out. The fill
 	// hook is the order_filled emitter (Task 12.3.5) — order→account→user
@@ -759,12 +1007,15 @@ func run() error {
 			}
 			// Phase-13 circuit-breaker feeds: last-trade price →
 			// INSTRUMENT move window + MARKET_WIDE aggregate; fill
-			// notional → VOLUME_SPIKE minute buckets. Best-effort: a
-			// feed error is logged inside the service, never masks the
-			// fill notification path.
+			// notional → VOLUME_SPIKE minute buckets. Routed through the
+			// Phase-14 auto-halt layer, which forwards to the canonical
+			// breaker detectors and performs the P1 page + user
+			// notification + audit duties on fresh suspensions.
+			// Best-effort: a feed error is logged inside the service,
+			// never masks the fill notification path.
 			if inst, ierr := orderStore.InstrumentByID(ctx, o.InstrumentID); ierr == nil && inst != nil {
-				breakerSvc.ObservePrice(ctx, inst.Symbol, px)
-				breakerSvc.ObserveTrade(ctx, inst.Symbol, px.Mul(qty))
+				autoHaltSvc.ObservePrice(ctx, inst.Symbol, px)
+				autoHaltSvc.ObserveTrade(ctx, inst.Symbol, px.Mul(qty))
 				// Task 13.3.6: the fill counts in the account's OTR
 				// trades window (denominator); an under-limit verdict
 				// re-evaluates the breach flag.
@@ -1174,6 +1425,94 @@ func run() error {
 		freezeOpsAlerter{pool: pool, page: opsAlerter})
 	unfreezeSvc := accounts.NewUnfreezeService(pool)
 
+	// --- Phase-14 Tasks 14.3.9–14.3.12: account lifecycle wiring ---
+	// Best-effort user notification adapter shared by cooling-off,
+	// closure and holds (same contract as fundNotifier above — a
+	// delivery failure never blocks the state transition).
+	acctNotify := accounts.UserNotifier(func(ctx context.Context,
+		userID int64, event string, payload map[string]any) {
+		if _, err := notifSvc.Notify(ctx, userID, event, payload); err != nil {
+			log.Warn("notifications: emit failed",
+				"event", event, "user_id", userID, "err", err)
+		}
+	})
+
+	// Task 14.3.11/14.3.12 — cooling-off self-exclusion. The irrevocable
+	// window row lands before the leveraged de-risking saga (mass-cancel
+	// + reduce-only closes on the shared dispatcher), so a dispatch
+	// outage still fails closed on order admission; residual failures
+	// page P1 via the existing ops alerter. The admission gate binds
+	// post-construction — the service needs orderDisp, which needs
+	// orderSvc, so the With* pattern (same as WithAdmission) breaks the
+	// construction cycle.
+	coolingSvc := accounts.NewCoolingOffService(pool, orderDisp,
+		freezeOpsAlerter{pool: pool, page: opsAlerter}, acctNotify)
+	orderSvc.WithCoolingOff(coolingSvc)
+
+	// Task 14.3.9 — account closure & offboarding. Client path requires
+	// the route's RequireTwoFactor wrap; the forced path is the
+	// OpAccountClosure four-eyes executor. The residual sweep reuses
+	// the Phase-11 withdrawal pipeline verbatim — beneficiary +
+	// sanctions + cooldown gates apply, the hold posting is GL-balanced
+	// and CONFIRMED rows hand off to the banking rails.
+	closureSvc := accounts.NewClosureService(pool, orderDisp,
+		closureSweeper{flow: flowSvc, inner: withdrawalSvc, disp: dispatchSvc},
+		closureBens{pool: pool},
+		sessMgr, apiKeyRevoker{ks: keyStore},
+		openOrderLister{store: orderStore},
+		freezeOpsAlerter{pool: pool, page: opsAlerter}, acctNotify, nil)
+	api.RegisterAccountClosureExecutor(dualSvc, closureSvc)
+	// Phase-14 Task 14.3.13 — profile pricing/scope/divisor mutations
+	// run through the four-eyes queue; approval applies them in-tx.
+	api.RegisterProductProfileExecutor(dualSvc, profileSvc)
+
+	// Task 14.3.10 — compliance holds. PlaceHold is the Phase-21
+	// sanctions/PEP seam (machine triggers call it directly); the
+	// manual officer endpoint is the only caller today. Release is
+	// four-eyes (same convention as unfreeze); escalate-to-closure
+	// submits the OpAccountClosure request above. Placement freezes and
+	// mass-cancels through the existing paths — positions never
+	// liquidate under a hold.
+	holdSvc := compliance.NewHoldService(pool,
+		holdRestingCanceller{disp: orderDisp},
+		holdOpsAlerter{inner: freezeOpsAlerter{pool: pool, page: opsAlerter}},
+		closureEscalation{dual: dualSvc},
+		compliance.HoldRoleResolver(adminRoleResolver),
+		compliance.HoldUserNotifier(acctNotify), nil)
+
+	// Hold SLA sweeper (60s): mark sla_breached on overdue OPEN holds
+	// and page P1 — the officer dashboard surfaces breaches until
+	// disposition (4h high-confidence sanctions / 24h default).
+	go func() {
+		tick := time.NewTicker(60 * time.Second)
+		defer tick.Stop()
+		for {
+			select {
+			case <-sweepCtx.Done():
+				return
+			case <-tick.C:
+				if n, err := holdSvc.SweepSLA(sweepCtx, 200); err != nil {
+					log.Warn("compliance-hold SLA sweep", "err", err)
+				} else if n > 0 {
+					log.Warn("compliance holds breached SLA", "count", n)
+				}
+			}
+		}
+	}()
+
+	// Task 14.3.12 — JetStream ingest into the canonical signed-delivery
+	// pipeline (Phase-05 Task 5.3.17 owns POST/sign/retry/dead-letter —
+	// the Phase-14 divergent schedule was superseded; this consumer is
+	// the event→queue leg the task calls for).
+	if natsClient != nil {
+		go func() {
+			if err := webhooks.NewJetStreamIngest(natsClient,
+				webhookStore, log).Run(sweepCtx); err != nil {
+				log.Warn("webhook jetstream ingest stopped", "err", err)
+			}
+		}()
+	}
+
 	// RBACMiddleware on the registry: every route declaring Auth.Role gets
 	// identity → binding → role → env/scope enforcement — stubs included.
 	rbacMW := admin.NewMiddleware(adminStore, jwtIssuer, sessMgr, cfg.Environment)
@@ -1494,6 +1833,25 @@ func run() error {
 			api.SolvencyProof(solvStore)),
 		"GET /api/v1/account/solvency-proof": http.HandlerFunc(
 			api.AccountSolvencyProof(solvStore)),
+		// --- Phase-14 Tasks 14.3.8/14.3.14 — PAMM + copy trading ---
+		"POST /api/v1/pamm/pools": http.HandlerFunc(
+			api.PammPoolCreate(pammSvc)),
+		"POST /api/v1/pamm/pools/{id}/invest": http.HandlerFunc(
+			api.PammInvest(pammSvc)),
+		"POST /api/v1/pamm/pools/{id}/redeem": http.HandlerFunc(
+			api.PammRedeem(pammSvc)),
+		"GET /api/v1/copy/strategies": http.HandlerFunc(
+			api.CopyStrategies(copySvc)),
+		"POST /api/v1/copy/strategies": http.HandlerFunc(
+			api.CopyStrategyCreate(copySvc)),
+		"POST /api/v1/copy/strategies/{id}/list": http.HandlerFunc(
+			api.CopyStrategyList(copySvc)),
+		"POST /api/v1/copy/follows": http.HandlerFunc(
+			api.CopyFollow(copySvc)),
+		"DELETE /api/v1/copy/follows/{id}": http.HandlerFunc(
+			api.CopyUnfollow(copySvc)),
+		"POST /api/v1/admin/copy/strategies/{id}/suspend": http.HandlerFunc(
+			api.AdminCopyStrategySuspend(copySvc, true)),
 		"GET /api/v1/public/proof-of-reserves/daily-root": http.HandlerFunc(
 			api.SolvencyLatest(solvStore)),
 		// --- Phase-13 Task 13.3.8 API-key expiry extension (four-eyes) ---
@@ -1550,6 +1908,12 @@ func run() error {
 		// --- Wave-3 platform surface ---
 		// Task 5.3.13 test environment.
 		"POST /api/v1/test/reset": http.HandlerFunc(api.TestReset(testSvc)),
+		// Task 14.3.3 testnet — preset seeding + simulated funding (same
+		// fail-closed non-production gate; never touches funding rails).
+		"POST /api/v1/test/seed":               http.HandlerFunc(api.TestSeed(testSvc)),
+		"POST /api/v1/test/reset-seed":         http.HandlerFunc(api.TestResetSeed(testSvc)),
+		"POST /api/v1/test/funding/deposit":    http.HandlerFunc(api.TestFundDeposit(testSvc)),
+		"POST /api/v1/test/funding/withdrawal": http.HandlerFunc(api.TestFundWithdraw(testSvc)),
 		// Task 5.3.15 fees + governed promo windows.
 		"GET /api/v1/fees":                           http.HandlerFunc(api.AccountFees(settlement.NewPgxFeeStore(pool))),
 		"POST /api/v1/admin/fees/promo":              http.HandlerFunc(promoCreate),
@@ -1607,6 +1971,16 @@ func run() error {
 		"POST /api/v1/account/unfreeze-request": http.HandlerFunc(
 			api.UnfreezeRequest(unfreezeSvc)),
 
+		// ---- Phase-14 Tasks 14.3.9/14.3.11 — closure + cooling-off ----
+		// Closure carries the §12.2 second-factor session gate (spec
+		// RequireTwoFactor); cooling-off activation takes the explicit
+		// acknowledged:true consent inside the request body — the window
+		// is irrevocable by contract (no cancel/shorten surface exists).
+		"POST /api/v1/account/close": auth.RequireTwoFactor()(
+			api.AccountClose(closureSvc, true)),
+		"POST /api/v1/account/cooling-off": http.HandlerFunc(
+			api.AccountCoolingOff(coolingSvc, true)),
+
 		// ---- Phase-12 Task 12.3.11 — delegated logins + M-of-N ----
 		"GET /api/v1/account/delegated-users": http.HandlerFunc(
 			api.DelegatedUsersList(delegSvc)),
@@ -1650,12 +2024,36 @@ func run() error {
 		"GET /api/v1/tax/report":         http.HandlerFunc(api.TaxReport(taxSvc)),
 		"GET /api/v1/account/tax-report": http.HandlerFunc(api.TaxReport(taxSvc)),
 		// Phase-12 Tasks 12.3.4/12.3.13 — KYC intake + ops matrix +
-		// tax self-certification (admin approve stays a Phase-14 stub).
+		// tax self-certification (approve/reject live below — Task 14.3.4).
 		"POST /api/v1/kyc/submit":             http.HandlerFunc(api.KYCSubmit(kycSvc)),
 		"GET /api/v1/kyc/status":              http.HandlerFunc(api.KYCStatus(kycSvc)),
 		"GET /api/v1/kyc/requirements":        http.HandlerFunc(api.KYCRequirements(kycSvc)),
 		"POST /api/v1/kyc/self-certification": http.HandlerFunc(api.KYCSelfCertSubmit(kycSvc)),
 		"GET /api/v1/kyc/self-certification":  http.HandlerFunc(api.KYCSelfCertList(kycSvc)),
+		// Phase-14 Task 14.3.4 — KYC lifecycle: Compliance-Officer
+		// approve/reject (tier assign, reverify horizon, audit, notify).
+		"POST /api/v1/admin/kyc/{id}/approve": http.HandlerFunc(api.KYCApproveHandler(lifecycleSvc, true)),
+		"POST /api/v1/admin/kyc/{id}/reject":  http.HandlerFunc(api.KYCRejectHandler(lifecycleSvc, true)),
+		// Phase-14 Task 14.3.7 — MiFID II categorization: client
+		// appropriateness assessment + admin category assignment.
+		"POST /api/v1/account/appropriateness":            http.HandlerFunc(api.AppropriatenessSubmit(catSvc)),
+		"GET /api/v1/account/appropriateness":             http.HandlerFunc(api.AppropriatenessStatus(catSvc)),
+		"PUT /api/v1/admin/accounts/{id}/product-profile": http.HandlerFunc(api.AdminClientCategory(catSvc, true)),
+		// Phase-14 Tasks 14.3.13/14.3.15/14.3.16 — product governance.
+		// Note: the PUT product-profile route above is categorization
+		// (Task 14.3.7); profile assignment mounts POST on the same path.
+		"POST /api/v1/account/swap-free/request":                http.HandlerFunc(api.AccountSwapFreeRequest(swapfreeSvc)),
+		"GET /api/v1/account/swap-free":                         http.HandlerFunc(api.AccountSwapFreeStatus(swapfreeSvc)),
+		"POST /api/v1/admin/swap-free/{id}/approve":             http.HandlerFunc(api.AdminSwapFreeDecide(swapfreeSvc, "approve", true)),
+		"POST /api/v1/admin/swap-free/{id}/reject":              http.HandlerFunc(api.AdminSwapFreeDecide(swapfreeSvc, "reject", true)),
+		"POST /api/v1/admin/swap-free/{id}/revoke":              http.HandlerFunc(api.AdminSwapFreeDecide(swapfreeSvc, "revoke", true)),
+		"POST /api/v1/admin/product-profiles":                   http.HandlerFunc(api.AdminProductProfileSubmit(dualSvc, "create", true)),
+		"PUT /api/v1/admin/product-profiles":                    http.HandlerFunc(api.AdminProductProfileSubmit(dualSvc, "update", true)),
+		"GET /api/v1/admin/product-profiles":                    http.HandlerFunc(api.AdminProductProfileList(profileSvc)),
+		"POST /api/v1/admin/accounts/{id}/product-profile":      http.HandlerFunc(api.AdminAssignProductProfile(profileSvc, true)),
+		"PUT /api/v1/admin/product-profiles/{id}/target-market": http.HandlerFunc(api.AdminTargetMarketUpsert(targetSvc, true)),
+		"POST /api/v1/admin/product-target-markets/{id}/review": http.HandlerFunc(api.AdminTargetMarketReview(targetSvc, true)),
+		"GET /api/v1/admin/product-target-markets":              http.HandlerFunc(api.AdminTargetMarketList(targetSvc, true)),
 		// Task 5.3.20 deprecation policy administration + guide.
 		"POST /api/v1/admin/api-deprecations": http.HandlerFunc(depAnnounce),
 		"GET /api/v1/admin/api-deprecations":  http.HandlerFunc(depList),
@@ -1751,6 +2149,8 @@ func run() error {
 		// Task 5.3.32 batch ops.
 		"POST /api/v1/orders/batch":   http.HandlerFunc(api.OrderBatchSubmit(orderDeps)),
 		"DELETE /api/v1/orders/batch": http.HandlerFunc(api.OrderBatchCancel(orderDeps)),
+		// Phase-14 Task 14.3.1 — OCO pair (spec §6.2/§6.5).
+		"POST /api/v1/orders/oco": http.HandlerFunc(api.OrderSubmitOCO(orderDeps)),
 		// Task 5.3.37 atomic cancel-replace + keep-priority amend.
 		"POST /api/v1/orders/{id}/cancel-replace": http.HandlerFunc(
 			api.OrderCancelReplace(orderDeps)),
@@ -1780,6 +2180,23 @@ func run() error {
 			api.AdminDualControlApprove(rbacDeps)),
 		"POST /api/v1/admin/dual-control/{id}/reject": http.HandlerFunc(
 			api.AdminDualControlReject(rbacDeps)),
+		// ---- Phase-14 Task 14.3.9/14.3.10/14.3.12 — forced closure
+		//      maker (dual-control queue), compliance holds, webhook
+		//      dead-letter review ----
+		"POST /api/v1/admin/accounts/{id}/close": http.HandlerFunc(
+			api.AdminAccountClose(dualSvc, true)),
+		"POST /api/v1/admin/compliance/holds": http.HandlerFunc(
+			api.AdminHoldPlace(holdSvc, true)),
+		"GET /api/v1/admin/compliance/holds": http.HandlerFunc(
+			api.AdminHoldList(holdSvc)),
+		"POST /api/v1/admin/compliance/holds/{id}/release": http.HandlerFunc(
+			api.AdminHoldRelease(holdSvc, true)),
+		"POST /api/v1/admin/compliance/holds/{id}/escalate": http.HandlerFunc(
+			api.AdminHoldEscalate(holdSvc, true)),
+		"GET /api/v1/admin/webhooks/dead-letters": http.HandlerFunc(
+			api.AdminWebhookDeadLetters(webhookStore)),
+		"POST /api/v1/admin/webhooks/dead-letters/{id}/retransmit": http.HandlerFunc(
+			api.AdminWebhookRetransmit(webhookStore, true)),
 		"POST /api/v1/admin/recert":     http.HandlerFunc(api.AdminRecertStart(rbacDeps)),
 		"GET /api/v1/admin/recert/{id}": http.HandlerFunc(api.AdminRecertReport(rbacDeps)),
 		"POST /api/v1/admin/recert/{id}/decisions": http.HandlerFunc(
@@ -2007,6 +2424,18 @@ type notifyAdapter struct {
 
 func (a notifyAdapter) Notify(ctx context.Context, accountID int64, event string, payload map[string]any) {
 	a.fn(ctx, accountID, event, payload)
+}
+
+// categorizerAdapter adapts the Task 14.3.7 categorization service to
+// the accounts package's minimal Categorizer seam (Category only — the
+// Appropriateness check runs as its own checkAdmission gate upstream).
+type categorizerAdapter struct {
+	svc *compliance.CategorizationService
+}
+
+func (a categorizerAdapter) Category(ctx context.Context, accountID int64) (string, error) {
+	c, err := a.svc.Category(ctx, accountID)
+	return string(c), err
 }
 
 // pnlPublisherFunc adapts a closure to risk.PnlPublisher — the ws hub

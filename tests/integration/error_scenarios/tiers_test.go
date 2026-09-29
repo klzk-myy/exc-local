@@ -105,7 +105,7 @@ func TestL0_HaltedInstrumentRejectsOrderFlow(t *testing.T) {
 	}}
 	sub := &countingSubmitter{}
 	svc, err := orders.NewService(orders.Options{
-		KillSwitch: openKillSwitch{}, Breakers: openBreakers{},
+		KillSwitch: openKillSwitch{}, Breakers: openBreakers{}, Product: admitAppropriateness{},
 		Store: store, Submitter: sub, ShardMap: mustShardMap(t),
 	})
 	if err != nil {
@@ -223,7 +223,7 @@ func TestL2_BalanceShortfallAtomicRejection(t *testing.T) {
 	}
 	sub := &countingSubmitter{}
 	svc, err := orders.NewService(orders.Options{
-		KillSwitch: openKillSwitch{}, Breakers: openBreakers{},
+		KillSwitch: openKillSwitch{}, Breakers: openBreakers{}, Product: admitAppropriateness{},
 		Store: store, Submitter: sub, ShardMap: mustShardMap(t),
 	})
 	if err != nil {

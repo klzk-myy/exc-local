@@ -70,10 +70,19 @@ public:
 
     // Terminal notice for cancels + rejects (schema has no reject table —
     // OrderCancel is the closest envelope; engine-side last_reject() carries
-    // the specific code for logs/tests).
+    // the specific code for logs/tests). `reason` is the kWalCancelReason*
+    // family (0 = user/unspecified; 7 = OCO sibling cancellation — the
+    // order-service maps it to the OCO_SIBLING_CANCEL_RACE path).
     [[nodiscard]] bool publish_order_cancel(uint64_t order_id,
                                             uint64_t account_id,
-                                            uint64_t ts_ns) noexcept;
+                                            uint64_t ts_ns,
+                                            uint8_t reason) noexcept;
+    // Convenience overload for callers without a cancel reason (reason=0).
+    [[nodiscard]] bool publish_order_cancel(uint64_t order_id,
+                                            uint64_t account_id,
+                                            uint64_t ts_ns) noexcept {
+        return publish_order_cancel(order_id, account_id, ts_ns, 0);
+    }
 
     // Aggregated top-N snapshot per the L2 wire contract (spec §10.2:
     // "Top 20 price levels per side"). Phase-08 Task 8.3.3: previously

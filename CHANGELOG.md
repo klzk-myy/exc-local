@@ -924,3 +924,64 @@ open. Landed via 5 disjoint clusters.
 - `secrets_inventory` (migration 089) remains doc-pending; deploy inventory +
   Vault audit are the records of record.
 - Phase-21 regulatory features (MiFID II/EMIR/FinCEN/SAR/travel rule) deferred.
+
+---
+
+## [2026-10-07] — PHASE-14 EXTENDED FEATURES / ACCOUNT LIFECYCLE & COMPLIANCE
+
+- **16/16 tasks, 17/17 P14 spec checkpoints PASS** (`tests/spec/checks/phase14.go`);
+  39/39 DoD/SDD rows ticked; §14.7's 42 AC rows checkbox-free (same convention
+  as §13.7). Full corpus 4-shard run: **571 total / 0 fail / 2 env skips / 197 pending**.
+- **Landed via 6 clusters:**
+  - **OCO order linkage** (Task 14.3.1, mig 218): C++ `MatchingEngine` bounded
+    OCO side-table (armed/doomed), `WalEventType::OCO_LINK` journaled before legs,
+    first-fill atomic sibling cancel via reason-7 `kWalCancelReasonOcoLink`,
+    doomed-leg recovery replay in `RecoveryManager`, `Store.InsertOcoPairTx`
+    one-tx persist, `POST /api/v1/orders/oco` live.
+  - **KYC lifecycle + MiFID II categorization** (14.3.4/14.3.7, mig 042):
+    admin approve/reject single-tx decisions, hourly reverify sweeper (T2→T1),
+    `orders.AppropriatenessGate` fail-closed (nil → `SERVICE_DEGRADED`),
+    RETAIL derivative block → `PRODUCT_NOT_PERMITTED`, ECP art-30 exempt.
+  - **Closure + hold + cooling-off + webhooks** (14.3.9–12, migs 063/213/214/215):
+    closure saga with residual sweep through the Phase-11 funding path,
+    `PlaceHold` Phase-21 seam + SLA sweep, irrevocable cooling-off +
+    `CoolingOffGate` in admission, JetStream webhook ingest/DLQ/retransmit.
+  - **Product profiles + swap-free + target-market** (14.3.13/15/16, migs 095/099):
+    `ProductGateService.AdmitOrder` dual-gate, profile switch blocked on open
+    exposure, swap-free lifecycle consumed by `settlement.RolloverService`,
+    abuse guard → `compliance_holds`, `SweepOverdue` APPROVED→REVIEW_OVERDUE.
+  - **PAMM/MAM + copy trading** (14.3.8/14.3.14, migs 097/216): deterministic
+    pro-rata engine + largest-remainder + `PAMM_*` GL taxonomy + `2170_PAMM_POOL_LIABILITY`,
+    JetStream `pamm_copy_fanout` consumer, child orders MARKET/IOC through the
+    real pipeline, 31-day incubation, HALF_RISK scaling, HWM `PAMM_FEE_PERF`,
+    loss-month hold, suspend → new-follow blocked.
+  - **Ops** (14.3.2/3/5/6, mig 217): auto-halt bound to the canonical five-tier
+    breaker (latency + error-rate feeds via `orders.WithAdmission`), testnet env
+    label + simulated funding that provably never touches real rails, **PITR
+    smoke executed live on real PG binaries** (basebackup + WAL archive +
+    recovery_target_time verified), PgBouncer config + rate-limit-utilization
+    P2 + slow-query 100ms + Redis alerts.
+- **Settle-pass fixes (real defects found at root):**
+  - `PgHalter.Halt` idempotent-reuse path returned the existing suspension
+    **without re-raising the halt flag** — an ACTIVE suspension whose Redis
+    flag was lost stayed unenforced until boot `ReconcileFlags`. Now re-raises
+    before returning (flag write is itself idempotent).
+  - `TestReconciliationFullCycle` now justifies GLOBAL escalation via persisted
+    scope cardinality (>32 scopes or scopeless) instead of inferring it from a
+    missing account-level row.
+  - `orders.Options.Product` nil gate broke legacy error-scenario fakes →
+    explicit `admitAppropriateness{}` seam on all `orders.Options{}` sites;
+    production fail-closed preserved.
+  - `GET /api/v1/copy/strategies` flipped stub → live; Phase-10 contract
+    assertions updated (stub exemplar moved to confirmations, still 501).
+  - `checks/phase14.go` OCO migration filename corrected to
+    `218_oco_group_link.up.sql`; error-scenarios `fakeOrderStore` gained
+    `InsertOcoPairTx` after the interface extension.
+  - PII inventory regenerated post-drift (137 PII columns / 151 tables).
+- **Canonical counts:** error codes 182 → **185** (PAMM cluster);
+  migrations-on-disk 104 → **114** (042, 063, 095, 097, 099, 213–218);
+  openapi **411** ops; runbooks **51**; §24 419 / tasks 479 / checkpoints 543
+  unchanged; traceability 419/419 green.
+- **Honest seams:** OPTIONS_IV/ACCOUNT-loss auto-halt feeds bound Phase-22/19;
+  forced-closure liquidation leg Phase-19; SAR filing Phase-21; testnet
+  simulated funding excludes real rails by construction.

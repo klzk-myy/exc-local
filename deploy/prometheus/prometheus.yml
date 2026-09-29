@@ -25,6 +25,8 @@ rule_files:
   # Phase-09 headroom + Sentinel HA packs (paths relative to this file).
   - ../monitoring/capacity-alerts.yml
   - ../monitoring/redis-sentinel-alerts.yml
+  # Phase-14 Task 14.3.6: Redis memory/eviction pressure pack.
+  - ../monitoring/redis-memory-alerts.yml
 
 alerting:
   alertmanagers:

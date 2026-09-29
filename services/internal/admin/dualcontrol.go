@@ -49,6 +49,8 @@ const (
 	OpInstrumentMaintenance = "instrument-maintenance" // Phase-15 maker-checker
 	OpCircuitBreakerReset   = "circuit-breaker-reset"  // Phase-13 Task 13.3.1/13.3.9
 	OpAPIKeyExpiryExtend    = "api-key-expiry-extend"  // Phase-13 Task 13.3.8 privilege-grace grant
+	OpAccountClosure        = "account-closure"        // Phase-14 Task 14.3.9 forced closure
+	OpProductProfileChange  = "product-profile-change" // Phase-14 Task 14.3.13 pricing/scope/divisor mutations
 )
 
 // Request statuses.
@@ -67,7 +69,8 @@ func SensitiveOperation(op string) bool {
 		OpWithdrawalOverride, OpAdminRoleChange, OpFeeTierChange,
 		OpReleaseSuspendedAcct, OpDeployToProduction, OpBreakGlass,
 		OpAPIKeyExpiryExtend, OpCircuitBreakerReset,
-		OpInstrumentMaintenance:
+		OpInstrumentMaintenance, OpAccountClosure,
+		OpProductProfileChange:
 		return true
 	}
 	return false

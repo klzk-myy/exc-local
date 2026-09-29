@@ -52,6 +52,8 @@ func (f *fakeObjects) Bucket() string { return "kyc-test" }
 
 type fakeStore struct {
 	tier     string
+	cat      string
+	nbp      bool
 	policies map[string]*TierPolicy
 	matrix   []MatrixRow
 	subs     []*Submission
@@ -103,6 +105,12 @@ func testMatrix() []MatrixRow {
 
 func (f *fakeStore) AccountTier(ctx context.Context, accountID int64) (string, error) {
 	return f.tier, nil
+}
+func (f *fakeStore) ClientCategory(ctx context.Context, accountID int64) (string, bool, error) {
+	if f.cat == "" {
+		return string(CategoryRetail), f.nbp, nil
+	}
+	return f.cat, f.nbp, nil
 }
 func (f *fakeStore) CreateSubmission(ctx context.Context, sub *Submission) error {
 	f.nextID++

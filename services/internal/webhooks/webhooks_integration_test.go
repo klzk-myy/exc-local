@@ -420,3 +420,87 @@ func mustEndpoint(t *testing.T, ctx context.Context, st *Store) string {
 	}
 	return eps[0].EndpointID
 }
+
+// Phase-14 Task 14.3.12 — dead-letter review + manual retransmit.
+// Retransmit requeues the delivery PENDING with a fresh attempt budget
+// and writes admin_audit_log in the same transaction; the list view is
+// the officer's dead-letter surface.
+func TestIntegrationDeadLetterRetransmit(t *testing.T) {
+	st, pool, ctx := whItest(t)
+	// Retransmit audits into admin_audit_log — mirror the minimal shape
+	// in the scratch schema (production table: migration 010).
+	if _, err := pool.Exec(ctx, `
+		CREATE TABLE IF NOT EXISTS admin_audit_log (
+		    id            BIGSERIAL PRIMARY KEY,
+		    admin_user_id BIGINT NOT NULL,
+		    action        VARCHAR(128) NOT NULL,
+		    target_type   VARCHAR(64),
+		    target_id     BIGINT,
+		    before_state  JSONB,
+		    after_state   JSONB,
+		    ip_address    INET,
+		    created_at    TIMESTAMPTZ NOT NULL DEFAULT now())`); err != nil {
+		t.Fatalf("audit ddl: %v", err)
+	}
+	ep, _, err := st.Register(ctx, 1, 99,
+		"https://dead.example.com/h", []string{"order_filled"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := NewDispatcher(st, nil, time.Hour)
+	if _, err := d.Publish(ctx, 1, "order_filled", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE webhook_deliveries SET attempts=4, next_attempt_at=now()
+		 WHERE endpoint_id=$1`, ep.ID); err != nil {
+		t.Fatal(err)
+	}
+	due, err := st.ClaimDue(ctx, 10)
+	if err != nil || len(due) != 1 {
+		t.Fatalf("claim=%v err=%v", due, err)
+	}
+	if err := st.FailDelivery(ctx, due[0].ID, 500, "http 500",
+		time.Now().Add(backoffFor(due[0].Attempts-1))); err != nil {
+		t.Fatal(err)
+	}
+
+	// Dead-letter list surfaces exactly the exhausted delivery.
+	dls, err := st.ListDeadLetters(ctx, 10)
+	if err != nil || len(dls) != 1 {
+		t.Fatalf("dead letters=%v err=%v", dls, err)
+	}
+	if dls[0].Status != DeliveryDeadLettered ||
+		dls[0].DeliveryID != due[0].DeliveryID {
+		t.Fatalf("dead letter row: %+v", dls[0])
+	}
+
+	// Unknown / not-dead-lettered ids miss with ErrDeliveryNotFound.
+	if _, err := st.Retransmit(ctx, "whd_nope", 9); !errors.Is(err, ErrDeliveryNotFound) {
+		t.Fatalf("missing retransmit err=%v want ErrDeliveryNotFound", err)
+	}
+
+	// Retransmit: PENDING, fresh budget, claimable again, audit row.
+	rd, err := st.Retransmit(ctx, due[0].DeliveryID, 9)
+	if err != nil {
+		t.Fatalf("retransmit: %v", err)
+	}
+	if rd.Status != DeliveryPending || rd.Attempts != 0 {
+		t.Fatalf("retransmit row: %+v", rd)
+	}
+	var auditN int64
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM admin_audit_log
+		  WHERE action='webhook.retransmit' AND target_id=$1`,
+		rd.ID).Scan(&auditN); err != nil || auditN != 1 {
+		t.Fatalf("audit rows=%d err=%v", auditN, err)
+	}
+	again, err := st.ClaimDue(ctx, 10)
+	if err != nil || len(again) != 1 {
+		t.Fatalf("re-claim=%v err=%v", again, err)
+	}
+	// Re-transmitting a live (non-dead-lettered) delivery misses.
+	if _, err := st.Retransmit(ctx, due[0].DeliveryID, 9); !errors.Is(err, ErrDeliveryNotFound) {
+		t.Fatalf("non-DL retransmit err=%v want ErrDeliveryNotFound", err)
+	}
+}

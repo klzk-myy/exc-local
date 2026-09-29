@@ -23,12 +23,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"exchange/pkg/decimal"
 )
 
 // Service wraps the reset store + cooldown limiter.
@@ -45,6 +48,22 @@ var ErrDisabled = errors.New("testenv: reset disabled in production")
 
 // ErrCooldown is returned when the account reset within the window.
 var ErrCooldown = errors.New("testenv: reset rate limit — try again later")
+
+// ErrInvalidPreset is returned when a seed request names an unknown preset.
+var ErrInvalidPreset = errors.New("testenv: unknown balance preset")
+
+// ErrInvalidAmount is returned when a simulated-funding amount fails
+// validation (parse error, non-positive, or above the safety cap).
+var ErrInvalidAmount = errors.New("testenv: invalid simulated amount")
+
+// ErrInvalidCurrency is returned for non-ISO-4217-shaped currency codes.
+var ErrInvalidCurrency = errors.New("testenv: invalid currency")
+
+// ErrInsufficientBalance is returned when a simulated withdrawal exceeds
+// the available wallet balance — the semantics deliberately mirror the
+// production INSUFFICIENT_BALANCE code so testnet clients exercise the
+// same error path.
+var ErrInsufficientBalance = errors.New("testenv: insufficient simulated balance")
 
 // ResetCooldown is the Task 5.3.13 window.
 const ResetCooldown = 5 * time.Minute
@@ -66,14 +85,24 @@ func (s *Service) SetClockForTest(now func() time.Time) {
 	s.limiter.now = now
 }
 
-// Enabled reports whether the environment permits resets.
+// Enabled reports whether the environment permits resets. "testnet"
+// (Phase-14 Task 14.3.3) is an explicit non-production label: a testnet
+// deployment is still never production, and any production/empty/unknown
+// label keeps every test endpoint disabled — fail closed, including the
+// testnet/production mismatch case.
 func (s *Service) Enabled() bool {
 	switch s.env {
-	case "development", "dev", "staging", "stage", "test", "testing", "sandbox", "local", "ci":
+	case "development", "dev", "staging", "stage", "test", "testing", "sandbox", "local", "ci", "testnet":
 		return true
 	}
 	return false
 }
+
+// IsTestnet reports whether this deployment is the dedicated testnet
+// environment (Task 14.3.3 — testnet.exchange.com). Testnet carries the
+// same fail-closed contract as every other non-production label; the
+// distinction only matters for observability/ops reporting.
+func (s *Service) IsTestnet() bool { return s.env == "testnet" }
 
 // ResetAccount clears the account's market/fund state inside one
 // transaction and returns the per-table row counts. Publishes nothing —
@@ -87,16 +116,30 @@ func (s *Service) Enabled() bool {
 // contract is "balances, orders, positions" (plus the ledger trail that
 // must stay consistent with them).
 func (s *Service) ResetAccount(ctx context.Context, accountID int64) (map[string]int64, error) {
+	if err := s.gate(accountID); err != nil {
+		return nil, err
+	}
+	return s.resetTx(ctx, accountID)
+}
+
+// gate enforces the shared precondition for every test-environment
+// mutation: non-production environment, positive account id, and the
+// 5-minute per-account cooldown. ResetTo consumes exactly one cooldown
+// slot — a reset+seed is still one reset.
+func (s *Service) gate(accountID int64) error {
 	if !s.Enabled() {
-		return nil, ErrDisabled
+		return ErrDisabled
 	}
 	if accountID <= 0 {
-		return nil, fmt.Errorf("testenv: account id must be positive")
+		return fmt.Errorf("testenv: account id must be positive")
 	}
 	if !s.limiter.Allow(accountID) {
-		return nil, ErrCooldown
+		return ErrCooldown
 	}
+	return nil
+}
 
+func (s *Service) resetTx(ctx context.Context, accountID int64) (map[string]int64, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return nil, fmt.Errorf("testenv: reset tx: %w", err)
@@ -330,4 +373,177 @@ func (l *Limiter) Allow(accountID int64) bool {
 	}
 	l.last[accountID] = l.now()
 	return true
+}
+
+// ---------------------------------------------------------------------------
+// Phase-14 Task 14.3.3 — testnet presets & simulated funding
+// ---------------------------------------------------------------------------
+//
+// Presets give every test account a deterministic, documented wallet set.
+// Simulated funding mutates balances rows ONLY — no funding_transactions,
+// no ledger trail, and NEVER a call into internal/funding (real banking
+// rails). That isolation is structural: this package cannot import
+// internal/funding (funding imports settlement/ledger chains the test
+// surface must not touch), and the handlers below wire no funding
+// dependency. Simulated balances intentionally diverge from the journal
+// ledger — testnet is not reconciliation-grade, and ops treats the
+// `testnet` environment label as out-of-scope for ledger audit.
+
+// Preset names a documented balance fixture.
+type Preset string
+
+// PresetStandard is the Task 14.3.3 default wallet: enough fiat across
+// major settlement currencies to exercise spot, margin and conversion
+// flows without external top-ups.
+const PresetStandard Preset = "standard"
+
+// presetBalances — fiat-only fixture amounts (8dp strings; balances is
+// DECIMAL(28,8)).
+var presetBalances = map[Preset]map[string]string{
+	PresetStandard: {
+		"USD": "100000.00000000",
+		"EUR": "50000.00000000",
+		"GBP": "25000.00000000",
+		"CHF": "50000.00000000",
+		"JPY": "10000000.00000000",
+	},
+}
+
+// Presets lists the named fixtures — handler validation + docs source.
+func Presets() []Preset {
+	out := make([]Preset, 0, len(presetBalances))
+	for p := range presetBalances {
+		out = append(out, p)
+	}
+	return out
+}
+
+// isoCurrency limits simulated funding to ISO-4217-shaped codes — the
+// same fiat-only domain as production balances (VARCHAR(3)).
+var isoCurrency = regexp.MustCompile(`^[A-Z]{3}$`)
+
+// maxSimulatedAmount is a defence-in-depth bound on a single simulated
+// movement — a typo must not mint absurd testnet balances.
+var maxSimulatedAmount = decimal.NewFromInt(1_000_000_000_000)
+
+// Seed writes the named preset into the account's wallets (upsert per
+// currency; balances not named by the preset are left untouched — call
+// ResetTo for a clean-slate+seed). Seed does NOT consume the reset
+// cooldown: it is an additive fixture, not a destructive reset.
+func (s *Service) Seed(ctx context.Context, accountID int64, preset Preset) (map[string]string, error) {
+	if !s.Enabled() {
+		return nil, ErrDisabled
+	}
+	if accountID <= 0 {
+		return nil, fmt.Errorf("testenv: account id must be positive")
+	}
+	amounts, ok := presetBalances[preset]
+	if !ok {
+		return nil, ErrInvalidPreset
+	}
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return nil, fmt.Errorf("testenv: seed tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	for ccy, amt := range amounts {
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO balances (account_id, currency, available, locked, version)
+			 VALUES ($1, $2, $3, 0, 1)
+			 ON CONFLICT (account_id, currency)
+			 DO UPDATE SET available=$3, locked=0, version=balances.version+1`,
+			accountID, ccy, amt); err != nil {
+			return nil, fmt.Errorf("testenv: seed %s: %w", ccy, err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("testenv: seed commit: %w", err)
+	}
+	return amounts, nil
+}
+
+// ResetTo is the canonical testnet provisioning call: one 5-minute
+// cooldown slot covers reset → clean slate → seeded preset.
+func (s *Service) ResetTo(ctx context.Context, accountID int64, preset Preset) (map[string]int64, map[string]string, error) {
+	if _, ok := presetBalances[preset]; !ok {
+		return nil, nil, ErrInvalidPreset
+	}
+	if err := s.gate(accountID); err != nil {
+		return nil, nil, err
+	}
+	counts, err := s.resetTx(ctx, accountID)
+	if err != nil {
+		return nil, nil, err
+	}
+	// The preset is validated above, so the seed tx cannot fail on
+	// unknown names; a storage failure surfaces verbatim.
+	amounts, err := s.Seed(ctx, accountID, preset)
+	if err != nil {
+		return counts, nil, err
+	}
+	return counts, amounts, nil
+}
+
+// SimulateDeposit credits the wallet directly — testnet faucet. No
+// funding_transactions row, no rail adapter, no compliance hold: the
+// contract is "fake money appears", full stop.
+func (s *Service) SimulateDeposit(ctx context.Context, accountID int64, currency, amount string) (string, error) {
+	ccy, amt, err := s.validateFund(accountID, currency, amount)
+	if err != nil {
+		return "", err
+	}
+	var available string
+	err = s.pool.QueryRow(ctx,
+		`INSERT INTO balances (account_id, currency, available, locked, version)
+		 VALUES ($1, $2, $3, 0, 1)
+		 ON CONFLICT (account_id, currency)
+		 DO UPDATE SET available=balances.available+$3, version=balances.version+1
+		 RETURNING available::text`,
+		accountID, ccy, amt.String()).Scan(&available)
+	if err != nil {
+		return "", fmt.Errorf("testenv: simulated deposit: %w", err)
+	}
+	return available, nil
+}
+
+// SimulateWithdrawal debits the wallet if the available balance covers
+// the amount — the production INSUFFICIENT_BALANCE path shape, minus any
+// rail. Fails closed on shortfall; no row is written.
+func (s *Service) SimulateWithdrawal(ctx context.Context, accountID int64, currency, amount string) (string, error) {
+	ccy, amt, err := s.validateFund(accountID, currency, amount)
+	if err != nil {
+		return "", err
+	}
+	var available string
+	err = s.pool.QueryRow(ctx,
+		`UPDATE balances SET available=available-$3, version=version+1
+		  WHERE account_id=$1 AND currency=$2 AND available >= $3
+		 RETURNING available::text`,
+		accountID, ccy, amt.String()).Scan(&available)
+	if err == pgx.ErrNoRows {
+		return "", ErrInsufficientBalance
+	}
+	if err != nil {
+		return "", fmt.Errorf("testenv: simulated withdrawal: %w", err)
+	}
+	return available, nil
+}
+
+func (s *Service) validateFund(accountID int64, currency, amount string) (string, decimal.Decimal, error) {
+	var zero decimal.Decimal
+	if !s.Enabled() {
+		return "", zero, ErrDisabled
+	}
+	if accountID <= 0 {
+		return "", zero, fmt.Errorf("testenv: account id must be positive")
+	}
+	ccy := strings.ToUpper(strings.TrimSpace(currency))
+	if !isoCurrency.MatchString(ccy) {
+		return "", zero, ErrInvalidCurrency
+	}
+	amt, err := decimal.NewFromString(strings.TrimSpace(amount))
+	if err != nil || !amt.IsPositive() || amt.GreaterThan(maxSimulatedAmount) {
+		return "", zero, ErrInvalidAmount
+	}
+	return ccy, amt, nil
 }

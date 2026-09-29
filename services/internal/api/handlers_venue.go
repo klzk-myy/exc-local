@@ -13,9 +13,11 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"time"
 
+	"exchange/internal/accounts"
 	"exchange/internal/gateway"
 	"exchange/internal/marketapi"
 	"exchange/internal/timesync"
@@ -48,11 +50,19 @@ func ServerTime(src timesync.Source, now func() time.Time) http.HandlerFunc {
 	}
 }
 
+// VenueProfileLister publishes the per-profile instrument scope
+// (Phase-14 Task 14.3.13 — *accounts.ProfileService satisfies it); nil
+// omits the product_profiles section (pre-095 deployments).
+type VenueProfileLister interface {
+	ListProfiles(ctx context.Context, includeRetired bool) ([]accounts.ProductProfile, error)
+}
+
 // VenueDeps bundles the seams behind the exchange-info document.
 type VenueDeps struct {
-	Store marketapi.Store
-	Cache *marketapi.Cache
-	Now   func() time.Time
+	Store    marketapi.Store
+	Cache    *marketapi.Cache
+	Profiles VenueProfileLister // optional — per-profile scope section
+	Now      func() time.Time
 }
 
 func (d *VenueDeps) now() time.Time {
@@ -86,6 +96,26 @@ func ExchangeInfo(d *VenueDeps) http.HandlerFunc {
 			return
 		}
 		doc := marketapi.BuildVenueInfo(list, d.now())
+		// Task 14.3.13 — publish each ACTIVE product profile's scope so
+		// clients discover eligibility before order entry.
+		if d.Profiles != nil {
+			profs, err := d.Profiles.ListProfiles(r.Context(), false)
+			if err != nil {
+				WriteError(w, "SERVICE_DEGRADED",
+					"product-profile read unavailable",
+					gateway.RequestIDFrom(r.Context()), nil)
+				return
+			}
+			for _, p := range profs {
+				doc.ProductProfiles = append(doc.ProductProfiles, marketapi.ProfileDoc{
+					Code:            p.Code,
+					PricingPlan:     p.PricingPlan,
+					InstrumentScope: p.InstrumentScope,
+					SubunitDivisor:  p.SubunitDivisor,
+					MinDeposit:      p.MinDeposit.String(),
+				})
+			}
+		}
 		etag, err := marketapi.VenueETag(doc)
 		if err != nil {
 			WriteError(w, "INTERNAL_ERROR",

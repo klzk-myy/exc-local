@@ -222,10 +222,11 @@ func (m *MemBackend) Hit(_ context.Context, in HitInput) (HitResult, error) {
 	}
 
 	res := HitResult{
-		Status:     status,
-		Limit:      in.Rate,
-		Remaining:  int64(b.tokens),
-		ResetEpoch: secWin + 1,
+		Status:      status,
+		Limit:       in.Rate,
+		Remaining:   int64(b.tokens),
+		ResetEpoch:  secWin + 1,
+		WindowCount: w.count,
 	}
 	switch status {
 	case HitRateLimited:

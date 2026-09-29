@@ -567,6 +567,89 @@ func (s *Store) ActiveEndpointsFor(ctx context.Context, accountID int64, event s
 	return out, rows.Err()
 }
 
+// ErrDeliveryNotFound marks dead-letter/retransmit lookups that missed —
+// the admin handler maps it to 404 (no cross-account existence oracle).
+var ErrDeliveryNotFound = errors.New("webhooks: delivery not found")
+
+// ListDeadLetters returns DEAD_LETTERED deliveries, oldest first — the
+// admin dead-letter review view (Phase-14 Task 14.3.12). Joined to the
+// endpoint row so the officer sees the failing URL without a second
+// query.
+func (s *Store) ListDeadLetters(ctx context.Context, limit int) ([]Delivery, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 200
+	}
+	rows, err := s.pool.Query(ctx,
+		`SELECT `+deliveryCols+` FROM webhook_deliveries d
+		  WHERE d.status=$1 ORDER BY d.id ASC LIMIT $2`,
+		DeliveryDeadLettered, limit)
+	if err != nil {
+		return nil, fmt.Errorf("webhooks: list dead letters: %w", err)
+	}
+	defer rows.Close()
+	out := []Delivery{}
+	for rows.Next() {
+		d, err := scanDelivery(rows.Scan)
+		if err != nil {
+			return nil, fmt.Errorf("webhooks: scan: %w", err)
+		}
+		out = append(out, *d)
+	}
+	return out, rows.Err()
+}
+
+// Retransmit moves one DEAD_LETTERED delivery back to PENDING with a
+// fresh attempt budget (attempts=0, immediate next_attempt_at) — the
+// manual admin retry path (Phase-14 Task 14.3.12). last_status_code /
+// last_error keep the dead-letter diagnostic until the next attempt
+// overwrites them; the requeue decision lands in admin_audit_log
+// inside the same transaction as the status flip.
+func (s *Store) Retransmit(ctx context.Context, deliveryID string,
+	adminUserID int64) (*Delivery, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("webhooks: retransmit tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	rows, err := tx.Query(ctx,
+		`UPDATE webhook_deliveries d
+		    SET status='PENDING', attempts=0, next_attempt_at=now()
+		  WHERE d.delivery_id=$1 AND d.status='DEAD_LETTERED'
+		  RETURNING `+deliveryCols, deliveryID)
+	if err != nil {
+		return nil, fmt.Errorf("webhooks: retransmit: %w", err)
+	}
+	var out *Delivery
+	for rows.Next() {
+		rd, err := scanDelivery(rows.Scan)
+		if err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("webhooks: scan: %w", err)
+		}
+		out = rd
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("webhooks: retransmit: %w", err)
+	}
+	if out == nil {
+		return nil, fmt.Errorf("%w: %q", ErrDeliveryNotFound, deliveryID)
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO admin_audit_log
+		     (admin_user_id, action, target_type, target_id, after_state)
+		 VALUES ($1,'webhook.retransmit','webhook_delivery',$2,$3)`,
+		adminUserID, out.ID,
+		fmt.Sprintf(`{"delivery_id":%q,"endpoint_id":%d,"event":%q}`,
+			out.DeliveryID, out.EndpointID, out.Event)); err != nil {
+		return nil, fmt.Errorf("webhooks: retransmit audit: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("webhooks: retransmit commit: %w", err)
+	}
+	return out, nil
+}
+
 // SecretsForDelivery unwraps the signing secrets to try for a delivery:
 // current secret first, then the predecessor while inside its overlap
 // window. Callers sign with the current secret; the predecessor is kept
