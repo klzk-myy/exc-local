@@ -985,3 +985,66 @@ open. Landed via 5 disjoint clusters.
 - **Honest seams:** OPTIONS_IV/ACCOUNT-loss auto-halt feeds bound Phase-22/19;
   forced-closure liquidation leg Phase-19; SAR filing Phase-21; testnet
   simulated funding excludes real rails by construction.
+
+---
+
+## [2026-10-07] — PHASE-15 MARKET ADMIN & INSTRUMENT LIFECYCLE
+
+- **13/13 tasks, 14/14 P15 spec checkpoints PASS** (`tests/spec/checks/phase15.go`);
+  84/84 DoD/SDD rows ticked; §15.7's 27 AC rows checkbox-free (§13.7 convention).
+  Full corpus 4-shard run: **571 total / 0 fail / 2 env skips / 183 pending**;
+  ctest **31/31**.
+- **Landed via 5 clusters:**
+  - **C++ core** (15.3.3/15.3.4/15.3.6/15.3.10): `InstrumentFeedRefresher`
+    control-thread poll of `instrument:status:{symbol}`, `instrument:auction:{symbol}`,
+    `market:hours` — the matching thread reads immutable snapshots only and
+    fails closed on unverifiable polls. Per-state admission: DRAFT reject,
+    RESTRICTED limit-only, CANCEL_ONLY/SUSPENDED/HALTED per-state codes,
+    DELISTED reduce-only close window; cancels never gated. 24/5 window with
+    Sunday 20:45 PRE_OPEN order accumulation. `AuctionManager`: CALL →
+    EXTEND ≤3×30s → single-price uncross → continuous; `AUCTION_PHASE` WAL
+    events make auction state replay-deterministic; clearing failure →
+    SUSPENDED signal, crossed book → quarantine. Two real engine defects
+    fixed: uncross use-after-free on consumed book nodes; parked-FOK
+    double-cancel.
+  - **Lifecycle + admin API** (15.3.1/15.3.2/15.3.9): 7-state machine with
+    §7.2 role/dual-control matrix (suspend=CO, halt=RM, create/resume/delist
+    dual), SUSPENDED 5min cancel-only mass-cancel sweep, CANCEL_ONLY never
+    swept, DELISTED terminal; `SetOnExecuted`→`PublishCommitted` closes the
+    dual-control side-effect gap; `instrument:status:{symbol}` publisher +
+    `venue.instrument_status` WS channel; all 10 admin routes stub→live.
+  - **Sessions** (15.3.4 Go + 15.3.7, mig 221): `market:hours` projection
+    with admin-editable overrides (atomic PG+audit+republish), 4-state weekly
+    machine with Lua-CAS per-shard `session:state` + crash-safe
+    pending-effects ledger, Friday close triggers Tom-Next rollover seam,
+    PRE_OPEN arms auction CALL keys, WS `session.status` events, public
+    `GET /api/v1/session/status`.
+  - **Instruments pkg** (15.3.11–13, migs 087/222/223): production reference
+    seed (12 symbols, majors 5dp/JPY 3dp + pip_size/contract_size via
+    `GET /api/v1/instruments`), DST-aware session calendar + tenor grid
+    (ON→2Y, broken-date interp, IMM stubs, option-expiry cuts) +
+    `CheckValueDate`/`VALUE_DATE_ON_HOLIDAY`, listing proposals auto-check +
+    review + ops board + delist impact-preview ladder, DST-aware auction
+    calendar + benchmark fixing scheduler (London/ECB/Tokyo).
+  - **Trade bust + maintenance** (15.3.5/15.3.8, migs 051/219): 15-min
+    obvious-error window + deviation band, dual-control `OpTradeBust`,
+    balanced GL reversal journals, fees refunded, undispatched settlements
+    voided, settled → `TRADE_ALREADY_SETTLED`, busted trades retained flagged;
+    maker-checker propose→review→approve→DRAFT + param changes effective at
+    session boundary + emergency SA+P1 + immutable `instrument_change_log`.
+- **Settle-pass fixes:** `P01-T1.3.3-C4` instruments exact-8 → required-subset
+  (Phase-15 reference legitimately grew the seed set to 12); `shard:map`
+  repopulated for the 12-instrument universe; gtest `:`-separator correction
+  in `checks/phase15.go`; PII inventory regenerated + 6 columns classified
+  (143 PII cols/158 tables); traceability matrix re-committed (#142/#234 edge
+  drift = P15 bindings); frontend route-contracts regenerated (416 ops).
+- **Canonical counts:** error codes **185** unchanged; migrations-on-disk
+  114 → **120** (051, 087, 219, 221, 222, 223); openapi **416** ops;
+  §24 419 / tasks 479 / checkpoints 543 unchanged; traceability 419/419.
+- **Honest seams:** `CheckValueDate` binds at order admission when Phase-22
+  dated instruments add `orders.value_date`; MOC/FIXING order flags are
+  Phase-16 Task 16.3.9 (calendar + injection seam live now); FIX 35=f
+  SecurityStatus binding Phase-18 (NATS `marketdata.security_status` +
+  WS emitted today); fixing `PriceSource` Phase-19.5 (records SKIPPED);
+  downstream-hedge reversal out-of-scope (separate trades); live-Redis
+  feed poll leg is env-shaped.

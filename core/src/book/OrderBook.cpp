@@ -206,13 +206,18 @@ BookError OrderBook::add_order(const Order& tmpl, Order** out) noexcept {
     // Never-crossed invariant: a resting limit that meets or crosses the
     // opposite best would have matched — the engine sweeps before resting
     // (Task 2.3.2), so this is an engine-bug guard, not flow control.
-    if (tmpl.side == Side::BUY) {
-        if (ask_count_ > 0 && tmpl.price_ticks >= asks_[0].price_ticks) {
-            return BookError::CROSSED;
-        }
-    } else {
-        if (bid_count_ > 0 && tmpl.price_ticks <= bids_[0].price_ticks) {
-            return BookError::CROSSED;
+    // Phase-15 Task 15.3.6: during an armed CALL auction the engine holds
+    // allow_crossed_ and accumulates crossing interest deliberately — the
+    // guard re-engages the moment continuous trading resumes.
+    if (!allow_crossed_) {
+        if (tmpl.side == Side::BUY) {
+            if (ask_count_ > 0 && tmpl.price_ticks >= asks_[0].price_ticks) {
+                return BookError::CROSSED;
+            }
+        } else {
+            if (bid_count_ > 0 && tmpl.price_ticks <= bids_[0].price_ticks) {
+                return BookError::CROSSED;
+            }
         }
     }
 
@@ -324,13 +329,16 @@ BookError OrderBook::modify_order(uint64_t id, int64_t new_price_ticks,
     // Lose-priority path: price change or qty-up re-inserts at the FIFO tail
     // with a fresh timestamp (Task 2.3.20 amend-priority contract).
     // (a) Crossing guard — before any unlink, so a reject is atomic.
-    if (o->side == Side::BUY) {
-        if (ask_count_ > 0 && new_price_ticks >= asks_[0].price_ticks) {
-            return BookError::CROSSED;
-        }
-    } else {
-        if (bid_count_ > 0 && new_price_ticks <= bids_[0].price_ticks) {
-            return BookError::CROSSED;
+    // (allow_crossed_: CALL-auction accumulation may hold crossed levels.)
+    if (!allow_crossed_) {
+        if (o->side == Side::BUY) {
+            if (ask_count_ > 0 && new_price_ticks >= asks_[0].price_ticks) {
+                return BookError::CROSSED;
+            }
+        } else {
+            if (bid_count_ > 0 && new_price_ticks <= bids_[0].price_ticks) {
+                return BookError::CROSSED;
+            }
         }
     }
     // (b) Level-capacity guard: if the move needs a fresh level while the
@@ -508,7 +516,7 @@ bool OrderBook::validate(const char** violation) const noexcept {
     if (why == nullptr) {
         if (counted != live_orders_) {
             why = "live_orders_ != orders in levels";
-        } else if (crossed()) {
+        } else if (!allow_crossed_ && crossed()) {
             why = "book crossed (best_bid >= best_ask)";
         } else {
             // Index completeness: every level order resolvable by id.

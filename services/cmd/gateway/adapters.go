@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/nats-io/nats.go/jetstream"
 	goredis "github.com/redis/go-redis/v9"
 
 	"exchange/internal/accounts"
@@ -26,6 +27,7 @@ import (
 	"exchange/internal/nats"
 	"exchange/internal/orders"
 	excredis "exchange/internal/redis"
+	"exchange/internal/settlement"
 )
 
 // shardIDs returns the full engine shard universe for the out-ring
@@ -44,6 +46,17 @@ func shardIDs(m *config.ShardMap) []uint16 {
 		out = append(out, uint16(id))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
+}
+
+// shardIDsAsInt adapts the shard universe for the admin.SessionService
+// (Phase-15 Task 15.3.7 keys session:state:{shard_id} on int ids).
+func shardIDsAsInt(m *config.ShardMap) []int {
+	ids := shardIDs(m)
+	out := make([]int, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, int(id))
+	}
 	return out
 }
 
@@ -494,6 +507,41 @@ func (c holdRestingCanceller) CancelResting(ctx context.Context,
 	return res.Cancelled, nil
 }
 
+// instrumentOrderCanceller adapts admin.InstrumentOrderCanceller onto
+// the orders dispatcher — the SUSPENDED 5-minute grace sweep
+// mass-cancels the instrument's whole resting book through the same
+// pipeline every other de-risking flow uses (Task 15.3.1).
+type instrumentOrderCanceller struct {
+	disp accounts.OrderDispatcher
+}
+
+func (c instrumentOrderCanceller) CancelInstrumentOrders(ctx context.Context,
+	instrumentID int64, reason string) (int, error) {
+	res, err := c.disp.MassCancel(ctx, accounts.MassCancelScope{
+		InstrumentID: instrumentID, Reason: reason})
+	if err != nil {
+		return 0, err
+	}
+	return res.Cancelled, nil
+}
+
+// auctionTypeCanceller adapts instruments.AuctionOrderCanceller onto
+// the orders dispatcher — the §7.1 close-auction remainder cancel is
+// the scoped mass-cancel (instrument × order_type, Task 15.3.13).
+type auctionTypeCanceller struct {
+	disp accounts.OrderDispatcher
+}
+
+func (c auctionTypeCanceller) CancelOrderType(ctx context.Context,
+	instrumentID int64, orderType, reason string) (int, error) {
+	res, err := c.disp.MassCancel(ctx, accounts.MassCancelScope{
+		InstrumentID: instrumentID, OrderType: orderType, Reason: reason})
+	if err != nil {
+		return 0, err
+	}
+	return res.Cancelled, nil
+}
+
 // holdOpsAlerter bridges compliance.HoldAlerter onto the durable
 // funding_ops_alerts + pager seam the freeze flows already use.
 type holdOpsAlerter struct {
@@ -533,4 +581,30 @@ func (e closureEscalation) RequestForcedClosure(ctx context.Context,
 		return 0, err
 	}
 	return req.ID, nil
+}
+
+// natsJet returns the JetStream context of the optional NATS client —
+// nil-safe (the publisher seam treats a nil JS as "unwired" and the
+// admin surfaces log + continue rather than fail open).
+func natsJet(nc *nats.Client) jetstream.JetStream {
+	if nc == nil {
+		return nil
+	}
+	return nc.JetStream()
+}
+
+// maintenanceAlerter bridges admin.MaintenanceAlerter onto the durable
+// funding_ops_alerts pager seam — Task 15.3.8 emergency parameter
+// changes fire their P1 alert through the same path as the funding/ops
+// flows.
+type maintenanceAlerter struct{ inner funding.OpsAlerter }
+
+func (a maintenanceAlerter) Alert(ctx context.Context, severity, code,
+	message string) error {
+	if a.inner == nil {
+		return fmt.Errorf("ops alerter unwired")
+	}
+	return a.inner.Raise(ctx, settlement.OpsAlert{
+		Severity: severity, Code: code, Summary: message,
+	})
 }

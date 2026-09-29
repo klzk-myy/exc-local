@@ -8230,7 +8230,6 @@
     },
     "/api/v1/admin/instruments": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_admin_instruments",
         "responses": {
           "200": {
@@ -8263,14 +8262,13 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-15 Task 15.3.8",
+        "x-owner": "Phase-15 Task 15.3.2/15.3.8",
         "x-rate-tier": "basic",
         "x-rbac-role": "Risk Manager",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       },
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_admin_instruments",
         "responses": {
           "200": {
@@ -8291,28 +8289,27 @@
             "oauth2": null
           }
         ],
-        "summary": "Create instrument (maker-checker)",
+        "summary": "Create instrument →DRAFT (Super Admin + dual control)",
         "tags": [
           "admin"
         ],
         "x-auth": {
           "methods": null,
           "required": true,
-          "role": "Risk Manager",
+          "role": "Super Admin",
           "scopes": null
         },
-        "x-dual-control": false,
+        "x-dual-control": true,
         "x-env": "",
-        "x-owner": "Phase-15 Task 15.3.8",
+        "x-owner": "Phase-15 Task 15.3.2",
         "x-rate-tier": "basic",
-        "x-rbac-role": "Risk Manager",
-        "x-status": "stub",
+        "x-rbac-role": "Super Admin",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/admin/instruments/{id}": {
       "put": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "put_api_v1_admin_instruments_id",
         "parameters": [
           {
@@ -8343,7 +8340,7 @@
             "oauth2": null
           }
         ],
-        "summary": "Update instrument parameters",
+        "summary": "Update instrument parameters (DRAFT/ACTIVE only)",
         "tags": [
           "admin"
         ],
@@ -8355,16 +8352,15 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-15 Task 15.3.8",
+        "x-owner": "Phase-15 Task 15.3.2/15.3.8",
         "x-rate-tier": "basic",
         "x-rbac-role": "Risk Manager",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/admin/instruments/{id}/activate": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_admin_instruments_id_activate",
         "parameters": [
           {
@@ -8395,7 +8391,7 @@
             "oauth2": null
           }
         ],
-        "summary": "Lifecycle: → ACTIVE",
+        "summary": "Lifecycle: DRAFT→ACTIVE",
         "tags": [
           "admin"
         ],
@@ -8407,16 +8403,15 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-15 Task 15.3.1",
+        "x-owner": "Phase-15 Task 15.3.2",
         "x-rate-tier": "basic",
         "x-rbac-role": "Risk Manager",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/admin/instruments/{id}/cancel-only": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_admin_instruments_id_cancel_only",
         "parameters": [
           {
@@ -8447,28 +8442,27 @@
             "oauth2": null
           }
         ],
-        "summary": "Lifecycle: → CANCEL_ONLY",
+        "summary": "Lifecycle: → CANCEL_ONLY (persistent; resting orders preserved; RM|CO)",
         "tags": [
           "admin"
         ],
         "x-auth": {
           "methods": null,
           "required": true,
-          "role": "Risk Manager",
+          "role": "*",
           "scopes": null
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-15 Task 15.3.1",
+        "x-owner": "Phase-15 Task 15.3.9",
         "x-rate-tier": "basic",
-        "x-rbac-role": "Risk Manager",
-        "x-status": "stub",
+        "x-rbac-role": "*",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/admin/instruments/{id}/delist": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_admin_instruments_id_delist",
         "parameters": [
           {
@@ -8499,28 +8493,27 @@
             "oauth2": null
           }
         ],
-        "summary": "Lifecycle: → DELISTED",
+        "summary": "Lifecycle: → DELISTED (30d reduce-only close window)",
         "tags": [
           "admin"
         ],
         "x-auth": {
           "methods": null,
           "required": true,
-          "role": "Risk Manager",
+          "role": "Super Admin",
           "scopes": null
         },
-        "x-dual-control": false,
+        "x-dual-control": true,
         "x-env": "",
-        "x-owner": "Phase-15 Task 15.3.1",
+        "x-owner": "Phase-15 Task 15.3.2",
         "x-rate-tier": "basic",
-        "x-rbac-role": "Risk Manager",
-        "x-status": "stub",
+        "x-rbac-role": "Super Admin",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/admin/instruments/{id}/halt": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_admin_instruments_id_halt",
         "parameters": [
           {
@@ -8551,7 +8544,7 @@
             "oauth2": null
           }
         ],
-        "summary": "Lifecycle: → HALTED",
+        "summary": "Lifecycle: → HALTED (orders rest, no matching)",
         "tags": [
           "admin"
         ],
@@ -8563,16 +8556,15 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-15 Task 15.3.1",
+        "x-owner": "Phase-15 Task 15.3.2",
         "x-rate-tier": "basic",
         "x-rbac-role": "Risk Manager",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/admin/instruments/{id}/restrict": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_admin_instruments_id_restrict",
         "parameters": [
           {
@@ -8603,7 +8595,7 @@
             "oauth2": null
           }
         ],
-        "summary": "Lifecycle: → RESTRICTED (limit-only)",
+        "summary": "Lifecycle: → RESTRICTED (limit-only; 24h notice window)",
         "tags": [
           "admin"
         ],
@@ -8615,16 +8607,15 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-15 Task 15.3.1",
+        "x-owner": "Phase-15 Task 15.3.2",
         "x-rate-tier": "basic",
         "x-rbac-role": "Risk Manager",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/admin/instruments/{id}/resume": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_admin_instruments_id_resume",
         "parameters": [
           {
@@ -8655,7 +8646,7 @@
             "oauth2": null
           }
         ],
-        "summary": "Lifecycle: resume from halt/suspend",
+        "summary": "Lifecycle: resume →ACTIVE (reopening CALL; skip_auction opts out)",
         "tags": [
           "admin"
         ],
@@ -8665,18 +8656,17 @@
           "role": "Risk Manager",
           "scopes": null
         },
-        "x-dual-control": false,
+        "x-dual-control": true,
         "x-env": "",
-        "x-owner": "Phase-15 Task 15.3.1",
+        "x-owner": "Phase-15 Task 15.3.2",
         "x-rate-tier": "basic",
         "x-rbac-role": "Risk Manager",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/admin/instruments/{id}/suspend": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_admin_instruments_id_suspend",
         "parameters": [
           {
@@ -8707,22 +8697,22 @@
             "oauth2": null
           }
         ],
-        "summary": "Lifecycle: → SUSPENDED (grace window)",
+        "summary": "Lifecycle: → SUSPENDED (5-min cancel grace then mass-cancel)",
         "tags": [
           "admin"
         ],
         "x-auth": {
           "methods": null,
           "required": true,
-          "role": "Risk Manager",
+          "role": "Compliance Officer",
           "scopes": null
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-15 Task 15.3.1",
+        "x-owner": "Phase-15 Task 15.3.2",
         "x-rate-tier": "basic",
-        "x-rbac-role": "Risk Manager",
-        "x-status": "stub",
+        "x-rbac-role": "Compliance Officer",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -10190,6 +10180,227 @@
         "x-owner": "Phase-05 Task 5.3.14",
         "x-rate-tier": "basic",
         "x-rbac-role": "Support Agent",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/market-schedule": {
+      "get": {
+        "operationId": "get_api_v1_admin_market_schedule",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Merged market:hours schedule document + overrides",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "*",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-15 Task 15.3.4",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "*",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/market-schedule/overrides": {
+      "get": {
+        "operationId": "get_api_v1_admin_market_schedule_overrides",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "List market_schedule_overrides (incl. expired)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "*",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-15 Task 15.3.4",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "*",
+        "x-status": "live",
+        "x-weight": 1
+      },
+      "post": {
+        "operationId": "post_api_v1_admin_market_schedule_overrides",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Create holiday/partial-session override {date, closed, open?, close?, reason} — republishes market:hours",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Risk Manager",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-15 Task 15.3.4",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Risk Manager",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/market-schedule/overrides/{id}": {
+      "delete": {
+        "operationId": "delete_api_v1_admin_market_schedule_overrides_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Delete override (audit row preserves it) — republishes market:hours",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Risk Manager",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-15 Task 15.3.4",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Risk Manager",
+        "x-status": "live",
+        "x-weight": 1
+      },
+      "put": {
+        "operationId": "put_api_v1_admin_market_schedule_overrides_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Update override window {closed, open?, close?, reason} (date immutable)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Risk Manager",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-15 Task 15.3.4",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Risk Manager",
         "x-status": "live",
         "x-weight": 1
       }
@@ -12484,7 +12695,6 @@
     },
     "/api/v1/admin/trades/{id}/bust": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_admin_trades_id_bust",
         "parameters": [
           {
@@ -12515,7 +12725,7 @@
             "oauth2": null
           }
         ],
-        "summary": "Trade bust / price-adjust request",
+        "summary": "Trade bust / price-adjust — obvious-error review (§7.3.4 15min window; BUSTED/PRICE_ADJUSTED flags)",
         "tags": [
           "admin"
         ],
@@ -12525,12 +12735,12 @@
           "role": "Risk Manager",
           "scopes": null
         },
-        "x-dual-control": false,
+        "x-dual-control": true,
         "x-env": "",
         "x-owner": "Phase-15 Task 15.3.5",
         "x-rate-tier": "basic",
         "x-rbac-role": "Risk Manager",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -18037,7 +18247,6 @@
     },
     "/api/v1/session/status": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_session_status",
         "responses": {
           "200": {
@@ -18047,7 +18256,7 @@
             "$ref": "#/components/responses/Problem"
           }
         },
-        "summary": "24/5 session lifecycle status (open/close windows)",
+        "summary": "24/5 session lifecycle status {state, next_transition_at, shard coverage}",
         "tags": [
           "session"
         ],
@@ -18061,7 +18270,7 @@
         "x-env": "",
         "x-owner": "Phase-15 Task 15.3.7",
         "x-rate-tier": "public",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },

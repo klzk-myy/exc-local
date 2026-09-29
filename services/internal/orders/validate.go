@@ -47,8 +47,11 @@ var validSTPModes = map[string]bool{
 // --- instrument lifecycle gate (spec §7.1 / §6.9 #3) -------------------------
 
 // newOrderStateGate rejects order entry per instrument state. Cancels are
-// never gated here (§7.1: cancels allowed in every state).
-func newOrderStateGate(inst *Instrument) error {
+// never gated here (§7.1: cancels allowed in every state). DELISTED
+// admits reduce_only entries during the 30-day close-only window
+// (spec §7.1 remediation #35; core/src/risk/PreTradeChecker.cpp
+// implements the same flag check).
+func newOrderStateGate(inst *Instrument, reduceOnly bool) error {
 	switch inst.Status {
 	case "ACTIVE":
 		return nil
@@ -63,8 +66,11 @@ func newOrderStateGate(inst *Instrument) error {
 		return codeErr("INSTRUMENT_HALTED",
 			"instrument %s is halted", inst.Symbol)
 	case "DELISTED":
-		return codeErr("INSTRUMENT_DELISTED",
-			"instrument %s is delisted", inst.Symbol)
+		if !reduceOnly {
+			return codeErr("INSTRUMENT_DELISTED",
+				"instrument %s is delisted — only reduce-only closing orders are accepted during the close-only window", inst.Symbol)
+		}
+		return nil
 	case "RESTRICTED":
 		return nil // order-type restriction enforced separately
 	default:
@@ -133,7 +139,7 @@ func ValidateSubmit(req *SubmitRequest, inst *Instrument, acct *Account,
 	if inst == nil {
 		return codeErr("INVALID_REQUEST", "symbol is required")
 	}
-	if err := newOrderStateGate(inst); err != nil {
+	if err := newOrderStateGate(inst, req.ReduceOnly); err != nil {
 		return err
 	}
 	if req.Symbol == "" || !validSide(req.Side) || req.OrderType == "" {

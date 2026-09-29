@@ -99,6 +99,7 @@ func itest(t *testing.T) (*pgxpool.Pool, context.Context) {
 	}
 	for _, f := range []string{
 		"001_create_instruments", "050_instruments_min_notional",
+		"087_instrument_reference",
 		"170_instrument_filter_columns",
 		"171_announcements", "172_maintenance_windows", "173_fx_klines",
 	} {
@@ -160,8 +161,9 @@ func TestPgStoreInstrumentsIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListInstruments: %v", err)
 	}
-	if len(list) != 8 {
-		t.Fatalf("seeded instruments=%d, want 8", len(list))
+	// 8 from 001 + the 4 §2.2 production-seed rows 087 backfills.
+	if len(list) != 12 {
+		t.Fatalf("seeded instruments=%d, want 12", len(list))
 	}
 	eu, err := s.InstrumentBySymbol(ctx, "EUR/USD")
 	if err != nil || eu == nil {
@@ -327,8 +329,9 @@ func TestPgStoreStats24hIntegration(t *testing.T) {
 	}
 
 	// Venue-wide: every instrument present; EUR/USD carries the trades.
+	// 12 seeded (001's 8 + the 4 rows 087 backfills).
 	all, err := s.Stats24hAll(ctx, now)
-	if err != nil || len(all) != 8 {
+	if err != nil || len(all) != 12 {
 		t.Fatalf("Stats24hAll len=%d err=%v", len(all), err)
 	}
 	found, quiet := false, 0
@@ -342,7 +345,7 @@ func TestPgStoreStats24hIntegration(t *testing.T) {
 			quiet++
 		}
 	}
-	if !found || quiet != 7 {
+	if !found || quiet != 11 {
 		t.Fatalf("found=%v quiet=%d", found, quiet)
 	}
 

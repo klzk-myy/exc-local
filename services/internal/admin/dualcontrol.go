@@ -51,6 +51,12 @@ const (
 	OpAPIKeyExpiryExtend    = "api-key-expiry-extend"  // Phase-13 Task 13.3.8 privilege-grace grant
 	OpAccountClosure        = "account-closure"        // Phase-14 Task 14.3.9 forced closure
 	OpProductProfileChange  = "product-profile-change" // Phase-14 Task 14.3.13 pricing/scope/divisor mutations
+	OpInstrumentCreate      = "instrument-create"      // Phase-15 Task 15.3.2 (spec §7.2)
+	OpInstrumentResume      = "instrument-resume"      // Phase-15 Task 15.3.2 (spec §7.2)
+	OpInstrumentDelist      = "instrument-delist"      // Phase-15 Task 15.3.2 (spec §7.2)
+	OpInstrumentListing     = "instrument-listing"     // Phase-15 Task 15.3.12 (spec §7.2/§7.5) — listing-proposal approval → DRAFT
+	OpInstrumentCalendar    = "instrument-calendar"    // Phase-15 Task 15.3.13 (spec §7.1) — auction-calendar edit
+	OpTradeBust             = "trade-bust"             // Phase-15 Task 15.3.5 (spec §7.2/§5.29)
 )
 
 // Request statuses.
@@ -70,7 +76,10 @@ func SensitiveOperation(op string) bool {
 		OpReleaseSuspendedAcct, OpDeployToProduction, OpBreakGlass,
 		OpAPIKeyExpiryExtend, OpCircuitBreakerReset,
 		OpInstrumentMaintenance, OpAccountClosure,
-		OpProductProfileChange:
+		OpProductProfileChange,
+		OpInstrumentCreate, OpInstrumentResume, OpInstrumentDelist,
+		OpInstrumentListing, OpInstrumentCalendar,
+		OpTradeBust:
 		return true
 	}
 	return false
@@ -101,10 +110,11 @@ type Executor func(ctx context.Context, tx pgx.Tx, req *DualControlRequest) erro
 
 // DualControlService drives the pending queue.
 type DualControlService struct {
-	pool      *pgxpool.Pool
-	store     *Store
-	executors map[string]Executor
-	now       func() time.Time
+	pool       *pgxpool.Pool
+	store      *Store
+	executors  map[string]Executor
+	onExecuted func(ctx context.Context, req *DualControlRequest)
+	now        func() time.Time
 }
 
 // NewDualControlService wires the service. store is required — approver
@@ -122,6 +132,15 @@ func NewDualControlService(pool *pgxpool.Pool, store *Store) *DualControlService
 // not goroutine-guarded.
 func (s *DualControlService) RegisterExecutor(op string, fn Executor) {
 	s.executors[op] = fn
+}
+
+// SetOnExecuted registers a post-commit hook fired once per request that
+// reaches EXECUTED — i.e. its executor ran and the approval tx committed.
+// Side effects that cannot join the approval transaction (Redis engine
+// feed, WS fan-out) land here; the hook receives the settled request and
+// runs on a background context. Startup-time wiring.
+func (s *DualControlService) SetOnExecuted(fn func(ctx context.Context, req *DualControlRequest)) {
+	s.onExecuted = fn
 }
 
 // SetClockForTest overrides the clock; tests only.
@@ -324,7 +343,11 @@ func (s *DualControlService) decide(ctx context.Context, requestID, approverID i
 			status = ReqExecuted
 		}
 	}
-	return s.settle(ctx, tx, req, approverID, status, action, clientIP)
+	out, err := s.settle(ctx, tx, req, approverID, status, action, clientIP)
+	if err == nil && status == ReqExecuted && s.onExecuted != nil {
+		s.onExecuted(context.Background(), out)
+	}
+	return out, err
 }
 
 // lockRequest SELECT ... FOR UPDATEs the row.

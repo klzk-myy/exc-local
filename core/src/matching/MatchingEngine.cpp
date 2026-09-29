@@ -14,10 +14,12 @@
 
 #include "matching/MatchingEngine.hpp"
 
+#include <algorithm>
 #include <new>
 
 #include "book/Instrument.hpp"
 #include "matching/IpcPublisher.hpp"
+#include "risk/InstrumentFeed.hpp"
 #include "utils/safe_math.hpp"
 
 namespace exch {
@@ -501,6 +503,27 @@ void MatchingEngine::publish_depth() noexcept {
     }
 }
 
+void MatchingEngine::publish_auction_indicative() noexcept {
+    // CALL-phase indicative stream (Task 15.3.6): emit only when the
+    // clearing pair moved — dedupe keeps the wire quiet during quiet
+    // accumulation windows.
+    if (auction_phase_ != kAuctionPhaseCall || publisher_ == nullptr) {
+        return;
+    }
+    const AuctionIndicative ind = auction_indicative();
+    if (ind.price_ticks == last_indicative_price_ &&
+        ind.exec_qty_units == last_indicative_qty_) {
+        return;
+    }
+    (void)publisher_->publish_auction_event(
+        instrument_id_of(OrderAux{}), static_cast<uint64_t>(auction_id_),
+        kAuctionPhaseCall, /*signal*/ 0, ind.price_ticks, ind.exec_qty_units,
+        ind.buy_qty_units - ind.sell_qty_units, auction_deadline_ns_, 0,
+        now_ns_);
+    last_indicative_price_ = ind.price_ticks;
+    last_indicative_qty_ = ind.exec_qty_units;
+}
+
 // ---------------------------------------------------------------------------
 // cancel — pending stop first, then resting book order; idempotent (absent
 // is a no-op, never a second mutation)
@@ -530,6 +553,37 @@ bool MatchingEngine::cancel_internal(uint64_t order_id, uint64_t account_id,
         }
         oco_on_dead(order_id, /*by_fill=*/false);
         orders_.free(s);
+        return true;
+    }
+
+    // Auction-parked order? (MARKET/IOC/FOK resting in the parked list
+    // while a CALL accumulates — Task 15.3.6; cancel stays available.)
+    if (Order* pk = parked_find(order_id)) {
+        const uint64_t acct = pk->account_id;
+        if (check_account && acct != account_id) return false;
+        if (wal_ != nullptr &&
+            wal_->write_order_cancel(order_id, acct, wal_reason, now_ns_) !=
+                WalStatus::Ok) {
+            wal_fault_ = true;
+            return false;
+        }
+        Order* prev = nullptr;
+        for (Order* c = parked_head_; c != nullptr && c != pk;
+             c = c->next) {
+            prev = c;
+        }
+        if (prev != nullptr) prev->next = pk->next;
+        else parked_head_ = pk->next;
+        if (parked_tail_ == pk) parked_tail_ = prev;
+        pk->next = nullptr;
+        --parked_count_;
+        meta_erase(order_id);
+        if (publisher_ != nullptr) {
+            (void)publisher_->publish_order_cancel(order_id, acct, now_ns_,
+                                                   wal_reason);
+        }
+        oco_on_dead(order_id, /*by_fill=*/false);
+        orders_.free(pk);
         return true;
     }
 
@@ -1249,6 +1303,11 @@ void MatchingEngine::on_order_received(Order* order,
         orders_.free(order);
         return;
     }
+    // Phase-15 (Task 15.3.6): armed-key observation precedes every verdict
+    // — a CALL armed since the last event reroutes this order into
+    // accumulation, an EXTEND moves the deadline, a withdrawn key aborts
+    // the auction. No-op when no feed is bound (replay/test harness).
+    auction_control_sync();
 
     // --- validate (engine-level, fail-closed) ------------------------------
     const char* invalid = nullptr;
@@ -1328,6 +1387,18 @@ void MatchingEngine::on_order_received(Order* order,
         }
     }
 
+    // --- Phase-15 lifecycle/session gates (Tasks 15.3.3/15.3.4/15.3.10) ---
+    // Quarantine > instrument status > market hours; a bound-but-
+    // unverifiable feed fails closed on both axes. During an armed CALL
+    // the instrument is ACTIVE-and-open by construction (control_sync
+    // aborts the CALL otherwise), so the same gate admits accumulating
+    // orders without a special case.
+    if (const char* gate = admission_gate(*order)) {
+        reject(order, gate);
+        orders_.free(order);
+        return;
+    }
+
     // --- risk hook slot (Task 2.3.3) -----------------------------------------
     if (risk_fn_ != nullptr) {
         if (const char* code = risk_fn_(risk_ctx_, *order)) {
@@ -1350,7 +1421,9 @@ void MatchingEngine::on_order_received(Order* order,
           order->tif == TimeInForce::FOK) &&
          order->type != OrderType::STOP &&
          order->type != OrderType::STOP_LIMIT);
-    if (takes_now) {
+    // An armed CALL exempts non-resting orders — they park for the uncross
+    // regardless of the currently (possibly crossed) accumulated book.
+    if (takes_now && auction_phase_ != kAuctionPhaseCall) {
         const bool opposite_empty =
             order->side == Side::BUY ? book_.ask_count() == 0
                                      : book_.bid_count() == 0;
@@ -1369,7 +1442,8 @@ void MatchingEngine::on_order_received(Order* order,
     int64_t protection_price_ticks = 0;
     int64_t protection_bps = 0;
     int64_t protection_best_ticks = 0;
-    if (order->type == OrderType::MARKET) {
+    if (order->type == OrderType::MARKET &&
+        auction_phase_ != kAuctionPhaseCall) {
         const Instrument* instr = book_.instrument();
         if (instr != nullptr) {
             const PriceLevel* bid = book_.best_bid();
@@ -1422,6 +1496,20 @@ void MatchingEngine::on_order_received(Order* order,
         wal_fault_ = true;
         reject(order, kRejectBookCapacity);
         orders_.free(order);
+        return;
+    }
+
+    // --- CALL accumulation (Task 15.3.6) -------------------------------------
+    // Acceptance is journaled; instead of the continuous dispatch the
+    // order accumulates — resting limits/icebergs into the crossed-tolerant
+    // book, stops into the untriggered queue, MARKET/IOC/FOK into the
+    // parked list for the deadline uncross.
+    if (auction_phase_ == kAuctionPhaseCall) {
+        if (!auction_accumulate(order, aux)) orders_.free(order);
+        publish_auction_indicative();
+        if (book_.book_seq() != seq0 && publisher_ != nullptr) {
+            publish_depth();
+        }
         return;
     }
 
@@ -1613,6 +1701,7 @@ void MatchingEngine::on_order_received(Order* order,
 
     if (!adopted) orders_.free(order);
     drain_triggers();
+    quarantine_check();  // Task 15.3.10 — post-mutation crossed-book probe
     if (book_.book_seq() != seq0) {
         refresh_protected_quote();  // §6.6b #6 — internal book is the quote
         if (publisher_ != nullptr) publish_depth();
@@ -1626,6 +1715,7 @@ void MatchingEngine::on_order_received(Order* order,
 void MatchingEngine::on_cancel_received(uint64_t order_id,
                                         uint64_t account_id) noexcept {
     const uint64_t seq0 = book_.book_seq();
+    auction_control_sync();  // armed-key observation before the verdict
     if (!cancel_internal(order_id, account_id, kWalCancelReasonUser, true)) {
         // Absent or foreign order — idempotent no-op, never a second
         // mutation (spec §24 #10).
@@ -1633,6 +1723,8 @@ void MatchingEngine::on_cancel_received(uint64_t order_id,
         ++reject_count_;
     }
     drain_triggers();
+    publish_auction_indicative();  // a CALL cancel can move the indicative
+    quarantine_check();
     if (book_.book_seq() != seq0) {
         refresh_protected_quote();  // §6.6b #6 — internal book is the quote
         if (publisher_ != nullptr) publish_depth();
@@ -1642,27 +1734,19 @@ void MatchingEngine::on_cancel_received(uint64_t order_id,
 // --- Task 2.3.13/2.3.15/2.3.20 helpers -----------------------------------------
 
 const char* MatchingEngine::amend_state_gate() const noexcept {
-    // §7.1 / Task 2.3.20 #5: amends reject in the auction/suspension states
-    // — cancels stay allowed there (on_cancel_received is ungated). The
-    // §5.1 InstrumentStatus enum has no CALL enumerator yet; when Phase-15
-    // lands the auction phase it maps to kRejectAmendInAuction (constant is
-    // already reserved). Per-state codes take precedence over the generic
-    // ORDER_AMEND_REJECTED. A book without bound reference data (unit
-    // tests) runs ungated.
-    const Instrument* instr = book_.instrument();
-    if (instr == nullptr) return nullptr;
-    switch (instr->status) {
-        case InstrumentStatus::CANCEL_ONLY:
-            return kRejectInstrumentCancelOnly;
-        case InstrumentStatus::SUSPENDED:
-            return kRejectInstrumentSuspended;
-        case InstrumentStatus::HALTED:
-            return kRejectInstrumentHalted;
-        case InstrumentStatus::DELISTED:
-            return kRejectInstrumentDelisted;
-        default:
-            return nullptr;  // DRAFT/ACTIVE/RESTRICTED: amends permitted
+    // §7.1 / Task 2.3.20 #5 + Phase-15 (Tasks 15.3.3/15.3.6/15.3.10):
+    // quarantine outranks; an armed CALL rejects every amend with
+    // AMEND_IN_AUCTION_REJECTED (cancels stay allowed — on_cancel_received
+    // is ungated); otherwise the effective status drives the §7.1 amend
+    // matrix (DRAFT fails closed alongside SUSPENDED). A book with neither
+    // reference data nor a bound feed (unit tests) runs ungated.
+    if (quarantined_) {
+        return quarantine_code_ != nullptr ? quarantine_code_
+                                           : kRejectInstrumentHalted;
     }
+    if (auction_phase_ != kAuctionPhaseNone) return kRejectAmendInAuction;
+    if (feed_ == nullptr && book_.instrument() == nullptr) return nullptr;
+    return instrument_amend_gate(effective_status());
 }
 
 int64_t MatchingEngine::effective_slippage_bps(const Instrument& i) noexcept {
@@ -1725,6 +1809,8 @@ void MatchingEngine::on_amend_received_ex(uint64_t order_id,
                                           const AmendRequest& req) noexcept {
     ++received_count_;
     const uint64_t seq0 = book_.book_seq();
+    // An armed key observed here gates the amend below (CALL => reject).
+    auction_control_sync();
     if (const char* code = amend_state_gate()) {
         last_reject_ = code;
         ++reject_count_;
@@ -1779,6 +1865,7 @@ void MatchingEngine::on_amend_received_ex(uint64_t order_id,
     } else {
         amend_resting(*o, req, *m);
     }
+    quarantine_check();
     if (book_.book_seq() != seq0) {
         refresh_protected_quote();  // §6.6b #6 — internal book is the quote
         if (publisher_ != nullptr) publish_depth();
@@ -2008,8 +2095,15 @@ void MatchingEngine::on_time_tick(uint64_t now_ns) noexcept {
         return;
     }
     if (now_ns > now_ns_) now_ns_ = now_ns;  // monotone logical clock
+    // Phase-15 ordering: observe the armed key first (an EXTEND moves the
+    // deadline before it can strike), then resolve a due CALL deadline,
+    // then the continuous-mode crossed-book probe.
+    auction_control_sync();
+    auction_deadline_check();
+    quarantine_check();
     expire_due();
     drain_triggers();
+    publish_auction_indicative();  // expiry cancels can move the indicative
     if (book_.book_seq() != seq0) {
         refresh_protected_quote();  // §6.6b #6 — internal book is the quote
         if (publisher_ != nullptr) publish_depth();
@@ -2049,6 +2143,983 @@ int64_t MatchingEngine::liquidity_at_or_better_units(
         total += lvl->total_qty_units;
     }
     return total;
+}
+
+// ---------------------------------------------------------------------------
+// Phase-15 lifecycle / market-hours admission gates (Tasks 15.3.3/15.3.4)
+// ---------------------------------------------------------------------------
+
+InstrumentStatus MatchingEngine::effective_status() const noexcept {
+    if (feed_ != nullptr) {
+        const InstrumentFeed::Snapshot s = feed_->snapshot();
+        // Unverifiable control plane (missing/malformed/unread key) fails
+        // closed — a missing status key must never read as ACTIVE.
+        if (!s.verifiable) return InstrumentStatus::SUSPENDED;
+        return s.status;
+    }
+    const Instrument* i = book_.instrument();
+    return i != nullptr ? i->status : InstrumentStatus::ACTIVE;
+}
+
+const char* MatchingEngine::admission_gate(const Order& o) const noexcept {
+    // Engine-local quarantine (crossed-book halt / clearing-failure suspend)
+    // outranks everything — the instrument is halted for matching purposes
+    // regardless of what the lifecycle feed says. During an armed CALL the
+    // quarantine still rejects new flow: the armed uncross resolves the
+    // EXISTING book, it does not admit new orders into a halted instrument.
+    if (quarantined_) {
+        return quarantine_code_ != nullptr ? quarantine_code_
+                                           : kRejectInstrumentHalted;
+    }
+    const char* st = instrument_entry_gate(effective_status(), o.type,
+                                           o.flags);
+    if (st != nullptr) return st;
+    if (feed_ != nullptr) {
+        const InstrumentFeed::Snapshot s = feed_->snapshot();
+        // market:hours missing/unpublishable or feed unverifiable => the
+        // schedule is unknown => fail closed (MARKET_CLOSED).
+        if (!s.verifiable || !s.market_known ||
+            !market_entry_allowed(s.market, now_ns_)) {
+            return kRejectMarketClosed;
+        }
+    }
+    return nullptr;
+}
+
+// ---------------------------------------------------------------------------
+// Phase-15 auction machinery (Tasks 15.3.6/15.3.10)
+// ---------------------------------------------------------------------------
+
+// Journals one AUCTION_PHASE row. instrument_id comes from the bound book
+// instrument (the dispatch field RecoveryManager routes on).
+bool MatchingEngine::auction_journal(uint8_t phase, uint8_t reason,
+                                     int64_t price_ticks,
+                                     int64_t qty_units) noexcept {
+    WalAuctionPhasePayload p{};
+    const Instrument* i = book_.instrument();
+    p.instrument_id = i != nullptr ? static_cast<uint32_t>(i->instrument_id)
+                                   : 0;
+    p.phase = phase;
+    p.reason = reason;
+    p.extension_count = auction_extensions_;
+    p.flags = quarantined_ ? 1u : 0u;
+    p.auction_id = static_cast<uint64_t>(
+        auction_id_ > 0 ? auction_id_ : 0);
+    p.deadline_ns = auction_deadline_ns_;
+    p.cleared_price_ticks = price_ticks;
+    p.cleared_qty_units = qty_units;
+    if (wal_ != nullptr &&
+        wal_->write_auction_phase(p, now_ns_) != WalStatus::Ok) {
+        wal_fault_ = true;
+        return false;
+    }
+    return true;
+}
+
+void MatchingEngine::auction_enter_call(int64_t deadline_ns) noexcept {
+    auction_id_ = deadline_ns;
+    auction_deadline_ns_ = deadline_ns;
+    auction_extensions_ = 0;
+    auction_awaiting_ = false;
+    auction_phase_ = kAuctionPhaseCall;
+    auction_mode_ = true;               // §6.6b checks suspend in CALL
+    trade_through_.set_auction(true);
+    book_.set_allow_crossed(true);      // accumulate crossing interest
+    (void)auction_journal(kAuctionPhaseCall, kAuctionReasonControl, 0, 0);
+    // Publish the initial indicative so the WS bridge can stream it during
+    // accumulation.
+    if (publisher_ != nullptr) {
+        const AuctionIndicative ind = auction_indicative();
+        (void)publisher_->publish_auction_event(
+            instrument_id_of(OrderAux{}),
+            static_cast<uint64_t>(auction_id_), kAuctionPhaseCall,
+            /*signal*/ 0, ind.price_ticks, ind.exec_qty_units,
+            ind.buy_qty_units - ind.sell_qty_units, deadline_ns, 0, now_ns_);
+        last_indicative_price_ = ind.price_ticks;
+        last_indicative_qty_ = ind.exec_qty_units;
+    }
+}
+
+void MatchingEngine::auction_exit(uint8_t phase, uint8_t reason) noexcept {
+    // Terminal transitions: UNCROSS / CANCEL. Restores the continuous-mode
+    // contract: crossed accumulation stops, §6.6b guards re-engage, parked
+    // orders (MARKET/IOC/FOK — can never rest) are cancelled, and the armed
+    // key is released via the control-thread result write.
+    const int64_t done_id = auction_id_;
+    if (phase != kAuctionPhaseCancel) {
+        last_completed_auction_id_ = done_id;
+    }
+    auction_phase_ = kAuctionPhaseNone;
+    auction_mode_ = false;
+    trade_through_.set_auction(false);
+    book_.set_allow_crossed(false);
+    auction_awaiting_ = false;
+    last_indicative_price_ = -1;
+    last_indicative_qty_ = -1;
+    if (phase == kAuctionPhaseCancel) {
+        // Cancelled CALL: any accumulated resting book may be crossed —
+        // fail-closed quarantine rather than resuming continuous trading
+        // on a book that would never have existed without the auction.
+        // quarantine_enter legitimates the forensic crossed state (the
+        // allow_crossed flag) so book audits — including the recovery
+        // boot invariant — read it as a halted CALL residue, not an
+        // invariant violation.
+        if (book_.crossed() && !quarantined_) {
+            quarantine_enter(kRejectInstrumentHalted,
+                             kAuctionReasonCrossedBook);
+        }
+    }
+    (void)done_id;
+    (void)reason;
+}
+
+void MatchingEngine::auction_control_sync() noexcept {
+    // Cheap per-event observation of the armed key. Only the feed carries
+    // auction state — a replay engine (feed_ == nullptr) reconstructs the
+    // same transitions from journaled AUCTION_PHASE rows.
+    if (feed_ == nullptr) return;
+    const InstrumentFeed::Snapshot s = feed_->snapshot();
+    if (!s.verifiable) {
+        // Feed degraded mid-auction — hold CALL (fail closed already gates
+        // all new flow through effective_status()/market gate); do NOT
+        // complete a half-verified uncross.
+        return;
+    }
+    if (auction_phase_ == kAuctionPhaseNone) {
+        if (s.auction_armed &&
+            s.auction_deadline_ns != last_completed_auction_id_) {
+            auction_enter_call(s.auction_deadline_ns);
+        }
+        return;
+    }
+    // In CALL: armed-key lifecycle drives the transition.
+    if (!s.auction_armed || s.status != InstrumentStatus::ACTIVE) {
+        // Key withdrawn by the control plane (skip/direct resume or Go
+        // ladder completion), or the instrument left ACTIVE while armed —
+        // either way the CALL cannot complete; abort without uncrossing.
+        if (auction_journal(kAuctionPhaseCancel, kAuctionReasonControl,
+                            0, 0)) {
+            parked_drain(kWalCancelReasonIocRemainder);
+            auction_exit(kAuctionPhaseCancel, kAuctionReasonControl);
+        }
+        return;
+    }
+    if (s.auction_deadline_ns != auction_deadline_ns_) {
+        // EXTEND:{new_dl} — the Go ladder pushed the deadline (its 30s
+        // steps). The engine counts observed extensions; past the local
+        // cap the extension is refused fail-closed (defensive mirror of
+        // the 3-extension contract).
+        if (auction_extensions_ >= kAuctionMaxExtensions) {
+            if (feed_ != nullptr) {
+                feed_->request_auction_result(auction_id_, false);
+            }
+            if (auction_journal(kAuctionPhaseQuarantine,
+                                kAuctionReasonClearingFailed, 0, 0)) {
+                quarantine_enter(kRejectAuctionClearingFailed,
+                                 kAuctionReasonClearingFailed);
+                parked_drain(kWalCancelReasonIocRemainder);
+                auction_exit(kAuctionPhaseCancel, kAuctionReasonControl);
+            }
+            return;
+        }
+        ++auction_extensions_;
+        auction_deadline_ns_ = s.auction_deadline_ns;
+        auction_id_ = s.auction_deadline_ns;
+        auction_awaiting_ = false;
+        (void)auction_journal(kAuctionPhaseExtend,
+                              kAuctionReasonDeadlineMoved, 0, 0);
+        if (publisher_ != nullptr) {
+            const AuctionIndicative ind = auction_indicative();
+            (void)publisher_->publish_auction_event(
+                instrument_id_of(OrderAux{}),
+                static_cast<uint64_t>(auction_id_), kAuctionPhaseExtend,
+                /*signal*/ 2, ind.price_ticks, ind.exec_qty_units,
+                ind.buy_qty_units - ind.sell_qty_units,
+                auction_deadline_ns_, 0, now_ns_);
+        }
+    }
+}
+
+void MatchingEngine::quarantine_enter(const char* code,
+                                      uint8_t reason) noexcept {
+    quarantined_ = true;
+    quarantine_code_ = code;
+    // A quarantined book that holds crossed levels is a forensic halt
+    // state, not a violated invariant: mark the crossing as legitimately
+    // accumulated so book_->validate() (and the recovery boot audit that
+    // runs it) does not halt on the residue. No admission path can cross
+    // it further — the quarantine gates every mutation except cancels.
+    if (book_.crossed()) book_.set_allow_crossed(true);
+    if (publisher_ != nullptr) {
+        (void)publisher_->publish_auction_event(
+            instrument_id_of(OrderAux{}),
+            static_cast<uint64_t>(auction_id_ > 0 ? auction_id_ : 0),
+            kAuctionPhaseQuarantine,
+            /*signal*/ reason == kAuctionReasonCrossedBook ? 4 : 3,
+            0, 0, 0, auction_deadline_ns_, 0, now_ns_);
+    }
+}
+
+void MatchingEngine::quarantine_check() noexcept {
+    // Task 15.3.10 — a continuous-mode book must NEVER show bid >= ask
+    // without an immediate match. Outside an armed CALL that is an
+    // anomaly: quarantine to HALTED + alert, resting orders preserved.
+    if (auction_phase_ != kAuctionPhaseNone || quarantined_ ||
+        feed_ == nullptr) {
+        return;
+    }
+    const InstrumentFeed::Snapshot s = feed_->snapshot();
+    if (!s.verifiable) return;  // feed already fails closed on its own
+    if (!book_.crossed()) return;
+    if (auction_journal(kAuctionPhaseQuarantine,
+                        kAuctionReasonCrossedBook, 0, 0)) {
+        quarantine_enter(kRejectCrossedBook, kAuctionReasonCrossedBook);
+    }
+}
+
+void MatchingEngine::auction_deadline_check() noexcept {
+    if (auction_phase_ != kAuctionPhaseCall || auction_awaiting_ ||
+        now_ns_ < static_cast<uint64_t>(auction_deadline_ns_)) {
+        return;
+    }
+    auction_resolve_deadline();
+}
+
+void MatchingEngine::auction_resolve_deadline() noexcept {
+    const AuctionIndicative ind = auction_indicative();
+    if (ind.has_candidates) {
+        // A clearing price forms (possibly zero-volume — a non-crossed book
+        // uncrosses trivially and reopens clean).
+        if (ind.exec_qty_units > 0) {
+            // Learn the committed volume BEFORE the WAL row (dry run is the
+            // identical pairing pass with mutations suppressed).
+            const int64_t cleared = auction_uncross(ind.price_ticks,
+                                                    /*dry_run=*/true);
+            if (!auction_journal(kAuctionPhaseUncross, kAuctionReasonNone,
+                                 ind.price_ticks, cleared)) {
+                return;  // wal_fault_ — engine halted; stay in CALL
+            }
+            (void)auction_uncross(ind.price_ticks, /*dry_run=*/false);
+        } else {
+            if (!auction_journal(kAuctionPhaseUncross, kAuctionReasonNone,
+                                 ind.price_ticks, 0)) {
+                return;
+            }
+        }
+        // Terminal: release the armed key (the :result SET happens on the
+        // control thread via the feed's request slot).
+        if (feed_ != nullptr) {
+            feed_->request_auction_result(auction_id_, /*cleared=*/true);
+        }
+        parked_drain(kWalCancelReasonIocRemainder);
+        const bool was_quarantined = quarantined_;
+        const uint64_t done_id = static_cast<uint64_t>(auction_id_);
+        const int64_t done_deadline = auction_deadline_ns_;
+        auction_exit(kAuctionPhaseUncross, kAuctionReasonNone);
+        if (was_quarantined) {
+            // Uncross-override complete: allocation drains the crossing
+            // pair-set in price-time order, so a clean book resumes
+            // continuous trading; a residual crossed state (defensive —
+            // allocation proves impossible) re-quarantines immediately.
+            quarantined_ = false;
+            quarantine_code_ = nullptr;
+            if (book_.crossed()) {
+                if (auction_journal(kAuctionPhaseQuarantine,
+                                    kAuctionReasonCrossedBook, 0, 0)) {
+                    quarantine_enter(kRejectCrossedBook,
+                                     kAuctionReasonCrossedBook);
+                }
+            }
+        }
+        if (publisher_ != nullptr) {
+            (void)publisher_->publish_auction_event(
+                instrument_id_of(OrderAux{}), done_id, kAuctionPhaseUncross,
+                /*signal*/ 1, ind.price_ticks, ind.exec_qty_units,
+                ind.buy_qty_units - ind.sell_qty_units, done_deadline,
+                ind.exec_qty_units, now_ns_);
+        }
+        return;
+    }
+    // No candidate price exists — unpriceable crossed interest (parked
+    // market orders with no limit anchor) or a structurally dead book.
+    // Report FAILED for this deadline strike; the Go EXTEND ladder decides
+    // extend-vs-suspend. The instrument keeps accumulating while armed.
+    auction_awaiting_ = true;
+    if (feed_ != nullptr) {
+        feed_->request_auction_result(auction_id_, /*cleared=*/false);
+    }
+    if (!auction_journal(kAuctionPhaseStrikeFail,
+                         kAuctionReasonClearingFailed, 0, 0)) {
+        return;
+    }
+    if (publisher_ != nullptr) {
+        (void)publisher_->publish_auction_event(
+            instrument_id_of(OrderAux{}),
+            static_cast<uint64_t>(auction_id_), kAuctionPhaseStrikeFail,
+            /*signal*/ 3, 0, 0, 0, auction_deadline_ns_, 0, now_ns_);
+    }
+}
+
+bool MatchingEngine::auction_accumulate(Order* order,
+                                        const OrderAux& aux) noexcept {
+    switch (order->type) {
+        case OrderType::STOP:
+        case OrderType::STOP_LIMIT: {
+            // No trigger evaluation during CALL — there is no continuous
+            // last-price to cross; the uncross itself sets it.
+            if (!track_meta(order->id, aux)) {
+                emit_cancel_event(order->id, order->account_id,
+                                  kWalCancelReasonUser);
+                last_reject_ = kRejectBookCapacity;
+                ++reject_count_;
+                return false;
+            }
+            if (!stops_.enqueue(order, aux.stop_price_ticks)) {
+                meta_erase(order->id);
+                emit_cancel_event(order->id, order->account_id,
+                                  kWalCancelReasonUser);
+                last_reject_ = kRejectBookCapacity;
+                ++reject_count_;
+                return false;
+            }
+            return true;
+        }
+        default:
+            break;
+    }
+    const bool never_rests =
+        order->type == OrderType::MARKET ||
+        order->tif == TimeInForce::IOC || order->tif == TimeInForce::FOK;
+    if (never_rests) {
+        // Park for the uncross — the journaled ORDER_NEW is already
+        // committed upstream.
+        if (!track_meta(order->id, aux) || !parked_push(order)) {
+            meta_erase(order->id);
+            emit_cancel_event(order->id, order->account_id,
+                              kWalCancelReasonUser);
+            last_reject_ = kRejectBookCapacity;
+            ++reject_count_;
+            return false;
+        }
+        return true;
+    }
+    // Resting limit (GTC/GTD/DAY): accumulate straight into the book — the
+    // CROSSED insertion guard is suspended for the auction window.
+    Order tmpl = *order;
+    IcebergManager::Record* rec = nullptr;
+    int64_t display = order->qty_units;
+    if (order->type == OrderType::ICEBERG) {
+        display = IcebergManager::visible_slice(
+            order->qty_units, order->display_qty_units,
+            book_.instrument());
+        rec = icebergs_.register_order(tmpl, 0, display);
+        if (rec == nullptr) {
+            emit_cancel_event(order->id, order->account_id,
+                              kWalCancelReasonUser);
+            last_reject_ = kRejectBookCapacity;
+            ++reject_count_;
+            return false;
+        }
+        tmpl.qty_units = display < tmpl.qty_units ? display
+                                                  : tmpl.qty_units;
+        tmpl.filled_qty_units = 0;
+    }
+    Order* node = nullptr;
+    const BookError e = book_.add_order(tmpl, &node);
+    if (e != BookError::OK) {
+        if (rec != nullptr) icebergs_.erase(order->id);
+        emit_cancel_event(order->id, order->account_id,
+                          kWalCancelReasonUser);
+        last_reject_ = e == BookError::DUPLICATE_ID ? kRejectDuplicateId
+                                                  : kRejectBookCapacity;
+        ++reject_count_;
+        return false;
+    }
+    if (!track_meta(order->id, aux)) {
+        (void)book_.cancel_order(order->id);
+        if (rec != nullptr) icebergs_.erase(order->id);
+        emit_cancel_event(order->id, order->account_id,
+                          kWalCancelReasonUser);
+        last_reject_ = kRejectBookCapacity;
+        ++reject_count_;
+        return false;
+    }
+    return true;
+}
+
+int64_t MatchingEngine::effective_level_units(const PriceLevel& lvl,
+                                              Side side) const noexcept {
+    // Iceberg hidden remainder counts toward auction liquidity — the
+    // uncross refills the slice in place (level tail), so the whole
+    // unfilled total is eligible at the level price.
+    int64_t q = lvl.total_qty_units;
+    for (const Order* o = lvl.head; o != nullptr; o = o->next) {
+        if (o->type != OrderType::ICEBERG) continue;
+        if (const auto* rec = icebergs_.find(o->id)) {
+            q += rec->total_qty_units - rec->filled_total_units -
+                 remaining_qty_units(*o);
+        }
+    }
+    (void)side;
+    return q;
+}
+
+MatchingEngine::AuctionIndicative MatchingEngine::auction_indicative()
+    const noexcept {
+    AuctionIndicative ind{};
+    if (parked_head_ == nullptr && book_.bid_count() == 0 &&
+        book_.ask_count() == 0) {
+        return ind;  // empty book — trivially no candidates
+    }
+    // Collect parked non-market limits per side (sorted by price) and the
+    // parked market totals; parked markets are eligible at every price.
+    struct PQ { int64_t price; int64_t qty; };
+    PQ pb[kParkedOrderCap];
+    PQ ps[kParkedOrderCap];
+    uint32_t nb = 0, ns = 0;
+    int64_t mkt_b = 0, mkt_s = 0;
+    for (const Order* o = parked_head_; o != nullptr; o = o->next) {
+        const int64_t rem = remaining_qty_units(*o);
+        if (rem <= 0) continue;
+        if (o->type == OrderType::MARKET) {
+            if (o->side == Side::BUY) mkt_b += rem; else mkt_s += rem;
+            continue;
+        }
+        if (o->side == Side::BUY) {
+            if (nb < kParkedOrderCap) pb[nb++] = {o->price_ticks, rem};
+        } else {
+            if (ns < kParkedOrderCap) ps[ns++] = {o->price_ticks, rem};
+        }
+    }
+    std::sort(pb, pb + nb,
+              [](const PQ& a, const PQ& b) { return a.price < b.price; });
+    std::sort(ps, ps + ns,
+              [](const PQ& a, const PQ& b) { return a.price < b.price; });
+
+    int64_t tot_b = mkt_b, tot_s = mkt_s;
+    for (uint32_t i = 0; i < nb; ++i) tot_b += pb[i].qty;
+    for (uint32_t i = 0; i < ns; ++i) tot_s += ps[i].qty;
+    // Book totals: level totals plus iceberg hidden remainder.
+    for (uint32_t d = 0; d < book_.bid_count(); ++d) {
+        const PriceLevel* l = book_.level(Side::BUY, d);
+        if (l != nullptr) tot_b += effective_level_units(*l, Side::BUY);
+    }
+    for (uint32_t d = 0; d < book_.ask_count(); ++d) {
+        const PriceLevel* l = book_.level(Side::SELL, d);
+        if (l != nullptr) tot_s += effective_level_units(*l, Side::SELL);
+    }
+    if (tot_b <= 0 || tot_s <= 0) return ind;
+
+    // Merge ascending candidate streams: book bids (level array read
+    // back-to-front), book asks, parked buy limits, parked sell limits.
+    const uint32_t blvl = book_.bid_count(), alvl = book_.ask_count();
+    ind.has_candidates = blvl > 0 || alvl > 0 || nb > 0 || ns > 0;
+    if (!ind.has_candidates) return ind;
+
+    uint32_t bi = blvl;  // bids asc index into the level array (blvl-1..0)
+    uint32_t ai = 0;     // asks asc index
+    uint32_t pbi = 0, psi = 0;
+    // Cumulative walks: bidsBelow tracks bids/parked-buys strictly below
+    // the candidate; sellsLe tracks asks/parked-sells at-or-below it.
+    uint32_t bwalk = blvl;
+    uint32_t pbwalk = 0;
+    int64_t below_b = 0;
+    uint32_t awalk = 0;
+    uint32_t pswalk = 0;
+    int64_t le_s = 0;
+    const int64_t ref = last_price_ticks_;
+
+    auto next_price = [&](int64_t* out) -> bool {
+        int64_t best = INT64_MAX;
+        bool any = false;
+        if (bi > 0) {
+            const PriceLevel* l = book_.level(Side::BUY, bi - 1);
+            if (l != nullptr) { best = l->price_ticks; any = true; }
+        }
+        if (ai < alvl) {
+            const PriceLevel* l = book_.level(Side::SELL, ai);
+            if (l != nullptr && (!any || l->price_ticks < best)) {
+                best = l->price_ticks; any = true;
+            }
+        }
+        if (pbi < nb && (!any || pb[pbi].price < best)) {
+            best = pb[pbi].price; any = true;
+        }
+        if (psi < ns && (!any || ps[psi].price < best)) {
+            best = ps[psi].price; any = true;
+        }
+        if (!any) return false;
+        *out = best;
+        // Consume every stream head equal to the emitted price.
+        while (bi > 0) {
+            const PriceLevel* l = book_.level(Side::BUY, bi - 1);
+            if (l == nullptr || l->price_ticks != best) break;
+            --bi;
+        }
+        while (ai < alvl) {
+            const PriceLevel* l = book_.level(Side::SELL, ai);
+            if (l == nullptr || l->price_ticks != best) break;
+            ++ai;
+        }
+        while (pbi < nb && pb[pbi].price == best) ++pbi;
+        while (psi < ns && ps[psi].price == best) ++psi;
+        return true;
+    };
+
+    int64_t p = 0;
+    while (next_price(&p)) {
+        while (bwalk > 0) {
+            const PriceLevel* l = book_.level(Side::BUY, bwalk - 1);
+            if (l == nullptr || l->price_ticks >= p) break;
+            below_b += effective_level_units(*l, Side::BUY);
+            --bwalk;
+        }
+        while (pbwalk < nb && pb[pbwalk].price < p) {
+            below_b += pb[pbwalk].qty;
+            ++pbwalk;
+        }
+        while (awalk < alvl) {
+            const PriceLevel* l = book_.level(Side::SELL, awalk);
+            if (l == nullptr || l->price_ticks > p) break;
+            le_s += effective_level_units(*l, Side::SELL);
+            ++awalk;
+        }
+        while (pswalk < ns && ps[pswalk].price <= p) {
+            le_s += ps[pswalk].qty;
+            ++pswalk;
+        }
+        const int64_t bq = tot_b - below_b;
+        const int64_t aq = le_s + mkt_s;
+        const int64_t v = bq < aq ? bq : aq;
+        if (v <= 0) continue;
+        const int64_t imb = bq - aq;
+        const int64_t aimb = imb < 0 ? -imb : imb;
+        const int64_t aimbest = ind.exec_qty_units > 0
+            ? (ind.buy_qty_units > ind.sell_qty_units
+                   ? ind.buy_qty_units - ind.sell_qty_units
+                   : ind.sell_qty_units - ind.buy_qty_units)
+            : INT64_MAX;
+        bool better = v > ind.exec_qty_units;
+        if (!better && v == ind.exec_qty_units) {
+            if (aimb < aimbest) {
+                better = true;
+            } else if (aimb == aimbest) {
+                if (ref > 0) {
+                    const int64_t dc = p > ref ? p - ref : ref - p;
+                    const int64_t db = ind.price_ticks > ref
+                        ? ind.price_ticks - ref : ref - ind.price_ticks;
+                    if (dc < db || (dc == db && p < ind.price_ticks)) {
+                        better = true;
+                    }
+                } else if (p < ind.price_ticks) {
+                    better = true;
+                }
+            }
+        }
+        if (better) {
+            ind.price_ticks = p;
+            ind.exec_qty_units = v;
+            ind.buy_qty_units = bq;
+            ind.sell_qty_units = aq;
+        }
+    }
+    return ind;
+}
+
+namespace {
+
+// Parked-order effective priority price for the uncross merge: MARKET
+// orders rank ahead of every limit (single-price venue convention) — they
+// sort to INT64_MAX on the buy frontier, INT64_MIN on the sell frontier.
+inline int64_t parked_eff_price(const Order* o, Side s) noexcept {
+    return o->type == OrderType::MARKET
+               ? (s == Side::BUY ? INT64_MAX : INT64_MIN)
+               : o->price_ticks;
+}
+
+// Strict priority comparator over parked orders: markets rank first, then
+// side-aware price, then FIFO by (timestamp_ns, ingress_seq).
+inline bool parked_before(const Order* a, const Order* b, Side s) noexcept {
+    const int64_t pa = parked_eff_price(a, s), pb2 = parked_eff_price(b, s);
+    if (pa != pb2) return s == Side::BUY ? pa > pb2 : pa < pb2;
+    if (a->timestamp_ns != b->timestamp_ns) {
+        return a->timestamp_ns < b->timestamp_ns;
+    }
+    return a->ingress_seq < b->ingress_seq;
+}
+
+}  // namespace
+
+int64_t MatchingEngine::auction_uncross(int64_t price_ticks,
+                                        bool dry_run) noexcept {
+    // Build the per-side parked priority arrays (markets first, then
+    // price-time). Book order cursors walk levels live so iceberg slice
+    // refills stay reachable at the level tail.
+    Order* pb[kParkedOrderCap];
+    Order* psl[kParkedOrderCap];
+    uint32_t nb = 0, ns = 0;
+    for (Order* o = parked_head_; o != nullptr; o = o->next) {
+        if (remaining_qty_units(*o) <= 0) continue;
+        if (o->side == Side::BUY) { if (nb < kParkedOrderCap) pb[nb++] = o; }
+        else if (ns < kParkedOrderCap) psl[ns++] = o; }
+    std::sort(pb, pb + nb, [](const Order* a, const Order* b) {
+        return parked_before(a, b, Side::BUY);
+    });
+    std::sort(psl, psl + ns, [](const Order* a, const Order* b) {
+        return parked_before(a, b, Side::SELL);
+    });
+    uint32_t bi = 0, si = 0;
+
+    // Book cursors: current node per side; the successor is resolved while
+    // the node is still alive so a fully-consuming fill can advance past a
+    // freed node without touching it.
+    auto first_book = [&](Side s) -> Order* {
+        for (uint32_t d = 0; d < OrderBook::kMaxLevels; ++d) {
+            const PriceLevel* l = book_.level(s, d);
+            if (l == nullptr) break;
+            const bool ok = s == Side::BUY ? l->price_ticks >= price_ticks
+                                           : l->price_ticks <= price_ticks;
+            if (!ok) break;
+            if (l->head != nullptr) return l->head;
+        }
+        return nullptr;
+    };
+    auto next_book = [&](Order* cur, Side s) -> Order* {
+        if (cur == nullptr) return nullptr;
+        if (cur->next != nullptr) return cur->next;
+        const int64_t cp = cur->price_ticks;
+        bool past = false;
+        for (uint32_t d = 0; d < OrderBook::kMaxLevels; ++d) {
+            const PriceLevel* l = book_.level(s, d);
+            if (l == nullptr) break;
+            const bool ok = s == Side::BUY ? l->price_ticks >= price_ticks
+                                           : l->price_ticks <= price_ticks;
+            if (!ok) break;
+            if (!past) {
+                if (l->price_ticks == cp) past = true;
+                continue;
+            }
+            if (l->head != nullptr) return l->head;
+        }
+        return nullptr;
+    };
+
+    Order* b_book = first_book(Side::BUY);
+    Order* s_book = first_book(Side::SELL);
+
+    // Remaining eligible pools — the FOK frontier check reads them.
+    int64_t pool_b = 0, pool_s = 0;
+    for (uint32_t i = 0; i < nb; ++i) pool_b += remaining_qty_units(*pb[i]);
+    for (uint32_t i = 0; i < ns; ++i) pool_s += remaining_qty_units(*psl[i]);
+    for (uint32_t d = 0; d < OrderBook::kMaxLevels; ++d) {
+        const PriceLevel* l = book_.level(Side::BUY, d);
+        if (l == nullptr || l->price_ticks < price_ticks) break;
+        pool_b += effective_level_units(*l, Side::BUY);
+    }
+    for (uint32_t d = 0; d < OrderBook::kMaxLevels; ++d) {
+        const PriceLevel* l = book_.level(Side::SELL, d);
+        if (l == nullptr || l->price_ticks > price_ticks) break;
+        pool_s += effective_level_units(*l, Side::SELL);
+    }
+
+    int64_t cleared = 0;
+    while (!wal_fault_) {
+        // Frontier selection: parked candidates merge with book heads in
+        // strict price-time order; parked markets (eff price = INT64_MAX)
+        // always lead.
+        Order* pb_cur = bi < nb ? pb[bi] : nullptr;
+        Order* b = pb_cur;
+        if (b_book != nullptr) {
+            const int64_t pp =
+                b != nullptr ? parked_eff_price(b, Side::BUY) : INT64_MIN;
+            if (b == nullptr || b_book->price_ticks > pp ||
+                (b_book->price_ticks == pp &&
+                 (b_book->timestamp_ns < b->timestamp_ns ||
+                  (b_book->timestamp_ns == b->timestamp_ns &&
+                   b_book->ingress_seq <= b->ingress_seq)))) {
+                b = b_book;
+            }
+        }
+        Order* ps_cur = si < ns ? psl[si] : nullptr;
+        Order* s = ps_cur;
+        if (s_book != nullptr) {
+            const int64_t pp =
+                s != nullptr ? parked_eff_price(s, Side::SELL) : INT64_MAX;
+            if (s == nullptr || s_book->price_ticks < pp ||
+                (s_book->price_ticks == pp &&
+                 (s_book->timestamp_ns < s->timestamp_ns ||
+                  (s_book->timestamp_ns == s->timestamp_ns &&
+                   s_book->ingress_seq <= s->ingress_seq)))) {
+                s = s_book;
+            }
+        }
+        if (b == nullptr || s == nullptr) break;
+
+        // FOK semantics inside the uncross: an all-or-nothing order that
+        // cannot fill in full at the clearing price is skipped (cancelled)
+        // WITHOUT consuming opposite-side liquidity.
+        const int64_t brem = remaining_qty_units(*b);
+        const int64_t srem = remaining_qty_units(*s);
+        if (b->tif == TimeInForce::FOK && brem > pool_s) {
+            // Successor BEFORE mutation — a book-leg removal frees the node.
+            Order* bsucc = (b == b_book)
+                               ? next_book(b_book, Side::BUY) : nullptr;
+            if (!dry_run) {
+                emit_cancel_event(b->id, b->account_id,
+                                  kWalCancelReasonFokUnfilled);
+                if (b != b_book) {
+                    // Mark consumed — the terminal drain frees the node
+                    // without re-journaling a second cancel.
+                    b->filled_qty_units = b->qty_units;
+                } else {
+                    // Unreachable today (FOK never rests) — defensive: keep
+                    // book invariants exact if that ever changes.
+                    (void)book_.cancel_order(b->id);
+                }
+            }
+            pool_b -= brem;
+            if (b == pb_cur) ++bi; else b_book = bsucc;
+            continue;
+        }
+        if (s->tif == TimeInForce::FOK && srem > pool_b) {
+            Order* ssucc = (s == s_book)
+                               ? next_book(s_book, Side::SELL) : nullptr;
+            if (!dry_run) {
+                emit_cancel_event(s->id, s->account_id,
+                                  kWalCancelReasonFokUnfilled);
+                if (s != s_book) {
+                    s->filled_qty_units = s->qty_units;
+                } else {
+                    (void)book_.cancel_order(s->id);
+                }
+            }
+            pool_s -= srem;
+            if (s == ps_cur) ++si; else s_book = ssucc;
+            continue;
+        }
+
+        const int64_t fill = brem < srem ? brem : srem;
+        // Resolve book successors BEFORE mutation when the fill will
+        // consume the node (apply_fill may free it).
+        Order* nb_book = b_book;
+        Order* ns_book = s_book;
+        if (b == b_book && fill == brem) nb_book = next_book(b_book, Side::BUY);
+        if (s == s_book && fill == srem) ns_book = next_book(s_book, Side::SELL);
+
+        if (!dry_run) {
+            // Capture ids up front — apply_fill may free a fully-consumed
+            // book node, so nothing below may dereference a dead pointer.
+            const uint64_t bid = b->id;
+            const uint64_t sid = s->id;
+            const uint64_t tid = next_trade_id_++;
+            const uint32_t instr = instrument_id_of(OrderAux{});
+            if (wal_ != nullptr &&
+                wal_->write_trade(tid, bid, sid, instr, price_ticks,
+                                  fill, now_ns_) != WalStatus::Ok) {
+                wal_fault_ = true;
+                break;
+            }
+            // Book leg: apply_fill keeps level totals/index consistent and
+            // frees fully-consumed nodes. Parked legs bump node accounting
+            // directly (they live outside the book).
+            if (b == b_book) {
+                const BookError e = book_.apply_fill(b, fill);
+                if (e != BookError::OK) { wal_fault_ = true; break; }
+                if (auto* rec = icebergs_.find(bid)) {
+                    rec->filled_total_units += fill;
+                    if (book_.find_order(bid) == nullptr) {
+                        replenish_iceberg(rec);
+                    }
+                }
+                if (book_.find_order(bid) == nullptr) {
+                    meta_erase(bid);
+                    if (icebergs_.find(bid) == nullptr) {
+                        oco_on_dead(bid, /*by_fill=*/true);
+                    }
+                }
+            } else {
+                b->filled_qty_units += fill;
+            }
+            if (s == s_book) {
+                const BookError e = book_.apply_fill(s, fill);
+                if (e != BookError::OK) { wal_fault_ = true; break; }
+                if (auto* rec = icebergs_.find(sid)) {
+                    rec->filled_total_units += fill;
+                    if (book_.find_order(sid) == nullptr) {
+                        replenish_iceberg(rec);
+                    }
+                }
+                if (book_.find_order(sid) == nullptr) {
+                    meta_erase(sid);
+                    if (icebergs_.find(sid) == nullptr) {
+                        oco_on_dead(sid, /*by_fill=*/true);
+                    }
+                }
+            } else {
+                s->filled_qty_units += fill;
+            }
+            last_price_ticks_ = price_ticks;
+            ++trades_emitted_;
+            if (publisher_ != nullptr) {
+                (void)publisher_->publish_trade(tid, bid, sid,
+                                                price_ticks, fill,
+                                                book_.book_seq(), now_ns_);
+            }
+        }
+        cleared += fill;
+        pool_b -= fill;
+        pool_s -= fill;
+        if (b == pb_cur) {
+            if (fill == brem) ++bi;
+        } else {
+            b_book = nb_book;
+        }
+        if (s == ps_cur) {
+            if (fill == srem) ++si;
+        } else {
+            s_book = ns_book;
+        }
+        // Partially-consumed parked nodes keep their array slot — the
+        // cursor re-reads their remaining on the next iteration.
+    }
+    return cleared;
+}
+
+void MatchingEngine::parked_drain(uint8_t wal_reason) noexcept {
+    while (parked_head_ != nullptr) {
+        Order* o = parked_head_;
+        parked_head_ = o->next;
+        if (parked_head_ == nullptr) parked_tail_ = nullptr;
+        o->next = nullptr;
+        --parked_count_;
+        const int64_t rem = remaining_qty_units(*o);
+        if (rem > 0) {
+            // Unfilled at terminal — IOC-style remainder cancel (FOK uses
+            // its dedicated unfilled reason).
+            emit_cancel_event(o->id, o->account_id,
+                              o->tif == TimeInForce::FOK
+                                  ? kWalCancelReasonFokUnfilled
+                                  : wal_reason);
+        }
+        meta_erase(o->id);
+        oco_on_dead(o->id, /*by_fill=*/rem <= 0);
+        orders_.free(o);
+    }
+}
+
+bool MatchingEngine::parked_push(Order* o) noexcept {
+    if (parked_count_ >= kParkedOrderCap) return false;
+    o->next = nullptr;
+    if (parked_tail_ != nullptr) parked_tail_->next = o;
+    else parked_head_ = o;
+    parked_tail_ = o;
+    ++parked_count_;
+    return true;
+}
+
+Order* MatchingEngine::parked_find(uint64_t order_id) noexcept {
+    for (Order* o = parked_head_; o != nullptr; o = o->next) {
+        if (o->id == order_id) return o;
+    }
+    return nullptr;
+}
+
+bool MatchingEngine::on_auction_phase_replay(
+    const WalAuctionPhasePayload& p) noexcept {
+    // Journal-free application: wal_ == nullptr in the replay engine, so
+    // every internal journal call is a no-op — the transitions re-derive
+    // exactly what the live engine committed.
+    if (wal_fault_) return false;
+    switch (p.phase) {
+        case kAuctionPhaseCall:
+            if (auction_phase_ != kAuctionPhaseNone) return false;
+            auction_id_ = static_cast<int64_t>(p.auction_id);
+            auction_deadline_ns_ = p.deadline_ns;
+            auction_extensions_ = 0;
+            auction_awaiting_ = false;
+            auction_phase_ = kAuctionPhaseCall;
+            auction_mode_ = true;
+            trade_through_.set_auction(true);
+            book_.set_allow_crossed(true);
+            return true;
+        case kAuctionPhaseExtend:
+            if (auction_phase_ == kAuctionPhaseNone) return false;
+            if (p.deadline_ns != auction_deadline_ns_) {
+                auction_deadline_ns_ = p.deadline_ns;
+                auction_id_ = static_cast<int64_t>(p.auction_id);
+                ++auction_extensions_;
+                auction_awaiting_ = false;
+            }
+            return true;
+        case kAuctionPhaseUncross:
+            // Deadline resolution re-runs in the replay engine: the
+            // replayed book holds the same accumulated orders, so the same
+            // clearing price and fills re-derive — the journaled TRADE rows
+            // that follow dedup through the journaled-fill ledger.
+            if (auction_phase_ == kAuctionPhaseCall) {
+                auction_deadline_ns_ = p.deadline_ns;
+                auction_awaiting_ = false;
+                auction_resolve_deadline();
+            }
+            return true;
+        case kAuctionPhaseCancel:
+            if (auction_phase_ == kAuctionPhaseNone) return false;
+            parked_drain(kWalCancelReasonIocRemainder);
+            auction_exit(kAuctionPhaseCancel, kAuctionReasonControl);
+            return true;
+        case kAuctionPhaseQuarantine:
+            if ((p.flags & 1u) != 0 && !quarantined_) {
+                quarantined_ = true;
+                quarantine_code_ =
+                    p.reason == kAuctionReasonCrossedBook
+                        ? kRejectCrossedBook
+                        : kRejectAuctionClearingFailed;
+                // Forensic legitimation — same as quarantine_enter: a
+                // halted book may legitimately hold crossed levels.
+                if (book_.crossed()) book_.set_allow_crossed(true);
+            }
+            if (auction_phase_ != kAuctionPhaseNone &&
+                p.reason == kAuctionReasonClearingFailed) {
+                parked_drain(kWalCancelReasonIocRemainder);
+                auction_exit(kAuctionPhaseCancel, kAuctionReasonControl);
+            }
+            return true;
+        case kAuctionPhaseStrikeFail:
+            if (auction_phase_ == kAuctionPhaseCall) {
+                auction_awaiting_ = true;
+            }
+            return true;
+        default:
+            return false;
+    }
+}
+
+void MatchingEngine::adopt_auction_state(
+    uint8_t phase, int64_t auction_id, int64_t deadline_ns,
+    uint8_t extensions, bool awaiting, int64_t last_completed,
+    bool quarantined, const char* quarantine_code, Order* parked_head,
+    uint32_t parked_count) noexcept {
+    auction_phase_ = phase;
+    auction_id_ = auction_id;
+    auction_deadline_ns_ = deadline_ns;
+    auction_extensions_ = extensions;
+    auction_awaiting_ = awaiting;
+    last_completed_auction_id_ = last_completed;
+    quarantined_ = quarantined;
+    quarantine_code_ = quarantine_code;
+    parked_head_ = parked_head;
+    parked_count_ = parked_count;
+    parked_tail_ = nullptr;
+    if (parked_head_ != nullptr) {
+        Order* t = parked_head_;
+        while (t->next != nullptr) t = t->next;
+        parked_tail_ = t;
+    }
+    if (phase != kAuctionPhaseNone) {
+        auction_mode_ = true;
+        trade_through_.set_auction(true);
+        book_.set_allow_crossed(true);
+    }
 }
 
 }  // namespace exch

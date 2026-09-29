@@ -68,9 +68,11 @@ func TestNotificationPreferencesGetDefaults(t *testing.T) {
 	if body["user_id"].(float64) != 100 {
 		t.Fatalf("user_id=%v want 100 (numeric sub)", body["user_id"])
 	}
-	// Event vocabulary: 9 registered tokens (trading_halt via Phase-14
-	// Task 14.3.2; kyc_tier_downgraded via Task 14.3.4).
-	if len(body["events"].([]any)) != 9 {
+	// Event vocabulary: 11 user-facing tokens (trading_halt via Phase-14
+	// Task 14.3.2; kyc_tier_downgraded via Task 14.3.4; trade_busted /
+	// trade_price_adjusted via Phase-15 Task 15.3.5; copy_child_skipped
+	// is internal-only and not user-preference-addressable).
+	if len(body["events"].([]any)) != 11 {
 		t.Fatalf("events=%v", body["events"])
 	}
 }

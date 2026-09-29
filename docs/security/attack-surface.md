@@ -1,14 +1,14 @@
 # Attack Surface Map — Penetration Test Preparation
 
-**Generated:** 2026-09-29 13:41 UTC by `scripts/security/gen-attack-surface.py` (Task 13.3.5). Regenerate before each test window — the table is derived from `gateway.SeedRoutes()` (`services/internal/gateway/routes_v1.go`), the same table the gateway mounts and `GET /api/v1/routes` serves. Do not hand-edit; update the registry or this generator.
+**Generated:** 2026-09-29 15:01 UTC by `scripts/security/gen-attack-surface.py` (Task 13.3.5). Regenerate before each test window — the table is derived from `gateway.SeedRoutes()` (`services/internal/gateway/routes_v1.go`), the same table the gateway mounts and `GET /api/v1/routes` serves. Do not hand-edit; update the registry or this generator.
 
 Scope/ROE live in [pentest-scope.md](./pentest-scope.md); fixtures in `tests/pentest/`.
 
 ## 1. Summary
 
-- **411 registered routes**: 286 live, 125 stub (501-until-implemented — still routable surface: they consume auth/rate-limit middleware and are part of the attack surface)
+- **416 registered routes**: 303 live, 113 stub (501-until-implemented — still routable surface: they consume auth/rate-limit middleware and are part of the attack surface)
 - **7 WebSocket endpoints**, 15 public channel types, 6 private channels, 15 control/order actions
-- **28 dual-control routes** (four-eyes operations), **9 env-gated routes** (nonprod/env-scoped only)
+- **32 dual-control routes** (four-eyes operations), **9 env-gated routes** (nonprod/env-scoped only)
 - FIX surface: scaffold only — see §4
 
 ## 2. HTTP/REST routes (full registry)
@@ -168,16 +168,16 @@ Columns: auth = `public` (no credentials) or required credential/scope/role; tie
 | `POST` | `/api/v1/admin/governance-packs/generate` | auth (role:Super Admin) | basic | live |  |  |
 | `GET` | `/api/v1/admin/governance-packs/{id}` | auth (role:Read-Only Auditor) | basic | live |  |  |
 | `POST` | `/api/v1/admin/governance-packs/{id}/release` | auth (role:Super Admin) | basic | live | yes |  |
-| `GET` | `/api/v1/admin/instruments` | auth (role:Risk Manager) | basic | stub |  |  |
-| `POST` | `/api/v1/admin/instruments` | auth (role:Risk Manager) | basic | stub |  |  |
-| `PUT` | `/api/v1/admin/instruments/{id}` | auth (role:Risk Manager) | basic | stub |  |  |
-| `POST` | `/api/v1/admin/instruments/{id}/activate` | auth (role:Risk Manager) | basic | stub |  |  |
-| `POST` | `/api/v1/admin/instruments/{id}/cancel-only` | auth (role:Risk Manager) | basic | stub |  |  |
-| `POST` | `/api/v1/admin/instruments/{id}/delist` | auth (role:Risk Manager) | basic | stub |  |  |
-| `POST` | `/api/v1/admin/instruments/{id}/halt` | auth (role:Risk Manager) | basic | stub |  |  |
-| `POST` | `/api/v1/admin/instruments/{id}/restrict` | auth (role:Risk Manager) | basic | stub |  |  |
-| `POST` | `/api/v1/admin/instruments/{id}/resume` | auth (role:Risk Manager) | basic | stub |  |  |
-| `POST` | `/api/v1/admin/instruments/{id}/suspend` | auth (role:Risk Manager) | basic | stub |  |  |
+| `GET` | `/api/v1/admin/instruments` | auth (role:Risk Manager) | basic | live |  |  |
+| `POST` | `/api/v1/admin/instruments` | auth (role:Super Admin) | basic | live | yes |  |
+| `PUT` | `/api/v1/admin/instruments/{id}` | auth (role:Risk Manager) | basic | live |  |  |
+| `POST` | `/api/v1/admin/instruments/{id}/activate` | auth (role:Risk Manager) | basic | live |  |  |
+| `POST` | `/api/v1/admin/instruments/{id}/cancel-only` | auth (role:*) | basic | live |  |  |
+| `POST` | `/api/v1/admin/instruments/{id}/delist` | auth (role:Super Admin) | basic | live | yes |  |
+| `POST` | `/api/v1/admin/instruments/{id}/halt` | auth (role:Risk Manager) | basic | live |  |  |
+| `POST` | `/api/v1/admin/instruments/{id}/restrict` | auth (role:Risk Manager) | basic | live |  |  |
+| `POST` | `/api/v1/admin/instruments/{id}/resume` | auth (role:Risk Manager) | basic | live | yes |  |
+| `POST` | `/api/v1/admin/instruments/{id}/suspend` | auth (role:Compliance Officer) | basic | live |  |  |
 | `POST` | `/api/v1/admin/instruments/{id}/uncross-override` | auth (role:Risk Manager) | basic | stub |  |  |
 | `GET` | `/api/v1/admin/instruments/{symbol}/auction-calendar` | auth (role:Risk Manager) | basic | stub |  |  |
 | `PUT` | `/api/v1/admin/instruments/{symbol}/auction-calendar` | auth (role:Risk Manager) | basic | stub |  |  |
@@ -210,6 +210,11 @@ Columns: auth = `public` (no credentials) or required credential/scope/role; tie
 | `POST` | `/api/v1/admin/maintenance-windows` | auth (role:Support Agent) | basic | live |  |  |
 | `DELETE` | `/api/v1/admin/maintenance-windows/{id}` | auth (role:Support Agent) | basic | live |  |  |
 | `PATCH` | `/api/v1/admin/maintenance-windows/{id}` | auth (role:Support Agent) | basic | live |  |  |
+| `GET` | `/api/v1/admin/market-schedule` | auth (role:*) | basic | live |  |  |
+| `GET` | `/api/v1/admin/market-schedule/overrides` | auth (role:*) | basic | live |  |  |
+| `POST` | `/api/v1/admin/market-schedule/overrides` | auth (role:Risk Manager) | basic | live |  |  |
+| `DELETE` | `/api/v1/admin/market-schedule/overrides/{id}` | auth (role:Risk Manager) | basic | live |  |  |
+| `PUT` | `/api/v1/admin/market-schedule/overrides/{id}` | auth (role:Risk Manager) | basic | live |  |  |
 | `GET` | `/api/v1/admin/mifid-report` | auth (role:Compliance Officer) | basic | stub |  |  |
 | `GET` | `/api/v1/admin/nostro-accounts` | auth (role:Finance Ops) | basic | stub |  |  |
 | `POST` | `/api/v1/admin/nostro-accounts` | auth (role:Finance Ops) | basic | stub |  |  |
@@ -260,7 +265,7 @@ Columns: auth = `public` (no credentials) or required credential/scope/role; tie
 | `POST` | `/api/v1/admin/swap-free/{id}/reject` | auth (role:Compliance Officer) | basic | live |  |  |
 | `POST` | `/api/v1/admin/swap-free/{id}/revoke` | auth (role:Compliance Officer) | basic | live |  |  |
 | `GET` | `/api/v1/admin/swift-messages` | auth (role:Finance Ops) | basic | stub |  |  |
-| `POST` | `/api/v1/admin/trades/{id}/bust` | auth (role:Risk Manager) | basic | stub |  |  |
+| `POST` | `/api/v1/admin/trades/{id}/bust` | auth (role:Risk Manager) | basic | live | yes |  |
 | `POST` | `/api/v1/admin/treasury/contingent-capital` | auth (role:Finance Ops) | basic | stub |  |  |
 | `GET` | `/api/v1/admin/treasury/own-funds` | auth (role:Finance Ops) | basic | stub |  |  |
 | `GET` | `/api/v1/admin/webhooks/dead-letters` | auth (role:Support Agent) | basic | live |  |  |
@@ -386,7 +391,7 @@ Columns: auth = `public` (no credentials) or required credential/scope/role; tie
 | `GET` | `/api/v1/routes` | auth (role:Super Admin) | exempt | live |  |  |
 | `POST` | `/api/v1/security/disclosures` | public | public | live |  |  |
 | `GET` | `/api/v1/security/policy` | public | public | live |  |  |
-| `GET` | `/api/v1/session/status` | public | public | stub |  |  |
+| `GET` | `/api/v1/session/status` | public | public | live |  |  |
 | `GET` | `/api/v1/solvency/latest` | public | public | live |  |  |
 | `GET` | `/api/v1/solvency/proof` | auth (scope:read) | basic | live |  |  |
 | `GET` | `/api/v1/stats/24h` | public | public | live |  |  |

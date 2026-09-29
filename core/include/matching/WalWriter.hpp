@@ -123,6 +123,12 @@ public:
     // exercise it.
     [[nodiscard]] WalStatus write_oco_link(
         const WalOcoLinkPayload& p, uint64_t ts_ns) noexcept;
+    // Phase-15 Tasks 15.3.6/15.3.10 — instrument auction phase transition
+    // (WalAuctionPhasePayload, spec §7.3). Journaled at every committed
+    // CALL/EXTEND/UNCROSS/CANCEL/QUARANTINE transition so replay re-derives
+    // the auction state machine deterministically.
+    [[nodiscard]] WalStatus write_auction_phase(
+        const WalAuctionPhasePayload& p, uint64_t ts_ns) noexcept;
 
     // Durability barrier passthrough (batch fsync).
     [[nodiscard]] WalStatus flush() noexcept;

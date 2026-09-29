@@ -304,10 +304,13 @@ func ckSeedInstruments(ctx context.Context, env *spec.Env) spec.Result {
 				}
 				got[r.sym] = r
 			}
+			// Phase-15 Task 15.3.11's production reference seed legitimately
+			// adds instruments beyond the original 8 — assert the required
+			// set is present + ACTIVE; extras are reference rows, not drift.
 			want := []string{"AUD/USD", "EUR/USD", "GBP/USD", "NZD/USD",
 				"USD/CAD", "USD/CHF", "USD/JPY", "USD/MXN"}
-			if len(got) != len(want) {
-				return spec.Failf("instruments count=%d want %d", len(got), len(want))
+			if len(got) < len(want) {
+				return spec.Failf("instruments count=%d want >= %d", len(got), len(want))
 			}
 			for _, s := range want {
 				r, ok := got[s]

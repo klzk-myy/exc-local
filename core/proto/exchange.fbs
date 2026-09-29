@@ -113,10 +113,32 @@ table BookSnapshot {
     asks: [PriceLevel];
 }
 
+/// Outbound: auction phase transition / indicative update — Phase-15
+/// (spec §7.3 reopening call auction). Emitted on every committed phase
+/// transition and when the indicative clearing pair (price,qty) changes
+/// during CALL accumulation.
+///   phase:  0=CALL 1=EXTEND 2=UNCROSS 3=CANCEL 4=QUARANTINE
+///           5=STRIKE_FAILED (deadline struck, no clearing price formed)
+///   signal: 0=indicative update, 1=uncross committed, 2=deadline extended,
+///           3=clearing failed/quarantined, 4=crossed-book quarantine
+///   auction_id: opaque id of the armed CALL (the armed deadline ns value).
+///   imbalance: signed buy-minus-sell eligible qty at the indicative price.
+table AuctionEvent {
+    instrument_id: uint32;
+    auction_id: uint64;
+    phase: ubyte;
+    signal: ubyte;
+    indicative_price: int64;   // scaled 1e8
+    indicative_qty: int64;     // scaled 1e8
+    imbalance: int64;          // scaled 1e8 (buy-side surplus when > 0)
+    deadline_ns: int64;
+    cleared_qty: int64;        // scaled 1e8 (UNCROSS rows; 0 elsewhere)
+}
+
 // Union members are APPEND-ONLY: discriminants are wire-embedded ordinals —
 // inserting mid-union renumbers TradeFill/BookSnapshot and breaks compat.
 union EventType { OrderNew, OrderCancel, TradeFill, BookSnapshot, TimeTick,
-                  OrderAmend, OcoLink }
+                  OrderAmend, OcoLink, AuctionEvent }
 
 /// Envelope for every IPC message. `type_type` carries the discriminator.
 table Event {

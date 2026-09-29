@@ -197,8 +197,16 @@ public:
     // when no instrument is bound or either side is empty (undefined spread).
     [[nodiscard]] bool spread_pips(int64_t& out_pips) const noexcept;
     // Invariant probe: true iff both sides populated AND best_bid >= best_ask
-    // — must never be true (spec §3.1 / §24 #1; §23 BOOK_CROSS_ERROR family).
+    // — must never be true outside an armed CALL auction (spec §3.1 /
+    // §24 #1; §23 BOOK_CROSS_ERROR family).
     [[nodiscard]] bool crossed() const noexcept;
+    // Phase-15 Task 15.3.6 — auction-scoped crossing relaxation. While an
+    // armed CALL accumulates orders the book may hold crossed levels
+    // deliberately; set_allow_crossed(true) suspends the CROSSED insertion
+    // guard and the validate() crossing audit for exactly that window.
+    // Default false — continuous mode is never-crossed, always.
+    void set_allow_crossed(bool allow) noexcept { allow_crossed_ = allow; }
+    [[nodiscard]] bool allow_crossed() const noexcept { return allow_crossed_; }
     // Cold-path structural audit: sorted levels, consistent chains + totals,
     // index completeness, not-crossed. Used by tests and the Phase-02.5 soak
     // harness; *violation (optional) receives a static reason string.
@@ -266,6 +274,7 @@ private:
     std::size_t max_orders_ = 0;               // resting-order cap (§3.6.1)
     std::size_t live_orders_ = 0;
     mutable uint32_t last_lookup_probes_ = 0;  // binary-search instrument'n
+    bool allow_crossed_ = false;  // Task 15.3.6 — armed CALL accumulation only
 };
 
 }  // namespace exch

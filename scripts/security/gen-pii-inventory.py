@@ -156,6 +156,13 @@ ANNOTATIONS = {
     ("strategy_profiles", "suspend_reason"): ("FREE_TEXT", "plaintext", "compliance note", "strategy lifetime"),
     ("compliance_holds", "reason"): ("FREE_TEXT", "plaintext", "officer-entered hold justification", "financial record floor"),
     ("pamm_pools", "name"): ("FREE_TEXT", "plaintext", "manager-chosen pool label", "pool lifetime"),
+    # ---- Phase-15 instrument lifecycle records --------------------------
+    ("instrument_change_requests", "reason"): ("FREE_TEXT", "plaintext", "maker justification — officer-entered", "audit floor"),
+    ("instrument_change_log", "reason"): ("FREE_TEXT", "plaintext", "parameter-change rationale — officer-entered", "audit floor"),
+    ("market_schedule_overrides", "reason"): ("FREE_TEXT", "plaintext", "ops note — holiday/early-close justification", "audit floor"),
+    ("benchmark_fixings", "skip_reason"): ("FREE_TEXT", "plaintext", "machine/officer skip note", "audit floor"),
+    ("trade_busts", "reason"): ("FREE_TEXT", "plaintext", "obvious-error rationale — officer-entered", "audit floor"),
+    ("instrument_change_requests", "payload"): ("FREE_TEXT", "plaintext JSONB — may embed actor context", "change bundle", "audit floor"),
     # ---- trading records (linkage, immutable) ----------------------------
     ("orders", "account_id"): ("LINKAGE", "n/a (FK)", "all order paths", "MiFID 5y — Art.17(3)(b) immutable"),
     ("orders", "client_order_id"): ("FREE_TEXT", "plaintext", "client-supplied id; may embed identifiers", "MiFID 5y"),

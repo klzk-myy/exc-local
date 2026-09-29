@@ -115,6 +115,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 #include "book/OrderBook.hpp"
@@ -372,6 +373,32 @@ public:
     [[nodiscard]] uint64_t snapshot_seq() const noexcept { return snapshot_seq_; }
     [[nodiscard]] uint64_t wal_tail() const noexcept { return wal_tail_; }
 
+    // --- Phase-15 recovered auction state (Tasks 15.3.6/15.3.10) ----------
+    // Snapshot of the replay engine's auction/lifecycle position per bound
+    // book, captured at the end of a successful recover(). main.cpp copies
+    // it into the live engine via MatchingEngine::adopt_auction_state().
+    // parked_head nodes are owned by the binding's pool (or the retained
+    // arena) — they stay valid for the binding's lifetime; the live engine
+    // frees them back to ITS pool only when binding->orders IS the live
+    // pool (the main.cpp wiring; otherwise the arena keeps them alive and
+    // the engine treats the list as borrowed scratch — do not adopt
+    // parked nodes into a live engine bound to a different pool).
+    struct RecoveredAuctionState {
+        uint8_t  phase = 0xff;       // MatchingEngine::kAuctionPhase*
+        int64_t  auction_id = 0;
+        int64_t  deadline_ns = 0;
+        uint8_t  extensions = 0;
+        bool     awaiting = false;
+        int64_t  last_completed = 0;
+        bool     quarantined = false;
+        const char* quarantine_code = nullptr;  // engine string literal
+        Order*   parked_head = nullptr;
+        uint32_t parked_count = 0;
+    };
+    // nullptr when the instrument was not bound (or no recover() ran).
+    [[nodiscard]] const RecoveredAuctionState* recovered_auction_state(
+        uint32_t instrument_id) const noexcept;
+
 private:
     struct BookState;  // per-binding working set (pimpl to keep the header lean)
 
@@ -397,6 +424,10 @@ private:
     // Arenas accumulate across recover() calls: freeing one early could
     // still dangle books recovered in earlier calls.
     std::vector<std::unique_ptr<MemoryPool<Order>>> adopted_pools_;
+    // Per-instrument auction/lifecycle state captured at the end of each
+    // recover() — see RecoveredAuctionState above.
+    std::unordered_map<uint32_t, RecoveredAuctionState>
+        recovered_auctions_;
 };
 
 }  // namespace exch

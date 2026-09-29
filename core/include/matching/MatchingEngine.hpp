@@ -53,6 +53,7 @@
 namespace exch {
 
 class IpcPublisher;
+class InstrumentFeed;  // risk/InstrumentFeed.hpp (Phase-15 control feed)
 
 class MatchingEngine : public IEngineIngress {
 public:
@@ -283,6 +284,13 @@ public:
     static constexpr char kRejectInstrumentSuspended[] = "INSTRUMENT_SUSPENDED";
     static constexpr char kRejectInstrumentHalted[] = "INSTRUMENT_HALTED";
     static constexpr char kRejectInstrumentDelisted[] = "INSTRUMENT_DELISTED";
+    static constexpr char kRejectInstrumentRestricted[] = "INSTRUMENT_RESTRICTED";
+    // Phase-15 Task 15.3.4 (§7.3) — outside the published 24/5 window.
+    static constexpr char kRejectMarketClosed[] = "MARKET_CLOSED";
+    // Phase-15 Task 15.3.10 (§23-registered 409 rows).
+    static constexpr char kRejectAuctionClearingFailed[] =
+        "AUCTION_CLEARING_FAILED";
+    static constexpr char kRejectCrossedBook[] = "CROSSED_BOOK_DETECTED";
     // Phase-14 Task 14.3.1 OCO codes (spec §6.5/§23 — OCO_SIBLING_CANCEL_RACE
     // is the §23-registered code; the other two are engine-internal link
     // validation verdicts surfaced via last_reject()/logs only).
@@ -358,6 +366,83 @@ public:
         auction_mode_ = in_auction;
         trade_through_.set_auction(in_auction);
     }
+
+    // --- Phase-15 instrument feed / auction surface --------------------------
+    // Binds the control-plane InstrumentFeed (Tasks 15.3.3/15.3.4/15.3.6).
+    // Unbound = dev/test mode: the lifecycle gate falls back to the static
+    // book instrument status and the market-hours/auction keys are not
+    // enforced (identical convention to the SuspensionFlags seam — an
+    // unwired feed leaves enforcement to the Go admission layer).
+    // Mutable pointer: the engine writes the auction-result request slot
+    // (matching→control channel) — reads still go through the immutable
+    // snapshot copy.
+    void bind_instrument_feed(InstrumentFeed* feed) noexcept {
+        feed_ = feed;
+    }
+    [[nodiscard]] const InstrumentFeed* instrument_feed() const noexcept {
+        return feed_;
+    }
+
+    // Auction phase values == WalAuctionPhasePayload.phase wire enum.
+    static constexpr uint8_t kAuctionPhaseCall       = 0;
+    static constexpr uint8_t kAuctionPhaseExtend     = 1;
+    static constexpr uint8_t kAuctionPhaseUncross    = 2;
+    static constexpr uint8_t kAuctionPhaseCancel     = 3;
+    static constexpr uint8_t kAuctionPhaseQuarantine = 4;
+    static constexpr uint8_t kAuctionPhaseStrikeFail = 5;
+    static constexpr uint8_t kAuctionPhaseNone       = 0xff;
+    // WalAuctionPhasePayload.reason values.
+    static constexpr uint8_t kAuctionReasonNone          = 0;
+    static constexpr uint8_t kAuctionReasonControl       = 1;
+    static constexpr uint8_t kAuctionReasonDeadlineMoved = 2;
+    static constexpr uint8_t kAuctionReasonClearingFailed = 3;
+    static constexpr uint8_t kAuctionReasonCrossedBook   = 4;
+
+    [[nodiscard]] uint8_t auction_phase() const noexcept {
+        return auction_phase_;
+    }
+    [[nodiscard]] int64_t auction_id() const noexcept { return auction_id_; }
+    [[nodiscard]] int64_t auction_deadline_ns() const noexcept {
+        return auction_deadline_ns_;
+    }
+    [[nodiscard]] uint8_t auction_extensions() const noexcept {
+        return auction_extensions_;
+    }
+    [[nodiscard]] bool auction_awaiting() const noexcept {
+        return auction_awaiting_;
+    }
+    [[nodiscard]] int64_t last_completed_auction_id() const noexcept {
+        return last_completed_auction_id_;
+    }
+    // Engine-local quarantine (Task 15.3.10): crossed-book halt or an
+    // auction-clearing-failure suspend. New orders + amends reject with
+    // quarantine_code(); cancels stay open (§7.1 semantics for the mapped
+    // status). Only a successful armed-CALL uncross clears it.
+    [[nodiscard]] bool quarantined() const noexcept { return quarantined_; }
+    [[nodiscard]] const char* quarantine_code() const noexcept {
+        return quarantine_code_;
+    }
+    // Parked = orders accumulated during CALL that can never rest
+    // (MARKET / IOC / FOK) — they participate in the uncross then die.
+    [[nodiscard]] uint32_t auction_parked_count() const noexcept {
+        return parked_count_;
+    }
+    [[nodiscard]] const Order* auction_parked_head() const noexcept {
+        return parked_head_;
+    }
+
+    // RecoveryManager replay entry (journal-free): applies one journaled
+    // AUCTION_PHASE row. Returns true when a transition was applied.
+    bool on_auction_phase_replay(const WalAuctionPhasePayload& p) noexcept;
+    // Post-recovery adoption (main.cpp): move the replayed auction position
+    // into the live engine — phase/id/deadline/extensions, the consumed-id
+    // dedupe ledger, the quarantine flag, and the parked ingress nodes
+    // (pool-owned; nullptr when none).
+    void adopt_auction_state(uint8_t phase, int64_t auction_id,
+                             int64_t deadline_ns, uint8_t extensions,
+                             bool awaiting, int64_t last_completed,
+                             bool quarantined, const char* quarantine_code,
+                             Order* parked_head, uint32_t parked_count) noexcept;
     // ORDER_CANCEL reason 6 — execution-collar remainder expiry
     // (EXECUTION_RULE_PRICE_RANGE_EXCEEDED). Continues the kWalCancelReason*
     // family in matching/WalWriter.hpp.
@@ -528,6 +613,65 @@ private:
 
     [[nodiscard]] uint32_t instrument_id_of(const OrderAux& aux) const noexcept;
 
+    // --- Phase-15 auction / lifecycle helpers ---------------------------------
+    // admission_gate: quarantine -> instrument status -> market-hours,
+    // evaluated per new order (feed-bound) or against the static instrument
+    // (feed-unbound dev/test mode). Returns the rejection code or nullptr.
+    [[nodiscard]] const char* admission_gate(const Order& o) const noexcept;
+    // Effective instrument status: feed-verified when bound (unverifiable
+    // feed fails closed to SUSPENDED), else the static book instrument.
+    [[nodiscard]] InstrumentStatus effective_status() const noexcept;
+
+    // Auction machinery (Tasks 15.3.6/15.3.10). control_sync observes the
+    // feed's armed key (arm / deadline-move / withdraw) at every ingress
+    // event; deadline_check resolves the uncross on the logical clock
+    // (on_time_tick only — a deadline is a clock condition, never driven by
+    // ad-hoc ingress). on_auction_phase_replay routes journaled rows
+    // through the same journal-free state machine so live and replayed
+    // engines converge identically.
+    void auction_control_sync() noexcept;
+    void auction_deadline_check() noexcept;
+    void auction_resolve_deadline() noexcept;
+    bool auction_journal(uint8_t phase, uint8_t reason, int64_t price_ticks,
+                         int64_t qty_units) noexcept;
+    void auction_enter_call(int64_t deadline_ns) noexcept;
+    void auction_exit(uint8_t phase, uint8_t reason) noexcept;
+    // CALL-mode admission: rest GTC/GTD/DAY limits + icebergs directly into
+    // the (crossed-tolerant) book, enqueue stops untriggered, park
+    // MARKET/IOC/FOK orders for the uncross. Returns true when the node was
+    // adopted by a container (book/stop/park), false on a cancel-reject.
+    bool auction_accumulate(Order* order, const OrderAux& aux) noexcept;
+    // Single-price uncross math + execution. auction_indicative computes the
+    // max-executable-volume price over resting levels + parked orders
+    // (iceberg hidden remainder counts); auction_uncross drains eligible
+    // pairs at that price in strict price-time order (parked markets rank
+    // ahead of all limits). dry_run applies no mutation — used to learn the
+    // cleared volume BEFORE the UNCROSS WAL row is journaled.
+    struct AuctionIndicative {
+        int64_t price_ticks = 0;
+        int64_t exec_qty_units = 0;
+        int64_t buy_qty_units = 0;    // eligible buy qty at the clear price
+        int64_t sell_qty_units = 0;
+        bool    has_candidates = false;  // any limit price exists at all
+    };
+    [[nodiscard]] AuctionIndicative auction_indicative() const noexcept;
+    int64_t auction_uncross(int64_t price_ticks, bool dry_run) noexcept;
+    // Indicative publication — emits an AuctionEvent only when the
+    // (price,qty) clearing pair changed since the last publish.
+    void publish_auction_indicative() noexcept;
+    // Quarantine (Task 15.3.10): engine-local halt — orders reject with
+    // `code`, amends likewise, cancels unaffected.
+    void quarantine_enter(const char* code, uint8_t reason) noexcept;
+    void quarantine_check() noexcept;   // continuous-mode crossed-book probe
+    // Parked-order list ops (intrusive FIFO over Order::next).
+    bool parked_push(Order* o) noexcept;
+    Order* parked_find(uint64_t order_id) noexcept;
+    void parked_drain(uint8_t wal_reason) noexcept;  // cancel-all (terminal)
+    // Effective remaining including the iceberg hidden remainder — same
+    // accounting as effective_remaining_units but for the auction sweep.
+    [[nodiscard]] int64_t effective_level_units(
+        const PriceLevel& lvl, Side side) const noexcept;
+
     uint32_t shard_id_;
     OrderBook& book_;
     MemoryPool<Order>& orders_;
@@ -574,6 +718,36 @@ private:
     PriceImprovementRecorder improvement_;
     bool tt_enabled_ = false;
     bool auction_mode_ = false;
+
+    // --- Phase-15 instrument feed + auction state (Tasks 15.3.3–15.3.10) -----
+    // Control-plane feed — nullptr in journal-free replay engines and
+    // unbound test harnesses (gates then read the static instrument only).
+    InstrumentFeed* feed_ = nullptr;  // mutable: result-request write slot
+    // Armed-CALL state machine. auction_phase_ is kAuctionPhase* (None when
+    // no auction is armed). auction_id_ is the consumed armed value's
+    // deadline — identity dedupe: a completed/consumed deadline can never
+    // re-arm (last_completed_auction_id_). auction_awaiting_ marks the
+    // post-strike-failure window where the Go EXTEND ladder decides.
+    uint8_t  auction_phase_ = kAuctionPhaseNone;
+    int64_t  auction_id_ = 0;
+    int64_t  auction_deadline_ns_ = 0;
+    uint8_t  auction_extensions_ = 0;
+    bool     auction_awaiting_ = false;
+    int64_t  last_completed_auction_id_ = 0;
+    // Defensive local cap mirroring the Go ladder (EXTEND ≤3 → FAILED).
+    static constexpr uint8_t kAuctionMaxExtensions = 3;
+    // Engine-local quarantine (crossed-book halt / clearing-fail suspend).
+    bool        quarantined_ = false;
+    const char* quarantine_code_ = nullptr;
+    // Parked CALL-accumulated non-resting orders — intrusive FIFO over
+    // Order::next (bounded; full => fail-closed BOOK_CAPACITY).
+    static constexpr uint32_t kParkedOrderCap = 1024;
+    Order*   parked_head_ = nullptr;
+    Order*   parked_tail_ = nullptr;
+    uint32_t parked_count_ = 0;
+    // Indicative-price publish dedupe (emit only on change).
+    int64_t  last_indicative_price_ = -1;
+    int64_t  last_indicative_qty_ = -1;
     self_trade_fn self_trade_fn_ = nullptr;
     void* self_trade_ctx_ = nullptr;
     prevented_match_fn prevented_fn_ = nullptr;

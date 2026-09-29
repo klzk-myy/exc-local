@@ -38,6 +38,7 @@ import (
 	"exchange/internal/fleet"
 	"exchange/internal/funding"
 	"exchange/internal/gateway"
+	"exchange/internal/instruments"
 	"exchange/internal/ipc"
 	"exchange/internal/marketapi"
 	"exchange/internal/middleware"
@@ -1146,6 +1147,114 @@ func run() error {
 		log.Info("kill-switch flags reconciled", "active_suspensions", n)
 	}
 
+	// ---- Phase-15 Tasks 15.3.4 / 15.3.7 — market schedule + 24/5
+	//      weekly session lifecycle ----
+	//
+	// MarketScheduleService owns the market:hours Redis projection the
+	// C++ PreTradeChecker polls (spec §1 window SUN 21:00 → FRI 22:00
+	// UTC + market_schedule_overrides, migration 221). Boot reconcile
+	// unconditionally rewrites the key — a restarted gateway never
+	// leaves a stale schedule in front of the engine. A publish failure
+	// retries on a 30s loop: an absent market:hours is a fail-closed
+	// hazard, not a boot-fatal one (the C++ gate rejects on a missing
+	// key anyway).
+	schedSvc, err := admin.NewMarketScheduleService(pool, rdb,
+		admin.AdminRoleResolver(adminRoleResolver))
+	if err != nil {
+		return fmt.Errorf("market schedule service: %w", err)
+	}
+	go func() {
+		for {
+			if err := schedSvc.Reconcile(sweepCtx); err != nil {
+				log.Warn("market:hours reconcile failed — retrying in 30s", "err", err)
+				select {
+				case <-sweepCtx.Done():
+					return
+				case <-time.After(30 * time.Second):
+					continue
+				}
+			}
+			log.Info("market:hours published", "key", admin.MarketHoursKey)
+			return
+		}
+	}()
+
+	// SessionService drives the §6.7 weekly machine
+	// (OPEN → PRE_CLOSE → CLOSED → PRE_OPEN → OPEN) across
+	// session:state:{shard} keys. The Friday-close transition fires the
+	// Task 3.3.7 Tom-Next roll through the RolloverRunner seam — bound
+	// to a real settlement.RolloverService when the calendar/swap
+	// stores resolve; otherwise nil (the seam logs + the daemon, when
+	// deployed, is the backstop). Pending effects persist in
+	// session:ctl so a mid-transition crash is resumed by any replica.
+	var rolloverRunner admin.RolloverRunner
+	if cal, cerr := settlement.LoadCalendar(context.Background(), pool); cerr != nil {
+		log.Warn("session lifecycle: holiday calendar unavailable — rollover seam unwired",
+			"err", cerr)
+	} else {
+		swapStore := settlement.NewPgSwapRateStore(pool)
+		swapEngine, eerr := settlement.NewSwapEngine(swapStore, swapStore,
+			cal, ledgerSvc, ledgerPub, nil, nil)
+		swapFees, ferr := settlement.NewSwapFreeFeeService(pool, ledgerSvc)
+		if eerr != nil || ferr != nil {
+			log.Warn("session lifecycle: rollover service construction failed — seam unwired",
+				"engine_err", eerr, "fees_err", ferr)
+		} else if rsvc, rerr := settlement.NewRolloverService(pool, swapEngine, cal, swapFees, rdb); rerr != nil {
+			log.Warn("session lifecycle: rollover service wiring failed", "err", rerr)
+		} else {
+			rolloverRunner = func(ctx context.Context, now time.Time) (string, error) {
+				rep, rerr := rsvc.RunOnce(ctx, now)
+				return fmt.Sprintf("run=%d rolled=%d skipped=%q errors=%d",
+					rep.RunID, rep.PositionsRolled, rep.SkipReason, len(rep.Errors)), rerr
+			}
+		}
+	}
+	sessSvc, err := admin.NewSessionService(admin.SessionDeps{
+		RDB:      rdb,
+		Shards:   shardIDsAsInt(shardMap),
+		Pub:      wsSrv,
+		Rollover: rolloverRunner,
+		Symbols: func(ctx context.Context) ([]string, error) {
+			rows, err := pool.Query(ctx,
+				`SELECT symbol FROM instruments WHERE status = 'ACTIVE' ORDER BY symbol`)
+			if err != nil {
+				return nil, err
+			}
+			defer rows.Close()
+			var out []string
+			for rows.Next() {
+				var s string
+				if err := rows.Scan(&s); err != nil {
+					return nil, err
+				}
+				out = append(out, s)
+			}
+			return out, rows.Err()
+		},
+		Alert: admin.Alerter(func(ctx context.Context, severity, summary string) error {
+			if opsAlerter == nil {
+				return nil
+			}
+			return opsAlerter.Raise(ctx, settlement.OpsAlert{
+				Severity: severity, Code: "SESSION_EFFECT_FAILED", Summary: summary})
+		}),
+		Logf: func(f string, a ...any) { log.Warn(fmt.Sprintf(f, a...)) },
+	})
+	if err != nil {
+		return fmt.Errorf("session lifecycle service: %w", err)
+	}
+	// Boot reconcile (writes missing/stale session:state:* keys), then the
+	// 5s scheduler. The Evaluate path is shared — reconcile IS a evaluate.
+	if err := sessSvc.Reconcile(context.Background()); err != nil {
+		log.Warn("session reconcile failed — scheduler will retry", "err", err)
+	}
+	go func() {
+		if err := sessSvc.Run(sweepCtx, 5*time.Second); err != nil {
+			log.Warn("session lifecycle loop exited", "err", err)
+		}
+	}()
+	// --- end Phase-15 session wiring ---
+
 	// Phase-13 Task 13.3.2 — nine-category hourly reconciliation engine.
 	// The sweep composes the Phase-04 wallet-diff legs (composed via
 	// recovery.RecWalletReconcileDiff, never reimplemented), the core
@@ -1465,6 +1574,202 @@ func run() error {
 	// Phase-14 Task 14.3.13 — profile pricing/scope/divisor mutations
 	// run through the four-eyes queue; approval applies them in-tx.
 	api.RegisterProductProfileExecutor(dualSvc, profileSvc)
+
+	// Phase-15 Tasks 15.3.1/15.3.2/15.3.9 — instrument lifecycle state
+	// machine (spec §7.1/§7.2). The service owns the transition matrix,
+	// the instrument:status:{symbol} engine feed the C++ pre-trade
+	// checker polls, the instrument:auction:{symbol} reopening-CALL
+	// control key, the SUSPENDED 5-minute grace mass-cancel through
+	// the orders dispatcher (the same pipeline compliance holds and
+	// forced closures use), and the boot/periodic publication
+	// reconciler — the reconciler also converges the feed after
+	// dual-controlled transitions whose commits cannot publish in-tx.
+	instrumentSvc, err := admin.NewInstrumentService(admin.InstrumentDeps{
+		Pool:      pool,
+		Roles:     adminRoleResolver,
+		Feed:      admin.RedisStatusFeed{C: rdb.Client},
+		Canceller: instrumentOrderCanceller{disp: orderDisp},
+		WS:        wsSrv,
+		OnStatus:  func() { marketCache.Forget("instruments:all") },
+		Logf:      func(f string, a ...any) { log.Warn(fmt.Sprintf("instrument lifecycle: "+f, a...)) },
+	})
+	if err != nil {
+		return err
+	}
+	api.RegisterInstrumentExecutors(dualSvc, instrumentSvc)
+	// Dual-approved instrument ops publish their engine feed + auction
+	// arm + WS event post-commit — the approval tx cannot write Redis.
+	// PublishCommitted re-derives the side effects from the committed
+	// audit row (the four-eyes record), so dual-path transitions emit
+	// exactly what a direct transition would.
+	dualSvc.SetOnExecuted(func(ctx context.Context, req *admin.DualControlRequest) {
+		if req.Operation != admin.OpInstrumentResume &&
+			req.Operation != admin.OpInstrumentDelist {
+			return
+		}
+		id, err := strconv.ParseInt(req.TargetID, 10, 64)
+		if err != nil {
+			log.Warn("instrument lifecycle: post-commit publish bad target", "target", req.TargetID, "err", err)
+			return
+		}
+		if err := instrumentSvc.PublishCommitted(ctx, id); err != nil {
+			log.Warn("instrument lifecycle: post-commit publish", "instrument", id, "err", err)
+		}
+	})
+	go instrumentSvc.Run(sweepCtx, time.Second)
+
+	// Phase-15 Tasks 15.3.11–13 — reference/session seams, listing
+	// proposals + the §7.5 delist ladder, the ops board, and the
+	// auction/fixing schedulers (spec §7.1/§7.4/§7.5, §24 #343/#352/
+	// #401). The auction + fixing control keys ride the extended
+	// admin.RedisStatusFeed surface (same instrument:auction:{symbol}
+	// family the reopening CALL owns). The fixing scheduler's
+	// PriceSource stays unwired until the Phase-19.5 oracle lands —
+	// every due fixing then records SKIPPED with the reason rather than
+	// a fabricated rate (spec §2.7).
+	instCalStore := instruments.NewCalendarStore(pool)
+	instFeed := admin.RedisStatusFeed{C: rdb.Client}
+	sessionCal, err := instruments.NewSessionCalendar()
+	if err != nil {
+		return fmt.Errorf("session calendar: %w", err)
+	}
+	instHolCal, calErr := settlement.LoadCalendar(sweepCtx, pool)
+	if calErr != nil {
+		log.Warn("instruments: holiday calendar unavailable — value-date/fixing seams fail closed",
+			"err", calErr)
+	}
+	sessionSvc := instruments.NewSessionService(sessionCal, instHolCal)
+
+	listingSvc, err := instruments.NewListingService(instruments.ListingDeps{
+		Pool:        pool,
+		Roles:       adminRoleResolver,
+		Instruments: instrumentSvc,
+		Dual:        dualSvc,
+		Sessions:    sessionCal,
+		WS:          wsSrv,
+		Logf:        func(f string, a ...any) { log.Warn(fmt.Sprintf("listing: "+f, a...)) },
+	})
+	if err != nil {
+		return fmt.Errorf("listing service: %w", err)
+	}
+	instruments.RegisterListingExecutor(dualSvc, listingSvc)
+	instruments.RegisterCalendarExecutor(dualSvc, instCalStore)
+
+	opsBoardSvc, err := instruments.NewOpsBoardService(instruments.OpsBoardDeps{
+		Pool: pool,
+		Feed: instFeed,
+		Logf: func(f string, a ...any) { log.Warn(fmt.Sprintf("ops board: "+f, a...)) },
+	})
+	if err != nil {
+		return fmt.Errorf("ops board service: %w", err)
+	}
+
+	auctionSched, err := instruments.NewAuctionScheduler(instruments.AuctionDeps{
+		Pool:        pool,
+		Store:       instCalStore,
+		Feed:        instFeed,
+		Orders:      instruments.NewPgAuctionOrders(pool),
+		Canceller:   auctionTypeCanceller{disp: orderDisp},
+		Instruments: instrumentSvc,
+		WS:          wsSrv,
+		Logf:        func(f string, a ...any) { log.Warn(fmt.Sprintf("auction scheduler: "+f, a...)) },
+	})
+	if err != nil {
+		return fmt.Errorf("auction scheduler: %w", err)
+	}
+	fixingSched, err := instruments.NewFixingScheduler(instruments.FixingDeps{
+		Pool:     pool,
+		Store:    instCalStore,
+		Holidays: instHolCal,
+		Prices:   nil, // Phase-19.5 oracle seam — SKIPPED records until wired
+		Feed:     instFeed,
+		Orders:   instruments.NewPgFixingOrders(pool),
+		WS:       wsSrv,
+		Logf:     func(f string, a ...any) { log.Warn(fmt.Sprintf("fixing scheduler: "+f, a...)) },
+	})
+	if err != nil {
+		return fmt.Errorf("fixing scheduler: %w", err)
+	}
+	go auctionSched.Run(sweepCtx, 5*time.Second)
+	go fixingSched.Run(sweepCtx, 10*time.Second)
+	// Listing/delist ladder sweep: scheduled activations + the §7.5
+	// notice→approval→close-only progression on a 30s cadence.
+	go func() {
+		t := time.NewTicker(30 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-sweepCtx.Done():
+				return
+			case <-t.C:
+				if n, err := listingSvc.ActivateDue(sweepCtx); err != nil {
+					log.Warn("listing activation sweep", "err", err)
+				} else if n > 0 {
+					log.Info("listing activations applied", "count", n)
+				}
+				if err := listingSvc.AdvanceDelisting(sweepCtx); err != nil {
+					log.Warn("delist ladder sweep", "err", err)
+				}
+			}
+		}
+	}()
+	_ = sessionSvc // held for the order-path value-date gate wiring (Phase-16 order admission consumes SessionService.CheckValueDate)
+
+	// Phase-15 Task 15.3.5 — trade bust / price-adjust (spec §5.29,
+	// §7.2, §7.3.4, §24 #138). The correction runs through the landed
+	// §5.3 contract: SERIALIZABLE tx + per-account Redis mutexes +
+	// LedgerService.PostJournal (balanced reversal/adjustment journals,
+	// idempotency-keyed) + post-commit BalanceChanged dispatch.
+	tradeBustSvc, err := admin.NewTradeBustService(admin.TradeBustDeps{
+		Pool:      pool,
+		Poster:    ledgerSvc,
+		Locks:     rdb,
+		Publisher: ledgerPub,
+		Roles:     adminRoleResolver,
+		Notifier:  notifSvc,
+		Logf:      func(f string, a ...any) { log.Warn(fmt.Sprintf("trade bust: "+f, a...)) },
+	})
+	if err != nil {
+		return fmt.Errorf("trade bust service: %w", err)
+	}
+
+	// Phase-15 Task 15.3.8 — instrument maintenance maker-checker
+	// (spec §7.1/§7.2/§7.4, §24 #234): three-stage creation chain,
+	// effective-dated parameter changes at the next session boundary,
+	// Super-Admin emergency changes with P1 alert, delisting governance
+	// riding the OpInstrumentDelist four-eyes queue. ApplyDue is the
+	// session-boundary activation sweep — it also reconciles delist
+	// requests against the dual-control store.
+	maintSvc, err := admin.NewInstrumentMaintenanceService(admin.InstrumentMaintenanceDeps{
+		Pool:        pool,
+		Roles:       adminRoleResolver,
+		Instruments: instrumentSvc,
+		Dual:        dualSvc,
+		WS:          wsSrv,
+		NATS:        settlement.NatsPublisher{JS: natsJet(natsClient)},
+		Alerter:     maintenanceAlerter{opsAlerter},
+		Logf:        func(f string, a ...any) { log.Warn(fmt.Sprintf("instrument maintenance: "+f, a...)) },
+	})
+	if err != nil {
+		return fmt.Errorf("instrument maintenance service: %w", err)
+	}
+	go func() {
+		t := time.NewTicker(30 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-sweepCtx.Done():
+				return
+			case <-t.C:
+				if _, err := maintSvc.ApplyDue(sweepCtx); err != nil {
+					log.Warn("instrument maintenance sweep", "err", err)
+				}
+				if _, err := tradeBustSvc.ExpirePending(sweepCtx); err != nil {
+					log.Warn("trade bust expire sweep", "err", err)
+				}
+			}
+		}
+	}()
 
 	// Task 14.3.10 — compliance holds. PlaceHold is the Phase-21
 	// sanctions/PEP seam (machine triggers call it directly); the
@@ -2098,6 +2403,32 @@ func run() error {
 		"GET /api/v1/admin/audit":        http.HandlerFunc(api.AdminAuditLog(pool, adminRoleResolver)),
 		"GET /api/v1/admin/audit-log":    http.HandlerFunc(api.AdminAuditLog(pool, adminRoleResolver)),
 		"GET /api/v1/admin/audit/verify": http.HandlerFunc(api.AdminAuditVerify(pool, adminRoleResolver)),
+		// --- Phase-15 Tasks 15.3.1/15.3.2/15.3.9: instrument lifecycle ---
+		// §7.2 role/dual-control matrix: create/resume/delist go through
+		// the four-eyes queue (202 PENDING); the rest are single-approver.
+		"GET /api/v1/admin/instruments":                   api.AdminInstrumentsList(instrumentSvc),
+		"POST /api/v1/admin/instruments":                  api.AdminInstrumentCreate(dualSvc),
+		"PUT /api/v1/admin/instruments/{id}":              api.AdminInstrumentUpdate(instrumentSvc, true),
+		"POST /api/v1/admin/instruments/{id}/activate":    api.AdminInstrumentTransition(instrumentSvc, admin.LcOpActivate, true),
+		"POST /api/v1/admin/instruments/{id}/suspend":     api.AdminInstrumentTransition(instrumentSvc, admin.LcOpSuspend, true),
+		"POST /api/v1/admin/instruments/{id}/restrict":    api.AdminInstrumentTransition(instrumentSvc, admin.LcOpRestrict, true),
+		"POST /api/v1/admin/instruments/{id}/cancel-only": api.AdminInstrumentTransition(instrumentSvc, admin.LcOpCancelOnly, true),
+		"POST /api/v1/admin/instruments/{id}/halt":        api.AdminInstrumentTransition(instrumentSvc, admin.LcOpHalt, true),
+		"POST /api/v1/admin/instruments/{id}/resume":      api.AdminInstrumentResume(dualSvc),
+		"POST /api/v1/admin/instruments/{id}/delist":      api.AdminInstrumentDelist(dualSvc),
+		// --- Phase-15 Tasks 15.3.12/15.3.13: listing proposals, ops
+		// board, auction calendar. APPROVE reviews and the calendar PUT
+		// file four-eyes requests (202 PENDING); reads stay live.
+		"GET /api/v1/admin/listing-proposals":                     http.HandlerFunc(api.AdminListingProposalsList(listingSvc)),
+		"POST /api/v1/admin/listing-proposals":                    http.HandlerFunc(api.AdminListingProposalCreate(listingSvc, true)),
+		"POST /api/v1/admin/listing-proposals/{id}/review":        http.HandlerFunc(api.AdminListingProposalReview(listingSvc, true)),
+		"GET /api/v1/admin/ops-board":                             http.HandlerFunc(api.AdminOpsBoard(opsBoardSvc)),
+		"GET /api/v1/admin/instruments/{symbol}/auction-calendar": http.HandlerFunc(api.AdminAuctionCalendarGet(instCalStore)),
+		"PUT /api/v1/admin/instruments/{symbol}/auction-calendar": http.HandlerFunc(api.AdminAuctionCalendarPut(dualSvc, true)),
+		// --- Phase-15 Task 15.3.5: obvious-error trade bust / price-adjust ---
+		// Risk Manager route gate + §8.2 two-principal execution inside
+		// the service; 202 PENDING when approver_id is omitted.
+		"POST /api/v1/admin/trades/{id}/bust": api.AdminTradeBust(tradeBustSvc),
 		// --- Phase-07 Task 7.3.7: support tickets / complaints ---
 		"GET /api/v1/support/tickets":                   http.HandlerFunc(api.SupportTicketList(ticketSvc)),
 		"POST /api/v1/support/tickets":                  http.HandlerFunc(api.SupportTicketCreate(ticketSvc)),
@@ -2204,6 +2535,18 @@ func run() error {
 		"POST /api/v1/admin/break-glass": http.HandlerFunc(api.AdminBreakGlassGrant(rbacDeps)),
 		"POST /api/v1/admin/break-glass/{id}/review": http.HandlerFunc(
 			api.AdminBreakGlassReview(rbacDeps)),
+		// --- Phase-15 Tasks 15.3.4/15.3.7 — market schedule + session ---
+		"GET /api/v1/session/status": http.HandlerFunc(api.SessionStatus(sessSvc)),
+		"GET /api/v1/admin/market-schedule": http.HandlerFunc(
+			api.AdminMarketSchedule(schedSvc, true)),
+		"GET /api/v1/admin/market-schedule/overrides": http.HandlerFunc(
+			api.AdminScheduleOverrideList(schedSvc, true)),
+		"POST /api/v1/admin/market-schedule/overrides": http.HandlerFunc(
+			api.AdminScheduleOverrideCreate(schedSvc, true)),
+		"PUT /api/v1/admin/market-schedule/overrides/{id}": http.HandlerFunc(
+			api.AdminScheduleOverrideUpdate(schedSvc, true)),
+		"DELETE /api/v1/admin/market-schedule/overrides/{id}": http.HandlerFunc(
+			api.AdminScheduleOverrideDelete(schedSvc, true)),
 		// --- Phase-09 Task 9.3.30: fleet / releases / promotion gates ---
 		"GET /api/v1/admin/fleet/environments": http.HandlerFunc(
 			api.AdminFleetEnvironments(fleetSvc, true)),

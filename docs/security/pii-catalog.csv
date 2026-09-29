@@ -53,6 +53,7 @@ support_tickets,subject,VARCHAR(255),FREE_TEXT,plaintext,client-authored,complai
 support_tickets,body,TEXT,FREE_TEXT,plaintext — may embed PII,client-authored,complaints floor
 support_tickets,adr_reference,VARCHAR(128),LINKAGE,plaintext,ADR routing,complaints floor
 ticket_notes,body,TEXT,FREE_TEXT,plaintext — may embed PII,admin/client notes,complaints floor
+trade_busts,reason,VARCHAR(255),FREE_TEXT,plaintext,obvious-error rationale — officer-entered,audit floor
 account_closures,reason,TEXT,FREE_TEXT,plaintext,closure record — client/officer-entered,financial record floor
 webauthn_credentials,user_id,BIGINT,LINKAGE,n/a (FK),passkey ceremonies,credential lifetime; revoked≠deleted (forensic)
 webauthn_credentials,credential_id,BYTEA,AUTH_SECRET,public credential id,assertion lookup,credential lifetime
@@ -136,3 +137,8 @@ tax_self_certifications,tin_sealed,BYTEA,GOV_ID,AES-256-GCM SecretBox nonce‖ct
 tax_self_certifications,fields_sealed,BYTEA,GOV_ID,AES-256-GCM SecretBox nonce‖ct of the whole fields document (legal_name/address/entity/treaty),compliance.InsertSelfCert writes; ListSelfCerts unseals; Phase-21 reporting via box,statutory tax retention
 compliance_holds,reason,TEXT,FREE_TEXT,plaintext,officer-entered hold justification,financial record floor
 pamm_pools,name,VARCHAR(128),FREE_TEXT,plaintext,manager-chosen pool label,pool lifetime
+instrument_change_requests,payload,JSONB,FREE_TEXT,plaintext JSONB — may embed actor context,change bundle,audit floor
+instrument_change_requests,reason,TEXT,FREE_TEXT,plaintext,maker justification — officer-entered,audit floor
+instrument_change_log,reason,TEXT,FREE_TEXT,plaintext,parameter-change rationale — officer-entered,audit floor
+market_schedule_overrides,reason,TEXT,FREE_TEXT,plaintext,ops note — holiday/early-close justification,audit floor
+benchmark_fixings,skip_reason,TEXT,FREE_TEXT,plaintext,machine/officer skip note,audit floor

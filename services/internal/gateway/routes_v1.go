@@ -44,6 +44,15 @@ func v1live(method, path, tier, owner, desc string, auth AuthSpec) Route {
 	return rt
 }
 
+// v1liveDC stamps a live /api/v1 route that executes through the §8.2
+// four-eyes queue (DualControl metadata flag — surfaced by the route
+// dump/OpenAPI generator).
+func v1liveDC(method, path, tier, owner, desc string, auth AuthSpec) Route {
+	rt := v1live(method, path, tier, owner, desc, auth)
+	rt.DualControl = true
+	return rt
+}
+
 // SeedRoutes returns the full Phase-05-era route table. Meta endpoints
 // owned by this cluster are Status=Live and mounted by MountSeed.
 func SeedRoutes() []Route {
@@ -444,14 +453,14 @@ func SeedRoutes() []Route {
 			Schema: &BodySchema{Required: []string{"to_env"},
 				Fields: map[string]string{"to_env": "string", "reason": "string", "approver_id": "any"}},
 			Description: "Promote release to an environment (direction-enforced gates; prod = four-eyes + §19.16.3 interlocks)"},
-		v1(http.MethodGet, "/api/v1/admin/listing-proposals", TierBasic, "Phase-15 Task 15.3.12",
-			"List instrument listing proposals", adminAuth(RoleRiskManager)),
-		v1(http.MethodPost, "/api/v1/admin/listing-proposals", TierBasic, "Phase-15 Task 15.3.12",
-			"Create listing proposal", adminAuth(RoleRiskManager)),
-		v1(http.MethodPost, "/api/v1/admin/listing-proposals/{id}/review", TierBasic, "Phase-15 Task 15.3.12",
-			"Review listing proposal", adminAuth(RoleRiskManager)),
-		v1(http.MethodGet, "/api/v1/admin/ops-board", TierBasic, "Phase-15 Task 15.3.12",
-			"Market-ops console board", adminAuth(RoleRiskManager)),
+		v1live(http.MethodGet, "/api/v1/admin/listing-proposals", TierBasic, "Phase-15 Task 15.3.12",
+			"List instrument listing proposals (?status=)", adminAuth(RoleRiskManager)),
+		v1live(http.MethodPost, "/api/v1/admin/listing-proposals", TierBasic, "Phase-15 Task 15.3.12",
+			"Create listing proposal {symbol, reference, oracle_feeds, risk_defaults, reason}", adminAuth(RoleRiskManager)),
+		v1liveDC(http.MethodPost, "/api/v1/admin/listing-proposals/{id}/review", TierBasic, "Phase-15 Task 15.3.12",
+			"Review listing proposal {action: REVIEW|APPROVE|REJECT} — APPROVE files OpInstrumentListing (202)", adminAuth(RoleRiskManager)),
+		v1live(http.MethodGet, "/api/v1/admin/ops-board", TierBasic, "Phase-15 Task 15.3.12",
+			"Market-ops console board (non-ACTIVE, proposals, approvals, auctions, fixings, warnings)", adminAuth(RoleRiskManager)),
 		v1(http.MethodGet, "/api/v1/admin/archive/status", TierBasic, "Phase-04 Task 4.3.2",
 			"WAL archive status (?shard=)", adminAuth(RoleReadOnlyAuditor)),
 		v1live(http.MethodGet, "/api/v1/admin/audit/verify", TierBasic, "Phase-07 Task 7.3.3",
@@ -550,8 +559,8 @@ func SeedRoutes() []Route {
 			"Open support ticket", authUser),
 		v1live(http.MethodGet, "/api/v1/support/tickets/{id}", TierBasic, "Phase-07 Task 7.3.7",
 			"Own ticket detail + public notes", authUser),
-		v1(http.MethodGet, "/api/v1/session/status", TierPublic, "Phase-15 Task 15.3.7",
-			"24/5 session lifecycle status (open/close windows)", authPublic),
+		v1live(http.MethodGet, "/api/v1/session/status", TierPublic, "Phase-15 Task 15.3.7",
+			"24/5 session lifecycle status {state, next_transition_at, shard coverage}", authPublic),
 		v1live(http.MethodGet, "/api/v1/stats/24h", TierPublic, "Phase-11 Task 11.3.5",
 			"Venue-wide rolling 24h market statistics (1s cache)", authPublic),
 		v1live(http.MethodGet, "/api/v1/stats/24h/{symbol}", TierPublic, "Phase-11 Task 11.3.5",
@@ -828,34 +837,54 @@ func SeedRoutes() []Route {
 			"Stop grid bot + cancel child orders", authUser),
 
 		// ---- Admin: instruments/lifecycle/market-ops ----
-		v1(http.MethodGet, "/api/v1/admin/instruments", TierBasic, "Phase-15 Task 15.3.8",
+		// (Phase-15 Tasks 15.3.1/15.3.2/15.3.9 — live; role gates follow the
+		// spec §7.2 matrix: suspend is Compliance Officer+, create/delist are
+		// Super Admin + dual control, resume is Risk Manager+ + dual control,
+		// and cancel-only's Risk Manager|Compliance Officer two-role gate is
+		// enforced at the service layer over the any-admin route gate.)
+		v1live(http.MethodGet, "/api/v1/admin/instruments", TierBasic, "Phase-15 Task 15.3.2/15.3.8",
 			"List instruments incl. non-ACTIVE states", adminAuth(RoleRiskManager)),
-		v1(http.MethodPost, "/api/v1/admin/instruments", TierBasic, "Phase-15 Task 15.3.8",
-			"Create instrument (maker-checker)", adminAuth(RoleRiskManager)),
-		v1(http.MethodPut, "/api/v1/admin/instruments/{id}", TierBasic, "Phase-15 Task 15.3.8",
-			"Update instrument parameters", adminAuth(RoleRiskManager)),
-		v1(http.MethodPost, "/api/v1/admin/instruments/{id}/activate", TierBasic, "Phase-15 Task 15.3.1",
-			"Lifecycle: → ACTIVE", adminAuth(RoleRiskManager)),
-		v1(http.MethodPost, "/api/v1/admin/instruments/{id}/suspend", TierBasic, "Phase-15 Task 15.3.1",
-			"Lifecycle: → SUSPENDED (grace window)", adminAuth(RoleRiskManager)),
-		v1(http.MethodPost, "/api/v1/admin/instruments/{id}/restrict", TierBasic, "Phase-15 Task 15.3.1",
-			"Lifecycle: → RESTRICTED (limit-only)", adminAuth(RoleRiskManager)),
-		v1(http.MethodPost, "/api/v1/admin/instruments/{id}/cancel-only", TierBasic, "Phase-15 Task 15.3.1",
-			"Lifecycle: → CANCEL_ONLY", adminAuth(RoleRiskManager)),
-		v1(http.MethodPost, "/api/v1/admin/instruments/{id}/halt", TierBasic, "Phase-15 Task 15.3.1",
-			"Lifecycle: → HALTED", adminAuth(RoleRiskManager)),
-		v1(http.MethodPost, "/api/v1/admin/instruments/{id}/resume", TierBasic, "Phase-15 Task 15.3.1",
-			"Lifecycle: resume from halt/suspend", adminAuth(RoleRiskManager)),
-		v1(http.MethodPost, "/api/v1/admin/instruments/{id}/delist", TierBasic, "Phase-15 Task 15.3.1",
-			"Lifecycle: → DELISTED", adminAuth(RoleRiskManager)),
+		v1liveDC(http.MethodPost, "/api/v1/admin/instruments", TierBasic, "Phase-15 Task 15.3.2",
+			"Create instrument →DRAFT (Super Admin + dual control)", adminAuth(RoleSuperAdmin)),
+		v1live(http.MethodPut, "/api/v1/admin/instruments/{id}", TierBasic, "Phase-15 Task 15.3.2/15.3.8",
+			"Update instrument parameters (DRAFT/ACTIVE only)", adminAuth(RoleRiskManager)),
+		v1live(http.MethodPost, "/api/v1/admin/instruments/{id}/activate", TierBasic, "Phase-15 Task 15.3.2",
+			"Lifecycle: DRAFT→ACTIVE", adminAuth(RoleRiskManager)),
+		v1live(http.MethodPost, "/api/v1/admin/instruments/{id}/suspend", TierBasic, "Phase-15 Task 15.3.2",
+			"Lifecycle: → SUSPENDED (5-min cancel grace then mass-cancel)", adminAuth(RoleComplianceOfficer)),
+		v1live(http.MethodPost, "/api/v1/admin/instruments/{id}/restrict", TierBasic, "Phase-15 Task 15.3.2",
+			"Lifecycle: → RESTRICTED (limit-only; 24h notice window)", adminAuth(RoleRiskManager)),
+		v1live(http.MethodPost, "/api/v1/admin/instruments/{id}/cancel-only", TierBasic, "Phase-15 Task 15.3.9",
+			"Lifecycle: → CANCEL_ONLY (persistent; resting orders preserved; RM|CO)", adminAuth(RoleAnyAdmin)),
+		v1live(http.MethodPost, "/api/v1/admin/instruments/{id}/halt", TierBasic, "Phase-15 Task 15.3.2",
+			"Lifecycle: → HALTED (orders rest, no matching)", adminAuth(RoleRiskManager)),
+		v1liveDC(http.MethodPost, "/api/v1/admin/instruments/{id}/resume", TierBasic, "Phase-15 Task 15.3.2",
+			"Lifecycle: resume →ACTIVE (reopening CALL; skip_auction opts out)", adminAuth(RoleRiskManager)),
+		v1liveDC(http.MethodPost, "/api/v1/admin/instruments/{id}/delist", TierBasic, "Phase-15 Task 15.3.2",
+			"Lifecycle: → DELISTED (30d reduce-only close window)", adminAuth(RoleSuperAdmin)),
 		v1(http.MethodPost, "/api/v1/admin/instruments/{id}/uncross-override", TierBasic, "Phase-15 Task 15.3.10",
 			"Uncrossed-book override (quarantine release)", adminAuth(RoleRiskManager)),
-		v1(http.MethodGet, "/api/v1/admin/instruments/{symbol}/auction-calendar", TierBasic, "Phase-15 Task 15.3.5",
-			"Reopening-auction calendar", adminAuth(RoleRiskManager)),
-		v1(http.MethodPut, "/api/v1/admin/instruments/{symbol}/auction-calendar", TierBasic, "Phase-15 Task 15.3.5",
-			"Edit reopening-auction calendar", adminAuth(RoleRiskManager)),
-		v1(http.MethodPost, "/api/v1/admin/trades/{id}/bust", TierBasic, "Phase-15 Task 15.3.5",
-			"Trade bust / price-adjust request", adminAuth(RoleRiskManager)),
+		// Phase-15 Task 15.3.4 — market schedule (24/5 window) admin CRUD.
+		// Reads are open to any venue admin (the schedule is operational
+		// reference data); mutations pin Risk Manager (Super Admin holds
+		// all permissions per spec §8.2).
+		v1live(http.MethodGet, "/api/v1/admin/market-schedule", TierBasic, "Phase-15 Task 15.3.4",
+			"Merged market:hours schedule document + overrides", adminAuth(RoleAnyAdmin)),
+		v1live(http.MethodGet, "/api/v1/admin/market-schedule/overrides", TierBasic, "Phase-15 Task 15.3.4",
+			"List market_schedule_overrides (incl. expired)", adminAuth(RoleAnyAdmin)),
+		v1live(http.MethodPost, "/api/v1/admin/market-schedule/overrides", TierBasic, "Phase-15 Task 15.3.4",
+			"Create holiday/partial-session override {date, closed, open?, close?, reason} — republishes market:hours", adminAuth(RoleRiskManager)),
+		v1live(http.MethodPut, "/api/v1/admin/market-schedule/overrides/{id}", TierBasic, "Phase-15 Task 15.3.4",
+			"Update override window {closed, open?, close?, reason} (date immutable)", adminAuth(RoleRiskManager)),
+		v1live(http.MethodDelete, "/api/v1/admin/market-schedule/overrides/{id}", TierBasic, "Phase-15 Task 15.3.4",
+			"Delete override (audit row preserves it) — republishes market:hours", adminAuth(RoleRiskManager)),
+		v1live(http.MethodGet, "/api/v1/admin/instruments/{symbol}/auction-calendar", TierBasic, "Phase-15 Task 15.3.13",
+			"Auction/fixing calendar rows for the instrument", adminAuth(RoleRiskManager)),
+		v1liveDC(http.MethodPut, "/api/v1/admin/instruments/{symbol}/auction-calendar", TierBasic, "Phase-15 Task 15.3.13",
+			"Replace auction/fixing calendar {entries[], reason} — OpInstrumentCalendar four-eyes", adminAuth(RoleRiskManager)),
+		v1liveDC(http.MethodPost, "/api/v1/admin/trades/{id}/bust", TierBasic, "Phase-15 Task 15.3.5",
+			"Trade bust / price-adjust — obvious-error review (§7.3.4 15min window; BUSTED/PRICE_ADJUSTED flags)",
+			adminAuth(RoleRiskManager)),
 		{Method: http.MethodPost, Path: "/api/v1/admin/circuit-breaker/{symbol}", Version: "v1",
 			Auth: adminAuth(RoleRiskManager), RateTier: TierBasic, Weight: 1,
 			Owner: "Phase-13 Task 13.3.1", Status: StatusLive,

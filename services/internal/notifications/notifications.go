@@ -42,6 +42,11 @@ const (
 	// below the instrument minimum. Never silently dropped: the durable
 	// copy_child_orders row is written first, this notice explains it.
 	EventCopyChildSkipped = "copy_child_skipped"
+	// EventTradeBusted / EventTradePriceAdjusted (Phase-15 Task 15.3.5):
+	// an executed obvious-error correction — both counterparties of the
+	// corrected trade are notified (spec §5.29/§24 #138).
+	EventTradeBusted        = "trade_busted"
+	EventTradePriceAdjusted = "trade_price_adjusted"
 )
 
 var validChannels = map[string]bool{
@@ -59,6 +64,8 @@ var validEvents = map[string]bool{
 	EventTradingHalt:         true,
 	EventKYCTierDowngraded:   true,
 	EventCopyChildSkipped:    true,
+	EventTradeBusted:         true,
+	EventTradePriceAdjusted:  true,
 }
 
 // criticalEvents bypass quiet hours (Task 12.3.6 item 4 ruling):
@@ -70,6 +77,9 @@ var criticalEvents = map[string]bool{
 	EventSecurityAlert:      true,
 	EventLiquidationWarning: true,
 	EventTradingHalt:        true,
+	// A busted/repriced trade moved money — never defer that notice.
+	EventTradeBusted:        true,
+	EventTradePriceAdjusted: true,
 }
 
 // ValidChannel reports whether c is a known channel token.
@@ -87,7 +97,8 @@ func Events() []string {
 	return []string{
 		EventDepositConfirmed, EventKYCApproved, EventKYCRejected,
 		EventKYCTierDowngraded, EventLiquidationWarning, EventOrderFilled,
-		EventSecurityAlert, EventTradingHalt, EventWithdrawalCompleted,
+		EventSecurityAlert, EventTradeBusted, EventTradePriceAdjusted,
+		EventTradingHalt, EventWithdrawalCompleted,
 	}
 }
 

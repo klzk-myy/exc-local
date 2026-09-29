@@ -39,6 +39,8 @@
 #include "recovery/SnapshotStore.hpp"
 #include "redis/RespClient.hpp"
 #include "risk/EngineRiskAdapter.hpp"
+#include "risk/InstrumentFeed.hpp"
+#include "risk/InstrumentFeedRefresher.hpp"
 #include "risk/PreTradeChecker.hpp"
 #include "risk/SuspensionFlags.hpp"
 #include "risk/SuspensionRefresher.hpp"
@@ -60,7 +62,8 @@ void usage(const char* argv0) {
                  "          [-snap-dir <dir>] [-snapshot-trades <n>]\n"
                  "          [-snapshot-interval-s <s>] [-follower]\n"
                  "          [-report-log <path>]\n"
-                 "          [-redis <host:port>] [-halt-poll-ms <ms>]\n",
+                 "          [-redis <host:port>] [-halt-poll-ms <ms>]\n"
+                 "          [-symbol <SYM>] [-feed-poll-ms <ms>]\n",
                  argv0);
 }
 
@@ -218,6 +221,15 @@ int main(int argc, char** argv) {
     // admission gates only.
     std::string redis_addr;
     uint32_t halt_poll_ms = 50;        // Redis halt:* refresh cadence
+    // Phase-15 (Tasks 15.3.3/15.3.4/15.3.6/15.3.10): `-symbol` names the
+    // served instrument for the per-symbol control keys
+    // (instrument:status/auction:{symbol}); with -redis it binds the
+    // InstrumentFeed — the matching thread then enforces lifecycle status,
+    // 24/5 market hours and the reopening CALL armed key. Without -symbol
+    // the feed stays unbound and enforcement lives on the Go gates only
+    // (same unwired-seam convention as the halt lattice).
+    std::string symbol;
+    uint32_t feed_poll_ms = 250;       // control-key refresh cadence
 
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "-shard") == 0) {
@@ -291,6 +303,18 @@ int main(int argc, char** argv) {
                 return 2;
             }
             if (halt_poll_ms == 0) halt_poll_ms = 50;
+        } else if (std::strcmp(argv[i], "-symbol") == 0) {
+            if (++i >= argc) {
+                usage(argv[0]);
+                return 2;
+            }
+            symbol = argv[i];
+        } else if (std::strcmp(argv[i], "-feed-poll-ms") == 0) {
+            if (++i >= argc || !parse_u32(argv[i], &feed_poll_ms)) {
+                usage(argv[0]);
+                return 2;
+            }
+            if (feed_poll_ms == 0) feed_poll_ms = 250;
         } else if (std::strcmp(argv[i], "-h") == 0 || std::strcmp(argv[i], "--help") == 0) {
             usage(argv[0]);
             return 0;
@@ -407,6 +431,10 @@ int main(int argc, char** argv) {
     served.tick_size_ticks = 1'000;
     served.lot_size_units = 1;
     served.settlement_cycle = 1;  // T+1 major
+    if (!symbol.empty()) {
+        std::snprintf(served.symbol, sizeof(served.symbol), "%s",
+                      symbol.c_str());
+    }
     book.set_instrument(served);
 
     // ==== ENGINE WIRING (Tasks 2.3.2/2.3.3/2.3.4) ====
@@ -489,6 +517,53 @@ int main(int argc, char** argv) {
                 std::this_thread::sleep_for(cadence);
             }
         });
+    }
+
+    // --- Phase-15 instrument feed (Tasks 15.3.3/15.3.4/15.3.6/15.3.10) ----
+    // With -redis + -symbol the engine binds a dedicated control poll of
+    // instrument:status/auction:{symbol} + market:hours. The matching
+    // thread reads the immutable snapshot only — every Redis round trip is
+    // on this thread; a dead/unparseable poll marks the feed unverifiable
+    // and admission fails closed until a clean poll lands.
+    exch::InstrumentFeed instr_feed;
+    std::unique_ptr<exch::RespClient> feed_redis;
+    std::unique_ptr<exch::InstrumentFeedRefresher> feed_refresh;
+    std::atomic<bool> feed_stop{false};
+    std::thread feed_thread;
+    if (!redis_addr.empty() && !symbol.empty()) {
+        exch::RespClientConfig fcfg{};
+        const std::size_t colon = redis_addr.rfind(':');
+        fcfg.host = redis_addr.substr(0, colon);
+        fcfg.port = static_cast<uint16_t>(
+            std::strtoul(redis_addr.c_str() + colon + 1, nullptr, 10));
+        feed_redis = std::make_unique<exch::RespClient>(fcfg);
+        feed_refresh =
+            std::make_unique<exch::InstrumentFeedRefresher>(
+                feed_redis.get(), symbol);
+        engine.bind_instrument_feed(&instr_feed);
+        // Synchronous first poll — bound-but-never-verified fails closed;
+        // one clean poll up front makes the boot's verdict useful.
+        if (!feed_redis->connect() ||
+            !feed_refresh->refresh(&instr_feed)) {
+            std::fprintf(stderr,
+                         "WARN: instrument feed poll unreachable at boot — "
+                         "lifecycle/hours gates fail closed until the poll "
+                         "thread lands a clean read\n");
+        }
+        exch::InstrumentFeedRefresher* fr = feed_refresh.get();
+        exch::InstrumentFeed* feed = &instr_feed;
+        std::atomic<bool>* fstop = &feed_stop;
+        const auto cadence = std::chrono::milliseconds(feed_poll_ms);
+        feed_thread = std::thread([fr, feed, fstop, cadence]() {
+            while (!fstop->load(std::memory_order_acquire)) {
+                (void)fr->refresh(feed);
+                std::this_thread::sleep_for(cadence);
+            }
+        });
+    } else if (!symbol.empty()) {
+        std::fprintf(stderr,
+                     "WARN: -symbol given without -redis — instrument feed "
+                     "unbound (lifecycle/hours enforced by the Go gates)\n");
     }
 
     // --- Snapshot sink + cadence (Task 2.3.4; Phase-02.5 finding) -----------
@@ -620,6 +695,33 @@ int main(int argc, char** argv) {
             // dedup ledger would silently drop them on the next restart.
             engine.seed_trade_id(rr.max_trade_id + 1);
         }
+        // Phase-15 — adopt the replayed auction/lifecycle position into the
+        // live engine BEFORE the ingress ring opens: an armed CALL resumes
+        // accumulating toward its journaled deadline, a journaled
+        // quarantine keeps the book halted, and the consumed-auction
+        // dedupe ledger blocks re-entry into a completed CALL. Parked
+        // nodes live in `orders` (the binding pool — shared with the live
+        // engine), so adoption moves ownership, not memory.
+        if (const auto* ra =
+                recovery.recovered_auction_state(instrument_id)) {
+            engine.adopt_auction_state(ra->phase, ra->auction_id,
+                                       ra->deadline_ns, ra->extensions,
+                                       ra->awaiting, ra->last_completed,
+                                       ra->quarantined, ra->quarantine_code,
+                                       ra->parked_head, ra->parked_count);
+            if (ra->phase != exch::MatchingEngine::kAuctionPhaseNone ||
+                ra->quarantined) {
+                std::fprintf(stderr,
+                             "recovery: auction state adopted — phase=%u "
+                             "auction_id=%lld deadline=%lld ext=%u "
+                             "quarantined=%d parked=%u\n",
+                             static_cast<unsigned>(ra->phase),
+                             (long long)ra->auction_id,
+                             (long long)ra->deadline_ns,
+                             static_cast<unsigned>(ra->extensions),
+                             ra->quarantined ? 1 : 0, ra->parked_count);
+            }
+        }
         std::fprintf(stderr,
                      "recovery: level=%u entries=%llu applied=%llu "
                      "derived=%llu dedup=%llu covered_gap_seqs=%llu "
@@ -664,9 +766,11 @@ int main(int argc, char** argv) {
 
     loop.run(&g_stop);  // matching thread = main thread; SIGTERM exits cleanly.
 
-    // Stop the halt-flag poll thread before its targets leave scope.
+    // Stop the control-path poll threads before their targets leave scope.
     susp_stop.store(true, std::memory_order_release);
+    feed_stop.store(true, std::memory_order_release);
     if (susp_thread.joinable()) susp_thread.join();
+    if (feed_thread.joinable()) feed_thread.join();
 
     loop.stop_watchdog();
     // Drain snapshot: a graceful stop leaves a fresh base so the next boot

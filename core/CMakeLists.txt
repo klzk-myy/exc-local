@@ -94,6 +94,8 @@ add_library(exch_core STATIC
     src/redis/RespClient.cpp
     src/risk/BilateralCreditMatrix.cpp
     src/risk/CrossShardMarginCoordinator.cpp
+    src/risk/InstrumentFeed.cpp
+    src/risk/InstrumentFeedRefresher.cpp
     src/risk/PreTradeChecker.cpp
     src/risk/SuspensionFlags.cpp
     src/risk/SuspensionRefresher.cpp
@@ -193,6 +195,7 @@ if(EXCH_BUILD_TESTS)
             test_discretionary
             test_stp
             test_snapshot_manager
+            test_lifecycle_auction
             test_oco)
         add_executable(${t} tests/${t}.cpp)
         target_link_libraries(${t} PRIVATE exch_core gtest_main)

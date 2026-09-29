@@ -94,6 +94,20 @@ public:
                                              uint32_t instrument_id,
                                              uint64_t ts_ns) noexcept;
 
+    // Phase-15 — auction phase transition / indicative clearing update
+    // (spec §7.3). `phase` is the engine's kAuctionPhase* code; `signal`
+    // distinguishes indicative updates (0) from terminal strikes (1=uncross
+    // committed, 2=extended, 3=failed/quarantined, 4=crossed-book halt).
+    [[nodiscard]] bool publish_auction_event(uint32_t instrument_id,
+                                             uint64_t auction_id,
+                                             uint8_t phase, uint8_t signal,
+                                             int64_t indicative_price,
+                                             int64_t indicative_qty,
+                                             int64_t imbalance,
+                                             int64_t deadline_ns,
+                                             int64_t cleared_qty,
+                                             uint64_t ts_ns) noexcept;
+
     [[nodiscard]] bool bound() const noexcept { return out_ != nullptr; }
     [[nodiscard]] uint64_t published() const noexcept { return published_; }
     [[nodiscard]] uint64_t drops() const noexcept { return drops_; }

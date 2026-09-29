@@ -31,6 +31,7 @@ const instrumentCols = `
 	max_order_qty::text, min_notional::text, min_price::text, max_price::text,
 	price_band_pct_up::text, price_band_pct_down::text, max_spread_pips::text,
 	max_open_orders, max_algo_orders, max_leverage, settlement_cycle,
+	contract_size::text, decimal_places, pip_size::text,
 	updated_at`
 
 func scanInstrument(row pgx.Row) (*Instrument, error) {
@@ -40,7 +41,9 @@ func scanInstrument(row pgx.Row) (*Instrument, error) {
 		&i.MinOrderQty, &i.MaxOrderQty, &i.MinNotional, &i.MinPrice,
 		&i.MaxPrice, &i.PriceBandPctUp, &i.PriceBandPctDown,
 		&i.MaxSpreadPips, &i.MaxOpenOrders, &i.MaxAlgoOrders,
-		&i.MaxLeverage, &i.SettlementCycle, &i.UpdatedAt)
+		&i.MaxLeverage, &i.SettlementCycle,
+		&i.ContractSize, &i.DecimalPlaces, &i.PipSize,
+		&i.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +66,9 @@ func (s *PgStore) ListInstruments(ctx context.Context) ([]Instrument, error) {
 			&i.MinOrderQty, &i.MaxOrderQty, &i.MinNotional, &i.MinPrice,
 			&i.MaxPrice, &i.PriceBandPctUp, &i.PriceBandPctDown,
 			&i.MaxSpreadPips, &i.MaxOpenOrders, &i.MaxAlgoOrders,
-			&i.MaxLeverage, &i.SettlementCycle, &i.UpdatedAt); err != nil {
+			&i.MaxLeverage, &i.SettlementCycle,
+			&i.ContractSize, &i.DecimalPlaces, &i.PipSize,
+			&i.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan instrument: %w", err)
 		}
 		out = append(out, i)

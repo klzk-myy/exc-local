@@ -50,27 +50,31 @@ func VenueTradingHours() TradingHours {
 // (migrations 001 + 050 + 170). Decimal columns stay text to preserve the
 // fixed-point contract end to end.
 type Instrument struct {
-	ID               int64     `json:"-"`
-	Symbol           string    `json:"symbol"`
-	BaseCurrency     string    `json:"base_currency"`
-	QuoteCurrency    string    `json:"quote_currency"`
-	InstrumentType   string    `json:"instrument_type"` // SPOT|FORWARD|SWAP|NDF|OPTION
-	Status           string    `json:"status"`          // instrument_status_enum (§7.1)
-	TickSize         string    `json:"tick_size"`
-	LotSize          string    `json:"lot_size"`
-	MinOrderQty      string    `json:"min_order_qty"`
-	MaxOrderQty      string    `json:"max_order_qty"`
-	MinNotional      string    `json:"min_notional"`
-	MinPrice         *string   `json:"min_price"` // nil = unbounded
-	MaxPrice         *string   `json:"max_price"` // nil = unbounded
-	PriceBandPctUp   string    `json:"price_band_pct_up"`
-	PriceBandPctDown string    `json:"price_band_pct_down"`
-	MaxSpreadPips    *string   `json:"max_spread_pips"` // nil = protection not configured
-	MaxOpenOrders    *int64    `json:"max_open_orders"` // nil = no instrument-level cap
-	MaxAlgoOrders    *int64    `json:"max_algo_orders"`
-	MaxLeverage      int64     `json:"max_leverage"`
-	SettlementCycle  int       `json:"settlement_cycle"` // 0 same-day, 1 T+1, 2 T+2
-	UpdatedAt        time.Time `json:"-"`
+	ID               int64   `json:"-"`
+	Symbol           string  `json:"symbol"`
+	BaseCurrency     string  `json:"base_currency"`
+	QuoteCurrency    string  `json:"quote_currency"`
+	InstrumentType   string  `json:"instrument_type"` // SPOT|FORWARD|SWAP|NDF|OPTION
+	Status           string  `json:"status"`          // instrument_status_enum (§7.1)
+	TickSize         string  `json:"tick_size"`
+	LotSize          string  `json:"lot_size"`
+	MinOrderQty      string  `json:"min_order_qty"`
+	MaxOrderQty      string  `json:"max_order_qty"`
+	MinNotional      string  `json:"min_notional"`
+	MinPrice         *string `json:"min_price"` // nil = unbounded
+	MaxPrice         *string `json:"max_price"` // nil = unbounded
+	PriceBandPctUp   string  `json:"price_band_pct_up"`
+	PriceBandPctDown string  `json:"price_band_pct_down"`
+	MaxSpreadPips    *string `json:"max_spread_pips"` // nil = protection not configured
+	MaxOpenOrders    *int64  `json:"max_open_orders"` // nil = no instrument-level cap
+	MaxAlgoOrders    *int64  `json:"max_algo_orders"`
+	MaxLeverage      int64   `json:"max_leverage"`
+	SettlementCycle  int     `json:"settlement_cycle"` // 0 same-day, 1 T+1, 2 T+2
+	// Phase-15 Task 15.3.11 / §7.4 reference columns (migration 087).
+	ContractSize  string    `json:"contract_size"`
+	DecimalPlaces int       `json:"decimal_places"`
+	PipSize       string    `json:"pip_size"`
+	UpdatedAt     time.Time `json:"-"`
 }
 
 // SettlementLabel renders the §6.3 settlement-cycle label.

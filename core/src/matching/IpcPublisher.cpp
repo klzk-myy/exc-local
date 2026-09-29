@@ -90,6 +90,24 @@ bool IpcPublisher::publish_book_snapshot(const OrderBook& book,
     return emit(ev);
 }
 
+bool IpcPublisher::publish_auction_event(uint32_t instrument_id,
+                                         uint64_t auction_id, uint8_t phase,
+                                         uint8_t signal,
+                                         int64_t indicative_price,
+                                         int64_t indicative_qty,
+                                         int64_t imbalance,
+                                         int64_t deadline_ns,
+                                         int64_t cleared_qty,
+                                         uint64_t ts_ns) noexcept {
+    namespace w = exc::wire;
+    const auto ae = w::CreateAuctionEvent(
+        builder_, instrument_id, auction_id, phase, signal, indicative_price,
+        indicative_qty, imbalance, deadline_ns, cleared_qty);
+    const auto ev = w::CreateEvent(builder_, pub_seq_, ts_ns,
+                                   w::EventType_AuctionEvent, ae.Union());
+    return emit(ev);
+}
+
 #else  // !EXCH_IPC_FLATBUFFERS — degraded stub
 
 bool IpcPublisher::publish_trade(uint64_t, uint64_t, uint64_t, int64_t,
@@ -103,6 +121,13 @@ bool IpcPublisher::publish_order_cancel(uint64_t, uint64_t,
     return false;
 }
 bool IpcPublisher::publish_book_snapshot(const OrderBook&, uint32_t,
+                                         uint64_t) noexcept {
+    ++drops_;
+    return false;
+}
+bool IpcPublisher::publish_auction_event(uint32_t, uint64_t, uint8_t,
+                                         uint8_t, int64_t, int64_t, int64_t,
+                                         int64_t, int64_t,
                                          uint64_t) noexcept {
     ++drops_;
     return false;

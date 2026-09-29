@@ -57,6 +57,17 @@ enum class WalEventType : uint8_t {
     // ORDER_CANCEL with reason kWalCancelReasonOcoLink (7) — it re-derives
     // on replay exactly like every other engine-driven cancel.
     OCO_LINK,
+    // Phase-15 Tasks 15.3.6/15.3.10 — instrument auction phase transition
+    // (spec §7.3 reopening call auction + crossed-book quarantine). One row
+    // per committed transition: CALL (control key armed -> accumulate),
+    // EXTEND (deadline push, 30s cadence), UNCROSS (single-price clearing
+    // committed — its TRADE rows follow immediately), CANCEL (control key
+    // withdrawn mid-CALL), QUARANTINE (auction-clearing failure or an
+    // unexplained crossed book — fail-closed halt of the instrument).
+    // Payload is WalAuctionPhasePayload. Replay re-runs the transition in
+    // the journal-free engine — the engine's own deadline resolution then
+    // no-ops on the already-consumed auction id (idempotent re-derivation).
+    AUCTION_PHASE,
 };
 
 #pragma pack(push, 1)
@@ -192,6 +203,38 @@ struct WalOcoLinkPayload {
     uint32_t instrument_id;
     uint8_t  _pad[4];
 };
+
+// Phase-15 Tasks 15.3.6/15.3.10 — AUCTION_PHASE payload. instrument_id is
+// the leading-dispatch field (RecoveryManager routes instrument-scoped
+// entries through it, identical to ORDER_NEW/TRADE/OCO_LINK).
+//
+//   phase:     0=CALL 1=EXTEND 2=UNCROSS 3=CANCEL 4=QUARANTINE
+//              5=STRIKE_FAILED (deadline struck, uncross could not form a
+//              clearing price — :result=FAILED written; the Go EXTEND
+//              ladder decides extend-vs-suspend)
+//   reason:    0=none, 1=control_key, 2=deadline_moved, 3=clearing_failed,
+//              4=crossed_book_detected
+//   auction_id: opaque id of the armed CALL — the parsed CALL:<deadline>
+//              deadline itself. Identity dedupes re-armed notifications of
+//              the same auction and blocks re-entry after completion.
+//   deadline_ns: current uncross deadline (CALL/EXTEND rows).
+//   cleared_price_ticks/cleared_qty_units: the single clearing price and
+//              executed volume (UNCROSS rows; 0 elsewhere).
+//   extension_count: extensions consumed at the time of this transition.
+//   flags:     bit0 = post-transition the instrument is quarantined
+//              (engine-local halt/suspend — orders reject, cancels live).
+struct WalAuctionPhasePayload {
+    uint32_t instrument_id;
+    uint8_t  phase;
+    uint8_t  reason;
+    uint8_t  extension_count;
+    uint8_t  flags;
+    uint64_t auction_id;
+    int64_t  deadline_ns;
+    int64_t  cleared_price_ticks;
+    int64_t  cleared_qty_units;
+    uint8_t  _pad[16];
+};
 #pragma pack(pop)
 
 static_assert(sizeof(WalFileHeader) == 8);
@@ -206,6 +249,7 @@ static_assert(sizeof(WalSnapshotLevel) == 16);
 static_assert(sizeof(WalSnapshotOrder) == 48);
 static_assert(sizeof(WalPreventedMatchPayload) == 80);
 static_assert(sizeof(WalOcoLinkPayload) == 40);
+static_assert(sizeof(WalAuctionPhasePayload) == 56);
 static_assert(__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__,
               "WAL wire format is little-endian (spec §3.4)");
 

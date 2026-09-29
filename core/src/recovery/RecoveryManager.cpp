@@ -27,6 +27,13 @@
 
 namespace exch {
 
+const RecoveryManager::RecoveredAuctionState*
+RecoveryManager::recovered_auction_state(uint32_t instrument_id)
+    const noexcept {
+    const auto it = recovered_auctions_.find(instrument_id);
+    return it == recovered_auctions_.end() ? nullptr : &it->second;
+}
+
 const char* recovery_status_str(RecoveryStatus s) noexcept {
     switch (s) {
         case RecoveryStatus::Ok:                return "Ok";
@@ -156,6 +163,7 @@ uint32_t expected_payload_len(WalEventType t) noexcept {
         case WalEventType::TIME_TICK:      return sizeof(WalTimeTickPayload);
         case WalEventType::PREVENTED_MATCH:return sizeof(WalPreventedMatchPayload);
         case WalEventType::OCO_LINK:      return sizeof(WalOcoLinkPayload);
+        case WalEventType::AUCTION_PHASE: return sizeof(WalAuctionPhasePayload);
         default:                           return 0;  // BOOK_SNAPSHOT/MARGIN_*
     }
 }
@@ -319,6 +327,8 @@ RecoveryResult RecoveryManager::recover(
     std::span<const RecoveryBookBinding> bindings,
     const RecoverOptions& opts) noexcept {
     RecoveryResult res;
+    recovered_auctions_.clear();  // stale state from a prior run must never
+                                  // be adopted by a later caller
     try {
         std::vector<BookState> states(bindings.size());
         std::unordered_map<uint32_t, BookState*> by_instrument;
@@ -946,6 +956,17 @@ RecoveryResult RecoveryManager::recover(
                         continue;
                     }
                     target = it->second;
+                } else if (ev.type == WalEventType::AUCTION_PHASE) {
+                    // Phase-15 Tasks 15.3.6/15.3.10 — instrument-scoped via
+                    // instrument_id, identical routing to ORDER_NEW/TRADE.
+                    WalAuctionPhasePayload p;
+                    std::memcpy(&p, ev.payload, sizeof(p));
+                    const auto it = by_instrument.find(p.instrument_id);
+                    if (it == by_instrument.end()) {
+                        ++res.foreign_entries;
+                        continue;
+                    }
+                    target = it->second;
                 } else {  // ORDER_CANCEL / ORDER_MODIFY — no instrument field
                     if (ev.type == WalEventType::ORDER_CANCEL) {
                         WalOrderCancelPayload p;
@@ -1124,6 +1145,27 @@ RecoveryResult RecoveryManager::recover(
                         }
                         break;
                     }
+                    case WalEventType::AUCTION_PHASE: {
+                        // Phase-15 — re-run the transition in the
+                        // journal-free replay engine. UNCROSS re-derives
+                        // the uncross from the replayed book (its journaled
+                        // TRADE rows dedup through the fill ledger below);
+                        // QUARANTINE restores the halt; CALL/EXTEND/CANCEL
+                        // re-drive the same state machine the live engine
+                        // ran. An inconsistent transition (EXTEND without
+                        // CALL, engine wal_fault) fails closed.
+                        WalAuctionPhasePayload p;
+                        std::memcpy(&p, ev.payload, sizeof(p));
+                        if (!bs.engine->on_auction_phase_replay(p)) {
+                            set_fail(res, RecoveryStatus::ApplyFailed,
+                                     ev.seq, bs.instrument_id,
+                                     "AUCTION_PHASE replay rejected");
+                            break;
+                        }
+                        ++res.mutations_applied;
+                        ++bs.mutations_applied;
+                        break;
+                    }
                     case WalEventType::TRADE: {
                         WalTradePayload p;
                         std::memcpy(&p, ev.payload, sizeof(p));
@@ -1146,9 +1188,17 @@ RecoveryResult RecoveryManager::recover(
                         Order* buy = bs.book->find_order(p.buy_order_id);
                         Order* sell = bs.book->find_order(p.sell_order_id);
                         Order* maker = nullptr;
+                        bool auction_both_resting = false;
                         if (buy != nullptr && sell != nullptr) {
                             if (buy->price_ticks == p.price_ticks &&
-                                sell->price_ticks != p.price_ticks) {
+                                sell->price_ticks == p.price_ticks) {
+                                // Phase-15 uncross fill (Task 15.3.6): in a
+                                // single-price clearing BOTH legs rest at
+                                // the print price — the continuous-mode
+                                // single-maker rule cannot resolve this.
+                                auction_both_resting = true;
+                            } else if (buy->price_ticks == p.price_ticks &&
+                                       sell->price_ticks != p.price_ticks) {
                                 maker = buy;
                             } else if (sell->price_ticks == p.price_ticks &&
                                        buy->price_ticks != p.price_ticks) {
@@ -1162,7 +1212,54 @@ RecoveryResult RecoveryManager::recover(
                         } else {
                             maker = buy != nullptr ? buy : sell;
                         }
-                        if (maker == nullptr) {
+                        if (auction_both_resting) {
+                            // Dedup/apply per leg: the replayed UNCROSS
+                            // already applied this fill to both makers —
+                            // the journaled-fill ledger detects that
+                            // (journaled + qty <= actual filled). An orphan
+                            // row (UNCROSS covered by a snapshot) applies
+                            // verbatim to BOTH resting legs.
+                            bool applied_any = false;
+                            bool leg_failed = false;
+                            for (Order* leg : {buy, sell}) {
+                                int64_t actual = leg->filled_qty_units;
+                                if (const IcebergManager::Record* rec =
+                                        bs.engine->icebergs().find(leg->id)) {
+                                    actual = rec->filled_total_units;
+                                }
+                                const int64_t jr =
+                                    bs.journaled_fills[leg->id];
+                                if (jr + p.qty_units <= actual) continue;
+                                if (p.qty_units > remaining_qty_units(*leg)) {
+                                    set_fail(res, RecoveryStatus::ApplyFailed,
+                                             ev.seq, bs.instrument_id,
+                                             "auction TRADE qty exceeds "
+                                             "maker remaining");
+                                    leg_failed = true;
+                                    break;
+                                }
+                                if (bs.book->apply_fill(leg, p.qty_units) !=
+                                        BookError::OK) {
+                                    set_fail(res, RecoveryStatus::ApplyFailed,
+                                             ev.seq, bs.instrument_id,
+                                             "replayed auction TRADE fill "
+                                             "rejected");
+                                    leg_failed = true;
+                                    break;
+                                }
+                                applied_any = true;
+                            }
+                            if (leg_failed) break;
+                            if (applied_any) {
+                                ++res.mutations_applied;
+                                ++bs.mutations_applied;
+                                ++bs.trades_applied;
+                                ++res.trades_applied;
+                            } else {
+                                ++bs.trades_derived;
+                                ++res.trades_derived;
+                            }
+                        } else if (maker == nullptr) {
                             // Both legs consumed/absent — nothing applies.
                             // When a journaled order id participated the
                             // fill was engine-derived during an ORDER_NEW
@@ -1325,6 +1422,26 @@ RecoveryResult RecoveryManager::recover(
             bs.report.pending_stops =
                 bs.engine != nullptr ? bs.engine->stops().size() : 0;
             res.books.push_back(bs.report);
+            // Phase-15 — capture the replayed auction/lifecycle position
+            // for live-engine adoption (adopt_auction_state). The replay
+            // engine dies with this BookState; the parked nodes live in the
+            // binding pool / retained arena and stay valid per that
+            // contract.
+            if (bs.engine != nullptr) {
+                RecoveredAuctionState ra{};
+                ra.phase = bs.engine->auction_phase();
+                ra.auction_id = bs.engine->auction_id();
+                ra.deadline_ns = bs.engine->auction_deadline_ns();
+                ra.extensions = bs.engine->auction_extensions();
+                ra.awaiting = bs.engine->auction_awaiting();
+                ra.last_completed = bs.engine->last_completed_auction_id();
+                ra.quarantined = bs.engine->quarantined();
+                ra.quarantine_code = bs.engine->quarantine_code();
+                ra.parked_head = const_cast<Order*>(
+                    bs.engine->auction_parked_head());
+                ra.parked_count = bs.engine->auction_parked_count();
+                recovered_auctions_[bs.instrument_id] = ra;
+            }
         }
         wal_tail_ = res.wal_tail;
         last_outcome_ = res.outcome();
