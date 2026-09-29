@@ -10,6 +10,10 @@
 #                     Hard timeout 20 min; shard reports merge in spec-report.
 #   migrations      — applies all services/internal/db/migrations/*.up.sql to
 #                     ephemeral PG16 and verifies schema. Budget < 1 min apply.
+#   frontend        — Phase-10 Task 10.3.1 gate: npm ci → tsc --noEmit →
+#                     ESLint → Prettier → Vitest → vite build + ≤300 kB
+#                     initial-JS budget. Playwright e2e is a separate job
+#                     (Wave-2).
 #
 # Caching: actions/cache on core/build (cmake objects + FetchContent deps),
 # setup-go module+build cache keyed on every go.sum, pip wheel cache for the
@@ -165,6 +169,43 @@ jobs:
 
       - name: Go unit tests (spec-validation harness module)
         run: cd tests/spec && go test -count=1 ./...
+
+  # ── 2b. Frontend (Phase-10 Trader UI scaffold) ────────────────────────────
+  frontend:
+    name: Frontend (typecheck + lint + test + bundle budget)
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install (locked)
+        run: npm ci
+
+      - name: Typecheck (tsc --noEmit)
+        run: npm run typecheck
+
+      - name: Lint (ESLint strictTypeChecked)
+        run: npm run lint
+
+      - name: Format check (Prettier)
+        run: npm run format:check
+
+      - name: Unit tests (Vitest + RTL)
+        run: npm run test
+
+      # Build also enforces the ≤300 kB gzipped initial-JS budget
+      # (scripts/check-bundle-size.mjs fails the build on breach).
+      - name: Build + bundle budget gate
+        run: npm run build
 
   # ── 3. Migrations on ephemeral PostgreSQL 16 ─────────────────────────────
   migrations:

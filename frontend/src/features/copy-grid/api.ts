@@ -1,0 +1,177 @@
+/**
+ * Copy-trading & grid-bot adapters (Task 10.3.26).
+ *
+ * Every route here is registered-but-stubbed in the gateway today
+ * (501 NOT_IMPLEMENTED — owners Phase-14 Task 14.3.8 and Phase-16
+ * Task 16.3.19). The adapters narrow `unknown` wire payloads honestly;
+ * surfaces render `UnavailablePanel` on 501 and never synthesize
+ * strategies/bots/fills.
+ */
+import type { ApiClient } from '@/lib/api';
+
+import { tryDec } from '@/lib/decimal/decimal';
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null;
+}
+function str(v: unknown): string | undefined {
+  return typeof v === 'string' ? v : undefined;
+}
+function num(v: unknown): number | undefined {
+  return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Copy trading — GET /copy/strategies, POST /copy/follows
+// ---------------------------------------------------------------------------
+
+export interface CopyStrategy {
+  id: string;
+  alias: string;
+  return30d: string | null;
+  return90d: string | null;
+  maxDrawdown: string | null;
+  sharpe: string | null;
+  aum: string | null;
+  followers: number | null;
+  riskClass: string | null;
+}
+
+export function parseStrategy(v: unknown): CopyStrategy | null {
+  if (!isRecord(v)) return null;
+  const id =
+    str(v['strategy_id']) ?? str(v['id']) ?? (num(v['id']) !== undefined ? String(v['id']) : null);
+  const alias = str(v['alias']) ?? str(v['provider_alias']);
+  if (!id || !alias) return null;
+  const pct = (k: string) => {
+    const s = str(v[k]);
+    return s ?? tryDec(v[k])?.toString() ?? null;
+  };
+  return {
+    id,
+    alias,
+    return30d: pct('return_30d_pct') ?? pct('return30d'),
+    return90d: pct('return_90d_pct') ?? pct('return90d'),
+    maxDrawdown: pct('max_drawdown_pct') ?? pct('max_drawdown'),
+    sharpe: pct('sharpe'),
+    aum: pct('aum') ?? pct('aum_quote'),
+    followers: num(v['followers']) ?? num(v['follower_count']) ?? null,
+    riskClass: str(v['risk_class']) ?? null,
+  };
+}
+
+/** GET /api/v1/copy/strategies — tolerant envelope unwrap ({data:[]}|[]). */
+export async function listStrategies(api: ApiClient): Promise<CopyStrategy[]> {
+  const res = await api.get<unknown>('/copy/strategies');
+  const rows = isRecord(res) ? res['data'] : res;
+  if (!Array.isArray(rows)) return [];
+  return rows.map(parseStrategy).filter((s): s is CopyStrategy => s !== null);
+}
+
+export interface FollowRequest {
+  strategy_id: string;
+  allocation: string;
+  max_copy_size?: string;
+  stop_loss_drawdown_pct?: string;
+  safety_mode?: string;
+}
+
+export function followStrategy(api: ApiClient, req: FollowRequest): Promise<unknown> {
+  return api.post('/copy/follows', req, { idempotent: true });
+}
+
+/** Unfollow — no dedicated route is registered in the route table yet
+ * (Phase-14 owns the lifecycle). Callers gate on this contract flag so
+ * the UI can say "unfollow lands with Phase-14" instead of calling a
+ * path that would 404. */
+export const UNFOLLOW_ROUTE = 'DELETE /api/v1/copy/follows/{id}';
+export function unfollowRegistered(): boolean {
+  return false; // not in the OpenAPI route table — update when Phase-14 lands
+}
+
+// ---------------------------------------------------------------------------
+// Grid bots — GET/POST /bots/grid, GET/DELETE /bots/grid/{id}
+// ---------------------------------------------------------------------------
+
+export interface GridBot {
+  id: string;
+  symbol: string;
+  status: string;
+  lowerPrice: string | null;
+  upperPrice: string | null;
+  gridCount: number | null;
+  totalInvestment: string | null;
+  pnl: string | null;
+  filledLevels: number | null;
+  createdAt: string | null;
+}
+
+export function parseGridBot(v: unknown): GridBot | null {
+  if (!isRecord(v)) return null;
+  const id =
+    str(v['bot_id']) ?? str(v['id']) ?? (num(v['id']) !== undefined ? String(v['id']) : null);
+  const symbol = str(v['symbol']);
+  if (!id || !symbol) return null;
+  const d = (k: string) => str(v[k]) ?? tryDec(v[k])?.toString() ?? null;
+  return {
+    id,
+    symbol,
+    status: str(v['status']) ?? 'UNKNOWN',
+    lowerPrice: d('lower_price'),
+    upperPrice: d('upper_price'),
+    gridCount: num(v['grid_count']) ?? null,
+    totalInvestment: d('total_investment'),
+    pnl: d('pnl') ?? d('realized_pnl'),
+    filledLevels: num(v['filled_levels']) ?? null,
+    createdAt: str(v['created_at']) ?? null,
+  };
+}
+
+export async function listGridBots(api: ApiClient): Promise<GridBot[]> {
+  const res = await api.get<unknown>('/bots/grid');
+  const rows = isRecord(res) ? res['data'] : res;
+  if (!Array.isArray(rows)) return [];
+  return rows.map(parseGridBot).filter((b): b is GridBot => b !== null);
+}
+
+export async function getGridBot(api: ApiClient, id: string): Promise<GridBot | null> {
+  return parseGridBot(await api.get(`/bots/grid/${encodeURIComponent(id)}`));
+}
+
+export interface GridBotCreateRequest {
+  symbol: string;
+  lower_price: string;
+  upper_price: string;
+  grid_count: number;
+  order_type: string;
+  per_grid_qty?: string;
+  total_investment: string;
+  stop_loss?: string;
+  take_profit?: string;
+}
+
+export function createGridBot(api: ApiClient, req: GridBotCreateRequest): Promise<unknown> {
+  return api.post('/bots/grid', req, { idempotent: true });
+}
+
+/** Stop/delete — registered route; `close_positions` is the
+ * close-or-keep choice the task mandates on the confirm path. */
+export function deleteGridBot(
+  api: ApiClient,
+  id: string,
+  closePositions: boolean,
+): Promise<unknown> {
+  return api.delete(`/bots/grid/${encodeURIComponent(id)}`, {
+    body: { close_positions: closePositions },
+  });
+}
+
+/** Pause/resume routes are NOT registered for grid bots — surfaces gate
+ * on this flag and render an honest "not available" instead of 404s. */
+export const GRID_BOT_CONTROL_ROUTES = {
+  pause: 'POST /api/v1/bots/grid/{id}/pause',
+  resume: 'POST /api/v1/bots/grid/{id}/resume',
+} as const;
+export function gridBotControlRegistered(): boolean {
+  return false; // not in the route table — update when Phase-16 lands them
+}

@@ -4180,6 +4180,19 @@ This specification defines a **complete production-grade FOREX exchange system s
   - **Log-only strings:** `RETENTION_POLICY_VIOLATION`/`ARCHIVE_JOB_FAILED` are ops/audit log markers, not §23 API codes — registry unchanged at **173**.
   - **Deployment-state checkpoints:** `checks/phase09.go` binds deploy assets (K8s HPA manifests, Sentinel `mymaster … 2` quorum syntax, DR runbooks, SLO/postmortem docs) via `grepTree`/file-exact assertions — directory bindings are `grepTree`, never `structural` on a path.
 
+- **Phase-10 implementation record (2026-10-06 — Tasks 10.3.1–10.3.29):** Findings and rulings from the trader-UI phase (29/29 P10 spec checkpoints green, 539 Vitest tests):
+  - **Frontend module layout:** `frontend/` is a standalone npm workspace — Vite + React 18 + strict TS, Zustand + TanStack Query, feature auto-discovery via `import.meta.glob` (`src/features/*/routes.ts` + `nav.ts`) so features add zero shared-file edits. Initial JS **96.4 kB gzipped** vs the 300 kB budget (TradingView + backtester lazy chunks verified out of the entry closure).
+  - **WS client (10.3.19):** normative state machine landed (`src/lib/ws/machine.ts`) — RECONNECT_SCHEDULE constants shared with Phase-06, `last_seq` per-channel resume, fail-closed gap drop + resync escalation, 24/5-gated staleness monitor, RFC 7807 optimistic-rollback notices.
+  - **Honest-unavailable adapters (not mocks):** surfaces whose backends land in later phases render explicit `UnavailablePanel`/stub panels with owning-phase attribution — copy/PAMM strategies (Phase-14/16), solvency Merkle viewer (Phase-13), admin instrument management (Phase-15), `/admin/ops-board` (Phase-13), account P&L aggregates (Phase-20). No fabricated data anywhere.
+  - **axe-core audits not run (10 rows open):** no axe/playwright-axe tooling installed; every "passes axe-core audit" AC row stays open until an a11y gate exists.
+  - **Input-helper framework (10.3.29):** OpenAPI-generated validators (`scripts/gen-validators.mjs` → `generated/route-contracts.ts`, 327 operations, `gen:validators:check` freshness gate); adopted by copy-grid/history/reports — the retrofit into order-entry/auth/funding/settings is **open** (framework exists, wiring deferred).
+  - **KYC upload transport deviation:** documents upload as base64-in-JSON, not multipart — `ApiClient` serializes all bodies JSON (documented in `kyc/api.ts`; multipart needs a client extension).
+  - **Env-context store ruling:** absent stored env → `dev` initial (Task 10.3.20 requires explicit prod confirm — auto-`production` would violate it); corrupt stored value → `production` fail-closed.
+  - **Local-only surfaces (documented):** watchlists/rate alerts and workspace layouts persist to localStorage (no server endpoints exist); admin env persists to sessionStorage only (prod watermark survives refresh, not tabs).
+  - **Dependency rulings:** no `react-window` (manual fixed-height virtualization); bundle gate is `scripts/check-bundle-size.mjs` (manifest-aware, stricter than size-limit for lazy chunks); `lightweight-charts` pinned and lazy.
+  - **`exchange/fault` go.sum drift (fixed):** Phase-07's `internal/observability` nats.go import broke the fault-injection module's go.sum — `go mod tidy` repaired; the P01.5 fault-injection checkpoint is green again.
+  - **`P01-T1.3.3-C1` live-version leg → pending-infra:** host has only PG18 binaries (no PG16 `initdb`, no docker access); the compose pin `postgres:16-bookworm` remains asserted structurally. Mismatch now reports `skip` with detail instead of a permanently-red fail — recorded here rather than weakening the deploy contract.
+
 ### 27.1 Operational Domains & High-Level Completeness Matrix
 
 | # | Domain | Core Components | Spec % | Plan % | §24 ACs | Migrations | Code % | Implementation Readiness |

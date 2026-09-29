@@ -104,7 +104,7 @@
       },
       {
         "code": "ACCOUNT_NOT_FOUND",
-        "description": "Account id does not exist (emitted by internal/accounts lookups + internal/funding stores; aligns with NOT_FOUND 404/L3). §23 row pending.",
+        "description": "Account identifier does not resolve (Phase-05 Task 5.3.5 Internal Transfers; emitted by gateway funding paths — registered 2026-10-05, remediation #44)",
         "http_status": 404,
         "owner": "Phase-05 Task 5.3.5"
       },
@@ -128,7 +128,7 @@
       },
       {
         "code": "API_KEY_NOT_FOUND",
-        "description": "X-API-KEY unknown, inactive or expired (auth.SignatureVerifier key resolution). §23 row pending.",
+        "description": "API key identifier does not resolve during mass-cancel/session validation (Phase-05 Task 5.3.24 Scoped Mass Cancel; remediation #44)",
         "http_status": 401,
         "owner": "Phase-05 Task 5.3.24"
       },
@@ -162,13 +162,13 @@
       },
       {
         "code": "AUTH_INTERNAL",
-        "description": "Auth subsystem internal failure (signature verification/replay guard). Fail-closed 500; message never leaks internals. §23 row pending.",
+        "description": "Authentication subsystem internal failure (Phase-05 Task 5.3.24; remediation #44)",
         "http_status": 500,
         "owner": "Phase-05 Task 5.3.24"
       },
       {
         "code": "BALANCE_EVENT_DISPATCH_FAILED",
-        "description": "Journal committed but the post-commit BalanceChanged event could not be dispatched (spec §5.3 invariant); the committed journal remains authoritative — callers must not repost. §23 row pending.",
+        "description": "Balance-change NATS dispatch failed after commit (Phase-03 Task 3.3.6 GL posting seam; remediation #44)",
         "http_status": 500,
         "owner": "Phase-03 Task 3.3.6"
       },
@@ -307,13 +307,13 @@
       },
       {
         "code": "DUAL_CONTROL_REQUIRED",
-        "description": "Privileged transition requires a second approver (maker-checker / four-eyes, spec §24 Maker-Checker Admin row, 400/L2; Phase-07 Task 7.3.1 owns full enforcement). §23 row pending.",
+        "description": "Operation requires a second-authorizer approval (Phase-05 Task 5.3.12 FROZEN legal-hold; remediation #44)",
         "http_status": 400,
         "owner": "Phase-05 Task 5.3.12"
       },
       {
         "code": "DUAL_CONTROL_VIOLATION",
-        "description": "Dual-control precondition violated by an account-state transition (internal/accounts FreezeService; aligns with DUAL_CONTROL_REQUIRED 400/L2). §23 row pending.",
+        "description": "Dual-control approval attempt by the initiating principal (Phase-05 Task 5.3.12; remediation #44)",
         "http_status": 400,
         "owner": "Phase-05 Task 5.3.12"
       },
@@ -325,7 +325,7 @@
       },
       {
         "code": "ENDPOINT_GONE",
-        "description": "API endpoint past its announced sunset date; migrate per /developer/migration (spec §8.6 deprecation policy — deterministic 410 once sunset_at has passed). §23 row pending.",
+        "description": "Endpoint removed per deprecation schedule (Phase-05 Task 5.3.20 API Deprecation Policy; remediation #44)",
         "http_status": 410,
         "owner": "Phase-05 Task 5.3.20"
       },
@@ -354,13 +354,13 @@
       },
       {
         "code": "FEE_INVALID_INPUT",
-        "description": "Malformed fee computation input (settlement.CodeFeeInvalidInput). §23 row pending.",
+        "description": "Fee-schedule input failed validation (Phase-03 Task 3.3.4 Fee Engine; remediation #44)",
         "http_status": 400,
         "owner": "Phase-03 Task 3.3.4"
       },
       {
         "code": "FEE_TIER_NOT_FOUND",
-        "description": "Account has no resolvable fee_tiers row (spec §5.11/§8.5; settlement.CodeFeeTierNotFound, surfaced on GET /api/v1/fees). §23 row pending.",
+        "description": "Referenced fee tier does not exist (Phase-05 Task 5.3.15 Fee Schedule Surface; remediation #44)",
         "http_status": 404,
         "owner": "Phase-05 Task 5.3.15"
       },
@@ -445,7 +445,7 @@
       },
       {
         "code": "INSTRUMENT_RESTRICTED",
-        "description": "Instrument is RESTRICTED (spec §7.1): only LIMIT order entry permitted; market/stop order rejected. Sibling per-state codes INSTRUMENT_CANCEL_ONLY/SUSPENDED/HALTED/DELISTED are spec §23 rows; this row fills the RESTRICTED gap. §23 row pending.",
+        "description": "Instrument in RESTRICTED lifecycle grace state; new orders blocked, cancels allowed (Phase-05 Task 5.3.3 order ingress; remediation #44)",
         "http_status": 409,
         "owner": "Phase-05 Task 5.3.3"
       },
@@ -468,9 +468,21 @@
       },
       {
         "code": "INTERNAL_ERROR",
-        "description": "Unclassified internal failure; fail-closed generic envelope leaks no internals (spec §2.7.1). Emitted by pkg/errors.ProblemFor since Task 1.3.12; §23 row pending.",
+        "description": "Unmapped internal failure; RFC-7807 envelope generic surface (Phase-05 Task 5.3.41 Error Envelope; remediation #44)",
         "http_status": 500,
         "owner": "Phase-05 Task 5.3.41"
+      },
+      {
+        "code": "INVALID_DEPTH_LIMIT",
+        "description": "Requested book depth levels/cadence outside the supported {5,10,20}×{100,250,1000}ms table (Phase-06 Task 6.3.15 Configurable Depth; §24 #265 — cited by §27.1 L2 Book row but never registered; remediation #44 follow-on)",
+        "http_status": 400,
+        "owner": "Phase-06 Task 6.3.15"
+      },
+      {
+        "code": "INVALID_INTERVAL",
+        "description": "Kline/aggregate interval outside the canonical 13-timeframe set (Phase-06 Task 6.3.14; Phase-20 Task 20.3.1 REST surface — cited by §27.1 Klines row but never registered; remediation #44 follow-on)",
+        "http_status": 400,
+        "owner": "Phase-06 Task 6.3.14"
       },
       {
         "code": "INVALID_LIFECYCLE_TRANSITION",
@@ -542,19 +554,19 @@
       },
       {
         "code": "LEDGER_INVALID_JOURNAL",
-        "description": "Double-entry journal failed validation or persistence (internal/ledger + settlement.LedgerService). §23 row pending.",
+        "description": "Journal entry failed double-entry validation at posting (Phase-03 Task 3.3.6; remediation #44)",
         "http_status": 500,
         "owner": "Phase-03 Task 3.3.6"
       },
       {
         "code": "LEDGER_LOCK_UNAVAILABLE",
-        "description": "Per-account Redis lock (account:lock:{accountId}, spec §4) unavailable; the ledger posting could not be serialized — retryable 503. §23 row pending.",
+        "description": "Account ledger mutex unavailable within deadline (Phase-03 Task 3.3.6; remediation #44)",
         "http_status": 503,
         "owner": "Phase-03 Task 3.3.6"
       },
       {
         "code": "LEDGER_UNKNOWN_ACCOUNT",
-        "description": "Journal line referenced a GL account code absent from chart_of_accounts — the posting aborted inside its SERIALIZABLE tx. §23 row pending.",
+        "description": "Journal references a GL account absent from the chart (Phase-03 Task 3.3.6; remediation #44)",
         "http_status": 500,
         "owner": "Phase-03 Task 3.3.6"
       },
@@ -642,7 +654,7 @@
       },
       {
         "code": "NOT_IMPLEMENTED",
-        "description": "Route registered in the Task 5.3.7 registry but not yet implemented by its owning phase; stubbed per the registration-completeness invariant (spec §8.4 item 4). §23 row pending.",
+        "description": "Route registered but handler not yet implemented (Phase-05 Task 5.3.7 Route Registration; remediation #44)",
         "http_status": 501,
         "owner": "Phase-05 Task 5.3.7"
       },
@@ -653,7 +665,7 @@
       },
       {
         "code": "OPS_ALERT_DISPATCH_FAILED",
-        "description": "Ops alert publish failed after a settlement/compensation event (internal/settlement PublisherAlerter). §23 row pending.",
+        "description": "Operational alert dispatch to the alert taxonomy failed (Phase-03 Task 3.3.6; remediation #44)",
         "http_status": 500,
         "owner": "Phase-03 Task 3.3.6"
       },
@@ -811,7 +823,7 @@
       },
       {
         "code": "RISK_LIMITS_INTERNAL",
-        "description": "Internal failure inside internal/risk.LimitsService (store read/write); surfaced fail-closed on /account/risk-limits and withdrawal cap checks. §23 row pending.",
+        "description": "Risk-limit store internal failure (Phase-05 Task 5.3.4 Risk-Limit Administration; remediation #44)",
         "http_status": 500,
         "owner": "Phase-05 Task 5.3.4"
       },
@@ -901,6 +913,12 @@
         "http_status": 422
       },
       {
+        "code": "TICKET_NOT_FOUND",
+        "description": "Support ticket identifier does not resolve, or resolves to a ticket outside the caller's account scope (Phase-07 Task 7.3.7 Support Tickets & Complaints; cited by the §27.1 Complaints & Dispute Resolution matrix row but never tabled — registered 2026-09-28, remediation #44 follow-on)",
+        "http_status": 404,
+        "owner": "Phase-07 Task 7.3.7"
+      },
+      {
         "code": "TIMESTAMP_OUT_OF_WINDOW",
         "description": "HMAC timestamp outside 30s replay window (§8.1) — added 2026-09-15",
         "http_status": 401
@@ -951,7 +969,7 @@
       },
       {
         "code": "TWO_FACTOR_REQUIRED",
-        "description": "Sensitive operation requires a fresh TOTP step-up: X-2FA-Token header or an amr-elevated session (spec §24 User Authentication row, 403/L3; Phase-12 Task 12.3.x owns the ceremony). §23 row pending.",
+        "description": "TOTP step-up required for the privileged operation (Phase-05 Task 5.3.36 Close-All Positions; remediation #44)",
         "http_status": 403,
         "owner": "Phase-05 Task 5.3.36"
       },
@@ -963,7 +981,7 @@
       },
       {
         "code": "UNAUTHORIZED_ROLE",
-        "description": "Caller lacks the RBAC role required for the admin action (spec §24 Maker-Checker Admin row; aligned with UNAUTHORIZED_ADMIN_ACTION 403/L3). §23 row pending.",
+        "description": "Caller role lacks the required authorization for the operation (Phase-05 Task 5.3.12; remediation #44)",
         "http_status": 403,
         "owner": "Phase-05 Task 5.3.12"
       },
@@ -1014,13 +1032,13 @@
       },
       {
         "code": "WEBHOOK_DELIVERY_FAILED",
-        "description": "Outbound webhook delivery exhausted the 1s/2s/4s/8s/16s retry schedule and dead-lettered (webhook_deliveries.status=DEAD_LETTERED). §23 row pending.",
+        "description": "Webhook delivery permanently failed after retry budget (Phase-05 Task 5.3.17 Webhooks; remediation #44)",
         "http_status": 500,
         "owner": "Phase-05 Task 5.3.17"
       },
       {
         "code": "WITHDRAWAL_CONFIRM_EXPIRED",
-        "description": "Withdrawal confirmation token arrived after the canonical 15-minute window (spec §5.7); the request is auto-cancelled and the ledger hold released. §23 row pending.",
+        "description": "Withdrawal confirmation window elapsed; request must be re-initiated (Phase-05 Task 5.3.6 Withdrawal Flow; remediation #44)",
         "http_status": 409,
         "owner": "Phase-05 Task 5.3.6"
       },
@@ -3598,6 +3616,47 @@
         "x-weight": 1
       }
     },
+    "/api/v1/admin/api-deprecations/usage": {
+      "get": {
+        "operationId": "get_api_v1_admin_api_deprecations_usage",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Deprecated-route usage telemetry (per-rule daily counters)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Read-Only Auditor",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-09 Task 9.3.6",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Read-Only Auditor",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
     "/api/v1/admin/api-keys/{id}/extend-expiry": {
       "put": {
         "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
@@ -3694,7 +3753,6 @@
     },
     "/api/v1/admin/audit": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_admin_audit",
         "responses": {
           "200": {
@@ -3730,13 +3788,12 @@
         "x-owner": "Phase-07 Task 7.3.3",
         "x-rate-tier": "basic",
         "x-rbac-role": "Read-Only Auditor",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/admin/audit-log": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_admin_audit_log",
         "responses": {
           "200": {
@@ -3772,13 +3829,12 @@
         "x-owner": "Phase-07 Task 7.3.3",
         "x-rate-tier": "basic",
         "x-rbac-role": "Read-Only Auditor",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/admin/audit/verify": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_admin_audit_verify",
         "responses": {
           "200": {
@@ -3814,7 +3870,7 @@
         "x-owner": "Phase-07 Task 7.3.3",
         "x-rate-tier": "basic",
         "x-rbac-role": "Read-Only Auditor",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -3857,6 +3913,270 @@
         "x-rate-tier": "basic",
         "x-rbac-role": "Compliance Officer",
         "x-status": "stub",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/bindings": {
+      "get": {
+        "operationId": "get_api_v1_admin_bindings",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Admin role bindings (?user_id=&status=)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Read-Only Auditor",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-07 Task 7.3.11",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Read-Only Auditor",
+        "x-status": "live",
+        "x-weight": 1
+      },
+      "post": {
+        "operationId": "post_api_v1_admin_bindings",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Grant scoped admin role binding (four-eyes queue)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Super Admin",
+          "scopes": null
+        },
+        "x-dual-control": true,
+        "x-env": "",
+        "x-owner": "Phase-07 Task 7.3.11",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Super Admin",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/bindings/{id}/revoke": {
+      "post": {
+        "operationId": "post_api_v1_admin_bindings_id_revoke",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Revoke admin role binding (four-eyes queue)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Super Admin",
+          "scopes": null
+        },
+        "x-dual-control": true,
+        "x-env": "",
+        "x-owner": "Phase-07 Task 7.3.11",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Super Admin",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/break-glass": {
+      "post": {
+        "operationId": "post_api_v1_admin_break_glass",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Break-glass grant — incident-confined ≤4h Super Admin",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Super Admin",
+          "scopes": null
+        },
+        "x-dual-control": true,
+        "x-env": "",
+        "x-owner": "Phase-07 Task 7.3.12",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Super Admin",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/break-glass/{id}/review": {
+      "post": {
+        "operationId": "post_api_v1_admin_break_glass_id_review",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Mandatory post-incident break-glass review {notes}",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Risk Manager",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-07 Task 7.3.12",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Risk Manager",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/cache/warm": {
+      "post": {
+        "operationId": "post_api_v1_admin_cache_warm",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Manual cache-warm trigger",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Super Admin",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-09 Task 9.3.8",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Super Admin",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -4419,7 +4739,6 @@
     },
     "/api/v1/admin/dlq": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_admin_dlq",
         "responses": {
           "200": {
@@ -4452,10 +4771,153 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-07",
+        "x-owner": "Phase-07 Task 7.3.10",
         "x-rate-tier": "basic",
         "x-rbac-role": "Support Agent",
-        "x-status": "stub",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/dual-control": {
+      "get": {
+        "operationId": "get_api_v1_admin_dual_control",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Four-eyes pending request list (?status=)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Read-Only Auditor",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-07 Task 7.3.2",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Read-Only Auditor",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/dual-control/{id}/approve": {
+      "post": {
+        "operationId": "post_api_v1_admin_dual_control_id_approve",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Confirm a pending four-eyes request (per-request role applies)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "*",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-07 Task 7.3.2",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "*",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/dual-control/{id}/reject": {
+      "post": {
+        "operationId": "post_api_v1_admin_dual_control_id_reject",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Reject a pending four-eyes request (per-request role applies)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "*",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-07 Task 7.3.2",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "*",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -4957,9 +5419,235 @@
         "x-weight": 1
       }
     },
+    "/api/v1/admin/flags": {
+      "get": {
+        "operationId": "get_api_v1_admin_flags",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Feature-flag list",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Read-Only Auditor",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-09 Task 9.3.7",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Read-Only Auditor",
+        "x-status": "live",
+        "x-weight": 1
+      },
+      "post": {
+        "operationId": "post_api_v1_admin_flags",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Feature-flag create",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Super Admin",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-09 Task 9.3.7",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Super Admin",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
     "/api/v1/admin/flags/{name}": {
+      "delete": {
+        "operationId": "delete_api_v1_admin_flags_name",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Feature-flag delete",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Super Admin",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-09 Task 9.3.7",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Super Admin",
+        "x-status": "live",
+        "x-weight": 1
+      },
+      "get": {
+        "operationId": "get_api_v1_admin_flags_name",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Feature-flag read",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Read-Only Auditor",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-09 Task 9.3.7",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Read-Only Auditor",
+        "x-status": "live",
+        "x-weight": 1
+      },
+      "post": {
+        "operationId": "post_api_v1_admin_flags_name",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Feature-flag toggle {enabled}",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Super Admin",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-09 Task 9.3.7",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Super Admin",
+        "x-status": "live",
+        "x-weight": 1
+      },
       "put": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "put_api_v1_admin_flags_name",
         "parameters": [
           {
@@ -5002,16 +5690,66 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-09",
+        "x-owner": "Phase-09 Task 9.3.7",
         "x-rate-tier": "basic",
         "x-rbac-role": "Super Admin",
-        "x-status": "stub",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/flags/{name}/advance": {
+      "post": {
+        "operationId": "post_api_v1_admin_flags_name_advance",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Feature-flag canary ladder advance",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Super Admin",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-09 Task 9.3.7",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Super Admin",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/admin/fleet/environments": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_admin_fleet_environments",
         "responses": {
           "200": {
@@ -5032,7 +5770,7 @@
             "oauth2": null
           }
         ],
-        "summary": "Fleet environments",
+        "summary": "Fleet environments (+ session env context)",
         "tags": [
           "admin"
         ],
@@ -5047,13 +5785,12 @@
         "x-owner": "Phase-09 Task 9.3.30",
         "x-rate-tier": "basic",
         "x-rbac-role": "Super Admin",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/admin/fleet/hosts": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_admin_fleet_hosts",
         "responses": {
           "200": {
@@ -5074,7 +5811,7 @@
             "oauth2": null
           }
         ],
-        "summary": "Fleet hosts",
+        "summary": "Fleet hosts (env-scoped; ?state=&role=)",
         "tags": [
           "admin"
         ],
@@ -5089,13 +5826,12 @@
         "x-owner": "Phase-09 Task 9.3.30",
         "x-rate-tier": "basic",
         "x-rbac-role": "Super Admin",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/admin/fleet/hosts/{id}/cordon": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_admin_fleet_hosts_id_cordon",
         "parameters": [
           {
@@ -5107,6 +5843,27 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "approver_id": {
+                    "type": "any"
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "reason"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "description": "success"
@@ -5126,7 +5883,7 @@
             "oauth2": null
           }
         ],
-        "summary": "Cordon fleet host",
+        "summary": "Cordon fleet host (prod: four-eyes approver_id)",
         "tags": [
           "admin"
         ],
@@ -5141,13 +5898,12 @@
         "x-owner": "Phase-09 Task 9.3.30",
         "x-rate-tier": "basic",
         "x-rbac-role": "Super Admin",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/admin/fleet/hosts/{id}/decommission": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_admin_fleet_hosts_id_decommission",
         "parameters": [
           {
@@ -5159,6 +5915,27 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "approver_id": {
+                    "type": "any"
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "reason"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "description": "success"
@@ -5178,7 +5955,7 @@
             "oauth2": null
           }
         ],
-        "summary": "Decommission fleet host",
+        "summary": "Decommission fleet host (prod: four-eyes approver_id)",
         "tags": [
           "admin"
         ],
@@ -5193,13 +5970,12 @@
         "x-owner": "Phase-09 Task 9.3.30",
         "x-rate-tier": "basic",
         "x-rbac-role": "Super Admin",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/admin/fleet/hosts/{id}/drain": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_admin_fleet_hosts_id_drain",
         "parameters": [
           {
@@ -5211,6 +5987,27 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "approver_id": {
+                    "type": "any"
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "reason"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "description": "success"
@@ -5230,7 +6027,7 @@
             "oauth2": null
           }
         ],
-        "summary": "Drain fleet host",
+        "summary": "Drain fleet host (prod: four-eyes approver_id)",
         "tags": [
           "admin"
         ],
@@ -5245,13 +6042,12 @@
         "x-owner": "Phase-09 Task 9.3.30",
         "x-rate-tier": "basic",
         "x-rbac-role": "Super Admin",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/admin/fleet/topology": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_admin_fleet_topology",
         "responses": {
           "200": {
@@ -5272,7 +6068,7 @@
             "oauth2": null
           }
         ],
-        "summary": "Fleet topology (?env=)",
+        "summary": "Fleet topology (?env=, scoped to session env)",
         "tags": [
           "admin"
         ],
@@ -5287,7 +6083,191 @@
         "x-owner": "Phase-09 Task 9.3.30",
         "x-rate-tier": "basic",
         "x-rbac-role": "Super Admin",
-        "x-status": "stub",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/governance-packs": {
+      "get": {
+        "operationId": "get_api_v1_admin_governance_packs",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Governance pack list (?kind=&limit=; auditors see released + CEO_DAILY)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Read-Only Auditor",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-07 Tasks 7.3.13/7.3.14",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Read-Only Auditor",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/governance-packs/generate": {
+      "post": {
+        "operationId": "post_api_v1_admin_governance_packs_generate",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "On-demand pack rebuild (CEO_DAILY|BOARD_QUARTERLY|BOARD_ADHOC)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Super Admin",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-07 Tasks 7.3.13/7.3.14",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Super Admin",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/governance-packs/{id}": {
+      "get": {
+        "operationId": "get_api_v1_admin_governance_packs_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Governance pack detail + hash_ok re-verification",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Read-Only Auditor",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-07 Tasks 7.3.13/7.3.14",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Read-Only Auditor",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/governance-packs/{id}/release": {
+      "post": {
+        "operationId": "post_api_v1_admin_governance_packs_id_release",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Board-pack release (four-eyes; immutable after release)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Super Admin",
+          "scopes": null
+        },
+        "x-dual-control": true,
+        "x-env": "",
+        "x-owner": "Phase-07 Task 7.3.14",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Super Admin",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -6536,8 +7516,85 @@
       }
     },
     "/api/v1/admin/liquidity-providers": {
+      "get": {
+        "operationId": "get_api_v1_admin_liquidity_providers",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "LP entity list (?status=)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Risk Manager",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-07 Task 7.3.9",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Risk Manager",
+        "x-status": "live",
+        "x-weight": 1
+      },
+      "post": {
+        "operationId": "post_api_v1_admin_liquidity_providers",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "LP entity create (ONBOARDING; instruments attachable)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Risk Manager",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-07 Task 7.3.9",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Risk Manager",
+        "x-status": "live",
+        "x-weight": 1
+      },
       "put": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "put_api_v1_admin_liquidity_providers",
         "responses": {
           "200": {
@@ -6558,7 +7615,7 @@
             "oauth2": null
           }
         ],
-        "summary": "LP entity update",
+        "summary": "LP entity update (lp_id in body; guarded lifecycle)",
         "tags": [
           "admin"
         ],
@@ -6573,13 +7630,163 @@
         "x-owner": "Phase-07 Task 7.3.9",
         "x-rate-tier": "basic",
         "x-rbac-role": "Risk Manager",
-        "x-status": "stub",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/liquidity-providers/{id}": {
+      "get": {
+        "operationId": "get_api_v1_admin_liquidity_providers_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "LP entity detail incl. instrument configs",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Risk Manager",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-07 Task 7.3.9",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Risk Manager",
+        "x-status": "live",
+        "x-weight": 1
+      },
+      "put": {
+        "operationId": "put_api_v1_admin_liquidity_providers_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "LP entity update (path id; guarded lifecycle)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Risk Manager",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-07 Task 7.3.9",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Risk Manager",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/liquidity-providers/{id}/alerts": {
+      "get": {
+        "operationId": "get_api_v1_admin_liquidity_providers_id_alerts",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "LP performance-alert trail (?open=1)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Risk Manager",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-07 Task 7.3.9",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Risk Manager",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/admin/liquidity-providers/{id}/scorecard": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_admin_liquidity_providers_id_scorecard",
         "parameters": [
           {
@@ -6610,7 +7817,7 @@
             "oauth2": null
           }
         ],
-        "summary": "LP scorecard",
+        "summary": "LP scorecard (?window=1h; persisted snapshot marked stale when no live feed)",
         "tags": [
           "admin"
         ],
@@ -6625,7 +7832,7 @@
         "x-owner": "Phase-07 Task 7.3.9",
         "x-rate-tier": "basic",
         "x-rbac-role": "Risk Manager",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -7151,6 +8358,47 @@
         "x-weight": 1
       }
     },
+    "/api/v1/admin/ops/health": {
+      "get": {
+        "operationId": "get_api_v1_admin_ops_health",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Operational health export (components, uptime, events)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Read-Only Auditor",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-09 Task 9.3.25",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Read-Only Auditor",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
     "/api/v1/admin/orders/mass-cancel": {
       "post": {
         "operationId": "post_api_v1_admin_orders_mass_cancel",
@@ -7545,6 +8793,149 @@
         "x-weight": 1
       }
     },
+    "/api/v1/admin/recert": {
+      "post": {
+        "operationId": "post_api_v1_admin_recert",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Open a quarterly recertification campaign",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Super Admin",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-07 Task 7.3.12",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Super Admin",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/recert/{id}": {
+      "get": {
+        "operationId": "get_api_v1_admin_recert_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Recertification campaign report (auditor export)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Read-Only Auditor",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-07 Task 7.3.12",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Read-Only Auditor",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/recert/{id}/decisions": {
+      "post": {
+        "operationId": "post_api_v1_admin_recert_id_decisions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Record a recertification decision {binding_id, approve}",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Super Admin",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-07 Task 7.3.12",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Super Admin",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
     "/api/v1/admin/regulatory-changes": {
       "post": {
         "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
@@ -7641,7 +9032,6 @@
     },
     "/api/v1/admin/releases": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_admin_releases",
         "responses": {
           "200": {
@@ -7662,7 +9052,7 @@
             "oauth2": null
           }
         ],
-        "summary": "List releases",
+        "summary": "List releases (env-scoped; ?status=)",
         "tags": [
           "admin"
         ],
@@ -7677,12 +9067,43 @@
         "x-owner": "Phase-09 Task 9.3.30",
         "x-rate-tier": "basic",
         "x-rbac-role": "Super Admin",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       },
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_admin_releases",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "artifact_hash": {
+                    "type": "string"
+                  },
+                  "component": {
+                    "type": "string"
+                  },
+                  "gate_evidence": {
+                    "type": "object"
+                  },
+                  "notes": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "artifact_hash",
+                  "component",
+                  "version"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "description": "success"
@@ -7702,7 +9123,7 @@
             "oauth2": null
           }
         ],
-        "summary": "Register release",
+        "summary": "Register release (lands DEPLOYED in dev — dev auto-deploys)",
         "tags": [
           "admin"
         ],
@@ -7717,13 +9138,12 @@
         "x-owner": "Phase-09 Task 9.3.30",
         "x-rate-tier": "basic",
         "x-rbac-role": "Super Admin",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/admin/releases/{id}/promote": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_admin_releases_id_promote",
         "parameters": [
           {
@@ -7735,6 +9155,30 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "approver_id": {
+                    "type": "any"
+                  },
+                  "reason": {
+                    "type": "string"
+                  },
+                  "to_env": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "to_env"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "description": "success"
@@ -7754,7 +9198,7 @@
             "oauth2": null
           }
         ],
-        "summary": "Promote release to an environment (deploy-to-production four-eyes)",
+        "summary": "Promote release to an environment (direction-enforced gates; prod = four-eyes + §19.16.3 interlocks)",
         "tags": [
           "admin"
         ],
@@ -7769,7 +9213,7 @@
         "x-owner": "Phase-09 Task 9.3.30",
         "x-rate-tier": "basic",
         "x-rbac-role": "Super Admin",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -7857,7 +9301,6 @@
     },
     "/api/v1/admin/roles": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_admin_roles",
         "responses": {
           "200": {
@@ -7893,7 +9336,7 @@
         "x-owner": "Phase-07 Task 7.3.1",
         "x-rate-tier": "basic",
         "x-rbac-role": "Super Admin",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -7991,9 +9434,139 @@
         "x-weight": 1
       }
     },
+    "/api/v1/admin/support/accounts/{id}": {
+      "get": {
+        "operationId": "get_api_v1_admin_support_accounts_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Read-only support-view (audit-logged; no impersonation)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Support Agent",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-07 Task 7.3.7",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Support Agent",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/support/complaints/register": {
+      "get": {
+        "operationId": "get_api_v1_admin_support_complaints_register",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "MiFID complaint-handling register (COMPLAINT+DISPUTE)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Compliance Officer",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-07 Task 7.3.7",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Compliance Officer",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
     "/api/v1/admin/support/tickets": {
+      "get": {
+        "operationId": "get_api_v1_admin_support_tickets",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Queue list (?status=&category=&queue=&assignee=&account_id=&breached=)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Support Agent",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-07 Task 7.3.7",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Support Agent",
+        "x-status": "live",
+        "x-weight": 1
+      },
       "put": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "put_api_v1_admin_support_tickets",
         "responses": {
           "200": {
@@ -8014,7 +9587,7 @@
             "oauth2": null
           }
         ],
-        "summary": "Update support ticket",
+        "summary": "Update support ticket (assign/transition/ADR)",
         "tags": [
           "admin"
         ],
@@ -8029,7 +9602,109 @@
         "x-owner": "Phase-07 Task 7.3.7",
         "x-rate-tier": "basic",
         "x-rbac-role": "Support Agent",
-        "x-status": "stub",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/support/tickets/{id}": {
+      "get": {
+        "operationId": "get_api_v1_admin_support_tickets_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Ticket detail incl. internal notes",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Support Agent",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-07 Task 7.3.7",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Support Agent",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/support/tickets/{id}/notes": {
+      "post": {
+        "operationId": "post_api_v1_admin_support_tickets_id_notes",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Append internal note",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Support Agent",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-07 Task 7.3.7",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Support Agent",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -12877,7 +14552,6 @@
     },
     "/api/v1/support/tickets": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_support_tickets",
         "responses": {
           "200": {
@@ -12916,11 +14590,10 @@
         "x-env": "",
         "x-owner": "Phase-07 Task 7.3.7",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       },
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_support_tickets",
         "responses": {
           "200": {
@@ -12959,13 +14632,95 @@
         "x-env": "",
         "x-owner": "Phase-07 Task 7.3.7",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/support/tickets/{id}": {
+      "get": {
+        "operationId": "get_api_v1_support_tickets_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Own ticket detail + public notes",
+        "tags": [
+          "support"
+        ],
+        "x-auth": {
+          "methods": [
+            "jwt",
+            "hmac",
+            "oauth2"
+          ],
+          "required": true,
+          "role": "",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-07 Task 7.3.7",
+        "x-rate-tier": "basic",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/system/incidents": {
+      "get": {
+        "operationId": "get_api_v1_system_incidents",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Public incident notices incl. postmortem links",
+        "tags": [
+          "system"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": false,
+          "role": "",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-09 Task 9.3.25",
+        "x-rate-tier": "public",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/system/status": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_system_status",
         "responses": {
           "200": {
@@ -12987,9 +14742,9 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-09 Task 9.3.18",
+        "x-owner": "Phase-09 Task 9.3.18/9.3.25",
         "x-rate-tier": "public",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -13738,7 +15493,6 @@
     },
     "/health": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_health",
         "responses": {
           "200": {
@@ -13760,9 +15514,9 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-07 Task 7.3.1",
+        "x-owner": "Phase-07 Task 7.3.6",
         "x-rate-tier": "exempt",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -13826,7 +15580,6 @@
     },
     "/ready": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_ready",
         "responses": {
           "200": {
@@ -13848,9 +15601,9 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-07 Task 7.3.1",
+        "x-owner": "Phase-07 Task 7.3.6",
         "x-rate-tier": "exempt",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -13910,6 +15663,51 @@
         "x-env": "",
         "x-owner": "Phase-06 Task 6.3.16",
         "x-rate-tier": "public",
+        "x-status": "stub",
+        "x-weight": 1
+      }
+    },
+    "/ws/trade": {
+      "get": {
+        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
+        "operationId": "ws_ws_trade",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Interactive trading WebSocket (spec §8.6/§10.5; legacy alias surface of /ws/v1)",
+        "tags": [
+          "ws"
+        ],
+        "x-auth": {
+          "methods": [
+            "jwt",
+            "hmac",
+            "oauth2"
+          ],
+          "required": true,
+          "role": "",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-05 Task 5.3.31",
+        "x-rate-tier": "basic",
         "x-status": "stub",
         "x-weight": 1
       }

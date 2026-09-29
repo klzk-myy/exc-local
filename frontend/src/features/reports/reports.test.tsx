@@ -1,0 +1,149 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
+
+import { resetSessionForTests } from '@/lib/auth/session';
+import { installFetchMock, renderApp, signInForTests } from '@/test/accountMocks';
+
+import { parseAnnouncement, parseFeeSchedule, parseSystemStatus } from './api';
+import { AnnouncementsPanel, FeeSchedulePanel, SolvencyPanel, SystemInfoPanel } from './panels';
+
+vi.mock('@/app/runtime', () => import('@/test/accountMocks').then((m) => m.runtimeModule()));
+
+const STUB_501 = {
+  status: 501,
+  body: { type: 'error', error: 'NOT_IMPLEMENTED', message: 'stub', status: 501 },
+};
+
+beforeEach(() => {
+  window.localStorage.clear();
+  resetSessionForTests();
+  signInForTests();
+});
+
+describe('wire narrowing', () => {
+  it('parseFeeSchedule reads the AccountFees payload', () => {
+    const f = parseFeeSchedule({
+      account_id: 42,
+      tier_id: 3,
+      tier_name: 'Standard',
+      maker_bps: '2.0',
+      taker_bps: '4.0',
+      effective_maker_bps: '1.5',
+      effective_taker_bps: '4.0',
+      promo_active: true,
+      promo: { until: '2026-10-01T00:00:00Z', maker_bps: '1.5' },
+    });
+    expect(f.tierName).toBe('Standard');
+    expect(f.effectiveMakerBps).toBe('1.5');
+    expect(f.promoActive).toBe(true);
+  });
+  it('parseAnnouncement / parseSystemStatus narrow correctly', () => {
+    expect(parseAnnouncement({ id: 7, title: 'T', body: 'B', category: 'INCIDENT' })).toMatchObject(
+      {
+        id: '7',
+        title: 'T',
+      },
+    );
+    expect(parseAnnouncement({ body: 'x' })).toBeNull();
+    const s = parseSystemStatus({
+      status: 'operational',
+      mode: 'Normal',
+      components: [{ name: 'engine', state: 'operational', critical: true, latency_ms: 0.4 }],
+      source: 'aggregator',
+    });
+    expect(s.components[0]?.name).toBe('engine');
+    expect(s.mode).toBe('Normal');
+  });
+});
+
+describe('FeeSchedulePanel', () => {
+  it('renders the live fee payload', async () => {
+    installFetchMock({
+      'GET /api/v1/fees': {
+        status: 200,
+        body: {
+          tier_name: 'Standard',
+          maker_bps: '2',
+          taker_bps: '4',
+          effective_maker_bps: '2',
+          effective_taker_bps: '4',
+          promo_active: false,
+        },
+      },
+    });
+    renderApp(<FeeSchedulePanel />);
+    await waitFor(() => {
+      expect(screen.getByText(/Standard/)).toBeInTheDocument();
+    });
+    expect(screen.getAllByText('2').length).toBeGreaterThan(0);
+  });
+});
+
+describe('SolvencyPanel', () => {
+  it('renders the honest unavailable state on 501 — no fabricated roots', async () => {
+    installFetchMock({ 'GET /api/v1/public/proof-of-reserves/daily-root': STUB_501 });
+    renderApp(<SolvencyPanel />);
+    await waitFor(() => {
+      expect(screen.getByRole('status')).toHaveTextContent('Proof of reserves');
+    });
+    expect(screen.queryByText(/Merkle/)).toBeInTheDocument(); // only inside the unavailable note
+  });
+});
+
+describe('SystemInfoPanel', () => {
+  it('renders component health from the live endpoint', async () => {
+    installFetchMock({
+      'GET /api/v1/system/status': {
+        status: 200,
+        body: {
+          status: 'operational',
+          mode: 'Normal',
+          components: [{ name: 'gateway', state: 'operational', critical: true, latency_ms: 1.2 }],
+          source: 'aggregator',
+          updated_at: '2026-09-28T00:00:00Z',
+        },
+      },
+    });
+    renderApp(<SystemInfoPanel />);
+    await waitFor(() => {
+      expect(screen.getByText(/gateway/)).toBeInTheDocument();
+    });
+    expect(screen.getAllByText('operational').length).toBeGreaterThan(0);
+  });
+});
+
+describe('AnnouncementsPanel', () => {
+  it('renders, grades by category, and dismiss persists to storage', async () => {
+    installFetchMock({
+      'GET /api/v1/announcements': {
+        status: 200,
+        body: {
+          data: [
+            {
+              id: 1,
+              title: 'Maint window',
+              body: 'Sun 21:00 UTC',
+              category: 'MAINTENANCE',
+              status: 'PUBLISHED',
+            },
+            {
+              id: 2,
+              title: 'Incident',
+              body: 'Degraded fills',
+              category: 'INCIDENT',
+              status: 'PUBLISHED',
+            },
+          ],
+        },
+      },
+    });
+    renderApp(<AnnouncementsPanel />);
+    await waitFor(() => {
+      expect(screen.getByText('Maint window')).toBeInTheDocument();
+    });
+    expect(screen.getByText('INCIDENT')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Dismiss announcement Maint window/ }));
+    expect(screen.queryByText('Maint window')).not.toBeInTheDocument();
+    expect(window.localStorage.getItem('exc.dismissed-announcements.v1')).toContain('"1"');
+  });
+});

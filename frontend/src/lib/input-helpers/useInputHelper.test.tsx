@@ -1,0 +1,59 @@
+import { renderHook, act } from '@testing-library/react';
+import { describe, expect, it } from 'vitest';
+
+import { useInputHelper } from './useInputHelper';
+
+describe('useInputHelper', () => {
+  it('binds the generated contract for a known route', () => {
+    const { result } = renderHook(() => useInputHelper('POST /api/v1/orders'));
+    expect(result.current.registered).toBe(true);
+    expect(result.current.isStub).toBe(false);
+    expect(result.current.fields.length).toBeGreaterThan(0);
+  });
+
+  it('flags stub routes (copy strategies are 501 until Phase-14)', () => {
+    const { result } = renderHook(() => useInputHelper('GET /api/v1/copy/strategies'));
+    expect(result.current.isStub).toBe(true);
+  });
+
+  it('validate() surfaces field + cross-field errors', () => {
+    const { result } = renderHook(() => useInputHelper('POST /api/v1/orders'));
+    let errs: readonly { field: string }[] = [];
+    act(() => {
+      errs = result.current.validate({ symbol: 'EUR/USD', type: 'LIMIT', quantity: '1000' });
+    });
+    // LIMIT without price → relational error; missing side → field error
+    const names = errs.map((e) => e.field);
+    expect(names).toContain('side');
+    expect(names).toContain('price');
+    expect(result.current.isValid).toBe(false);
+    act(() => {
+      errs = result.current.validate({
+        symbol: 'EUR/USD',
+        side: 'BUY',
+        type: 'LIMIT',
+        quantity: '1000',
+        price: '1.08500',
+      });
+    });
+    expect(errs).toEqual([]);
+    expect(result.current.isValid).toBe(true);
+  });
+
+  it('pathErrors validates path params (countdown range is body, trade_id is a path param)', () => {
+    const { result } = renderHook(() =>
+      useInputHelper('GET /api/v1/account/confirmations/{trade_id}'),
+    );
+    expect(result.current.registered).toBe(true);
+    expect(result.current.pathErrors({})).toHaveLength(1);
+    expect(result.current.pathErrors({ trade_id: 'abc-123' })).toEqual([]);
+  });
+
+  it('unknown routes report registered=false and validate nothing', () => {
+    const { result } = renderHook(() => useInputHelper('POST /api/v1/fictional'));
+    expect(result.current.registered).toBe(false);
+    act(() => {
+      expect(result.current.validate({ anything: 'x' })).toEqual([]);
+    });
+  });
+});

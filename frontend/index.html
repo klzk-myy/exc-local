@@ -1,0 +1,30 @@
+<!doctype html>
+<!--
+  Phase-10 Task 10.3.1 item 8 — SPA shell security.
+  Production meta CSP: default-src 'self', NO 'unsafe-inline' anywhere,
+  frame-ancestors 'none'. The matching header set (X-Frame-Options: DENY,
+  Referrer-Policy: no-referrer, frame-ancestors 'none') is emitted by the
+  static-asset server via public/_headers — the meta tag is the
+  defense-in-depth layer for hosts that ignore header config.
+
+  Dev mode: vite.config.ts `devCspRelaxation` rewrites this meta tag ONLY
+  during `vite serve` (Vite injects <style> tags for Tailwind and dials
+  ws://localhost for HMR). The production build emits this policy verbatim.
+-->
+<html lang="en-US">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self' wss:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
+    />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="color-scheme" content="dark" />
+    <title>Exchange — Trader UI</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

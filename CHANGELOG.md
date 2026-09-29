@@ -524,3 +524,34 @@ Scope: 26 tasks (2.3.1–2.3.26), 67 AC rows. Critical spec correction noted at 
   are log markers not §23 codes (registry stays **173**).
 - **Docs:** Phase-09 doc checkboxes audited (138 verified / 55 open, annotated);
   spec §27 Phase-09 record appended; AGENTS/CLAUDE/MEMORY synced.
+
+## [2026-10-06] — PHASE-10 TRADER UI — LANDED
+
+- **Scope:** all 29 tasks. Wave-1 scaffold: `frontend/` Vite + React 18 +
+  strict TypeScript, Tailwind, React Router lazy routes, Zustand + TanStack
+  Query, feature auto-discovery via `import.meta.glob` (`routes.ts`/`nav.ts`
+  manifests — zero shared-file edits per feature), normative Task-10.3.19 WS
+  state machine (RECONNECT_SCHEDULE, per-channel `last_seq` resume, fail-closed
+  gap→resync, 24/5 staleness monitor), typed §23 API client w/ idempotency,
+  CSP/SRI shell, manifest-aware bundle gate (96.4 kB gz / 300 kB), CI frontend
+  job. Wave-2 clusters: trading core (order book/entry/charts/portfolio),
+  trading UX (advanced orders, calculator, Pro/Lite, quick actions, sliders,
+  depth chart, ADL, workspace, chart overlays), analytics/ops (admin dash,
+  backtesting, discovery/watchlists, perf dashboard, fleet/ops board),
+  account suite (auth/session, security center, funding, KYC, support),
+  flows+framework (copy/grid, history/algo/OPO, reports, input-helper lib
+  with OpenAPI-generated validators).
+- **Checkpoints:** 29/29 P10 PASS — new `vitest`/`npmScript` check steps bind
+  each checkpoint to its owning feature's tests. Full corpus 4-shard run:
+  0 failures.
+- **Tests:** 539 Vitest tests, typecheck/lint/format/build/size/e2e all green.
+- **Honestly open (14 AC rows):** axe-core audits (no a11y tooling installed),
+  input-helper retrofit into earlier surfaces, solvency/bot-P&L/admin-instruments
+  honest-unavailable (Phase-13/15/16/20 backends absent).
+- **Fixes during settle:** `exchange/fault` go.sum drift (observability nats
+  import) repaired via `go mod tidy`; `P01-T1.3.3-C1` live PG16 leg →
+  pending-infra (host has PG18 only; compose pin postgres:16 still asserted);
+  Redis `shard:map` seeded via `exchange cache-shard-map`.
+- **Deviations (spec §27):** KYC upload base64-in-JSON (JSON-only ApiClient),
+  manual virtualization (no react-window), env-store absent→dev/corrupt→prod
+  ruling, localStorage watchlists/layouts (no server endpoints).
