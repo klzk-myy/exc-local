@@ -131,6 +131,9 @@ type InsertParams struct {
 	STPMode       string
 	SessionID     string
 	RequestHash   string // dedup payload fingerprint ("" when no client_order_id)
+	// CoDExempt persists the cancel-on-disconnect exemption flag
+	// (migration 229, spec §9.9).
+	CoDExempt bool
 	// OcoGroupID links both legs of an OCO pair (migration 218); nil =
 	// standalone order.
 	OcoGroupID *int64
@@ -324,7 +327,7 @@ const orderCols = `
 	created_at, updated_at,
 	peg_mode, peg_offset::text, peg_limit::text,
 	COALESCE(trigger_source,''), hidden, gslo, fixing_benchmark,
-	algo_type, algo_params`
+	algo_type, algo_params, cod_exempt`
 
 func scanOrder(row pgx.Row) (*Order, error) {
 	var (
@@ -342,7 +345,7 @@ func scanOrder(row pgx.Row) (*Order, error) {
 		&o.CreatedAt, &o.UpdatedAt,
 		&o.PegMode, &pegOff, &pegLim,
 		&o.TriggerSource, &o.Hidden, &o.GSLO, &o.FixingBenchmark,
-		&o.AlgoType, &algoParams)
+		&o.AlgoType, &algoParams, &o.CoDExempt)
 	if err != nil {
 		return nil, err
 	}
@@ -538,13 +541,13 @@ func insertOrderInTx(ctx context.Context, tx pgx.Tx, p InsertParams) (int64, err
 		    display_qty, time_in_force, status, shard_id, order_seq,
 		    post_only, reduce_only, stp_mode, session_id, oco_group_id,
 		    peg_mode, peg_offset, peg_limit, trigger_source, hidden, gslo,
-		    fixing_benchmark, algo_type, algo_params)
+		    fixing_benchmark, algo_type, algo_params, cod_exempt)
 		VALUES ($1,$2,NULLIF($3,''),$4,$5,$6::numeric,$7::numeric,$8::numeric,
 		        $9::numeric,$10::numeric,$11,'PENDING',$12,$13,$14,$15,
 		        NULLIF($16,''),NULLIF($17,''),$18,
 		        NULLIF($19,''),$20::numeric,$21::numeric,
 		        COALESCE(NULLIF($22,''),'LAST_PRICE'),$23,$24,
-		        NULLIF($25,''),NULLIF($26,''),$27::jsonb)
+		        NULLIF($25,''),NULLIF($26,''),$27::jsonb,$28)
 		RETURNING id`,
 		p.AccountID, p.InstrumentID, p.ClientOrderID, p.Side, p.OrderType,
 		p.Quantity.String(), decPtrStr(p.QuoteQuantity), decPtrStr(p.Price),
@@ -553,7 +556,7 @@ func insertOrderInTx(ctx context.Context, tx pgx.Tx, p InsertParams) (int64, err
 		p.SessionID, p.OcoGroupID,
 		p.PegMode, decPtrStr(p.PegOffset), decPtrStr(p.PegLimit),
 		p.TriggerSource, p.Hidden, p.GSLO,
-		p.FixingBenchmark, p.AlgoType, algoParams).
+		p.FixingBenchmark, p.AlgoType, algoParams, p.CoDExempt).
 		Scan(&id)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -766,6 +769,12 @@ func (s *PgStore) OpenOrders(ctx context.Context, scope MassCancelScope) ([]Orde
 		n++
 		where += fmt.Sprintf(" AND session_id = $%d", n)
 		args = append(args, scope.SessionID)
+	}
+	// spec §9.9 + migration 229 — only the session-scope
+	// cancel-on-disconnect sweep honours cod_exempt; every other
+	// mass-cancel reason (dead-man, admin, close-all) takes the order.
+	if scope.Reason == "cancel_on_disconnect" {
+		where += " AND cod_exempt = false"
 	}
 	rows, err := s.pool.Query(ctx,
 		`SELECT `+orderCols+` FROM orders WHERE `+where+` ORDER BY id`, args...)

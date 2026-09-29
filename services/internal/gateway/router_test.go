@@ -97,12 +97,15 @@ func TestErrorsEndpoint(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	// 192 = 185 + 6 Phase-16 sibling codes + GSLO_EXPOSURE_EXCEEDED
-	// (Task 16.3.16 — spec §23 tabled 2026-09-29; registry test counts).
-	if body.SpecCount != 192 {
-		t.Fatalf("spec_count %d, want 192", body.SpecCount)
+	// 198 = 185 + 6 Phase-16 sibling codes + GSLO_EXPOSURE_EXCEEDED
+	// (Task 16.3.16 — spec §23 tabled 2026-09-29) + 3 Phase-18
+	// quoting/MMP codes (Tasks 18.3.7/18.3.10) + 2 Phase-18
+	// allocation codes (Task 18.3.13) + 1 Phase-18 SOR code
+	// (Task 18.3.14: ROUTING_REJECTED); registry test counts.
+	if body.SpecCount != 198 {
+		t.Fatalf("spec_count %d, want 198", body.SpecCount)
 	}
-	if body.Count != len(body.Codes) || body.Count < 192 {
+	if body.Count != len(body.Codes) || body.Count < 198 {
 		t.Fatalf("error dump mismatch: count=%d len=%d", body.Count, len(body.Codes))
 	}
 }

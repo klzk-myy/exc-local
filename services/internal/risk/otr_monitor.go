@@ -11,11 +11,13 @@
 //
 // (default ratio 500 — the §13.6a canonical figure). The effective
 // ratio/window resolve through LimitsService's existing most-specific-
-// wins lattice, so the §9.6 market-maker allowance is an account- or
-// account+symbol-scoped risk_limits row carrying a higher ratio — the
-// liquidity_providers registry (migration 191) carries no account
-// linkage, and inventing a separate MM flag would create a second source
-// of truth.
+// wins lattice. The §9.6 market-maker allowance is mm_programs.
+// otr_allowance (migration 045, Phase-18 Task 18.3.10), consulted via
+// the WithMMAllowance seam: it applies ONLY over the venue default —
+// an explicitly-scoped risk_limits row always wins, so a Risk-Manager
+// override can never be silently loosened by program enrollment
+// (supersedes the original 047-era design note that scoped risk_limits
+// rows were the only MM mechanism).
 //
 // On breach the monitor writes `otr:breach:{account}` (value carries the
 // observed counts for ops, flag TTL = 2×window as a decay safety net)
@@ -46,6 +48,7 @@ import (
 	goredis "github.com/redis/go-redis/v9"
 
 	"exchange/internal/observability"
+	"exchange/pkg/decimal"
 	excerrors "exchange/pkg/errors"
 )
 
@@ -137,6 +140,16 @@ type OtrLimitSource interface {
 	EffectiveLimits(accountID int64, tier, symbol string) EffectiveLimits
 }
 
+// OtrMMAllowanceSource resolves the §9.6 market-maker OTR allowance
+// for (account, symbol) — *marketmaking.Service satisfies it in
+// production (migration-045 mm_programs.otr_allowance). A nil return
+// means no program coverage; the allowance never LOOSENS an explicitly
+// scoped risk_limits row — it applies only when the resolved ratio is
+// the venue default.
+type OtrMMAllowanceSource interface {
+	OtrAllowance(ctx context.Context, accountID int64, symbol string) *decimal.Decimal
+}
+
 // OtrMetrics bound to the Prometheus registry.
 type otrMetrics struct {
 	mu        sync.Mutex            // guards ratios + breached maps
@@ -152,6 +165,7 @@ type otrMetrics struct {
 type OtrMonitor struct {
 	rdb    goredis.Cmdable
 	limits OtrLimitSource
+	mm     OtrMMAllowanceSource                                       // optional §9.6 MM allowance
 	sink   observability.Sink                                         // optional P2 alert sink
 	tier   func(ctx context.Context, accountID int64) (string, error) // optional sweep-time tier resolution
 	logf   func(format string, args ...any)
@@ -178,6 +192,14 @@ func NewOtrMonitor(rdb goredis.Cmdable, limits OtrLimitSource) *OtrMonitor {
 // PublisherSink / LogSink). Nil disables alert dispatch.
 func (m *OtrMonitor) WithAlerts(s observability.Sink) *OtrMonitor {
 	m.sink = s
+	return m
+}
+
+// WithMMAllowance binds the §9.6 market-maker allowance lookup
+// (*marketmaking.Service). Nil disables — registered MMs then fall
+// back to the venue/scoped ratios.
+func (m *OtrMonitor) WithMMAllowance(src OtrMMAllowanceSource) *OtrMonitor {
+	m.mm = src
 	return m
 }
 
@@ -268,6 +290,16 @@ func (m *OtrMonitor) evalOne(ctx context.Context, accountID int64,
 	ratio := DefaultOtrRatio
 	if lim.MaxOrderToTradeRatio != nil && lim.MaxOrderToTradeRatio.IsPositive() {
 		ratio = *lim.MaxOrderToTradeRatio
+	}
+	// §9.6 MM allowance (migration-045 otr_allowance): raises the cap
+	// ONLY over the venue default — an explicitly scoped risk_limits
+	// row is an operator override and always wins. A lookup miss
+	// degrades to the resolved ratio (the safe direction: absent
+	// allowance can only tighten).
+	if m.mm != nil && ratio.Equal(DefaultOtrRatio) {
+		if a := m.mm.OtrAllowance(ctx, accountID, symbol); a != nil && a.IsPositive() {
+			ratio = *a
+		}
 	}
 	window := lim.OtrWindow
 	if window <= 0 {

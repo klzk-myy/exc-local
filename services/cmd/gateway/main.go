@@ -10,6 +10,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -37,6 +38,7 @@ import (
 	"exchange/internal/delegation"
 	"exchange/internal/deprecation"
 	"exchange/internal/errs"
+	"exchange/internal/fix"
 	"exchange/internal/flags"
 	"exchange/internal/fleet"
 	"exchange/internal/funding"
@@ -45,6 +47,7 @@ import (
 	"exchange/internal/ipc"
 	"exchange/internal/marketapi"
 	"exchange/internal/marketdata"
+	"exchange/internal/marketmaking"
 	"exchange/internal/middleware"
 	"exchange/internal/nats"
 	"exchange/internal/notifications"
@@ -285,8 +288,11 @@ func run() error {
 	// sweeper clears the flag when every active pair decays under its
 	// limit; the C++ SuspensionRefresher mirrors the same keyspace into
 	// PreTradeChecker as the engine-side backstop. Market-maker
-	// allowance = a higher-ratio account/symbol-scoped risk_limits row
-	// (resolved by riskLimits; no separate MM registry exists).
+	// allowance = mm_programs.otr_allowance (migration 045, Phase-18
+	// Task 18.3.10) via the WithMMAllowance seam — it applies ONLY over
+	// the venue default; an explicitly scoped risk_limits row still
+	// wins (supersedes the prior "MM allowance = higher-ratio
+	// risk_limits row" mechanism note).
 	otrMon := risk.NewOtrMonitor(rdb.Client, riskLimits).
 		WithLogger(func(f string, a ...any) { log.Warn(fmt.Sprintf(f, a...)) }).
 		WithMetrics(metReg).
@@ -302,6 +308,26 @@ func run() error {
 		otrSinks = append(otrSinks, observability.PublisherSink{Pub: ledgerPub})
 	}
 	otrMon.WithAlerts(otrSinks)
+	// Phase-18 Task 18.3.10 — market-maker program (migration 045):
+	// program enrollment/entitlement, per-minute obligation compliance,
+	// MMP lockout tracking and GL-reconciled rebates. The ACTIVE-program
+	// snapshot feeds the OTR allowance lookup (no per-event PG reads);
+	// rebate posting rides the same ledgerSvc JournalPoster seam as the
+	// funding fee service (zero GL-bypass invariant).
+	mmSvc := marketmaking.NewService(marketmaking.NewPgStore(pool), marketmaking.Options{
+		Poster: ledgerSvc,
+		Alerts: otrSinks,
+		Logger: func(f string, a ...any) { log.Warn(fmt.Sprintf(f, a...)) },
+	})
+	if err := mmSvc.Load(context.Background()); err != nil {
+		// Boot continues: entitlement reads fall through to PG
+		// (fail-closed) and the OTR allowance is simply absent until the
+		// refresher lands a snapshot.
+		log.Warn("mm programs initial load failed", "err", err)
+	}
+	mmSvc.StartRefresher(context.Background(), 60*time.Second,
+		func(e error) { log.Warn("mm programs refresh failed", "err", e) })
+	otrMon.WithMMAllowance(mmSvc)
 	// Task 7.3.10 DLQ inspection: bind the ops-dlq stream if it has been
 	// provisioned (`natsctl dlq init`) — the registered route returns a
 	// fail-closed 503 until then rather than silently fabricating one.
@@ -747,6 +773,26 @@ func run() error {
 		return fmt.Errorf("order service: %w", err)
 	}
 
+	// Phase-18 Task 18.3.10 — MMP tracker: the sliding-window fill
+	// counter mirrors engine-side protection from the read-model fill
+	// feed; on breach it mass-cancels the MM's resting orders on the
+	// breached instrument through the canonical Task 5.3.25 scope path
+	// (account+instrument, reason "mmp") and holds MMP_LOCKED_OUT until
+	// the explicit reset (REST …/mmp-reset or FIX 35=a).
+	mmTracker := marketmaking.NewMMPTracker(mmSvc,
+		func(ctx context.Context, p *marketmaking.Program, instrumentID int64) (int, error) {
+			res, err := orderSvc.MassCancel(ctx, orders.MassCancelScope{
+				AccountID:    p.AccountID,
+				InstrumentID: instrumentID,
+				Reason:       "mmp",
+			}, "system:mmp", "", "")
+			if err != nil {
+				return 0, err
+			}
+			return res.Cancelled, nil
+		}).WithAlerts(otrSinks).
+		WithLogger(func(f string, a ...any) { log.Warn(fmt.Sprintf(f, a...)) })
+
 	// ---- Phase-16 advanced-order seams ----
 	// GSLO (Task 16.3.16): premium debit/refund journals + the
 	// per-instrument gap-liability cap + insurance-fund gap absorption —
@@ -1114,6 +1160,24 @@ func run() error {
 				// trades window (denominator); an under-limit verdict
 				// re-evaluates the breach flag.
 				otrMon.Fill(ctx, o.AccountID, "", inst.Symbol)
+				// Phase-18 Task 18.3.10: quote-sourced fills (mq:*
+				// client_order_id attribution from the FIX mass-quote
+				// path) count in the MMP sliding window and accrue the
+				// maker rebate. Both degrade to no-ops when no ACTIVE
+				// program covers the account/instrument; errors log,
+				// never mask the read-model drain.
+				if strings.HasPrefix(o.ClientOrderID, "mq:") {
+					if _, err := mmTracker.OnFill(ctx, o.AccountID, o.InstrumentID); err != nil {
+						log.Warn("mmp fill hook failed",
+							"order_id", orderID, "err", err)
+					}
+					if _, err := mmSvc.AccrueRebate(ctx, o.AccountID, o.InstrumentID,
+						fmt.Sprintf("fill:%d:%s:%s", o.ID, px.String(), qty.String()),
+						qty, px); err != nil {
+						log.Warn("mm rebate accrual failed",
+							"order_id", orderID, "err", err)
+					}
+				}
 			}
 			// Task 13.3.4: republish the account's live P&L plus the
 			// mark-update fanout to other holders of the instrument.
@@ -1386,10 +1450,19 @@ func run() error {
 			}
 		}
 	}
+	// Task 18.3.15 — session.status WS→NATS bridge: the FIX gateway's
+	// SessionStatusService consumes subject "session.status" (same name
+	// as the WS advisory channel); both get the verbatim SessionEvent
+	// payload. natsClient nil → WS-only, same as before.
+	var sessionPub admin.SessionPublisher = wsSrv
+	if natsClient != nil {
+		sessionPub = fanoutSessionPub{wsSrv,
+			sessionNATSPublisher{settlement.NatsPublisher{JS: natsClient.JetStream()}}}
+	}
 	sessSvc, err := admin.NewSessionService(admin.SessionDeps{
 		RDB:      rdb,
 		Shards:   shardIDsAsInt(shardMap),
-		Pub:      wsSrv,
+		Pub:      sessionPub,
 		Rollover: rolloverRunner,
 		Symbols: func(ctx context.Context) ([]string, error) {
 			rows, err := pool.Query(ctx,
@@ -2280,6 +2353,10 @@ func run() error {
 	drainFlag := &middleware.DrainFlag{}
 	// ---- end Phase-09 ops wiring ----
 
+	// Phase-18 Task 18.3.9: one checker instance satisfies both the
+	// account- and api-key-existence seams of the fix-session handler.
+	fixPgCheckers := fix.NewPgCheckers(pool)
+
 	live := map[string]http.Handler{
 		"GET /api/v1/account/rate-limits": http.HandlerFunc(
 			api.AccountRateLimits(limiter, tierResolver)),
@@ -2640,6 +2717,11 @@ func run() error {
 		"POST /api/v1/admin/flags/{name}/advance": http.HandlerFunc(flagAdvance),
 		// Task 9.3.8: operator-triggered cache warm.
 		"POST /api/v1/admin/cache/warm": http.HandlerFunc(api.AdminCacheWarm(warmer)),
+		// Phase-18 Task 18.3.9 item 5 — live FIX-session entitlement /
+		// throttle / cancel-on-disconnect administration (fix_sessions).
+		"PUT /api/v1/admin/fix-sessions/{id}": http.HandlerFunc(
+			api.FixSessionUpdateHandler(fix.NewPgStore(pool),
+				fixPgCheckers, fixPgCheckers)),
 		// Task 9.3.25: public status + incidents, admin ops-health export.
 		"GET /api/v1/system/status":    http.HandlerFunc(api.SystemStatus(rdb)),
 		"GET /api/v1/system/incidents": http.HandlerFunc(api.SystemIncidents(pool)),
@@ -2717,6 +2799,25 @@ func run() error {
 		"PUT /api/v1/admin/liquidity-providers/{id}":           http.HandlerFunc(api.AdminLPUpdate(lpSvc, true)),
 		"GET /api/v1/admin/liquidity-providers/{id}/scorecard": http.HandlerFunc(api.AdminLPScorecard(lpSvc, true)),
 		"GET /api/v1/admin/liquidity-providers/{id}/alerts":    http.HandlerFunc(api.AdminLPAlerts(lpSvc, true)),
+		// --- Phase-18 Task 18.3.10: market-maker program admin ---
+		"GET /api/v1/admin/mm-programs":  http.HandlerFunc(api.AdminMMProgramList(mmSvc, true)),
+		"POST /api/v1/admin/mm-programs": http.HandlerFunc(api.AdminMMProgramEnroll(mmSvc, true)),
+		"GET /api/v1/admin/mm-programs/{id}": http.HandlerFunc(
+			api.AdminMMProgramGet(mmSvc, true)),
+		"PUT /api/v1/admin/mm-programs/{id}": http.HandlerFunc(
+			api.AdminMMProgramUpdate(mmSvc, true)),
+		"POST /api/v1/admin/mm-programs/{id}/suspend": http.HandlerFunc(
+			api.AdminMMProgramSuspend(mmSvc, true)),
+		"POST /api/v1/admin/mm-programs/{id}/resume": http.HandlerFunc(
+			api.AdminMMProgramResume(mmSvc, true)),
+		"POST /api/v1/admin/mm-programs/{id}/mmp-reset": http.HandlerFunc(
+			api.AdminMMProgramMMPReset(mmTracker, true)),
+		"GET /api/v1/admin/mm-programs/{id}/compliance": http.HandlerFunc(
+			api.AdminMMProgramCompliance(mmSvc, true)),
+		"GET /api/v1/admin/mm-programs/{id}/rebates": http.HandlerFunc(
+			api.AdminMMProgramRebates(mmSvc, true)),
+		"POST /api/v1/admin/mm-programs/rebates/post": http.HandlerFunc(
+			api.AdminMMRebatePost(mmSvc, true)),
 		// --- Phase-07 Tasks 7.3.13/7.3.14: governance packs ---
 		"GET /api/v1/admin/governance-packs":               http.HandlerFunc(api.AdminPackList(packSvc, true)),
 		"GET /api/v1/admin/governance-packs/{id}":          http.HandlerFunc(api.AdminPackGet(packSvc, true)),
@@ -3262,4 +3363,34 @@ func loadVDPPolicy(log *slog.Logger) *api.VDPPolicyDoc {
 	log.Warn("VDP policy document not found — /api/v1/security/policy will serve SERVICE_DEGRADED",
 		"candidates", candidates)
 	return nil
+}
+
+// --- Task 18.3.15 session.status WS→NATS bridge -----------------------------
+
+// fanoutSessionPub fans session-event publication to the WS advisory
+// channel plus the NATS subject of the same name (the FIX gateway's
+// SessionStatusService consumes "session.status").
+type fanoutSessionPub []admin.SessionPublisher
+
+func (f fanoutSessionPub) Publish(channel string, data any) {
+	for _, p := range f {
+		p.Publish(channel, data)
+	}
+}
+
+// sessionNATSPublisher adapts settlement.NatsPublisher to
+// admin.SessionPublisher — the channel name doubles as the NATS subject.
+// A publish failure is swallowed (WS advisory still landed); NATS
+// availability is fail-operational for this advisory surface, matching
+// the SessionPublisher contract.
+type sessionNATSPublisher struct {
+	pub settlement.NatsPublisher
+}
+
+func (p sessionNATSPublisher) Publish(channel string, data any) {
+	b, err := json.Marshal(data)
+	if err != nil {
+		return
+	}
+	_ = p.pub.Publish(context.Background(), channel, b)
 }

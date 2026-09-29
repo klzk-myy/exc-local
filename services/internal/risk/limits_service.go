@@ -121,9 +121,10 @@ type EffectiveLimits struct {
 	MaxShortExposure    *decimal.Decimal
 	MaxAccountNotional  *decimal.Decimal
 	// Task 13.3.6 — MiFID II RTS 9 order-to-trade ratio. Always resolved:
-	// a scoped row wins (the MM/program-instrument allowance is simply a
-	// higher ratio on an account/symbol-scoped row), else the §13.6a
-	// venue default 500 events/trade over a 60s window.
+	// a scoped row wins, else the §13.6a venue default 500 events/trade
+	// over a 60s window. The §9.6 MM allowance lives on mm_programs.
+	// otr_allowance (migration 045) and applies over the default in
+	// OtrMonitor — an explicitly scoped row here still wins over it.
 	MaxOrderToTradeRatio *decimal.Decimal
 	OtrWindow            time.Duration
 }

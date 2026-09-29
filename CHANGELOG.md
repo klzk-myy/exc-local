@@ -1233,3 +1233,63 @@ LP fixing-residual leg, MARK/INDEX oracle pending Phase-19.5 (fail-closed),
 
 Counts: error registry **192** unchanged · migrations **128** pairs (029
 round-tripped) · openapi **430** ops · PII 147 cols / 170 tables.
+
+## [2026-10-09] — PHASE-18 SETTLE (FIX protocol gateway — all 18 tasks)
+
+**19/19 P18 spec checkpoints bound and green** (`tests/spec/checks/phase18.go`
+— 19 bound vs 18 tasks; 18.3.5 declares two SDD rows). Corpus: **571 total /
+0 fail / 2 env skips**. 117 DoD/SDD rows ticked, **1 honestly open**
+(18.3.12 `<5s` live-Sentinel failover resync — chaos-drill scope);
+§18.7's 47 AC rows checkbox-free (§13.7 convention).
+
+- **Session core (`internal/fix` + `cmd/fix`, migs 030/046):** QuickFIX/Go
+  FIX.4.4 acceptor+initiator — SenderCompID+API-key logon auth (fail closed),
+  PG seq persistence + `fix_messages` resend archive, order entry 35=D/F/G/H
+  → canonical `orders.Service` over Aeron, ExecutionReports via
+  `orders.Consumer`→`ReportBus` (drop-copy taps), entitlement (drop-copy
+  read-only NULL account_id, Tag-1 scope, `allowed_instruments`), token-bucket
+  throttle → 35=j `SESSION_THROTTLED`, CoD on abnormal disconnect only
+  (50ms budget), dead-man 35=BE/BF reuses canonical `DeadManService`, drain
+  logon gate (`SESSION_DRAINING`).
+- **Market data (`mdata.go`, `session_status.go`):** 35=V snapshot +
+  incremental diff subscriptions, per-session state, `DropSession` on logout;
+  35=g/h TradingSessionStatus ≤50ms via NATS `marketdata.security_status` +
+  `session.status` sources with Redis `instrument:status:`/`session:state:*`
+  resolvers; `fanoutSessionPub` bridges WS session events → NATS.
+- **Post-trade (migs 037/226):** drop copy read-only (unresolvable fails
+  closed), PB give-up/affirmation + Traiana `HTTPAffirmationExporter` +
+  60s break monitor, allocations 35=J→AK (exact ΣAllocQty conservation →
+  35=P AllocRejCode=4, PRO_RATA largest-remainder/MANUAL/STEP_OUT,
+  append-only `allocation_events`).
+- **Market-maker (mig 045):** `internal/marketmaking` obligations/compliance
+  rollups/MMP lockout/`mm_rebate_accruals` GL sweep; `quoting.go` firm
+  35=i/Z through `orders.Service` — non-firm (hold-time/last-look) →
+  `QUOTE_REQUEST_REJECTED`; MMP → `MMP_TRIGGERED`/`MMP_LOCKED_OUT`.
+- **Resilience:** `failover.go` Redis Lua-CAS seq sync + PG fallback + epoch
+  fencing; `gapfill.go` >2,500-gap forced Logout + resend archive replay;
+  `drain.go` News 35=B maintenance advisory + orderly Logout + logon latch.
+- **Connectivity (migs 052/227/228):** FIX 5.0 SP2 derivatives
+  (`fix50sp2.go`, FX tags 9501–9509); `internal/fixsbe` SBE schema id 2 +
+  Aeron/UDP transports, Ed25519+SNI proofs, ~411ns/op full-ingress bench;
+  FIXS mTLS + cert identity/rollover/revocation + `certification/` admission
+  gate; `internal/sor` 5-state lifecycle + shadow orders + fill bridge +
+  `ROUTING_REJECTED` no-concurrent guard.
+
+Settle fixes: `Options.MDS` + 35=V dispatch + `MDS.DropSession` + full
+`cmd/fix` runtime wiring (was a dead service); TSS broadcast delegated to
+`SessionStatusService.BroadcastVenue`; **`orders.cod_exempt` seam landed**
+(mig **229** + FIX venue tag 9510 + `OpenOrders` exemption scoped to
+`cancel_on_disconnect` only); `store_pg_test.go` defects (double
+`CREATE SCHEMA`, unseeded `accounts` FK parent); critical nil
+`orders.Service` Breakers/Product deps wired in `cmd/fix`; PII inventory
+regenerated (147 cols / 186 tables); traceability regenerated (419/419
+mapped, 0 defects).
+
+Counts: error registry **198** emitted (**193** §23-table rows + 5
+matrix-resident; `ROUTING_REJECTED` tabled) · migrations **137** pairs
+(030/037/045/046/052/226/227/228/229 round-tripped on dev PG) · openapi
+**440** ops / 371 paths · §24 419 / tasks 479 / checkpoints 543 unchanged.
+Honest seams in spec §27: SOR external venues env-blocked
+(`SOR_EXTERNAL_VENUES`), Traiana dialect/credentials operator wiring,
+allocation production bindings + Phase-24 settlement propagation, failover
+`<5s` chaos drill, `EXC_FIX_MD_SOURCE=none` parks delta feed.

@@ -121,6 +121,18 @@
         "http_status": 403
       },
       {
+        "code": "ALLOCATION_INVALID",
+        "description": "FIX AllocationInstruction rejected for a structural fault — unresolvable ExecID/OrderID reference, AllocAccount(79) outside the master-account hierarchy, unknown AllocType(626) method, non-positive leg quantity/weight, or amend against a non-ACCEPTED/settlement-locked instruction (Phase-18 Task 18.3.13)",
+        "http_status": 400,
+        "owner": "Phase-18 Task 18.3.13"
+      },
+      {
+        "code": "ALLOCATION_SUM_MISMATCH",
+        "description": "FIX AllocationInstruction (35=J) rejected: the sum of NoAllocs(78) AllocQty(80) legs does not exactly equal the referenced executed quantity — over/under-allocation is never booked; wire surface is 35=P with AllocRejCode(88)=4 per the §27.1 Allocation matrix (Phase-18 Task 18.3.13)",
+        "http_status": 400,
+        "owner": "Phase-18 Task 18.3.13"
+      },
+      {
         "code": "AMEND_IN_AUCTION_REJECTED",
         "description": "Amend/replace rejected while the instrument is in CALL, CANCEL_ONLY, SUSPENDED or HALTED; cancels remain available (spec §6.9, Phase-02 Task 2.3.20; remediation #24)",
         "http_status": 409,
@@ -684,6 +696,18 @@
         "http_status": 400
       },
       {
+        "code": "MMP_LOCKED_OUT",
+        "description": "MM quotes rejected while an MMP-trigger lockout stands — requires explicit reset (FIX 35=a QuoteStatusRequest or REST admin) before quoting resumes (Phase-18 Task 18.3.10; spec §9.6, §24 #139)",
+        "http_status": 403,
+        "owner": "Phase-18 Task 18.3.10"
+      },
+      {
+        "code": "MMP_TRIGGERED",
+        "description": "Market-Maker-Protection sliding window tripped (mmp_max_fills fills inside mmp_window_ms) — remaining quotes for the session/instrument mass-cancelled (Phase-18 Task 18.3.10; spec §9.6, §24 #139)",
+        "http_status": 429,
+        "owner": "Phase-18 Task 18.3.10"
+      },
+      {
         "code": "MM_OBLIGATION_BREACH",
         "description": "Market-maker quoting obligation breach — added 2026-09-15",
         "http_status": 429
@@ -852,6 +876,12 @@
         "description": "Quote-denominated market-order amount or quantity combination is invalid (Phase-05 Task 5.3.39 Quote-Denominated Market Orders and Dry-Run Preview; remediation #19)",
         "http_status": 400,
         "owner": "Phase-05 Task 5.3.39"
+      },
+      {
+        "code": "QUOTE_REQUEST_REJECTED",
+        "description": "FIX MassQuote (35=i) rejected — non-firm semantics (non-zero hold time / last-look request) or malformed quote set/entry; venue is 100% firm liquidity per §6.4 / FX Global Code P17 (Phase-18 Task 18.3.7 FIX Mass Quoting; spec §9.4, §24 #128)",
+        "http_status": 400,
+        "owner": "Phase-18 Task 18.3.7"
       },
       {
         "code": "RAIL_CUTOFF_EXCEEDED",
@@ -6415,7 +6445,6 @@
     },
     "/api/v1/admin/fix-sessions/{id}": {
       "put": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "put_api_v1_admin_fix_sessions_id",
         "parameters": [
           {
@@ -6461,7 +6490,7 @@
         "x-owner": "Phase-18 Task 18.3.9",
         "x-rate-tier": "basic",
         "x-rbac-role": "Super Admin",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -10481,6 +10510,482 @@
         "x-rate-tier": "basic",
         "x-rbac-role": "Compliance Officer",
         "x-status": "stub",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/mm-programs": {
+      "get": {
+        "operationId": "get_api_v1_admin_mm_programs",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "MM program list (?account_id=&status=)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Risk Manager",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-18 Task 18.3.10",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Risk Manager",
+        "x-status": "live",
+        "x-weight": 1
+      },
+      "post": {
+        "operationId": "post_api_v1_admin_mm_programs",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "MM program enrollment (ACTIVE; instrument_id null = program-wide)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Risk Manager",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-18 Task 18.3.10",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Risk Manager",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/mm-programs/rebates/post": {
+      "post": {
+        "operationId": "post_api_v1_admin_mm_programs_rebates_post",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Sweep unposted rebate accruals into balanced GL journals",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-18 Task 18.3.10",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/mm-programs/{id}": {
+      "get": {
+        "operationId": "get_api_v1_admin_mm_programs_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "MM program detail",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Risk Manager",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-18 Task 18.3.10",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Risk Manager",
+        "x-status": "live",
+        "x-weight": 1
+      },
+      "put": {
+        "operationId": "put_api_v1_admin_mm_programs_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "MM program update — obligations/MMP/rebate/OTR params; status via actions",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Risk Manager",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-18 Task 18.3.10",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Risk Manager",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/mm-programs/{id}/compliance": {
+      "get": {
+        "operationId": "get_api_v1_admin_mm_programs_id_compliance",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Daily obligation rollup (?from=&to= YYYY-MM-DD; default trailing 7d)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Risk Manager",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-18 Task 18.3.10",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Risk Manager",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/mm-programs/{id}/mmp-reset": {
+      "post": {
+        "operationId": "post_api_v1_admin_mm_programs_id_mmp_reset",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Clear MMP lockout + fill window (§24 #139 explicit reset)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Risk Manager",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-18 Task 18.3.10",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Risk Manager",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/mm-programs/{id}/rebates": {
+      "get": {
+        "operationId": "get_api_v1_admin_mm_programs_id_rebates",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Rebate accrual rows (?limit=)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-18 Task 18.3.10",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/mm-programs/{id}/resume": {
+      "post": {
+        "operationId": "post_api_v1_admin_mm_programs_id_resume",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Resume suspended program after review",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Risk Manager",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-18 Task 18.3.10",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Risk Manager",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/mm-programs/{id}/suspend": {
+      "post": {
+        "operationId": "post_api_v1_admin_mm_programs_id_suspend",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Suspend program (rebate accrual pauses; entitlement stops)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Risk Manager",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-18 Task 18.3.10",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Risk Manager",
+        "x-status": "live",
         "x-weight": 1
       }
     },

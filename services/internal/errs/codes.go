@@ -1,9 +1,11 @@
 // Embedded spec §23 error-code table (Task 5.3.21).
 //
-// The rows below are a verbatim transcription of the §23 registry table in
-// docs/Specification - Complete Exchange System Suite.md (180 codes;
-// count updated with the Phase-11 Tasks 11.3.2/11.3.3/11.3.6/11.3.9
-// landings — historical remediation counts noted in spec §23's
+// The rows below transcribe the §23 registry table in
+// docs/Specification - Complete Exchange System Suite.md (192 table rows)
+// plus the §27.1-matrix-resident codes the owner-resolvability rule
+// accepts via the alternate branch — 197 emitted codes total; count
+// updated with the Phase-18 Tasks 18.3.7/18.3.10/18.3.13 landings —
+// historical remediation counts noted in spec §23's
 // registration-history paragraph). specRow extracts the machine-useful
 // fields from the
 // spec's prose description at load time:
@@ -133,6 +135,9 @@ var specCodes = []CodeDef{
 	specRow("NEGATIVE_BALANCE_PROTECTED", 422, "Operation would push a retail balance negative — added 2026-09-15 (Phase-19 Task 19.3.9 Retail Negative-Balance Protection; remediation #19)"),
 	specRow("TRADE_BUST_PENDING", 409, "Trade under obvious-error review; settlement held — added 2026-09-15 (Phase-15 Task 15.3.5 Trade Bust & Price-Adjust Workflow; remediation #19)"),
 	specRow("MM_OBLIGATION_BREACH", 429, "Market-maker quoting obligation breach — added 2026-09-15"),
+	specRow("QUOTE_REQUEST_REJECTED", 400, "FIX MassQuote (35=i) rejected — non-firm semantics (non-zero hold time / last-look request) or malformed quote set/entry; venue is 100% firm liquidity per §6.4 / FX Global Code P17 (Phase-18 Task 18.3.7 FIX Mass Quoting; spec §9.4, §24 #128)"),
+	specRow("MMP_TRIGGERED", 429, "Market-Maker-Protection sliding window tripped (mmp_max_fills fills inside mmp_window_ms) — remaining quotes for the session/instrument mass-cancelled (Phase-18 Task 18.3.10; spec §9.6, §24 #139)"),
+	specRow("MMP_LOCKED_OUT", 403, "MM quotes rejected while an MMP-trigger lockout stands — requires explicit reset (FIX 35=a QuoteStatusRequest or REST admin) before quoting resumes (Phase-18 Task 18.3.10; spec §9.6, §24 #139)"),
 	specRow("INVALID_SIGNATURE", 401, "HMAC request signature mismatch (§8.1) — added 2026-09-15"),
 	specRow("TIMESTAMP_OUT_OF_WINDOW", 401, "HMAC timestamp outside 30s replay window (§8.1) — added 2026-09-15"),
 	specRow("SESSION_THROTTLED", 429, "FIX session exceeded `max_msgs_per_sec` (§9.3) — added 2026-09-15"),
@@ -210,6 +215,7 @@ var specCodes = []CodeDef{
 	specRow("RETENTION_POLICY_VIOLATION", 409, "Data type exceeds its retention period without archival; nightly retention enforcer drift (spec §19.12, Phase-09 Task 9.3.22; remediation #18)"),
 	specRow("ORDER_REJECTED_NO_LIQUIDITY", 400, "MARKET / IOC / FOK rejected when the order's *opposite* book side is empty (side-aware check — a BUY is rejected only when `ask_count == 0`); fail-closed, no partial fills (spec §6.6, Phase-02 Task 2.3.13; remediation #18; remediation #35 — side-awareness pinned)"),
 	specRow("SOR_TIMEOUT", 504, "External venue non-response timeout (500ms) after SOR auto-cancel and re-route failed; rejection returned to client (Phase-18 Task 18.3.14; remediation #18)"),
+	specRow("ROUTING_REJECTED", 409, "SOR route rejected: the parent order already holds a non-terminal external shadow order — no concurrent local+external order (spec §24 #242, Phase-18 Task 18.3.14; internal/sor Router guard)"),
 	specRow("L3_SNAPSHOT_TOO_LARGE", 413, "L3 order-level snapshot request exceeds the reconstruction ceiling (>100k orders on the book); use paginated streaming instead (Phase-17 Task 17.3.2; remediation #18)"),
 	specRow("VALUE_DATE_ON_HOLIDAY", 422, "Order value date falls on a base/quote currency holiday; shifted date required (spec §7.4, Phase-15 Task 15.3.11; remediation #24)"),
 	specRow("AMEND_IN_AUCTION_REJECTED", 409, "Amend/replace rejected while the instrument is in CALL, CANCEL_ONLY, SUSPENDED or HALTED; cancels remain available (spec §6.9, Phase-02 Task 2.3.20; remediation #24)"),
@@ -279,6 +285,10 @@ var specCodes = []CodeDef{
 	specRow("STRATEGY_NOT_FOUND", 404, "Strategy or strategy-template identifier does not resolve within the caller's scope (Phase-16 Task 16.3.21)"),
 	specRow("STRATEGY_CONFIG_INVALID", 400, "Strategy or template configuration failed validation — bad kind/schedule/currency pair, non-positive amount, targets not summing to 1, drift band out of range, or config keys outside the allowlist (Phase-16 Task 16.3.21)"),
 	specRow("STRATEGY_TEMPLATE_NOT_APPROVED", 409, "Strategy template is not APPROVED — marketplace instantiation requires the approval gate (Phase-16 Task 16.3.21)"),
+	// Phase-18 Task 18.3.13 — FIX 35=J/35=AK allocation workflow (§27.1
+	// Allocation + Post-Trade Allocation matrix codes; §24 #200/#237).
+	specRow("ALLOCATION_SUM_MISMATCH", 400, "FIX AllocationInstruction (35=J) rejected: the sum of NoAllocs(78) AllocQty(80) legs does not exactly equal the referenced executed quantity — over/under-allocation is never booked; wire surface is 35=P with AllocRejCode(88)=4 per the §27.1 Allocation matrix (Phase-18 Task 18.3.13)"),
+	specRow("ALLOCATION_INVALID", 400, "FIX AllocationInstruction rejected for a structural fault — unresolvable ExecID/OrderID reference, AllocAccount(79) outside the master-account hierarchy, unknown AllocType(626) method, non-positive leg quantity/weight, or amend against a non-ACCEPTED/settlement-locked instruction (Phase-18 Task 18.3.13)"),
 }
 
 // localCodes are emitted by the gateway but carry no spec §23 row yet.

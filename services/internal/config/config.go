@@ -35,7 +35,7 @@ type Config struct {
 	Logging     LoggingConfig  `mapstructure:"logging"`
 	Gateway     ServiceConfig  `mapstructure:"gateway"`
 	MarketData  ServiceConfig  `mapstructure:"marketdata"`
-	Fix         ServiceConfig  `mapstructure:"fix"`
+	Fix         FixConfig      `mapstructure:"fix"`
 	Settlement  ServiceConfig  `mapstructure:"settlement"`
 	Compliance  ServiceConfig  `mapstructure:"compliance"`
 	Admin       ServiceConfig  `mapstructure:"admin"`
@@ -81,6 +81,69 @@ type ServiceConfig struct {
 // Addr returns the "host:port" listen address.
 func (s ServiceConfig) Addr() string {
 	return net.JoinHostPort(s.Host, strconv.Itoa(s.Port))
+}
+
+// FixConfig is the FIX gateway's section (Phase-18 Tasks 18.3.1/.9/.16).
+// host/port keep their scaffold meaning — the /metrics + /healthz bind.
+// The FIX protocol acceptor listens on acceptor_host/acceptor_port and
+// only binds when enabled=true ("binds only when FIX is configured").
+type FixConfig struct {
+	ServiceConfig `mapstructure:",squash"`
+
+	// Enabled gates the QuickFIX acceptor + initiators. Disabled → the
+	// binary serves metrics/health only (scaffold behaviour preserved).
+	Enabled bool `mapstructure:"enabled"`
+
+	// Acceptor bind for inbound order-entry/drop-copy sessions (FIX.4.4,
+	// TLS 1.3, HeartBtInt 30s — spec §9.3).
+	AcceptorHost string `mapstructure:"acceptor_host"`
+	AcceptorPort int    `mapstructure:"acceptor_port"`
+
+	// SenderCompID is the venue's FIX identifier in session pairs.
+	SenderCompID string `mapstructure:"sender_comp_id"`
+
+	// ResetTimeUTC is the daily sequence reset (default 22:00:00 — NY
+	// close / FX trading-day boundary).
+	ResetTimeUTC string `mapstructure:"reset_time_utc"`
+
+	// ResetOnLogon forces sequence reset on outbound-session Logon
+	// (initiator mode; acceptor sessions use daily ResetSeqTime).
+	ResetOnLogon bool `mapstructure:"reset_on_logon"`
+
+	// MaxLatencyMS bounds inbound timestamp staleness (0 = quickfixgo
+	// default 120s).
+	MaxLatencyMS int `mapstructure:"max_latency_ms"`
+
+	// TLS 1.3 (spec §9.3): cert/key required when tls_enabled; ca binds
+	// the client-cert trust bundle (Task 18.3.11 mTLS deepens this).
+	TLSEnabled bool   `mapstructure:"tls_enabled"`
+	TLSCert    string `mapstructure:"tls_cert"`
+	TLSKey     string `mapstructure:"tls_key"`
+	TLSCA      string `mapstructure:"tls_ca"`
+
+	// AeronDir is the media-driver directory for the orders_in
+	// publication / orders_out subscription (empty = driver default).
+	AeronDir             string `mapstructure:"aeron_dir"`
+	AeronDriverTimeoutMS int    `mapstructure:"aeron_driver_timeout_ms"`
+
+	// OutwardSessions are initiator-mode sessions (venue→venue bridging,
+	// drop-copy/affirmation relays — Tasks 18.3.4/.6/.8).
+	OutwardSessions []FixOutwardConfig `mapstructure:"outward_sessions"`
+}
+
+// Addr preserves the scaffold metrics/health bind semantics.
+func (f FixConfig) Addr() string { return f.ServiceConfig.Addr() }
+
+// AcceptorAddr is the FIX protocol listen address.
+func (f FixConfig) AcceptorAddr() string {
+	return net.JoinHostPort(f.AcceptorHost, strconv.Itoa(f.AcceptorPort))
+}
+
+// FixOutwardConfig is one initiator-mode outbound session.
+type FixOutwardConfig struct {
+	TargetCompID string `mapstructure:"target_comp_id"`
+	ConnectHost  string `mapstructure:"connect_host"`
+	ConnectPort  int    `mapstructure:"connect_port"`
 }
 
 // PostgresConfig holds the primary OLTP connection settings (pgx).
@@ -170,6 +233,16 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("marketdata.port", 8081)
 	v.SetDefault("fix.host", "0.0.0.0")
 	v.SetDefault("fix.port", 8082)
+	v.SetDefault("fix.enabled", false)
+	v.SetDefault("fix.acceptor_host", "0.0.0.0")
+	v.SetDefault("fix.acceptor_port", 9879)
+	v.SetDefault("fix.sender_comp_id", "EXC")
+	v.SetDefault("fix.reset_time_utc", "22:00:00")
+	v.SetDefault("fix.reset_on_logon", false)
+	v.SetDefault("fix.max_latency_ms", 0)
+	v.SetDefault("fix.tls_enabled", false)
+	v.SetDefault("fix.aeron_dir", "")
+	v.SetDefault("fix.aeron_driver_timeout_ms", 5000)
 	v.SetDefault("settlement.host", "127.0.0.1")
 	v.SetDefault("settlement.port", 8083)
 	v.SetDefault("compliance.host", "127.0.0.1")
@@ -193,7 +266,7 @@ func (c *Config) Validate() error {
 	for name, s := range map[string]ServiceConfig{
 		"gateway":    c.Gateway,
 		"marketdata": c.MarketData,
-		"fix":        c.Fix,
+		"fix":        c.Fix.ServiceConfig,
 		"settlement": c.Settlement,
 		"compliance": c.Compliance,
 		"admin":      c.Admin,
@@ -215,6 +288,29 @@ func (c *Config) Validate() error {
 	case "json", "text":
 	default:
 		return fmt.Errorf("config: logging.format %q must be json|text", c.Logging.Format)
+	}
+
+	// FIX gateway: the acceptor bind is only meaningful when enabled;
+	// validate it fail-closed so a half-configured fix section never
+	// silently binds an unauthenticated port.
+	if c.Fix.Enabled {
+		if c.Fix.AcceptorPort < 1 || c.Fix.AcceptorPort > 65535 {
+			return fmt.Errorf("config: fix.acceptor_port %d out of range 1-65535",
+				c.Fix.AcceptorPort)
+		}
+		if strings.TrimSpace(c.Fix.SenderCompID) == "" {
+			return errors.New("config: fix.sender_comp_id must not be empty when fix.enabled")
+		}
+		if c.Fix.TLSEnabled &&
+			(strings.TrimSpace(c.Fix.TLSCert) == "" || strings.TrimSpace(c.Fix.TLSKey) == "") {
+			return errors.New("config: fix.tls_enabled requires fix.tls_cert + fix.tls_key")
+		}
+	}
+	for i, o := range c.Fix.OutwardSessions {
+		if o.ConnectPort < 1 || o.ConnectPort > 65535 {
+			return fmt.Errorf("config: fix.outward_sessions[%d].connect_port %d out of range",
+				i, o.ConnectPort)
+		}
 	}
 
 	if strings.TrimSpace(c.Postgres.DSN) == "" {

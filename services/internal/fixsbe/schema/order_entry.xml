@@ -1,0 +1,249 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  fixsbe order-entry SBE schema — Phase-18 Task 18.3.8 (spec §9.5,
+  §24 #128). Canonical schema definition for the institutional
+  ultra-low-latency order-entry gateway carried over Aeron.
+
+  Schema ID 2 (schema 1 is the Phase-06 market-data feed).
+  Wire rules shared with internal/sbe: little-endian, fixed-layout
+  blocks; fields are only ever APPENDED at the end of a block within a
+  version line (decoders honor header blockLength and skip unknown
+  tail bytes); breaking changes require a new schema ID/version per
+  the Phase-06 lifecycle registry (internal/sbe/schema.go).
+
+  All decimal prices/quantities are int64 mantissas at fixed scale
+  10^-8 (DECIMAL(28,8) order columns). All timestamps are epoch
+  nanoseconds UTC. All character fields are fixed-width ASCII,
+  NUL-padded — zero varData, zero deserialization cost beyond
+  positional reads. Layout offsets are 8-byte aligned.
+-->
+<sbe:messageSchema xmlns:sbe="http://fixprotocol.io/2016/sbe"
+                   package="exchange.fixsbe"
+                   id="2"
+                   version="1"
+                   semanticVersion="1.0.0"
+                   description="Venue order-entry SBE schema (FIX SBE-style binary order flow)"
+                   byteOrder="littleEndian"
+                   headerType="messageHeader">
+
+  <types>
+    <composite name="messageHeader"
+               description="Standard SBE message header">
+      <type name="blockLength" primitiveType="uint16"/>
+      <type name="templateId" primitiveType="uint16"/>
+      <type name="schemaId" primitiveType="uint16"/>
+      <type name="version" primitiveType="uint16"/>
+    </composite>
+
+    <composite name="decimal8"
+               description="Fixed-point decimal, mantissa at scale 10^-8">
+      <type name="mantissa" primitiveType="int64"/>
+    </composite>
+
+    <enum name="sideEnum" encodingType="uint8">
+      <validValue name="BUY">1</validValue>
+      <validValue name="SELL">2</validValue>
+    </enum>
+
+    <enum name="ordTypeEnum" encodingType="uint8">
+      <validValue name="MARKET">1</validValue>
+      <validValue name="LIMIT">2</validValue>
+      <validValue name="STOP">3</validValue>
+      <validValue name="STOP_LIMIT">4</validValue>
+    </enum>
+
+    <enum name="tifEnum" encodingType="uint8">
+      <validValue name="DAY">0</validValue>
+      <validValue name="GTC">1</validValue>
+      <validValue name="IOC">3</validValue>
+      <validValue name="FOK">4</validValue>
+      <validValue name="GTD">6</validValue>
+    </enum>
+
+    <enum name="ordStatusEnum" encodingType="uint8">
+      <validValue name="NEW">0</validValue>
+      <validValue name="PARTIALLY_FILLED">1</validValue>
+      <validValue name="FILLED">2</validValue>
+      <validValue name="CANCELLED">4</validValue>
+      <validValue name="REJECTED">8</validValue>
+      <validValue name="EXPIRED">12</validValue>
+    </enum>
+
+    <enum name="execTypeEnum" encodingType="uint8">
+      <validValue name="NEW">0</validValue>
+      <validValue name="TRADE">15</validValue>
+      <validValue name="CANCELLED">4</validValue>
+      <validValue name="REPLACED">5</validValue>
+      <validValue name="REJECTED">8</validValue>
+      <validValue name="EXPIRED">12</validValue>
+    </enum>
+
+    <enum name="newsUrgencyEnum" encodingType="uint8">
+      <validValue name="NORMAL">0</validValue>
+      <validValue name="FLASH">1</validValue>
+      <validValue name="BACKGROUND">2</validValue>
+    </enum>
+
+    <enum name="negotiateStatusEnum" encodingType="uint8">
+      <validValue name="OK">0</validValue>
+      <validValue name="DEPRECATED">1</validValue>
+      <validValue name="REJECTED">2</validValue>
+    </enum>
+
+    <type name="clOrdIdT" primitiveType="char" length="32"
+          characterEncoding="ASCII"
+          description="Client order id, NUL-padded, max 32 chars on the binary surface"/>
+    <type name="headlineT" primitiveType="char" length="64"
+          characterEncoding="ASCII"/>
+    <type name="newsBodyT" primitiveType="char" length="192"
+          characterEncoding="ASCII"/>
+    <type name="pubKeyT" primitiveType="uint8" length="32"
+          description="Ed25519 public key"/>
+    <type name="nonceT" primitiveType="uint8" length="16"/>
+    <type name="signatureT" primitiveType="uint8" length="64"
+          description="Ed25519 signature"/>
+  </types>
+
+  <!-- ============================================================= -->
+  <!-- Inbound (client -> venue)                                       -->
+  <!-- ============================================================= -->
+
+  <sbe:message name="NewOrder" id="1" description="SBE NewOrderSingle"
+               semanticType="D">
+    <field name="clOrdId"       id="1"  type="clOrdIdT"   offset="0"/>
+    <field name="accountId"     id="2"  type="uint64"     offset="32"/>
+    <field name="instrumentId"  id="3"  type="uint32"     offset="40"/>
+    <field name="side"          id="4"  type="sideEnum"   offset="44"/>
+    <field name="ordType"       id="5"  type="ordTypeEnum" offset="45"/>
+    <field name="timeInForce"   id="6"  type="tifEnum"    offset="46"/>
+    <field name="flags"         id="7"  type="uint8"      offset="47"
+           description="bit0=postOnly bit1=reduceOnly bit2=hidden"/>
+    <field name="price"         id="8"  type="decimal8"   offset="48"/>
+    <field name="qty"           id="9"  type="decimal8"   offset="56"/>
+    <field name="stopPrice"     id="10" type="decimal8"   offset="64"/>
+    <field name="displayQty"    id="11" type="decimal8"   offset="72"/>
+    <field name="expireTimeNs"  id="12" type="uint64"     offset="80"
+           description="GTD expiry, epoch ns; 0 = none"/>
+    <field name="transactTimeNs" id="13" type="uint64"    offset="88"/>
+    <!-- blockLength = 96 -->
+  </sbe:message>
+
+  <sbe:message name="CancelOrder" id="2" description="SBE OrderCancelRequest"
+               semanticType="F">
+    <field name="clOrdId"       id="1" type="clOrdIdT" offset="0"/>
+    <field name="origClOrdId"   id="2" type="clOrdIdT" offset="32"/>
+    <field name="orderId"       id="3" type="uint64"   offset="64"
+           description="internal order id; 0 = resolve via origClOrdId"/>
+    <field name="accountId"     id="4" type="uint64"   offset="72"/>
+    <field name="instrumentId"  id="5" type="uint32"   offset="80"/>
+    <field name="side"          id="6" type="sideEnum" offset="84"/>
+    <field name="reserved"      id="7" type="uint8"    offset="85"/>
+    <field name="reserved2"     id="8" type="uint16"   offset="86"/>
+    <field name="transactTimeNs" id="9" type="uint64"  offset="88"/>
+    <!-- blockLength = 96 -->
+  </sbe:message>
+
+  <sbe:message name="ReplaceOrder" id="3"
+               description="SBE OrderCancelReplaceRequest"
+               semanticType="G">
+    <field name="clOrdId"       id="1"  type="clOrdIdT"   offset="0"/>
+    <field name="origClOrdId"   id="2"  type="clOrdIdT"   offset="32"/>
+    <field name="orderId"       id="3"  type="uint64"     offset="64"/>
+    <field name="accountId"     id="4"  type="uint64"     offset="72"/>
+    <field name="instrumentId"  id="5"  type="uint32"     offset="80"/>
+    <field name="side"          id="6"  type="sideEnum"   offset="84"/>
+    <field name="timeInForce"   id="7"  type="tifEnum"    offset="85"/>
+    <field name="flags"         id="8"  type="uint8"      offset="86"/>
+    <field name="reserved"      id="9"  type="uint8"      offset="87"/>
+    <field name="price"         id="10" type="decimal8"   offset="88"/>
+    <field name="qty"           id="11" type="decimal8"   offset="96"/>
+    <field name="stopPrice"     id="12" type="decimal8"   offset="104"/>
+    <field name="displayQty"    id="13" type="decimal8"   offset="112"/>
+    <field name="expireTimeNs"  id="14" type="uint64"     offset="120"/>
+    <field name="transactTimeNs" id="15" type="uint64"    offset="128"/>
+    <!-- blockLength = 136 -->
+  </sbe:message>
+
+  <sbe:message name="Negotiate" id="5"
+               description="Session handshake: schema negotiation +
+               Ed25519 session-key proof + SNI binding (Task 18.3.17)">
+    <field name="schemaId"       id="1" type="uint16"      offset="0"/>
+    <field name="schemaVersion"  id="2" type="uint16"      offset="2"/>
+    <field name="responseCodec"  id="3" type="uint8"       offset="4"
+           description="0=SBE binary, 1=tag-value (tag-value requests/
+           SBE responses and SBE requests/responses combinations)"/>
+    <field name="reserved"       id="4" type="uint8"       offset="5"/>
+    <field name="reserved2"      id="5" type="uint16"      offset="6"/>
+    <field name="sessionPubKey"  id="6" type="pubKeyT"     offset="8"/>
+    <field name="nonce"          id="7" type="nonceT"      offset="40"/>
+    <field name="signature"      id="8" type="signatureT"  offset="56"
+           description="Ed25519 over nonce || sniHostname || tlsKeyingMaterial"/>
+    <!-- blockLength = 120 -->
+  </sbe:message>
+
+  <!-- ============================================================= -->
+  <!-- Outbound (venue -> client)                                      -->
+  <!-- ============================================================= -->
+
+  <sbe:message name="ExecutionReport" id="101"
+               description="SBE ExecutionReport" semanticType="8">
+    <field name="orderId"        id="1"  type="uint64"        offset="0"/>
+    <field name="execId"         id="2"  type="uint64"        offset="8"/>
+    <field name="clOrdId"        id="3"  type="clOrdIdT"      offset="16"/>
+    <field name="instrumentId"   id="4"  type="uint32"        offset="48"/>
+    <field name="ordStatus"      id="5"  type="ordStatusEnum" offset="52"/>
+    <field name="execType"       id="6"  type="execTypeEnum"  offset="53"/>
+    <field name="side"           id="7"  type="sideEnum"      offset="54"/>
+    <field name="reserved"       id="8"  type="uint8"         offset="55"/>
+    <field name="price"          id="9"  type="decimal8"      offset="56"/>
+    <field name="lastPrice"      id="10" type="decimal8"      offset="64"/>
+    <field name="lastQty"        id="11" type="decimal8"      offset="72"/>
+    <field name="leavesQty"      id="12" type="decimal8"      offset="80"/>
+    <field name="cumQty"         id="13" type="decimal8"      offset="88"/>
+    <field name="rejectCode"     id="14" type="uint32"        offset="96"
+           description="venue reject reason code"/>
+    <field name="reserved2"      id="15" type="uint32"        offset="100"/>
+    <field name="transactTimeNs" id="16" type="uint64"        offset="104"/>
+    <!-- blockLength = 112 -->
+  </sbe:message>
+
+  <sbe:message name="BusinessReject" id="102"
+               description="SBE session/business reject" semanticType="j">
+    <field name="clOrdId"        id="1" type="clOrdIdT" offset="0"/>
+    <field name="refTemplateId"  id="2" type="uint16"   offset="32"/>
+    <field name="rejectReason"   id="3" type="uint16"   offset="34"/>
+    <field name="rejectCode"     id="4" type="uint32"   offset="36"
+           description="venue error code enumeration"/>
+    <field name="transactTimeNs" id="5" type="uint64"   offset="40"/>
+    <!-- blockLength = 48 -->
+  </sbe:message>
+
+  <sbe:message name="News" id="103"
+               description="Administrative News advisory — maintenance
+               drain broadcasts (spec §24 #289)" semanticType="B">
+    <field name="headline"       id="1" type="headlineT"       offset="0"/>
+    <field name="body"           id="2" type="newsBodyT"       offset="64"/>
+    <field name="urgency"        id="3" type="newsUrgencyEnum" offset="256"/>
+    <field name="reserved"       id="4" type="uint8"           offset="257"/>
+    <field name="reserved2"      id="5" type="uint16"          offset="258"/>
+    <field name="newsId"         id="6" type="uint32"          offset="260"/>
+    <field name="eventTimeNs"    id="7" type="uint64"          offset="264"/>
+    <!-- blockLength = 272 -->
+  </sbe:message>
+
+  <sbe:message name="NegotiationResponse" id="104"
+               description="Schema/session negotiation outcome">
+    <field name="schemaId"       id="1" type="uint16"              offset="0"/>
+    <field name="schemaVersion"  id="2" type="uint16"              offset="2"/>
+    <field name="status"         id="3" type="negotiateStatusEnum" offset="4"/>
+    <field name="reserved"       id="5" type="uint8"               offset="5"/>
+    <field name="reserved2"      id="6" type="uint16"              offset="6"/>
+    <field name="serverNonce"    id="7" type="nonceT"              offset="8"/>
+    <field name="sunsetTimeNs"   id="8" type="uint64"              offset="24"
+           description="deprecation sunset (epoch ns); 0 = none"/>
+    <field name="errorCode"      id="9" type="uint32"              offset="32"/>
+    <field name="reserved3"      id="10" type="uint32"             offset="36"/>
+    <!-- blockLength = 40 -->
+  </sbe:message>
+
+</sbe:messageSchema>

@@ -183,8 +183,13 @@ type Order struct {
 	FixingBenchmark *string
 	AlgoType        *string
 	AlgoParams      json.RawMessage // NULL-able JSONB
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	// CoDExempt exempts the order from the session-scope
+	// cancel-on-disconnect sweep (spec §5.4 catalog col, §9.9,
+	// migration 229; FIX tag 9510). Dead-man/admin/close-all sweeps are
+	// unaffected — only Reason "cancel_on_disconnect" honours it.
+	CoDExempt bool
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // View serializes an Order for REST responses — all decimals rendered as
@@ -281,6 +286,9 @@ type SubmitRequest struct {
 	ReduceOnly    bool
 	STPMode       string
 	SessionID     string // populated from claims/server side, not the body
+	// CoDExempt marks the order exempt from cancel-on-disconnect
+	// (spec §9.9, migration 229; FIX venue tag 9510).
+	CoDExempt bool
 
 	// ---- Phase-16 Task 16.3.10 execution-parameter surface
 	// (migration 038 columns; validation in execparams.go) ----

@@ -1,8 +1,8 @@
 {
   "tool": "exchange-integration/8.3.1",
   "version": "1.0.0",
-  "generated_at": "2026-09-29T19:46:08Z",
-  "elapsed": "1.112881ms",
+  "generated_at": "2026-09-29T21:00:16Z",
+  "elapsed": "726.411µs",
   "summary": {
     "EXECUTABLE": 145,
     "PLANNED": 274

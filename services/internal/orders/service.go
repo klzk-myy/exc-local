@@ -591,6 +591,7 @@ func (s *Service) Submit(ctx context.Context, acct *Account, req *SubmitRequest)
 		STPMode:         req.STPMode,
 		SessionID:       req.SessionID,
 		RequestHash:     hash,
+		CoDExempt:       req.CoDExempt,
 		PegMode:         strPtrOrNil(req.PegMode),
 		PegOffset:       req.PegOffset,
 		PegLimit:        req.PegLimit,

@@ -503,6 +503,14 @@ func (c *Consumer) Run(ctx context.Context, shards []uint16) {
 // panic-guard — the observability seam for corrupt-ring diagnostics.
 func (c *Consumer) Malformed() int64 { return c.malformed.Load() }
 
+// HandleFragment feeds one outbound-engine frame through the canonical
+// decode + read-model apply + pending-resolve + hook pipeline — the
+// narrow Phase-18 transport seam: the FIX gateway consumes
+// aeron:ipc?alias=orders_out through its own subscription (the shm
+// rings stay the REST gateway's binding) and must not fork this codec.
+// Same inline/panic-guarded contract as the shm drain loop.
+func (c *Consumer) HandleFragment(payload []byte) { c.handle(payload) }
+
 func (c *Consumer) handle(payload []byte) {
 	// Fail-closed decode guard (Phase-13.5 Task 13.5.3.9 pen-test):
 	// ipc.DecodeEvent roots a FlatBuffers accessor without a verifier —
