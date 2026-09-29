@@ -125,6 +125,25 @@ type WithdrawalRow struct {
 	ReviewDeadline   *time.Time
 }
 
+// DepositRow is the funding_transactions DEPOSIT insert the deposit
+// guard and rail flows persist (account may be 0 for unreferenced wires —
+// those carry NULL account_id via the suspense link only, never a 0 FK).
+type DepositRow struct {
+	ID               int64
+	AccountID        int64
+	Currency         string
+	Amount           decimal.Decimal
+	Status           string // PENDING | PENDING_REVIEW (quarantined)
+	BankMethod       *string
+	Reference        *string // bank_tx_id / wire reference
+	ReferenceAccount *string // originator account
+	IdempotencyKey   *string
+	PayloadSHA256    *string
+	USDAmount        *decimal.Decimal
+	ReviewTier       *string
+	CreatedAt        time.Time
+}
+
 // ConfirmationRow is the withdrawal_confirmations row (token material is
 // hash-only — the plaintext token is never persisted).
 type ConfirmationRow struct {
@@ -182,6 +201,64 @@ type EvidenceRow struct {
 	PayloadSHA   string    `json:"payload_sha256"`
 	CollectedBy  *int64    `json:"collected_by,omitempty"`
 	CollectedAt  time.Time `json:"collected_at"`
+}
+
+// SuspenseRow is one suspense_account_mappings row (migration 108, spec
+// §5.46) — the compliance quarantine record for inbound deposits whose
+// originator failed the third-party name-match or could not be attributed.
+type SuspenseRow struct {
+	ID                   int64           `json:"id"`
+	BankTxID             string          `json:"bank_tx_id"`
+	FundingTransactionID *int64          `json:"funding_transaction_id,omitempty"`
+	AccountID            *int64          `json:"account_id,omitempty"`
+	Rail                 *string         `json:"rail,omitempty"`
+	Currency             string          `json:"currency"`
+	Amount               decimal.Decimal `json:"amount"`
+	OriginatorName       *string         `json:"originator_name,omitempty"`
+	OriginatorAccount    *string         `json:"originator_account,omitempty"`
+	NameMatchScore       *float64        `json:"name_match_score,omitempty"`
+	UnmatchedReason      string          `json:"unmatched_reason"` // MISSING_REFERENCE|UNKNOWN_BENEFICIARY|NAME_MISMATCH|AMOUNT_DISCREPANCY
+	GLAccount            string          `json:"gl_account"`       // 2150_SUSPENSE_DEPOSITS_{CCY}
+	QuarantineStatus     string          `json:"quarantine_status"`
+	QuarantinedAt        time.Time       `json:"quarantined_at"`
+	SLAExpiresAt         time.Time       `json:"sla_expires_at"`
+	AssignedInvestigator *int64          `json:"assigned_investigator_id,omitempty"`
+	ResolutionNotes      *string         `json:"resolution_notes,omitempty"`
+	ResolvedAt           *time.Time      `json:"resolved_at,omitempty"`
+	JournalEntryID       *int64          `json:"journal_entry_id,omitempty"`
+	ReturnPaymentID      *int64          `json:"return_payment_id,omitempty"`
+	CreatedAt            time.Time       `json:"created_at"`
+}
+
+// RailPaymentRow is one rail_payments row (migration 108) — a persisted
+// outbound rail instruction envelope (MT103/pacs.008 family) or the
+// automated return wire (pacs.004/NACHA return) the deposit guard emits.
+type RailPaymentRow struct {
+	ID                   int64      `json:"id"`
+	FundingTransactionID *int64     `json:"funding_transaction_id,omitempty"`
+	SuspenseMappingID    *int64     `json:"suspense_mapping_id,omitempty"`
+	Direction            string     `json:"direction"` // OUTBOUND | RETURN
+	Rail                 string     `json:"rail"`
+	MessageType          string     `json:"message_type"`
+	EndToEndID           string     `json:"end_to_end_id"`
+	UETR                 *string    `json:"uetr,omitempty"`
+	Envelope             []byte     `json:"envelope"` // JSONB — typed wire fields
+	Status               string     `json:"status"`
+	ReturnCode           *string    `json:"return_code,omitempty"`
+	ReturnReason         *string    `json:"return_reason,omitempty"`
+	ValueDate            *time.Time `json:"value_date,omitempty"`
+	DispatchedAt         *time.Time `json:"dispatched_at,omitempty"`
+	SettledAt            *time.Time `json:"settled_at,omitempty"`
+	CreatedAt            time.Time  `json:"created_at"`
+}
+
+// SuspenseFilter scopes GET /api/v1/admin/funding/quarantine.
+type SuspenseFilter struct {
+	AccountID *int64
+	Status    string
+	CursorTS  *time.Time // keyset (quarantined_at, id) <
+	CursorID  int64
+	Limit     int
 }
 
 // ---------------------------------------------------------------------------
@@ -273,6 +350,25 @@ type Store interface {
 	FreezeEventsForEvidence(ctx context.Context, accountID int64, limit int) ([]EvidenceRow, error)
 	AdminAudit(ctx context.Context, adminID int64, action, targetType string,
 		targetID int64, before, after []byte, ip string) error
+
+	// Phase-11 Task 11.3.1/11.3.11 — rails, returns & deposit quarantine.
+	InsertDepositPending(ctx context.Context, tx pgx.Tx, d DepositRow) (*DepositRow, error)
+	FundingTxForUpdate(ctx context.Context, tx pgx.Tx, id int64) (*FundingTxRow, error)
+	SetFundingTxStatus(ctx context.Context, tx pgx.Tx, id int64, status string,
+		completedAt *time.Time) error
+	InsertSuspenseMapping(ctx context.Context, tx pgx.Tx, m SuspenseRow) (*SuspenseRow, error)
+	SuspenseByBankTx(ctx context.Context, bankTxID string) (*SuspenseRow, error)
+	SuspenseForUpdate(ctx context.Context, tx pgx.Tx, id int64) (*SuspenseRow, error)
+	SetSuspenseStatus(ctx context.Context, tx pgx.Tx, id int64, status string,
+		investigatorID *int64, notes *string, resolvedAt *time.Time) error
+	SetSuspenseLinks(ctx context.Context, tx pgx.Tx, id int64,
+		journalID, returnPaymentID *int64) error
+	ListSuspense(ctx context.Context, f SuspenseFilter) ([]SuspenseRow, int64, error)
+	InsertRailPayment(ctx context.Context, tx pgx.Tx, p RailPaymentRow) (*RailPaymentRow, error)
+	RailPaymentForUpdate(ctx context.Context, tx pgx.Tx, id int64) (*RailPaymentRow, error)
+	RailPaymentByEndToEndID(ctx context.Context, endToEndID string) (*RailPaymentRow, error)
+	SetRailPaymentStatus(ctx context.Context, tx pgx.Tx, id int64, status string,
+		returnCode, returnReason *string, dispatchedAt, settledAt *time.Time) error
 }
 
 // ---------------------------------------------------------------------------
@@ -1161,6 +1257,388 @@ func (s *PgStore) AdminAudit(ctx context.Context, adminID int64, action, targetT
 		adminID, action, targetType, targetID, before, after, ipParam)
 	if err != nil {
 		return wrapCode("INTERNAL_ERROR", "admin audit", err)
+	}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Phase-11: deposits, suspense quarantine & rail payments (Tasks 11.3.1/11.3.11)
+// ---------------------------------------------------------------------------
+
+// InsertDepositPending persists an inbound DEPOSIT funding row inside tx.
+// Idempotent on (account_id, idempotency_key) when a key is carried —
+// ErrIdemConflict lets the service resolve replay vs mismatch.
+func (s *PgStore) InsertDepositPending(ctx context.Context, tx pgx.Tx, d DepositRow) (*DepositRow, error) {
+	status := d.Status
+	if status == "" {
+		status = FundingPending
+	}
+	var usd *string
+	if d.USDAmount != nil {
+		v := d.USDAmount.String()
+		usd = &v
+	}
+	err := tx.QueryRow(ctx, `
+		INSERT INTO funding_transactions
+		    (account_id, currency, type, amount, status, bank_method,
+		     reference, reference_account, idempotency_key, payload_sha256,
+		     usd_amount, review_tier)
+		VALUES ($1, $2, 'DEPOSIT', $3::numeric, $4::funding_status_enum, $5,
+		        $6, $7, $8, $9, $10::numeric, $11)
+		RETURNING id, created_at`,
+		d.AccountID, d.Currency, d.Amount.String(), status, d.BankMethod,
+		d.Reference, d.ReferenceAccount, d.IdempotencyKey, d.PayloadSHA256,
+		usd, d.ReviewTier).Scan(&d.ID, &d.CreatedAt)
+	if err != nil {
+		if isUniqueViolation(err) {
+			return nil, ErrIdemConflict
+		}
+		return nil, wrapCode("INTERNAL_ERROR", "insert deposit", err)
+	}
+	d.Status = status
+	return &d, nil
+}
+
+// FundingTxForUpdate locks one funding_transactions row inside tx.
+func (s *PgStore) FundingTxForUpdate(ctx context.Context, tx pgx.Tx, id int64) (*FundingTxRow, error) {
+	row := tx.QueryRow(ctx, `
+		SELECT id, account_id, currency, type::text, amount::text, status::text,
+		       reference, bank_method::text, reference_account,
+		       usd_amount::text, review_tier, review_deadline,
+		       created_at, confirmed_at, completed_at
+		FROM funding_transactions WHERE id = $1 FOR UPDATE`, id)
+	return scanFundingTx(row)
+}
+
+// SetFundingTxStatus transitions a funding row inside tx (return/returned
+// and deposit resolution paths).
+func (s *PgStore) SetFundingTxStatus(ctx context.Context, tx pgx.Tx, id int64,
+	status string, completedAt *time.Time) error {
+	tag, err := tx.Exec(ctx, `
+		UPDATE funding_transactions
+		SET status = $2::funding_status_enum, updated_at = now(),
+		    completed_at = COALESCE($3, completed_at)
+		WHERE id = $1`, id, status, completedAt)
+	if err != nil {
+		return wrapCode("INTERNAL_ERROR", "funding status update", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return errf("NOT_FOUND", "funding transaction %d not found", id)
+	}
+	return nil
+}
+
+func scanFundingTx(row pgx.Row) (*FundingTxRow, error) {
+	var r FundingTxRow
+	var amt, usd *string
+	var ref, bm, ra, tier *string
+	err := row.Scan(&r.ID, &r.AccountID, &r.Currency, &r.Type, &amt,
+		&r.Status, &ref, &bm, &ra, &usd, &tier, &r.ReviewDeadline,
+		&r.CreatedAt, &r.ConfirmedAt, &r.CompletedAt)
+	if err == pgx.ErrNoRows {
+		return nil, errCode("NOT_FOUND", "funding transaction not found")
+	}
+	if err != nil {
+		return nil, wrapCode("INTERNAL_ERROR", "funding tx scan", err)
+	}
+	if amt != nil {
+		r.Amount = decimal.RequireFromString(*amt)
+	}
+	if usd != nil {
+		d := decimal.RequireFromString(*usd)
+		r.USDAmount = &d
+	}
+	r.Reference, r.BankMethod, r.ReferenceAccount, r.ReviewTier = ref, bm, ra, tier
+	return &r, nil
+}
+
+// InsertSuspenseMapping persists one quarantine record inside tx; a
+// bank_tx_id conflict returns ErrIdemConflict (dup wire notification).
+func (s *PgStore) InsertSuspenseMapping(ctx context.Context, tx pgx.Tx, m SuspenseRow) (*SuspenseRow, error) {
+	var score *string
+	if m.NameMatchScore != nil {
+		v := fmt.Sprintf("%.3f", *m.NameMatchScore)
+		score = &v
+	}
+	gl := m.GLAccount
+	if gl == "" {
+		gl = "2150"
+	}
+	// A freshly routed suspense row is always quarantined; the
+	// INVESTIGATING/RESOLVED/RETURNED_TO_SOURCE states are only reachable
+	// via SetSuspenseStatus transitions post-insert.
+	status := m.QuarantineStatus
+	if status == "" {
+		status = "QUARANTINED"
+	}
+	// ON CONFLICT DO NOTHING converts a duplicate bank_tx_id into a clean
+	// ErrIdemConflict without raising — a raised error would poison the
+	// caller's enclosing transaction (SQLSTATE 25P02).
+	err := tx.QueryRow(ctx, `
+		INSERT INTO suspense_account_mappings
+		    (bank_tx_id, funding_transaction_id, account_id, rail, currency,
+		     amount, originator_name, originator_account, name_match_score,
+		     unmatched_reason, gl_account, quarantine_status, sla_expires_at,
+		     journal_entry_id, return_payment_id)
+		VALUES ($1, $2, $3, $4, $5, $6::numeric, $7, $8, $9::numeric,
+		        $10::unmatched_reason_enum, $11, $12::quarantine_status_enum,
+		        $13, $14, $15)
+		ON CONFLICT (bank_tx_id) DO NOTHING
+		RETURNING id, quarantined_at, created_at`,
+		m.BankTxID, m.FundingTransactionID, m.AccountID, m.Rail, m.Currency,
+		m.Amount.String(), m.OriginatorName, m.OriginatorAccount, score,
+		m.UnmatchedReason, gl, status, m.SLAExpiresAt,
+		m.JournalEntryID, m.ReturnPaymentID).
+		Scan(&m.ID, &m.QuarantinedAt, &m.CreatedAt)
+	if err != nil {
+		if stderrors.Is(err, pgx.ErrNoRows) || isUniqueViolation(err) {
+			return nil, ErrIdemConflict
+		}
+		return nil, wrapCode("INTERNAL_ERROR", "insert suspense mapping", err)
+	}
+	return &m, nil
+}
+
+const suspenseCols = `
+		SELECT id, bank_tx_id, funding_transaction_id, account_id, rail,
+		       currency, amount::text, originator_name, originator_account,
+		       name_match_score::text, unmatched_reason::text, gl_account,
+		       quarantine_status::text, quarantined_at, sla_expires_at,
+		       assigned_investigator_id, resolution_notes, resolved_at,
+		       journal_entry_id, return_payment_id, created_at
+		FROM suspense_account_mappings`
+
+func scanSuspense(row pgx.Row) (*SuspenseRow, error) {
+	var m SuspenseRow
+	var amt, score *string
+	err := row.Scan(&m.ID, &m.BankTxID, &m.FundingTransactionID, &m.AccountID,
+		&m.Rail, &m.Currency, &amt, &m.OriginatorName, &m.OriginatorAccount,
+		&score, &m.UnmatchedReason, &m.GLAccount, &m.QuarantineStatus,
+		&m.QuarantinedAt, &m.SLAExpiresAt, &m.AssignedInvestigator,
+		&m.ResolutionNotes, &m.ResolvedAt, &m.JournalEntryID,
+		&m.ReturnPaymentID, &m.CreatedAt)
+	if err == pgx.ErrNoRows {
+		return nil, errCode("NOT_FOUND", "suspense mapping not found")
+	}
+	if err != nil {
+		return nil, wrapCode("INTERNAL_ERROR", "suspense scan", err)
+	}
+	if amt != nil {
+		m.Amount = decimal.RequireFromString(*amt)
+	}
+	if score != nil {
+		var f float64
+		if _, serr := fmt.Sscanf(*score, "%f", &f); serr == nil {
+			m.NameMatchScore = &f
+		}
+	}
+	return &m, nil
+}
+
+// SuspenseByBankTx resolves a bank transaction id — the dedup key for
+// repeated wire notifications.
+func (s *PgStore) SuspenseByBankTx(ctx context.Context, bankTxID string) (*SuspenseRow, error) {
+	return scanSuspense(s.pool.QueryRow(ctx,
+		suspenseCols+` WHERE bank_tx_id = $1`, bankTxID))
+}
+
+// SuspenseForUpdate locks one quarantine row inside tx.
+func (s *PgStore) SuspenseForUpdate(ctx context.Context, tx pgx.Tx, id int64) (*SuspenseRow, error) {
+	return scanSuspense(tx.QueryRow(ctx,
+		suspenseCols+` WHERE id = $1 FOR UPDATE`, id))
+}
+
+// SetSuspenseStatus applies a quarantine lifecycle transition inside tx.
+func (s *PgStore) SetSuspenseStatus(ctx context.Context, tx pgx.Tx, id int64, status string,
+	investigatorID *int64, notes *string, resolvedAt *time.Time) error {
+	tag, err := tx.Exec(ctx, `
+		UPDATE suspense_account_mappings
+		SET quarantine_status = $2::quarantine_status_enum, updated_at = now(),
+		    assigned_investigator_id = COALESCE($3, assigned_investigator_id),
+		    resolution_notes = COALESCE($4, resolution_notes),
+		    resolved_at = COALESCE($5, resolved_at)
+		WHERE id = $1`, id, status, investigatorID, notes, resolvedAt)
+	if err != nil {
+		return wrapCode("INTERNAL_ERROR", "suspense status update", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return errf("NOT_FOUND", "suspense mapping %d not found", id)
+	}
+	return nil
+}
+
+// SetSuspenseLinks backfills the GL journal and return-wire references
+// after the suspense row's dependent postings land.
+func (s *PgStore) SetSuspenseLinks(ctx context.Context, tx pgx.Tx, id int64,
+	journalID, returnPaymentID *int64) error {
+	tag, err := tx.Exec(ctx, `
+		UPDATE suspense_account_mappings
+		SET journal_entry_id = COALESCE($2, journal_entry_id),
+		    return_payment_id = COALESCE($3, return_payment_id),
+		    updated_at = now()
+		WHERE id = $1`, id, journalID, returnPaymentID)
+	if err != nil {
+		return wrapCode("INTERNAL_ERROR", "suspense links update", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return errf("NOT_FOUND", "suspense mapping %d not found", id)
+	}
+	return nil
+}
+
+// ListSuspense pages the quarantine journal for the admin endpoint —
+// keyset on (quarantined_at, id), newest first.
+func (s *PgStore) ListSuspense(ctx context.Context, f SuspenseFilter) ([]SuspenseRow, int64, error) {
+	where := []string{"TRUE"}
+	args := []any{}
+	n := 0
+	add := func(clause string, v any) {
+		n++
+		where = append(where, fmt.Sprintf(clause, n))
+		args = append(args, v)
+	}
+	if f.AccountID != nil {
+		add("account_id = $%d", *f.AccountID)
+	}
+	if f.Status != "" {
+		add("quarantine_status = $%d::quarantine_status_enum", f.Status)
+	}
+	if f.CursorTS != nil {
+		n++
+		tsN := n
+		n++
+		where = append(where, fmt.Sprintf("(quarantined_at, id) < ($%d, $%d)", tsN, n))
+		args = append(args, *f.CursorTS, f.CursorID)
+	}
+	cond := strings.Join(where, " AND ")
+
+	var total int64
+	cargs := args
+	if f.CursorTS != nil {
+		cargs = args[:len(args)-2]
+	}
+	if err := s.pool.QueryRow(ctx,
+		`SELECT count(*) FROM suspense_account_mappings WHERE `+cond, cargs...).Scan(&total); err != nil {
+		return nil, 0, wrapCode("INTERNAL_ERROR", "suspense count", err)
+	}
+	n++
+	q := fmt.Sprintf(`%s WHERE %s
+		ORDER BY quarantined_at DESC, id DESC LIMIT $%d`, suspenseCols, cond, n)
+	args = append(args, f.Limit+1)
+
+	rows, err := s.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, 0, wrapCode("INTERNAL_ERROR", "suspense list", err)
+	}
+	defer rows.Close()
+	var out []SuspenseRow
+	for rows.Next() {
+		var m SuspenseRow
+		var amt, score *string
+		if err := rows.Scan(&m.ID, &m.BankTxID, &m.FundingTransactionID,
+			&m.AccountID, &m.Rail, &m.Currency, &amt, &m.OriginatorName,
+			&m.OriginatorAccount, &score, &m.UnmatchedReason, &m.GLAccount,
+			&m.QuarantineStatus, &m.QuarantinedAt, &m.SLAExpiresAt,
+			&m.AssignedInvestigator, &m.ResolutionNotes, &m.ResolvedAt,
+			&m.JournalEntryID, &m.ReturnPaymentID, &m.CreatedAt); err != nil {
+			return nil, 0, wrapCode("INTERNAL_ERROR", "suspense list scan", err)
+		}
+		if amt != nil {
+			m.Amount = decimal.RequireFromString(*amt)
+		}
+		if score != nil {
+			var fv float64
+			if _, serr := fmt.Sscanf(*score, "%f", &fv); serr == nil {
+				m.NameMatchScore = &fv
+			}
+		}
+		out = append(out, m)
+	}
+	return out, total, rows.Err()
+}
+
+// InsertRailPayment persists one outbound/return instruction envelope
+// inside tx; an end_to_end_id conflict returns ErrIdemConflict.
+func (s *PgStore) InsertRailPayment(ctx context.Context, tx pgx.Tx, p RailPaymentRow) (*RailPaymentRow, error) {
+	status := p.Status
+	if status == "" {
+		status = RailPaymentPrepared
+	}
+	err := tx.QueryRow(ctx, `
+		INSERT INTO rail_payments
+		    (funding_transaction_id, suspense_mapping_id, direction, rail,
+		     message_type, end_to_end_id, uetr, envelope, status,
+		     return_code, return_reason, value_date)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::rail_payment_status_enum,
+		        $10, $11, $12)
+		RETURNING id, created_at`,
+		p.FundingTransactionID, p.SuspenseMappingID, p.Direction, p.Rail,
+		p.MessageType, p.EndToEndID, p.UETR, p.Envelope, status,
+		p.ReturnCode, p.ReturnReason, p.ValueDate).
+		Scan(&p.ID, &p.CreatedAt)
+	if err != nil {
+		if isUniqueViolation(err) {
+			return nil, ErrIdemConflict
+		}
+		return nil, wrapCode("INTERNAL_ERROR", "insert rail payment", err)
+	}
+	p.Status = status
+	return &p, nil
+}
+
+const railPaymentCols = `
+		SELECT id, funding_transaction_id, suspense_mapping_id, direction,
+		       rail, message_type, end_to_end_id, uetr, envelope, status::text,
+		       return_code, return_reason, value_date, dispatched_at,
+		       settled_at, created_at
+		FROM rail_payments`
+
+func scanRailPayment(row pgx.Row) (*RailPaymentRow, error) {
+	var p RailPaymentRow
+	err := row.Scan(&p.ID, &p.FundingTransactionID, &p.SuspenseMappingID,
+		&p.Direction, &p.Rail, &p.MessageType, &p.EndToEndID, &p.UETR,
+		&p.Envelope, &p.Status, &p.ReturnCode, &p.ReturnReason, &p.ValueDate,
+		&p.DispatchedAt, &p.SettledAt, &p.CreatedAt)
+	if err == pgx.ErrNoRows {
+		return nil, errCode("NOT_FOUND", "rail payment not found")
+	}
+	if err != nil {
+		return nil, wrapCode("INTERNAL_ERROR", "rail payment scan", err)
+	}
+	return &p, nil
+}
+
+// RailPaymentForUpdate locks one instruction inside tx.
+func (s *PgStore) RailPaymentForUpdate(ctx context.Context, tx pgx.Tx, id int64) (*RailPaymentRow, error) {
+	return scanRailPayment(tx.QueryRow(ctx,
+		railPaymentCols+` WHERE id = $1 FOR UPDATE`, id))
+}
+
+// RailPaymentByEndToEndID resolves a message by its ISO 20022
+// EndToEndId / trace reference — the return-matching key.
+func (s *PgStore) RailPaymentByEndToEndID(ctx context.Context, endToEndID string) (*RailPaymentRow, error) {
+	return scanRailPayment(s.pool.QueryRow(ctx,
+		railPaymentCols+` WHERE end_to_end_id = $1`, endToEndID))
+}
+
+// SetRailPaymentStatus applies a rail status transition inside tx.
+func (s *PgStore) SetRailPaymentStatus(ctx context.Context, tx pgx.Tx, id int64,
+	status string, returnCode, returnReason *string,
+	dispatchedAt, settledAt *time.Time) error {
+	tag, err := tx.Exec(ctx, `
+		UPDATE rail_payments
+		SET status = $2::rail_payment_status_enum, updated_at = now(),
+		    return_code = COALESCE($3, return_code),
+		    return_reason = COALESCE($4, return_reason),
+		    dispatched_at = COALESCE($5, dispatched_at),
+		    settled_at = COALESCE($6, settled_at)
+		WHERE id = $1`, id, status, returnCode, returnReason,
+		dispatchedAt, settledAt)
+	if err != nil {
+		return wrapCode("INTERNAL_ERROR", "rail payment status update", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return errf("NOT_FOUND", "rail payment %d not found", id)
 	}
 	return nil
 }

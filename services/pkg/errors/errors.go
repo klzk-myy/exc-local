@@ -7,7 +7,10 @@
 // scaffold placeholders and must be registered there.
 package errors
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 // Error is a coded error returned by exchange services.
 type Error struct {
@@ -35,3 +38,14 @@ func (e *Error) Error() string {
 
 // Unwrap exposes the wrapped cause for errors.Is/As.
 func (e *Error) Unwrap() error { return e.Cause }
+
+// CodeOf extracts the machine-readable Code from an error chain —
+// "INTERNAL_ERROR" when no *Error is found (fail closed; callers never
+// distinguish uncoded errors as anything else).
+func CodeOf(err error) string {
+	var e *Error
+	if errors.As(err, &e) {
+		return e.Code
+	}
+	return "INTERNAL_ERROR"
+}

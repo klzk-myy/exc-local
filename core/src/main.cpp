@@ -13,12 +13,14 @@
 #include <unistd.h>
 
 #include <atomic>
+#include <chrono>
 #include <cinttypes>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <memory>
+#include <thread>
 #include <type_traits>
 
 #include "book/Order.hpp"
@@ -35,8 +37,11 @@
 #include "recovery/RecoveryManager.hpp"
 #include "recovery/SnapshotManager.hpp"
 #include "recovery/SnapshotStore.hpp"
+#include "redis/RespClient.hpp"
 #include "risk/EngineRiskAdapter.hpp"
 #include "risk/PreTradeChecker.hpp"
+#include "risk/SuspensionFlags.hpp"
+#include "risk/SuspensionRefresher.hpp"
 #include "utils/MemoryPool.hpp"
 #include "utils/TimeUtils.hpp"
 #include "wal/Wal.hpp"
@@ -54,7 +59,8 @@ void usage(const char* argv0) {
                  "          [-instrument-id <n>] [-dev-all-accounts]\n"
                  "          [-snap-dir <dir>] [-snapshot-trades <n>]\n"
                  "          [-snapshot-interval-s <s>] [-follower]\n"
-                 "          [-report-log <path>]\n",
+                 "          [-report-log <path>]\n"
+                 "          [-redis <host:port>] [-halt-poll-ms <ms>]\n",
                  argv0);
 }
 
@@ -206,6 +212,12 @@ int main(int argc, char** argv) {
     // recovery_reports JSONL sink (migration 065; the Go wal-recovery CLI's
     // persist-reports drains it into PostgreSQL — the core never speaks PG).
     std::string report_log;
+    // Phase-11 kill-switch (Tasks 11.3.4/11.3.8/11.3.12): `-redis` binds
+    // the halt-flag lattice to a control-path Redis poll; absent = the
+    // suspension seam stays unbound and enforcement lives on the Go
+    // admission gates only.
+    std::string redis_addr;
+    uint32_t halt_poll_ms = 50;        // Redis halt:* refresh cadence
 
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "-shard") == 0) {
@@ -267,6 +279,18 @@ int main(int argc, char** argv) {
                 return 2;
             }
             report_log = argv[i];
+        } else if (std::strcmp(argv[i], "-redis") == 0) {
+            if (++i >= argc) {
+                usage(argv[0]);
+                return 2;
+            }
+            redis_addr = argv[i];
+        } else if (std::strcmp(argv[i], "-halt-poll-ms") == 0) {
+            if (++i >= argc || !parse_u32(argv[i], &halt_poll_ms)) {
+                usage(argv[0]);
+                return 2;
+            }
+            if (halt_poll_ms == 0) halt_poll_ms = 50;
         } else if (std::strcmp(argv[i], "-h") == 0 || std::strcmp(argv[i], "--help") == 0) {
             usage(argv[0]);
             return 0;
@@ -416,6 +440,56 @@ int main(int argc, char** argv) {
     exch::EngineRiskBinding risk_binding{&risk, book.instrument(),
                                          engine.now_ns_ptr()};
     engine.set_risk_hook(&exch::engine_risk_check, &risk_binding);
+
+    // --- Kill-switch suspension lattice (Task 11.3.4 step 4; 11.3.8/12) --
+    // `-redis host:port` binds check 0: a control thread polls `halt:*`
+    // every -halt-poll-ms (default 50ms) into an immutable snapshot the
+    // matching thread reads per order. Bound-but-unverifiable rejects
+    // TRADING_HALTED (fail closed); an unwired seam leaves enforcement
+    // to the Go admission layer.
+    exch::SuspensionFlags susp_flags;
+    std::unique_ptr<exch::RespClient> susp_redis;
+    std::unique_ptr<exch::SuspensionRefresher> susp_refresh;
+    std::atomic<bool> susp_stop{false};
+    std::thread susp_thread;
+    if (!redis_addr.empty()) {
+        exch::RespClientConfig rcfg{};
+        const std::size_t colon = redis_addr.rfind(':');
+        if (colon == std::string::npos || colon == 0) {
+            std::fprintf(stderr,
+                         "FATAL: -redis expects host:port (got %s)\n",
+                         redis_addr.c_str());
+            wal.close();
+            core_chan.close();
+            return 1;
+        }
+        rcfg.host = redis_addr.substr(0, colon);
+        rcfg.port = static_cast<uint16_t>(
+            std::strtoul(redis_addr.c_str() + colon + 1, nullptr, 10));
+        susp_redis = std::make_unique<exch::RespClient>(rcfg);
+        susp_refresh =
+            std::make_unique<exch::SuspensionRefresher>(susp_redis.get());
+        risk.bind_suspensions(&susp_flags);
+        // Synchronous first poll before the ingress ring opens — orders
+        // admitted after "ready" see a verified flag state, not the
+        // fail-closed startup default, when Redis is reachable.
+        if (!susp_redis->connect() || !susp_refresh->refresh(&susp_flags)) {
+            std::fprintf(stderr,
+                         "WARN: halt:* flag poll unreachable at boot — "
+                         "check 0 fails closed (TRADING_HALTED) until the "
+                         "poll thread lands a clean read\n");
+        }
+        exch::SuspensionRefresher* refresher = susp_refresh.get();
+        exch::SuspensionFlags* flags = &susp_flags;
+        std::atomic<bool>* stop = &susp_stop;
+        const auto cadence = std::chrono::milliseconds(halt_poll_ms);
+        susp_thread = std::thread([refresher, flags, stop, cadence]() {
+            while (!stop->load(std::memory_order_acquire)) {
+                refresher->refresh(flags);
+                std::this_thread::sleep_for(cadence);
+            }
+        });
+    }
 
     // --- Snapshot sink + cadence (Task 2.3.4; Phase-02.5 finding) -----------
     // Without periodic snapshots recovery replays the WHOLE journal —
@@ -589,6 +663,10 @@ int main(int argc, char** argv) {
     std::fflush(stdout);  // readiness line must land even when piped
 
     loop.run(&g_stop);  // matching thread = main thread; SIGTERM exits cleanly.
+
+    // Stop the halt-flag poll thread before its targets leave scope.
+    susp_stop.store(true, std::memory_order_release);
+    if (susp_thread.joinable()) susp_thread.join();
 
     loop.stop_watchdog();
     // Drain snapshot: a graceful stop leaves a fresh base so the next boot

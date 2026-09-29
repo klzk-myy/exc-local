@@ -294,3 +294,28 @@ type MaintenanceWindow struct {
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }
+
+// Stats24h is the Phase-11 Task 11.3.5 market-statistics row: the rolling
+// 24-hour aggregate for one symbol, ending at the request's server time.
+// The window is TRAILING (same semantics as Ticker24h and the marketdata
+// stats@all producer) — open_time_ms/close_time_ms are the [now-24h, now)
+// bounds, first/last_trade_ms the observed trade times inside it. Price
+// fields are nil when the window holds no trades — no synthesized quotes.
+type Stats24h struct {
+	Symbol         string  `json:"symbol"`
+	Window         string  `json:"window"`         // "24h"
+	OpenTimeMs     int64   `json:"open_time_ms"`   // window start (close-24h)
+	CloseTimeMs    int64   `json:"close_time_ms"`  // window end (server time)
+	Open           *string `json:"open,omitempty"` // first trade price in window
+	High           *string `json:"high,omitempty"`
+	Low            *string `json:"low,omitempty"`
+	Last           *string `json:"last,omitempty"`
+	PriceChange    *string `json:"price_change,omitempty"`
+	PriceChangePct *string `json:"price_change_pct,omitempty"`
+	Volume         string  `json:"volume"`       // base currency
+	QuoteVolume    string  `json:"quote_volume"` // quote currency
+	TradeCount     int64   `json:"trade_count"`
+	FirstTradeMs   *int64  `json:"first_trade_ms,omitempty"`
+	LastTradeMs    *int64  `json:"last_trade_ms,omitempty"`
+	ServerTimeMs   int64   `json:"server_time_ms"`
+}

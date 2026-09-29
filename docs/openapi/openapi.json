@@ -173,6 +173,12 @@
         "owner": "Phase-03 Task 3.3.6"
       },
       {
+        "code": "BANKING_RAIL_UNAVAILABLE",
+        "description": "No banking rail can carry the instruction — every candidate failed currency, amount-cap, availability (scoped kill-switch) or account-eligibility screening; fail-closed (Phase-11 Task 11.3.1 Banking Rails Integration; §24 Banking Rails matrix row)",
+        "http_status": 503,
+        "owner": "Phase-11 Task 11.3.1"
+      },
+      {
         "code": "BANK_ACCOUNT_NOT_VERIFIED",
         "description": "Withdrawal beneficiary not registered/verified — added 2026-09-15 (Phase-11 Task 11.3.7 Beneficiary Bank-Account Registry; remediation #19)",
         "http_status": 422,
@@ -183,6 +189,12 @@
         "description": "Batch order payload exceeds the 10-order submit / 20-order cancel ceiling (Phase-05 Task 5.3.32; remediation #18)",
         "http_status": 400,
         "owner": "Phase-05 Task 5.3.32"
+      },
+      {
+        "code": "BENEFICIARY_HOLD_ACTIVE",
+        "description": "Withdrawal target is a VERIFIED beneficiary still inside its 24-hour new-account hold — retry after `unlocked_at` (Phase-11 Task 11.3.7 Beneficiary Bank-Account Registry; §24 #391 hold, verified_at + 24h — distinct from `BANK_ACCOUNT_NOT_VERIFIED` which covers unregistered/unverified destinations)",
+        "http_status": 422,
+        "owner": "Phase-11 Task 11.3.7"
       },
       {
         "code": "BILATERAL_CREDIT_EXCEEDED",
@@ -386,6 +398,12 @@
         "code": "FORBIDDEN",
         "description": "Insufficient permissions",
         "http_status": 403
+      },
+      {
+        "code": "FUNDING_FEE_EXCEEDS_AMOUNT",
+        "description": "Scheduled funding fee meets or exceeds the transaction amount; the movement is refused rather than posting a non-positive net credit/debit (Phase-11 Task 11.3.9 Funding Fee Schedule; fail-closed §2.7 — registered with the Task 11.3.9 landing)",
+        "http_status": 422,
+        "owner": "Phase-11 Task 11.3.9"
       },
       {
         "code": "FUNDING_RATE_ERROR",
@@ -645,6 +663,12 @@
         "description": "Operation would push a retail balance negative — added 2026-09-15 (Phase-19 Task 19.3.9 Retail Negative-Balance Protection; remediation #19)",
         "http_status": 422,
         "owner": "Phase-19 Task 19.3.9"
+      },
+      {
+        "code": "NOSTRO_INSUFFICIENT_FUNDS",
+        "description": "Aggregate ACTIVE nostro balance cannot cover the withdrawal — the withdrawal is QUEUED for dispatch, never rejected (Phase-11 Task 11.3.6 Nostro-Aware Withdrawals; §27.1 Nostro/Vostro matrix code — emitted on the durable funding_ops_alerts trail)",
+        "http_status": 500,
+        "owner": "Phase-11 Task 11.3.6"
       },
       {
         "code": "NOT_FOUND",
@@ -909,8 +933,9 @@
       },
       {
         "code": "THIRD_PARTY_DEPOSIT_REJECTED",
-        "description": "Deposit sender name does not match account holder — added 2026-09-15",
-        "http_status": 422
+        "description": "Inbound wire originator name fails the Jaro-Winkler ≥0.85 match vs verified KYC legal name; funds quarantined to 2150_SUSPENSE_DEPOSITS and returned to source (Phase-11 Task 11.3.11 Third-Party Deposit Fraud; §17.12.2 — description amended 2026-09-29, supersedes 'Deposit sender name does not match account holder')",
+        "http_status": 422,
+        "owner": "Phase-11 Task 11.3.11"
       },
       {
         "code": "TICKET_NOT_FOUND",
@@ -1037,6 +1062,12 @@
         "owner": "Phase-05 Task 5.3.17"
       },
       {
+        "code": "WHITELIST_CHANGE_LOCKED",
+        "description": "Whitelist-mode re-enable is rate-limited until timelock_until lapses (Phase-11 Task 11.3.10; the 24h deactivation latch — documented unlock path is to wait out the latch)",
+        "http_status": 429,
+        "owner": "Phase-11 Task 11.3.10"
+      },
+      {
         "code": "WITHDRAWAL_CONFIRM_EXPIRED",
         "description": "Withdrawal confirmation window elapsed; request must be re-initiated (Phase-05 Task 5.3.6 Withdrawal Flow; remediation #44)",
         "http_status": 409,
@@ -1047,6 +1078,18 @@
         "description": "Withdrawal cooldown active — 30-minute same-bank-account cooldown after a completed withdrawal (Phase-11 Task 11.3.2 Withdrawal Flow step 5; the 15-minute figure is the separate confirmation window, spec §5.7; remediation #35 — supersedes the 15-minute mislabel in the prior description)",
         "http_status": 422,
         "owner": "Phase-11 Task 11.3.2"
+      },
+      {
+        "code": "WITHDRAWAL_WHITELIST_LOCKED",
+        "description": "Account-scoped withdrawal egress lock — whitelist-only mode was disabled less than 24 hours ago (Phase-11 Task 11.3.10 deactivation safety lock; account-scoped, never platform-wide — remediation #35 semantics)",
+        "http_status": 423,
+        "owner": "Phase-11 Task 11.3.10"
+      },
+      {
+        "code": "WITHDRAWAL_WHITELIST_ONLY",
+        "description": "Whitelist-only mode is enabled for the account and the destination resolves to no VERIFIED bank_accounts beneficiary (Phase-11 Task 11.3.10 Withdrawal Whitelist Mode; §5.23/§24 #391 — registered for the flows cluster)",
+        "http_status": 422,
+        "owner": "Phase-11 Task 11.3.10"
       },
       {
         "code": "WS_ABUSE_DETECTED",
@@ -6087,6 +6130,959 @@
         "x-weight": 1
       }
     },
+    "/api/v1/admin/funding/bank-accounts": {
+      "get": {
+        "operationId": "get_api_v1_admin_funding_bank_accounts",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Beneficiary registry admin list (?status=&limit=)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Read-Only Auditor",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-11 Task 11.3.7",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Read-Only Auditor",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/funding/bank-accounts/{id}/reject": {
+      "post": {
+        "operationId": "post_api_v1_admin_funding_bank_accounts_id_reject",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Reject beneficiary {reason} — single approver (releases no funds)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-11 Task 11.3.7",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/funding/bank-accounts/{id}/verify": {
+      "post": {
+        "operationId": "post_api_v1_admin_funding_bank_accounts_id_verify",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Verify beneficiary {approver_id, method} — bank-statement review / micro-deposit (four-eyes)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": true,
+        "x-env": "",
+        "x-owner": "Phase-11 Task 11.3.7",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/funding/deposits": {
+      "post": {
+        "operationId": "post_api_v1_admin_funding_deposits",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Ingest detected deposit (statement poll/webhook) {account_id, currency, amount, reference, source}",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-11 Task 11.3.3",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/funding/deposits/{id}/confirm": {
+      "post": {
+        "operationId": "post_api_v1_admin_funding_deposits_id_confirm",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Record independent bank-source confirmation {source} — 2 distinct sources resolve the tier",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-11 Task 11.3.3",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/funding/deposits/{id}/review": {
+      "post": {
+        "operationId": "post_api_v1_admin_funding_deposits_id_review",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Resolve PENDING_REVIEW deposit {action: APPROVE|REJECT, approver_id} (four-eyes)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": true,
+        "x-env": "",
+        "x-owner": "Phase-11 Task 11.3.3",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/funding/fees": {
+      "get": {
+        "operationId": "get_api_v1_admin_funding_fees",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Funding fee schedule list (?rail=&currency=&direction=&tier=&all=&limit=)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-11 Task 11.3.9",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      },
+      "post": {
+        "operationId": "post_api_v1_admin_funding_fees",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Create funding fee schedule version 1 {rail, currency, direction, account_tier, flat_fee, percentage_bps, min_fee, max_fee?, free_tier_monthly_count?, effective_date?}",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-11 Task 11.3.9",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/funding/fees/{id}": {
+      "delete": {
+        "operationId": "delete_api_v1_admin_funding_fees_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Retire schedule row (leaves resolution, stays on audit record)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-11 Task 11.3.9",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      },
+      "get": {
+        "operationId": "get_api_v1_admin_funding_fees_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Funding fee schedule row detail",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-11 Task 11.3.9",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      },
+      "put": {
+        "operationId": "put_api_v1_admin_funding_fees_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Insert successor schedule version (supersedes {id}; fee parameters in body)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-11 Task 11.3.9",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/funding/fees/{id}/versions": {
+      "get": {
+        "operationId": "get_api_v1_admin_funding_fees_id_versions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Full version chain of the row's schedule group",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-11 Task 11.3.9",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/funding/inbound-wires": {
+      "post": {
+        "operationId": "post_api_v1_admin_funding_inbound_wires",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Ingest inbound bank credit — third-party deposit screen + quarantine",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-11 Task 11.3.11",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/funding/nostro": {
+      "get": {
+        "operationId": "get_api_v1_admin_funding_nostro",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Nostro balances per currency + confirmed-withdrawal coverage",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-11 Task 11.3.6",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/funding/nostro/replenishments": {
+      "get": {
+        "operationId": "get_api_v1_admin_funding_nostro_replenishments",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Replenishment requests (?limit=)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-11 Task 11.3.6",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      },
+      "post": {
+        "operationId": "post_api_v1_admin_funding_nostro_replenishments",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Reserve→operating nostro replenishment request {currency, amount, source_nostro_id, target_nostro_id}",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-11 Task 11.3.6",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/funding/nostro/replenishments/{id}/decide": {
+      "post": {
+        "operationId": "post_api_v1_admin_funding_nostro_replenishments_id_decide",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Approve→execute / reject replenishment (four-eyes)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": true,
+        "x-env": "",
+        "x-owner": "Phase-11 Task 11.3.6",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/funding/ops-alerts": {
+      "get": {
+        "operationId": "get_api_v1_admin_funding_ops_alerts",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Durable funding ops-alert trail (?limit=)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-11 Task 11.3.6",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/funding/quarantine": {
+      "get": {
+        "operationId": "get_api_v1_admin_funding_quarantine",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Suspense/quarantine journal (?status=&account_id=&cursor=&limit=)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "*",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-11 Task 11.3.11",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "*",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/funding/quarantine/{id}/resolve": {
+      "post": {
+        "operationId": "post_api_v1_admin_funding_quarantine_id_resolve",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Resolve quarantined deposit {action: RELEASE_TO_CLIENT|RETURN_TO_SOURCE} (four-eyes)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": true,
+        "x-env": "",
+        "x-owner": "Phase-11 Task 11.3.11",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/funding/returns": {
+      "post": {
+        "operationId": "post_api_v1_admin_funding_returns",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Apply bank return/reject code {end_to_end_id, return_code} — pacs.004/MT199/R-code mapping",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-11 Task 11.3.11",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
     "/api/v1/admin/governance-packs": {
       "get": {
         "operationId": "get_api_v1_admin_governance_packs",
@@ -7339,8 +8335,46 @@
       }
     },
     "/api/v1/admin/kill-switch": {
+      "get": {
+        "operationId": "get_api_v1_admin_kill_switch",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Active suspension set (scope/target/reason/actors)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Read-Only Auditor",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-11 Task 11.3.4",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Read-Only Auditor",
+        "x-status": "live",
+        "x-weight": 1
+      },
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_admin_kill_switch",
         "responses": {
           "200": {
@@ -7361,7 +8395,7 @@
             "oauth2": null
           }
         ],
-        "summary": "Scoped kill switch {scope: GLOBAL|ACCOUNT|INSTRUMENT|FIX_SESSION}",
+        "summary": "Scoped kill switch {scope: GLOBAL|ACCOUNT|COUNTERPARTY|INSTRUMENT|INSTRUMENT_CLASS|FIX_SESSION|LP|RAIL|REGION|ENV|DESK, target_id, reason, approver_id}",
         "tags": [
           "admin"
         ],
@@ -7376,13 +8410,12 @@
         "x-owner": "Phase-11 Task 11.3.8",
         "x-rate-tier": "basic",
         "x-rbac-role": "Risk Manager",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/admin/kill-switch/reset": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_admin_kill_switch_reset",
         "responses": {
           "200": {
@@ -7403,7 +8436,7 @@
             "oauth2": null
           }
         ],
-        "summary": "Resume after kill-switch trip",
+        "summary": "Resume after kill-switch trip {scope, target_id, approver_id}",
         "tags": [
           "admin"
         ],
@@ -7413,12 +8446,12 @@
           "role": "Risk Manager",
           "scopes": null
         },
-        "x-dual-control": false,
+        "x-dual-control": true,
         "x-env": "",
         "x-owner": "Phase-11 Task 11.3.8",
         "x-rate-tier": "basic",
         "x-rbac-role": "Risk Manager",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -9992,7 +11025,6 @@
     },
     "/api/v1/admin/withdrawals/{id}/approve": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_admin_withdrawals_id_approve",
         "parameters": [
           {
@@ -10038,13 +11070,12 @@
         "x-owner": "Phase-11 Task 11.3.2",
         "x-rate-tier": "basic",
         "x-rbac-role": "Finance Ops",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/admin/withdrawals/{id}/reject": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_admin_withdrawals_id_reject",
         "parameters": [
           {
@@ -10090,7 +11121,7 @@
         "x-owner": "Phase-11 Task 11.3.2",
         "x-rate-tier": "basic",
         "x-rbac-role": "Finance Ops",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -11199,6 +12230,50 @@
         "x-weight": 1
       }
     },
+    "/api/v1/deposits": {
+      "post": {
+        "operationId": "post_api_v1_deposits",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Client deposit intent {currency, amount, reference?} — Idempotency-Key required",
+        "tags": [
+          "deposits"
+        ],
+        "x-auth": {
+          "methods": [
+            "jwt",
+            "hmac",
+            "oauth2"
+          ],
+          "required": true,
+          "role": "",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-11 Task 11.3.3",
+        "x-rate-tier": "basic",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
     "/api/v1/deposits/{currency}": {
       "get": {
         "operationId": "get_api_v1_deposits_currency",
@@ -11599,7 +12674,6 @@
     },
     "/api/v1/funding/bank-accounts": {
       "delete": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "delete_api_v1_funding_bank_accounts",
         "responses": {
           "200": {
@@ -11620,7 +12694,7 @@
             "oauth2": null
           }
         ],
-        "summary": "Remove beneficiary bank account",
+        "summary": "Remove beneficiary bank account (?id=)",
         "tags": [
           "funding"
         ],
@@ -11638,11 +12712,10 @@
         "x-env": "",
         "x-owner": "Phase-11 Task 11.3.7",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       },
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_funding_bank_accounts",
         "responses": {
           "200": {
@@ -11685,11 +12758,10 @@
         "x-env": "",
         "x-owner": "Phase-11 Task 11.3.7",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       },
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_funding_bank_accounts",
         "responses": {
           "200": {
@@ -11728,13 +12800,108 @@
         "x-env": "",
         "x-owner": "Phase-11 Task 11.3.7",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/funding/conversions": {
+      "get": {
+        "operationId": "get_api_v1_funding_conversions",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "read"
+            ]
+          },
+          {
+            "apiKeyAuth": [
+              "read"
+            ]
+          },
+          {
+            "oauth2": [
+              "read"
+            ]
+          }
+        ],
+        "summary": "Account conversion history (?limit=100)",
+        "tags": [
+          "funding"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "",
+          "scopes": [
+            "read"
+          ]
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-11 Task 11.3.9",
+        "x-rate-tier": "basic",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/funding/convert": {
+      "post": {
+        "operationId": "post_api_v1_funding_convert",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "transfer"
+            ]
+          },
+          {
+            "apiKeyAuth": [
+              "transfer"
+            ]
+          },
+          {
+            "oauth2": [
+              "transfer"
+            ]
+          }
+        ],
+        "summary": "Indicative currency conversion {from_currency, to_currency?, amount, direction?} — mid±spread, persisted",
+        "tags": [
+          "funding"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "",
+          "scopes": [
+            "transfer"
+          ]
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-11 Task 11.3.9",
+        "x-rate-tier": "basic",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/funding/fee-estimate": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_funding_fee_estimate",
         "responses": {
           "200": {
@@ -11777,7 +12944,239 @@
         "x-env": "",
         "x-owner": "Phase-11 Task 11.3.9",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/funding/rail-selection": {
+      "post": {
+        "operationId": "post_api_v1_funding_rail_selection",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "read"
+            ]
+          },
+          {
+            "apiKeyAuth": [
+              "read"
+            ]
+          },
+          {
+            "oauth2": [
+              "read"
+            ]
+          }
+        ],
+        "summary": "Rail selection preview {currency, amount, preferred_rail, require_same_day}",
+        "tags": [
+          "funding"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "",
+          "scopes": [
+            "read"
+          ]
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-11 Task 11.3.1",
+        "x-rate-tier": "basic",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/funding/rails": {
+      "get": {
+        "operationId": "get_api_v1_funding_rails",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "read"
+            ]
+          },
+          {
+            "apiKeyAuth": [
+              "read"
+            ]
+          },
+          {
+            "oauth2": [
+              "read"
+            ]
+          }
+        ],
+        "summary": "Banking rail capability matrix (currencies, cut-offs, settlement lag)",
+        "tags": [
+          "funding"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "",
+          "scopes": [
+            "read"
+          ]
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-11 Task 11.3.1",
+        "x-rate-tier": "basic",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/funding/withdrawal-whitelist": {
+      "get": {
+        "operationId": "get_api_v1_funding_withdrawal_whitelist",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "read"
+            ]
+          },
+          {
+            "apiKeyAuth": [
+              "read"
+            ]
+          },
+          {
+            "oauth2": [
+              "read"
+            ]
+          }
+        ],
+        "summary": "Whitelist mode + lock state + verified beneficiaries",
+        "tags": [
+          "funding"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "",
+          "scopes": [
+            "read"
+          ]
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-11 Task 11.3.10",
+        "x-rate-tier": "basic",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/funding/withdrawal-whitelist/disable": {
+      "post": {
+        "operationId": "post_api_v1_funding_withdrawal_whitelist_disable",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Disable to ALLOW_ALL — latches account-scoped 24h egress lock",
+        "tags": [
+          "funding"
+        ],
+        "x-auth": {
+          "methods": [
+            "jwt",
+            "hmac",
+            "oauth2"
+          ],
+          "required": true,
+          "role": "",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-11 Task 11.3.10",
+        "x-rate-tier": "basic",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/funding/withdrawal-whitelist/enable": {
+      "post": {
+        "operationId": "post_api_v1_funding_withdrawal_whitelist_enable",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Enable WHITELIST_ONLY mode (re-enable rate-limited by timelock_until)",
+        "tags": [
+          "funding"
+        ],
+        "x-auth": {
+          "methods": [
+            "jwt",
+            "hmac",
+            "oauth2"
+          ],
+          "required": true,
+          "role": "",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-11 Task 11.3.10",
+        "x-rate-tier": "basic",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -14482,7 +15881,6 @@
     },
     "/api/v1/stats/24h": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_stats_24h",
         "responses": {
           "200": {
@@ -14492,7 +15890,7 @@
             "$ref": "#/components/responses/Problem"
           }
         },
-        "summary": "Venue-wide 24h stats",
+        "summary": "Venue-wide rolling 24h market statistics (1s cache)",
         "tags": [
           "stats"
         ],
@@ -14504,15 +15902,14 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-11",
+        "x-owner": "Phase-11 Task 11.3.5",
         "x-rate-tier": "public",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/stats/24h/{symbol}": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_stats_24h_symbol",
         "parameters": [
           {
@@ -14532,7 +15929,7 @@
             "$ref": "#/components/responses/Problem"
           }
         },
-        "summary": "Per-symbol 24h stats",
+        "summary": "Per-symbol rolling 24h market statistics (1s cache)",
         "tags": [
           "stats"
         ],
@@ -14544,9 +15941,9 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-11",
+        "x-owner": "Phase-11 Task 11.3.5",
         "x-rate-tier": "public",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },

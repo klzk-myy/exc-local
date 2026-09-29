@@ -37,17 +37,17 @@ Implement funding via banking rails (SWIFT, SEPA, FedNow, ACH, CHAPS, TARGET2), 
 8. Nostro account per currency per rail.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] SWIFT MT103/MT202 messages generated correctly
-* [ ] SEPA SCT and SCT Inst work
-* [ ] FedNow instant payment works
-* [ ] ACH file generation correct
-* [ ] CHAPS same-day GBP payment works
-* [ ] TARGET2 real-time EUR payment works
-* [ ] Nostro account per currency per rail
+* [x] SWIFT MT103/MT202 messages generated correctly
+* [ ] SEPA SCT and SCT Inst work — OPEN: rail envelopes + dispatch seam verified (TestSepaEnvelopes); live SEPA settlement env-blocked — fail-closed transport seam, no bank connectivity on this host
+* [ ] FedNow instant payment works — OPEN: FedNow ISO 20022 envelope verified (TestFedNowEnvelopeUSDOnly); live instant payment env-blocked
+* [x] ACH file generation correct
+* [ ] CHAPS same-day GBP payment works — OPEN: CHAPS envelope verified (TestChapsTarget2Envelopes); live same-day GBP settlement env-blocked
+* [ ] TARGET2 real-time EUR payment works — OPEN: TARGET2 envelope verified (TestChapsTarget2Envelopes); live EUR settlement env-blocked
+* [x] Nostro account per currency per rail
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: SWIFT/SEPA/FedNow/ACH/CHAPS/TARGET2 banking rails — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: SWIFT/SEPA/FedNow/ACH/CHAPS/TARGET2 banking rails — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -71,19 +71,19 @@ Implement funding via banking rails (SWIFT, SEPA, FedNow, ACH, CHAPS, TARGET2), 
    - **Fiat Limit Segregation Invariant (added 2026-09-27, remediation #38):** Per-account daily withdrawal caps enforce external fiat banking limits (KYC T0/T1/T2 tiers). Internal balance movements, such as PAMM pool unit allocations (`PAMM_INVEST`, `PAMM_REDEEM`) or master-sub account transfers (`TRANSFER`), MUST be strictly segregated and excluded from these fiat withdrawal limits.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Withdrawal creates with 15min confirmation window
-* [ ] `POST /api/v1/admin/withdrawals/{id}/approve|reject` declared for the >$50K PENDING_REVIEW tier (Finance Ops, dual control per §8.1) — endpoint added 2026-09-27, remediation #35: the 4-hour review tier was unactionable with no approval endpoint anywhere in the corpus; registered in Task 5.3.46
-* [ ] Confirmation token validated within window; expired → AUTO_CANCELLED
-* [ ] Review tiers: <$10K auto / $10K–$50K standard / >$50K PENDING_REVIEW+4h
-* [ ] 30min cooldown same bank account enforced
-* [ ] 24h hold for new bank accounts
-* [ ] Withdrawal caps enforced (daily, hourly, exchange-wide)
+* [x] Withdrawal creates with 15min confirmation window
+* [x] `POST /api/v1/admin/withdrawals/{id}/approve|reject` declared for the >$50K PENDING_REVIEW tier (Finance Ops, dual control per §8.1) — endpoint added 2026-09-27, remediation #35: the 4-hour review tier was unactionable with no approval endpoint anywhere in the corpus; registered in Task 5.3.46
+* [x] Confirmation token validated within window; expired → AUTO_CANCELLED
+* [x] Review tiers: <$10K auto / $10K–$50K standard / >$50K PENDING_REVIEW+4h
+* [x] 30min cooldown same bank account enforced
+* [x] 24h hold for new bank accounts
+* [ ] Withdrawal caps enforced (daily, hourly, exchange-wide) — OPEN: per-tx + per-account daily caps enforced via risk.LimitsService.CheckWithdrawal; hourly-rate window (withdraw_rate_per_hour surfaced, not enforced) and exchange-wide daily cap not implemented
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: 15min withdrawal confirmation window — defined first, validated against spec
-- [ ] Spec checkpoint: review tiers <$10K/$10K–$50K/>$50K+4h — defined first, validated against spec
-- [ ] Spec checkpoint: 30min cooldown + 24h new account hold — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: 15min withdrawal confirmation window — defined first, validated against spec
+- [x] Spec checkpoint: review tiers <$10K/$10K–$50K/>$50K+4h — defined first, validated against spec
+- [x] Spec checkpoint: 30min cooldown + 24h new account hold — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -107,15 +107,15 @@ Implement funding via banking rails (SWIFT, SEPA, FedNow, ACH, CHAPS, TARGET2), 
    - Handlers MUST catch DB unique constraint violations (`23505`) on `(account_id, idempotency_key)` and replay the stored transaction acknowledgment (HTTP 200/201) if the payload matches, rather than failing with an unhandled 500 error.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Deposit instructions return correct bank details per currency
-* [ ] Deposit detected via bank statement polling or webhook
-* [ ] Anti-fraud tiers: <$10K auto / $10K–$50K double-confirm / >$50K PENDING_REVIEW+4h
-* [ ] Dual-source verification (2 independent confirmations)
+* [x] Deposit instructions return correct bank details per currency
+* [x] Deposit detected via bank statement polling or webhook
+* [x] Anti-fraud tiers: <$10K auto / $10K–$50K double-confirm / >$50K PENDING_REVIEW+4h
+* [x] Dual-source verification (2 independent confirmations)
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: deposit anti-fraud tiers — defined first, validated against spec
-- [ ] Spec checkpoint: dual-source bank confirmation — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: deposit anti-fraud tiers — defined first, validated against spec
+- [x] Spec checkpoint: dual-source bank confirmation — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -133,14 +133,14 @@ Implement funding via banking rails (SWIFT, SEPA, FedNow, ACH, CHAPS, TARGET2), 
 5. `POST /api/v1/admin/kill-switch/reset` (Risk Manager+, dual control) — resumes.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Kill-switch rejects all new orders (TRADING_HALTED)
-* [ ] Cancels, reads, WS survive kill-switch
-* [ ] Dual control required to activate and reset
-* [ ] C++ core checks flag on every order
+* [x] Kill-switch rejects all new orders (TRADING_HALTED)
+* [x] Cancels, reads, WS survive kill-switch
+* [x] Dual control required to activate and reset
+* [x] C++ core checks flag on every order
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: global kill-switch with dual control — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: global kill-switch with dual control — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -159,13 +159,13 @@ Implement funding via banking rails (SWIFT, SEPA, FedNow, ACH, CHAPS, TARGET2), 
 4. `GET /api/v1/stats/24h/{symbol}` — single symbol.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] 24h stats computed correctly per symbol
-* [ ] Stats endpoints return correct data
-* [ ] Updated on every trade
+* [x] 24h stats computed correctly per symbol
+* [x] Stats endpoints return correct data
+* [x] Updated on every trade
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: 24h market statistics — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: 24h market statistics — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -181,13 +181,13 @@ Implement funding via banking rails (SWIFT, SEPA, FedNow, ACH, CHAPS, TARGET2), 
 3. Replenishment: transfer from reserve account to operating nostro.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Nostro balances tracked per currency
-* [ ] Low balance alert fires
-* [ ] Replenishment requires dual control
+* [x] Nostro balances tracked per currency
+* [x] Low balance alert fires
+* [x] Replenishment requires dual control
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: nostro-aware withdrawals (nostro tracking) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: nostro-aware withdrawals (nostro tracking) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -207,16 +207,16 @@ Implement funding via banking rails (SWIFT, SEPA, FedNow, ACH, CHAPS, TARGET2), 
 **Migration note:** `migrations/040_bank_accounts.up.sql` — `bank_accounts` table (spec §5.23).
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Beneficiary registration + verification flow; withdrawals restricted to VERIFIED accounts
-* [ ] Third-party deposit (sender name mismatch) flagged, returned, and alerted (§24 #141)
-* [ ] Per-rail cut-off enforced; post-cut-off withdrawals queued with next value_date (§24 #164)
-* [ ] 24h new-account hold applies to newly verified beneficiaries
+* [x] Beneficiary registration + verification flow; withdrawals restricted to VERIFIED accounts
+* [x] Third-party deposit (sender name mismatch) flagged, returned, and alerted (§24 #141)
+* [x] Per-rail cut-off enforced; post-cut-off withdrawals queued with next value_date (§24 #164)
+* [x] 24h new-account hold applies to newly verified beneficiaries
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: verified beneficiary registry + third-party rejection (§5.23, §24 #141) — defined first, validated against spec
-- [ ] Spec checkpoint: per-rail cut-off enforcement (§24 #164) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: name transliteration variance, corporate vs individual name forms, cut-off boundary at DST transitions
+- [x] Spec checkpoint: verified beneficiary registry + third-party rejection (§5.23, §24 #141) — defined first, validated against spec
+- [x] Spec checkpoint: per-rail cut-off enforcement (§24 #164) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [x] Edge cases: name transliteration variance, corporate vs individual name forms, cut-off boundary at DST transitions
 
 ---
 
@@ -233,15 +233,15 @@ Implement funding via banking rails (SWIFT, SEPA, FedNow, ACH, CHAPS, TARGET2), 
 4. All scoped kills logged in admin audit log with scope, target, approver(s).
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Per-account kill: target account rejected, others unaffected
-* [ ] Per-instrument kill: symbol rejected, other symbols unaffected
-* [ ] Per-FIX-session kill: session's orders rejected; session stays connected for cancels
-* [ ] Scoped kills audit-logged; dual control required only for GLOBAL
+* [x] Per-account kill: target account rejected, others unaffected
+* [x] Per-instrument kill: symbol rejected, other symbols unaffected
+* [x] Per-FIX-session kill: session's orders rejected; session stays connected for cancels
+* [x] Scoped kills audit-logged; dual control required only for GLOBAL
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: scoped kill-switch (§7.2, §24 #152) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: overlapping scopes (account + instrument), kill during active matching, FIX-session kill vs cancel-on-disconnect interaction
+- [x] Spec checkpoint: scoped kill-switch (§7.2, §24 #152) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [ ] Edge cases: overlapping scopes (account + instrument), kill during active matching, FIX-session kill vs cancel-on-disconnect interaction — OPEN: overlapping-scope precedence tested (TestKillSwitchResolve_Precedence); kill-during-matching via C++ check-0 lattice (structural); FIX-session-vs-CoD interaction untestable — FIX session layer is Phase-18
 
 ---
 
@@ -261,17 +261,17 @@ Implement funding via banking rails (SWIFT, SEPA, FedNow, ACH, CHAPS, TARGET2), 
 7. Display pre-submission fee estimate in Trader UI (Phase-10): `POST /api/v1/funding/fee-estimate {amount, currency, rail, direction}`.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Fee schedule configurable per rail, currency, direction, and account tier
-* [ ] Fee formula applies flat, percentage, min, and max correctly
-* [ ] Free-tier monthly allowance tracked and enforced
-* [ ] Currency conversion at mid-rate ± spread_bps with clear breakdown
-* [ ] Fee GL journal entries posted per double-entry rules
-* [ ] Pre-submission fee estimate API returns accurate projection
+* [x] Fee schedule configurable per rail, currency, direction, and account tier
+* [x] Fee formula applies flat, percentage, min, and max correctly
+* [x] Free-tier monthly allowance tracked and enforced
+* [x] Currency conversion at mid-rate ± spread_bps with clear breakdown
+* [x] Fee GL journal entries posted per double-entry rules
+* [x] Pre-submission fee estimate API returns accurate projection
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: funding fee schedule — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: zero-fee rail (SEPA instant < €100k), multi-currency conversion chain, fee exceeds deposit amount (reject)
+- [x] Spec checkpoint: funding fee schedule — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [x] Edge cases: zero-fee rail (SEPA instant < €100k), multi-currency conversion chain, fee exceeds deposit amount (reject)
 
 ---
 
@@ -288,13 +288,13 @@ Implement funding via banking rails (SWIFT, SEPA, FedNow, ACH, CHAPS, TARGET2), 
 4. **Deactivation Safety Lock:** If the user disables Whitelist-Only mode, withdrawals **for that account** are locked for **24 hours** (`withdrawal_lock_until = NOW() + INTERVAL '24 hours'` on `withdrawal_whitelist_settings` — scoped to the acting account, not platform-wide; remediation #35 supersedes the prior platform-wide lock, a griefing/availability vector that let one user freeze all client fund egress. Re-enable is rate-limited with a documented unlock path).
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Whitelist-only mode restricts withdrawals to approved beneficiaries
-* [ ] New beneficiaries subject to 24-hour cooling lock
-* [ ] Disabling whitelist mode triggers mandatory 24-hour account-scoped withdrawal lock (platform-wide variant superseded, remediation #35)
+* [x] Whitelist-only mode restricts withdrawals to approved beneficiaries
+* [x] New beneficiaries subject to 24-hour cooling lock
+* [x] Disabling whitelist mode triggers mandatory 24-hour account-scoped withdrawal lock (platform-wide variant superseded, remediation #35)
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: withdrawal whitelist mode with 24-hour addition timelock and 24-hour deactivation safety lock (migration 078, §5.23, §24 #391 — citation corrected, remediation #35)
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: withdrawal whitelist mode with 24-hour addition timelock and 24-hour deactivation safety lock (migration 078, §5.23, §24 #391 — citation corrected, remediation #35)
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -304,17 +304,17 @@ Implement funding via banking rails (SWIFT, SEPA, FedNow, ACH, CHAPS, TARGET2), 
 
 **Implementation:**
 1. **Return Code Normalization:** Map payment status reason codes across SEPA (`pacs.002`), FedNow, and SWIFT (`MT199`/`MT299`) to domain errors: `AC01` (incorrect account number) $\rightarrow$ `SETTLEMENT_ACCOUNT_CLOSED`, `AM04` (insufficient funds) $\rightarrow$ `SETTLEMENT_RAIL_REJECTED`, `RR04` (regulatory reason) $\rightarrow$ `SETTLEMENT_RAIL_REJECTED` — mapping corrected 2026-09-27, remediation #35: RR04 is a bank rejection, not a provider outage (`SANCTIONS_SERVICE_UNAVAILABLE` means the external sanctions provider is unreachable and would return a misleading 503). `SETTLEMENT_ACCOUNT_CLOSED`/`SETTLEMENT_RAIL_REJECTED` registered in §23 (emitted here, previously unregistered).
-2. **Third-Party Deposit Quarantine & Suspense Routing:** When incoming wire beneficiary/originator name fails fuzzy-match against user's verified KYC legal name (Jaro-Winkler similarity < 0.85 — direction pinned, remediation #35), flag `THIRD_PARTY_DEPOSIT_REJECTED` (HTTP 422), freeze incoming credit, route unreferenced or quarantined deposit funds to the dedicated customer suspense liability account `2099_UNMATCHED_DEPOSITS_SUSPENSE_{CURRENCY}` (migration 108, spec §5.46, §17.16b, Phase-24 Task 24.3.21, remediation #37/#38), and initiate automated return wire (`pacs.004`).
+2. **Third-Party Deposit Quarantine & Suspense Routing:** When incoming wire beneficiary/originator name fails fuzzy-match against user's verified KYC legal name (Jaro-Winkler similarity < 0.85 — direction pinned, remediation #35), flag `THIRD_PARTY_DEPOSIT_REJECTED` (HTTP 422), freeze incoming credit, route unreferenced or quarantined deposit funds to the dedicated customer suspense liability account `2150_SUSPENSE_DEPOSITS_{CURRENCY}` (spec §5.46/§17.16b default `gl_account` 2150 is the contract — the `2099_UNMATCHED_DEPOSITS_SUSPENSE_{CURRENCY}` label cited here and in Phase-24 Task 24.3.21 is **superseded**; §27 ruling 2026-09-29, migration 108 comment) (migration 108, spec §5.46, §17.16b, Phase-24 Task 24.3.21, remediation #37/#38), and initiate automated return wire (`pacs.004`).
 3. **Compensating Ledger Actions:** On outgoing withdrawal rejection, execute automated compensating journal entries returning client balance and releasing locked reserves with audit trail.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] ISO 20022/SWIFT return codes mapped to domain errors
-* [ ] Third-party wire mismatches auto-quarantined and returned
-* [ ] Failed withdrawals trigger balanced compensating GL journal entries
+* [x] ISO 20022/SWIFT return codes mapped to domain errors
+* [x] Third-party wire mismatches auto-quarantined and returned
+* [x] Failed withdrawals trigger balanced compensating GL journal entries
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: Banking rail return code mapping and third-party deposit fraud quarantine (§24 #311) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: Banking rail return code mapping and third-party deposit fraud quarantine (§24 #311) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -332,13 +332,13 @@ Implement funding via banking rails (SWIFT, SEPA, FedNow, ACH, CHAPS, TARGET2), 
 2. Control messages publish to Aeron control topic `exchange:control:killswitch` and replicate to C++ matching shards in < 5µs.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Scoped counterparty kill-switch cancels target user's orders within 10µs without affecting other venue participants
-* [ ] LP kill-switch halts LP quotes on Tag 35=i while preserving firm CLOB continuous trading
-* [ ] Rail suspension halts target rail operations with `SETTLEMENT_RAIL_REJECTED` while sibling rails operate normally
+* [ ] Scoped counterparty kill-switch cancels target user's orders within 10µs without affecting other venue participants — OPEN: counterparty resting-order cancel sweep verified (TestKillSwitchServiceIntegration); the 10us bound is a hot-path latency claim — no measurement harness on this leg
+* [ ] LP kill-switch halts LP quotes on Tag 35=i while preserving firm CLOB continuous trading — OPEN: LP scope + LPSuspended quote-ingress check verified (TestKillSwitchResolve_RailAndLP); Tag 35=i mass-quote ingress is Phase-18 FIX scope — no live consumer yet
+* [x] Rail suspension halts target rail operations with `SETTLEMENT_RAIL_REJECTED` while sibling rails operate normally
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: multi-dimensional scoped emergency kill-switches (§24 #409) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: multi-dimensional scoped emergency kill-switches (§24 #409) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 

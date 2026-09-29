@@ -37,6 +37,17 @@ PreTradeChecker::PreTradeChecker(RiskConfig cfg) noexcept : cfg_(cfg) {
 PreTradeChecker::~PreTradeChecker() { delete[] collar_; }
 
 RiskDecision PreTradeChecker::check(const Order& order) noexcept {
+    // The kill-switch gate applies even on the detached stub path — a
+    // bound suspension lattice must never be bypassed by an unwired
+    // account provider.
+    if (suspensions_ != nullptr) {
+        const char* kscope = suspensions_->scope_for(
+            order.account_id,
+            instrument_ != nullptr ? instrument_->symbol : nullptr,
+            instrument_ != nullptr ? instrument_type_name(instrument_->type)
+                                   : nullptr);
+        if (kscope != nullptr) return RiskDecision::REJECT;
+    }
     if (accounts_ == nullptr) return RiskDecision::ACCEPT;  // detached stub
     const uint64_t now = clock_fn_ != nullptr
                              ? clock_fn_(clock_ctx_)
@@ -183,6 +194,22 @@ RiskVerdict PreTradeChecker::run(const Order& order,
     const Instrument* inst = ctx.instrument;
     const uint64_t instrument_id =
         inst != nullptr ? inst->instrument_id : 0;
+
+    // ---- 0. Kill-switch suspension lattice (Task 11.3.4/11.3.8/11.3.12) --
+    // Redis `halt:*` flags, refreshed in-process by the control-path
+    // SuspensionRefresher. GLOBAL → ACCOUNT → COUNTERPARTY → INSTRUMENT →
+    // INSTRUMENT_CLASS, first match wins; unverifiable state rejects
+    // (fail closed). Bound checker only — unbound keeps the legacy
+    // gateway-only enforcement.
+    if (suspensions_ != nullptr) {
+        const char* kscope = suspensions_->scope_for(
+            order.account_id,
+            inst != nullptr ? inst->symbol : nullptr,
+            inst != nullptr ? instrument_type_name(inst->type) : nullptr);
+        if (kscope != nullptr) {
+            return reject(kCodeTradingHalted, kscope);
+        }
+    }
 
     // ---- 1. Account status (ACTIVE only) ---------------------------------
     // Cheapest first; account_id 0 is never a real account (BIGSERIAL).

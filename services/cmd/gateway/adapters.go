@@ -9,12 +9,21 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	goredis "github.com/redis/go-redis/v9"
 
 	"exchange/internal/accounts"
+	"exchange/internal/admin"
 	"exchange/internal/api"
 	"exchange/internal/config"
+	"exchange/internal/funding"
+	"exchange/internal/marketapi"
 	"exchange/internal/nats"
 	"exchange/internal/orders"
+	excredis "exchange/internal/redis"
 )
 
 // shardIDs returns the full engine shard universe for the out-ring
@@ -140,4 +149,128 @@ func (a orderDispatchAdapter) SubmitClose(ctx context.Context, req accounts.Clos
 		OrderID: ack.OrderID, ClientOrderID: ack.ClientOrderID,
 		Accepted: true,
 	}, nil
+}
+
+// ---------------------------------------------------------------------------
+// Phase-11 rails+returns adapters
+// ---------------------------------------------------------------------------
+
+// railGate binds the scoped kill-switch halt flags — halt:rail:{RAIL_ID}
+// (Phase-11 Task 11.3.8/11.3.12, keys owned by internal/redis.HaltKey).
+// A missing key means the rail is available; a Redis error fails closed
+// for that rail only (other rails may still serve the instruction).
+type railGate struct{ rdb *goredis.Client }
+
+func (g railGate) Available(ctx context.Context, rail funding.RailID) (bool, string, error) {
+	if g.rdb == nil {
+		return true, "", nil // no coordination instance — no scoped halts possible
+	}
+	key := excredis.HaltKey(admin.ScopeRail, string(rail))
+	v, err := g.rdb.Get(ctx, key).Result()
+	if err != nil {
+		if err == goredis.Nil {
+			return true, "", nil
+		}
+		return false, "", fmt.Errorf("rail gate read %s: %w", key, err)
+	}
+	return false, v, nil
+}
+
+// ---------------------------------------------------------------------------
+// Phase-11 kill-switch adapters (Tasks 11.3.4/11.3.8/11.3.12)
+// ---------------------------------------------------------------------------
+
+// killSwitchAnnouncer publishes a public status-page announcement for
+// every suspension transition — INCIDENT on SET, GENERAL on CLEAR.
+type killSwitchAnnouncer struct {
+	store *marketapi.PgStore
+}
+
+func (a killSwitchAnnouncer) AnnounceSuspension(ctx context.Context, ev admin.SuspensionEvent) error {
+	category, verb := "INCIDENT", "activated"
+	if ev.Action == "CLEAR" {
+		category, verb = "GENERAL", "cleared"
+	}
+	target := ev.Scope
+	if ev.TargetID != "" {
+		target += ":" + ev.TargetID
+	}
+	_, err := a.store.CreateAnnouncement(ctx, marketapi.Announcement{
+		Title: fmt.Sprintf("Trading suspension %s — %s", verb, target),
+		Body: fmt.Sprintf(
+			"Kill-switch %s for scope %s%s. Reason: %s.",
+			verb, ev.Scope, targetSuffixOf(ev.TargetID), ev.Reason),
+		Category: category, Status: "PUBLISHED",
+		PublishAt: time.Now(), CreatedBy: "kill-switch",
+	})
+	return err
+}
+
+func targetSuffixOf(t string) string {
+	if t == "" {
+		return ""
+	}
+	return " target=" + t
+}
+
+// killSwitchControlPub emits the Task 11.3.12 control message on the
+// exchange:control:killswitch topic — the NATS publisher reaches the
+// bridge that replicates it onto the Aeron control ring the C++
+// matching shards consume.
+type killSwitchControlPub struct {
+	nc *nats.Client
+}
+
+func (p killSwitchControlPub) PublishControl(_ context.Context, topic string, ev admin.SuspensionEvent) error {
+	payload, err := ev.Marshal()
+	if err != nil {
+		return err
+	}
+	if p.nc == nil || !p.nc.Connected() {
+		return fmt.Errorf("control publish %s: nats disconnected", topic)
+	}
+	return p.nc.Conn().Publish(topic, payload)
+}
+
+// restingOrderCanceller runs the SCOPE_COUNTERPARTY resting-order sweep
+// through the canonical orders mass-cancel path — never a direct engine
+// call; the C++ shards also receive the control message and cancel
+// in-core.
+type restingOrderCanceller struct {
+	svc *orders.Service
+}
+
+func (c restingOrderCanceller) CancelAccountOrders(ctx context.Context,
+	accountID int64, reason string) (int, error) {
+	res, err := c.svc.MassCancel(ctx, orders.MassCancelScope{
+		AccountID: accountID, Reason: "admin",
+	}, "kill-switch:"+reason, "", "")
+	if err != nil {
+		return 0, err
+	}
+	return res.Cancelled, nil
+}
+
+// pgLegalNameResolver sources the account's legal-name comparator from
+// the verified beneficiary registry — bank_accounts.beneficiary_name is
+// "must match KYC legal name" by contract (migration 040). The Phase-14
+// KYC document store will supersede this binding when it lands; an
+// account with no verified beneficiary resolves "" → the deposit guard
+// fail-closes to quarantine (unverifiable name, never an implicit pass).
+type pgLegalNameResolver struct{ pool *pgxpool.Pool }
+
+func (r pgLegalNameResolver) LegalName(ctx context.Context, accountID int64) (string, error) {
+	var name string
+	err := r.pool.QueryRow(ctx, `
+		SELECT beneficiary_name FROM bank_accounts
+		WHERE account_id = $1 AND status = 'VERIFIED'
+		ORDER BY verified_at DESC NULLS LAST, bank_account_id DESC
+		LIMIT 1`, accountID).Scan(&name)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return "", nil
+		}
+		return "", fmt.Errorf("legal name lookup: %w", err)
+	}
+	return name, nil
 }

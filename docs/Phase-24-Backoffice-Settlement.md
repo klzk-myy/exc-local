@@ -558,17 +558,17 @@ Implement the full backoffice: nostro/vostro account management, reconciliation,
 **File Locations:** `services/internal/settlement/statement_parser.go`, `services/internal/settlement/suspense_service.go`, `migrations/108_suspense_accounts_routing.up.sql`
 
 **Implementation:**
-1. Pre-seed Chart of Accounts with customer suspense liability account `2099_UNMATCHED_DEPOSITS_SUSPENSE_{CURRENCY}` across all supported currencies.
+1. Pre-seed Chart of Accounts with customer suspense liability account `2150_SUSPENSE_DEPOSITS_{CURRENCY}` across all supported currencies. **Note (§27 ruling 2026-09-29):** the `2099_UNMATCHED_DEPOSITS_SUSPENSE_{CURRENCY}` label cited in this task's original text is **superseded** — spec §5.46's default `gl_account` '2150' and the chart seeded by migration 088 (`2150_SUSPENSE_DEPOSITS_{CCY}`) are the contract; migration 108 records the ruling.
 2. When the bank statement parser (MT940/MT942/camt.053, Task 24.3.12) processes an incoming credit whose payment reference is missing or unrecognized in `deposits`:
    - Post balanced double-entry GL journal entry:  
      **Debit:** `1010_NOSTRO_{CURRENCY}`  
-     **Credit:** `2099_UNMATCHED_DEPOSITS_SUSPENSE_{CURRENCY}`
+     **Credit:** `2150_SUSPENSE_DEPOSITS_{CURRENCY}`
    - Create record in `unmatched_deposits_quarantine` table with bank transaction ID, remitter name, bank reference, and amount.
    - Emit P2 alert to Compliance and Finance Ops portals ([`Phase-07`](file:///www/wwwroot/exc.local/docs/Phase-07-Admin-Monitoring.md)).
 3. Resolution: upon four-eyes manual attribution, system reverses the suspense posting and credits the verified client's available balance.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Unreferenced incoming bank wires automatically post to 2099 suspense account
+* [ ] Unreferenced incoming bank wires automatically post to 2150 suspense account (2099 label superseded — see Implementation note)
 * [ ] Balanced GL entries maintained with zero unaccounted nostro cash
 * [ ] Compliance quarantine ticket generated for every unmatched deposit
 

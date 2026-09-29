@@ -263,6 +263,7 @@ func TestEnginePaused_CancelAckTimeout(t *testing.T) {
 		ID: 42, AccountID: 7, InstrumentID: 1, Status: "ACTIVE", OrderSeq: 1,
 	}}
 	svc, err := orders.NewService(orders.Options{
+		KillSwitch: openKillSwitch{},
 		Store:      store,
 		Submitter:  &silentSubmitter{},
 		ShardMap:   mustShardMap(t),
@@ -349,4 +350,13 @@ func TestEnginePaused_RESTGatewayTimeoutEnvelope(t *testing.T) {
 		elapsed > gateway.EngineTimeoutBudget+2*time.Second {
 		t.Fatalf("timeout fired after %s, want ~%s", elapsed, gateway.EngineTimeoutBudget)
 	}
+}
+
+// openKillSwitch reports trading open for every scope — the Phase-11
+// admission seam wired to a permanently-clear resolver so these tests
+// exercise the pre-suspension error contracts they were written for.
+type openKillSwitch struct{}
+
+func (openKillSwitch) OrderHalt(context.Context, int64, string, string, string) (string, string, error) {
+	return "", "", nil
 }

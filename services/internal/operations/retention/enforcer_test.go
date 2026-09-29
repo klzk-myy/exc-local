@@ -84,7 +84,7 @@ func setupTables(t *testing.T, pool *pgxpool.Pool) {
 			(1, now() - interval '30 days'),
 			(2, now() - interval '10 days'),
 			(3, now())`,
-		`DELETE FROM data_retention_holds`,
+		`DELETE FROM data_retention_holds WHERE parent_table IN ('itest_dedup','itest_enf')`,
 		`DROP TABLE IF EXISTS itest_enf CASCADE`,
 		`CREATE SCHEMA IF NOT EXISTS warm`,
 		`DROP TABLE IF EXISTS warm.itest_enf_p2020_01`,

@@ -25,6 +25,7 @@ func codeOf(t *testing.T, err error) string {
 func testInst() *Instrument {
 	return &Instrument{
 		ID: 1, Symbol: "EUR/USD", BaseCurrency: "EUR", QuoteCurrency: "USD",
+		InstrumentType:   "SPOT",
 		Status:           "ACTIVE",
 		TickSize:         decimal.MustFromString("0.00001"),
 		LotSize:          decimal.MustFromString("1000"),

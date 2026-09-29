@@ -95,6 +95,8 @@ add_library(exch_core STATIC
     src/risk/BilateralCreditMatrix.cpp
     src/risk/CrossShardMarginCoordinator.cpp
     src/risk/PreTradeChecker.cpp
+    src/risk/SuspensionFlags.cpp
+    src/risk/SuspensionRefresher.cpp
     src/utils/ClockSyncGuard.cpp
     src/utils/Decimal.cpp
     src/utils/MemoryPool.cpp

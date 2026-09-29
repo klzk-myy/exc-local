@@ -164,7 +164,7 @@ func NewPgStore(pool *pgxpool.Pool) *PgStore { return &PgStore{pool: pool} }
 func isNoRows(err error) bool { return stderrors.Is(err, pgx.ErrNoRows) }
 
 const instrumentCols = `
-	id, symbol, base_currency, quote_currency, status::text,
+	id, symbol, base_currency, quote_currency, instrument_type::text, status::text,
 	tick_size::text, lot_size::text, min_order_qty::text, max_order_qty::text,
 	min_notional::text, price_band_pct_up::text, price_band_pct_down::text,
 	max_leverage, min_price::text, max_price::text, max_spread_pips::text,
@@ -177,8 +177,8 @@ func scanInstrument(row pgx.Row) (*Instrument, error) {
 		minP, maxP, spread                    *string
 	)
 	err := row.Scan(&i.ID, &i.Symbol, &i.BaseCurrency, &i.QuoteCurrency,
-		&i.Status, &tick, &lot, &minQ, &maxQ, &minN, &up, &down,
-		&i.MaxLeverage, &minP, &maxP, &spread, &i.MaxOpenOrders)
+		&i.InstrumentType, &i.Status, &tick, &lot, &minQ, &maxQ, &minN,
+		&up, &down, &i.MaxLeverage, &minP, &maxP, &spread, &i.MaxOpenOrders)
 	if err != nil {
 		return nil, err
 	}

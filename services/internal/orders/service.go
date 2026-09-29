@@ -46,6 +46,24 @@ type RiskChecker interface {
 	CheckOrder(ctx context.Context, req risk.OrderRequest) error
 }
 
+// KillSwitch is the Phase-11 Task 11.3.4/11.3.8/11.3.12 suspension seam —
+// *admin.KillSwitchResolver satisfies it in production. It is consulted on
+// EVERY new-order admission path (Submit, BatchSubmit entries, amend,
+// cancel-replace) so halts apply equally to REST, WS and FIX-originated
+// flow; cancels and qty-down keep-priority amends never consult it.
+//
+// Fail-closed contract (spec §2.7): a nil seam rejects admission — a
+// service whose halt state is unverifiable must not admit orders — and a
+// resolver error is mapped to TRADING_HALTED, not ignored. scope="" means
+// open; a non-empty scope label (GLOBAL|ACCOUNT|INSTRUMENT|…) rejects.
+type KillSwitch interface {
+	// OrderHalt returns the suspended-scope label and an operator-facing
+	// detail (""/"" = trading open). A non-nil err is a lookup failure —
+	// callers fail closed.
+	OrderHalt(ctx context.Context, accountID int64,
+		symbol, instrumentClass, sessionID string) (scope, detail string, err error)
+}
+
 // Service wires store + transport + sequencing.
 type Service struct {
 	store      Store
@@ -53,6 +71,7 @@ type Service struct {
 	shards     *config.ShardMap
 	pending    *pendingConfirms
 	limits     RiskChecker
+	kill       KillSwitch
 	batch      BatchRateLimiter
 	commission CommissionEstimator
 	seq        *seqAllocator
@@ -67,6 +86,7 @@ type Options struct {
 	Submitter  Submitter
 	ShardMap   *config.ShardMap
 	Limits     RiskChecker
+	KillSwitch KillSwitch // nil → admission fails closed (TRADING_HALTED)
 	BatchRL    BatchRateLimiter
 	Commission CommissionEstimator // optional — dry-run fee estimate
 	AckTimeout time.Duration
@@ -86,6 +106,7 @@ func NewService(o Options) (*Service, error) {
 		shards:     o.ShardMap,
 		pending:    newPendingConfirms(),
 		limits:     o.Limits,
+		kill:       o.KillSwitch,
 		batch:      o.BatchRL,
 		commission: o.Commission,
 		seq:        newSeqAllocator(),
@@ -175,6 +196,28 @@ type Ack struct {
 // dedup/dispatch ordering is: dedup check → validate → insert (unique
 // race safe) → wire send → activate. On send failure the row is marked
 // REJECTED so no phantom ACTIVE orders linger.
+// checkAdmission enforces the kill-switch before any new-order work —
+// the fail-closed Task 11.3.4/11.3.8 gate. A nil seam, a resolver error
+// or a suspended scope all reject with TRADING_HALTED (503); the detail
+// names the winning scope per Task 11.3.8 step 3.
+func (s *Service) checkAdmission(ctx context.Context, acct *Account,
+	inst *Instrument, sessionID string) error {
+	if s.kill == nil {
+		return codeErr("TRADING_HALTED",
+			"trading-state resolver unavailable — new orders rejected")
+	}
+	scope, detail, err := s.kill.OrderHalt(ctx, acct.ID,
+		inst.Symbol, inst.InstrumentType, sessionID)
+	if err != nil {
+		return codeErr("TRADING_HALTED",
+			"trading-state lookup failed — new orders rejected (fail closed): %v", err)
+	}
+	if scope != "" {
+		return codeErr("TRADING_HALTED", "trading suspended (%s)", detail)
+	}
+	return nil
+}
+
 func (s *Service) Submit(ctx context.Context, acct *Account, req *SubmitRequest) (*Ack, error) {
 	sym := config.CanonicalSymbol(req.Symbol)
 	inst, err := s.store.InstrumentBySymbol(ctx, sym)
@@ -183,6 +226,9 @@ func (s *Service) Submit(ctx context.Context, acct *Account, req *SubmitRequest)
 	}
 	if inst == nil {
 		return nil, codeErr("INVALID_REQUEST", "unknown symbol %q", req.Symbol)
+	}
+	if err := s.checkAdmission(ctx, acct, inst, req.SessionID); err != nil {
+		return nil, err
 	}
 	ref, err := s.store.ReferencePrice(ctx, inst.ID)
 	if err != nil {
@@ -476,6 +522,12 @@ func (s *Service) modify(ctx context.Context, acct *Account, orderID int64,
 	if inst == nil {
 		return nil, codeErr("INSTRUMENT_DELISTED",
 			"order instrument %d no longer exists", o.InstrumentID)
+	}
+	// Modify / cancel-replace are new-order entry under halt semantics —
+	// the keep-priority qty-down path (AmendKeepPriority) is exempt as
+	// it can only reduce the residual.
+	if err := s.checkAdmission(ctx, acct, inst, o.SessionID); err != nil {
+		return nil, err
 	}
 	if err := ValidateModify(req, o, inst); err != nil {
 		return nil, err
@@ -845,6 +897,11 @@ func (s *Service) BatchSubmit(ctx context.Context, acct *Account,
 			} else {
 				seenCOID[req.ClientOrderID] = i
 			}
+		}
+		if verr == nil && inst != nil {
+			// Kill-switch gate per batch entry — per-item verdicts carry
+			// TRADING_HALTED without aborting sibling entries.
+			verr = s.checkAdmission(ctx, acct, inst, req.SessionID)
 		}
 		if verr == nil {
 			ref, rerr := s.store.ReferencePrice(ctx, inst.ID)

@@ -24,6 +24,16 @@ type Store interface {
 	// (nil, nil) for an unknown symbol; a known symbol with no trades
 	// returns a zeroed Ticker (TradeCount 0, nil price fields).
 	Ticker24h(ctx context.Context, symbol string, now time.Time) (*Ticker, error)
+	// Stats24h returns the Task 11.3.5 statistics row for one symbol over
+	// the trailing 24h window ending at now (rolling — the same window
+	// semantics as Ticker24h and the stats@all producer). Returns
+	// (nil, nil) for an unknown symbol; a known symbol with no trades
+	// returns a zeroed Stats24h (TradeCount 0, nil price fields).
+	Stats24h(ctx context.Context, symbol string, now time.Time) (*Stats24h, error)
+	// Stats24hAll is the venue-wide variant: one Stats24h row for every
+	// instrument, ordered by symbol. Empty dataset ⇒ empty slice, never
+	// a fabricated market.
+	Stats24hAll(ctx context.Context, now time.Time) ([]Stats24h, error)
 	// Klines reads the pre-materialized fx_klines aggregates (spec §10.3
 	// contract — never computed from the trades table in-request). Rows
 	// come back oldest→newest, bounded to [from,to) and limit. to==zero

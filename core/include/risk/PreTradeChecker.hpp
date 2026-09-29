@@ -1,10 +1,20 @@
 #pragma once
 
-// Pre-Trade Risk — all 14 in-process checks (Task 2.3.3 + Task 2.3.9 collar,
-// spec §3.3; no IPC, <10µs total, zero heap allocation on the check path).
+// Pre-Trade Risk — the kill-switch gate + all 14 in-process checks
+// (Task 2.3.3 + Task 2.3.9 collar, spec §3.3; no IPC, <10µs total, zero
+// heap allocation on the check path).
 //
 // Check order is the spec §3.3 / contract order — cheapest first, short-
 // circuit on first failure:
+//   0.  Kill-switch suspension lattice (Phase-11 Tasks 11.3.4/11.3.8/
+//       11.3.12): bound SuspensionFlags consult the last Redis-polled
+//       `halt:*` snapshot in-process — GLOBAL → ACCOUNT → COUNTERPARTY →
+//       INSTRUMENT → INSTRUMENT_CLASS. A bound checker with no
+//       successfully-polled snapshot fails CLOSED (TRADING_HALTED);
+//       an unbound seam keeps the legacy behavior (the Go admission
+//       gates are the authoritative layer and fail closed there).
+//       Cancels never reach this pipeline (engine cancels are ungated),
+//       satisfying the cancel-exempt halt contract.
 //   1.  Account status (ACTIVE only)
 //   2.  Instrument status (ACTIVE; RESTRICTED=limit-only; DELISTED=
 //       reduce_only-only per §7.1 + remediation #35)
@@ -43,6 +53,7 @@
 #include "book/OrderBook.hpp"
 #include "risk/BilateralCreditMatrix.h"
 #include "risk/RiskInterfaces.hpp"
+#include "risk/SuspensionFlags.hpp"
 
 namespace exch {
 
@@ -160,6 +171,13 @@ public:
         credit_ = m;
         party_map_ = map;
     }
+    // Phase-11 Task 11.3.4/11.3.8 kill-switch seam: non-null engages the
+    // suspension lattice as check 0. The bound flags object must outlive
+    // the checker; its snapshot must be refreshed by a
+    // SuspensionRefresher control loop (unwired-but-bound fails closed).
+    void bind_suspensions(const SuspensionFlags* f) noexcept {
+        suspensions_ = f;
+    }
     // Time source for the legacy check(order) path (ctx-less callers).
     // Defaults to steady_ns (monotonic — correct base for the collar window).
     void set_clock(uint64_t (*fn)(void*) noexcept, void* ctx) noexcept {
@@ -232,6 +250,7 @@ private:
     const Instrument* instrument_ = nullptr;              // legacy path only
     const BilateralCreditMatrix* credit_ = nullptr;       // optional §3.3b
     const IPartyMap* party_map_ = nullptr;
+    const SuspensionFlags* suspensions_ = nullptr;        // Task 11.3.4/8/12
     uint64_t (*clock_fn_)(void*) noexcept = nullptr;      // legacy path only
     void* clock_ctx_ = nullptr;
 

@@ -16,6 +16,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	goredis "github.com/redis/go-redis/v9"
@@ -432,4 +433,70 @@ func (c *Client) ClearHalt(ctx context.Context) error {
 		return fmt.Errorf("redis clear halt: %w", err)
 	}
 	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Scoped halt flags — halt:<scope>:<target> STRING (Phase-11 Tasks
+// 11.3.8/11.3.12). These are the hot-path enforcement flags the scoped
+// kill-switch resolver (admin.KillSwitchResolver) MGETs on every order
+// admission; the durable record lives in trading_suspensions
+// (migration 198). Key layout is owned here — single source of truth.
+// ---------------------------------------------------------------------------
+
+// HaltKey renders the scoped halt flag key. GLOBAL ignores the target
+// (halt:global, shared with HaltGlobal). All other scopes render
+// halt:<scope-lower>:<target>; callers normalize the target (symbol
+// canonicalization, session id, rail name) before calling.
+func HaltKey(scope, target string) string {
+	if scope == "GLOBAL" || scope == "" {
+		return keyHaltGlobal
+	}
+	return fmt.Sprintf("halt:%s:%s", strings.ToLower(scope), target)
+}
+
+// SetHaltScope raises a scoped halt flag storing the operator reason
+// ("manual" when empty). scope is the enum token (ACCOUNT, INSTRUMENT,
+// ...); GLOBAL routes through HaltGlobal semantics.
+func (c *Client) SetHaltScope(ctx context.Context, scope, target, reason string) error {
+	if reason == "" {
+		reason = "manual"
+	}
+	if err := c.Set(ctx, HaltKey(scope, target), reason, 0).Err(); err != nil {
+		return fmt.Errorf("redis set halt %s: %w", scope, err)
+	}
+	return nil
+}
+
+// ClearHaltScope removes a scoped halt flag.
+func (c *Client) ClearHaltScope(ctx context.Context, scope, target string) error {
+	if err := c.Del(ctx, HaltKey(scope, target)).Err(); err != nil {
+		return fmt.Errorf("redis clear halt %s: %w", scope, err)
+	}
+	return nil
+}
+
+// HaltScopeScan MGETs the given halt keys in ONE round-trip and returns
+// key → reason for every flag currently set (missing keys are absent
+// from the map). Callers order the key slice by resolution precedence
+// and walk it for the first hit — a nil client fails closed upstream.
+func (c *Client) HaltScopeScan(ctx context.Context, keys []string) (map[string]string, error) {
+	out := make(map[string]string, len(keys))
+	if len(keys) == 0 {
+		return out, nil
+	}
+	vals, err := c.MGet(ctx, keys...).Result()
+	if err != nil {
+		return nil, fmt.Errorf("redis halt scan: %w", err)
+	}
+	for i, v := range vals {
+		if v == nil {
+			continue
+		}
+		if s, ok := v.(string); ok {
+			out[keys[i]] = s
+		} else {
+			out[keys[i]] = "set"
+		}
+	}
+	return out, nil
 }

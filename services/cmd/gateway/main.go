@@ -195,6 +195,11 @@ func run() error {
 	// support tickets. No binding ⇒ "" ⇒ UNAUTHORIZED_ROLE (fail closed).
 	adminStore := admin.NewStore(pool)
 	adminRoleResolver := adminStore.RoleResolver()
+	// Phase-11 kill-switch (Tasks 11.3.4/11.3.8/11.3.12): the Redis-backed
+	// resolver is THE suspension lookup — order admission, withdrawal
+	// create/dispatch, inbound-wire screening and FIX quote ingress all
+	// consult it. Lookup errors fail closed in every consumer.
+	killResolver := admin.NewKillSwitchResolver(rdb, cfg.Environment)
 	freezeSvc := accounts.NewFreezeService(pool,
 		accounts.RoleResolver(adminRoleResolver))
 	riskLimits := risk.NewLimitsService(risk.NewPgStore(pool), nil, nil)
@@ -228,8 +233,19 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("withdrawal service: %w", err)
 	}
+	// Task 11.3.7 beneficiary registry — withdrawals may only target
+	// VERIFIED beneficiaries past the 24h hold; verification is admin
+	// dual-control (Finance Ops+). Task 11.3.12: the rail suspension
+	// check refuses creates on a killed rail with SETTLEMENT_RAIL_REJECTED.
+	bankAcctSvc, err := funding.NewBankAccountService(
+		funding.NewPgBankAccountStore(pool),
+		funding.BeneficiaryRoleResolver(adminRoleResolver))
+	if err != nil {
+		return fmt.Errorf("bank-account service: %w", err)
+	}
 	withdrawalSvc.WithLimits(riskLimits).WithUSDConverter(usdConv).
 		WithAlerter(opsAlerter).
+		WithBeneficiaries(bankAcctSvc).WithRailController(killResolver).
 		WithLogger(func(f string, a ...any) { log.Error(fmt.Sprintf(f, a...)) })
 	transferSvc, err := funding.NewTransferService(fundStore, ledgerSvc, freezeSvc)
 	if err != nil {
@@ -240,6 +256,51 @@ func run() error {
 		return fmt.Errorf("chargeback service: %w", err)
 	}
 	historySvc := funding.NewHistoryService(fundStore)
+	// Phase-11 rails+returns cluster (Tasks 11.3.1/11.3.11): rail matrix +
+	// selection/dispatch, return-code mapping, third-party deposit guard.
+	// Rail gate binds the scoped kill-switch halt flags
+	// (halt:rail:{RAIL_ID}, Task 11.3.8/11.3.12 keys owned by
+	// internal/redis.HaltKey). Legal-name resolution binds the KYC store
+	// when one exists (Phase-14); the pg resolver below fails closed to
+	// quarantine on unverifiable names.
+	railSvc, err := funding.NewRailService(fundStore, ledgerSvc)
+	if err != nil {
+		return fmt.Errorf("rail service: %w", err)
+	}
+	railSvc.WithGate(railGate{rdb: rdb.Client}).WithAlerter(opsAlerter).
+		WithLogger(func(f string, a ...any) { log.Error(fmt.Sprintf(f, a...)) })
+	depositGuard, err := funding.NewDepositGuard(fundStore, ledgerSvc, railSvc)
+	if err != nil {
+		return fmt.Errorf("deposit guard: %w", err)
+	}
+	depositGuard.WithLegalNames(pgLegalNameResolver{pool: pool}).
+		WithAlerter(opsAlerter).WithRailController(killResolver).
+		WithLogger(func(f string, a ...any) { log.Error(fmt.Sprintf(f, a...)) })
+	// Phase-11 stats+fees cluster (Tasks 11.3.5/11.3.9): the versioned
+	// funding fee schedule (Finance Ops CRUD + client estimate), the
+	// fee-charge engine (journal: DR customer liability → CR
+	// funding_fee_revenue) and the currency-conversion engine. The
+	// conversion rate seam binds the marketdata pipeline's
+	// fx:rate:{CCY}USD keys (RedisCrossRateSource) — the Phase-19.5
+	// oracle ReferencePriceSource has no concrete implementation yet;
+	// missing/stale rates emit PRICE_ORACLE_UNAVAILABLE rather than a
+	// fabricated rate (spec §2.7).
+	feeSchedStore := funding.NewPgFeeScheduleStore(pool)
+	feeSvc, err := funding.NewFeeService(feeSchedStore, fundStore, ledgerSvc)
+	if err != nil {
+		return fmt.Errorf("fee service: %w", err)
+	}
+	feeAdminSvc, err := funding.NewFeeScheduleService(feeSchedStore,
+		funding.RoleResolver(adminRoleResolver))
+	if err != nil {
+		return fmt.Errorf("fee schedule service: %w", err)
+	}
+	convSvc, err := funding.NewConversionService(
+		&funding.RedisCrossRateSource{Rdb: rdb},
+		funding.NewPgConversionStore(pool), fundStore)
+	if err != nil {
+		return fmt.Errorf("conversion service: %w", err)
+	}
 	// Expiry sweeper: lapses pending withdrawal confirmations past the
 	// canonical 15-minute window → AUTO_CANCELLED + ledger hold release.
 	sweepCtx, sweepStop := context.WithCancel(context.Background())
@@ -308,6 +369,66 @@ func run() error {
 	}
 	// 5s TTL cache — the middleware resolves rules per request.
 	depRules := deprecation.CachedRules(depStore, 5*time.Second)
+
+	// ---- Phase-11 flows cluster: Tasks 11.3.2 (canonical withdrawal
+	//      lifecycle), 11.3.3 (deposit lifecycle + anti-fraud tiers),
+	//      11.3.6 (nostro-aware dispatch + dual-control replenishment),
+	//      11.3.10 (whitelist mode + 24h timelocks) ----
+	//
+	// WhitelistService owns the per-account mode + egress lock; the
+	// FlowService wraps WithdrawalService with the Phase-11 gates
+	// (whitelist/beneficiary/cooldown/hold at create, TOTP step-up at
+	// confirm) and hands CONFIRMED withdrawals to the DispatchService,
+	// which refuses to rail-send anything the nostro cannot cover.
+	whitelistSvc, err := funding.NewWhitelistService(fundStore)
+	if err != nil {
+		return fmt.Errorf("whitelist service: %w", err)
+	}
+	dispatchSvc, err := funding.NewDispatchService(fundStore, ledgerSvc)
+	if err != nil {
+		return fmt.Errorf("nostro dispatch service: %w", err)
+	}
+	dispatchSvc.WithRails(railSvc).WithAlerter(opsAlerter).
+		WithLogger(func(f string, a ...any) { log.Error(fmt.Sprintf(f, a...)) })
+	depositSvc, err := funding.NewDepositService(fundStore, ledgerSvc, freezeSvc)
+	if err != nil {
+		return fmt.Errorf("deposit service: %w", err)
+	}
+	depositSvc.WithUSDConverter(usdConv).WithAlerter(opsAlerter).
+		WithLogger(func(f string, a ...any) { log.Error(fmt.Sprintf(f, a...)) })
+	flowSvc, err := funding.NewFlowService(withdrawalSvc, fundStore)
+	if err != nil {
+		return fmt.Errorf("withdrawal flow service: %w", err)
+	}
+	flowSvc.WithTOTP(accounts.NewPgxTOTPSecrets(pool, secretBox), auth.VerifyTOTP).
+		WithDispatcher(dispatchSvc).
+		WithLogger(func(f string, a ...any) { log.Error(fmt.Sprintf(f, a...)) })
+
+	// Flows sweep: every 30s retries CONFIRMED withdrawals held for
+	// nostro headroom or destination holds (SweepDue), and escalates
+	// PENDING_REVIEW rows whose 4h ops deadline lapsed (SweepReviewSLA).
+	go func() {
+		t := time.NewTicker(30 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-sweepCtx.Done():
+				return
+			case <-t.C:
+				if n, err := dispatchSvc.SweepDue(sweepCtx, 100); err != nil {
+					log.Warn("nostro dispatch sweep failed", "err", err)
+				} else if n > 0 {
+					log.Info("queued withdrawals dispatched", "count", n)
+				}
+				if n, err := depositSvc.SweepReviewSLA(sweepCtx, 100); err != nil {
+					log.Warn("review SLA sweep failed", "err", err)
+				} else if n > 0 {
+					log.Info("funding review SLA breaches escalated", "count", n)
+				}
+			}
+		}
+	}()
+	// --- end Phase-11 flows cluster ---
 
 	// Webhook dispatcher: drains due PENDING deliveries every 500ms and
 	// POSTs them HMAC-signed on the 1s→2s→4s→8s→16s retry ladder (5
@@ -382,11 +503,12 @@ func run() error {
 	orderStore := orders.NewPgStore(pool)
 	orderSubmitter := orders.NewShmSubmitter("") // ipc.DefaultShmBase rings
 	orderSvc, err := orders.NewService(orders.Options{
-		Store:     orderStore,
-		Submitter: orderSubmitter,
-		ShardMap:  shardMap,
-		Limits:    riskLimits,
-		BatchRL:   orders.NewRedisBatchLimiter(rdb.Client, 0),
+		Store:      orderStore,
+		Submitter:  orderSubmitter,
+		ShardMap:   shardMap,
+		Limits:     riskLimits,
+		KillSwitch: killResolver, // Tasks 11.3.4/11.3.8 — every admission path consults it
+		BatchRL:    orders.NewRedisBatchLimiter(rdb.Client, 0),
 	})
 	if err != nil {
 		return fmt.Errorf("order service: %w", err)
@@ -457,6 +579,33 @@ func run() error {
 			return ratelimit.ParseTier(*name)
 		},
 	})
+
+	// Phase-11 kill-switch control plane (Tasks 11.3.4/11.3.8/11.3.12):
+	// dual-controlled set/clear (GLOBAL + destructive COUNTERPARTY) over
+	// the durable trading_suspensions record + halt:* Redis flags, with
+	// broadcast to the announcement feed, WS venue.status advisory and
+	// the exchange:control:killswitch Aeron/NATS control topic. Boot-time
+	// ReconcileFlags re-raises ACTIVE suspensions after a Redis flush —
+	// PostgreSQL is authoritative; a reconcile failure is logged not
+	// fatal (the resolver fails closed on unreadable flags anyway).
+	killSvc, err := admin.NewKillSwitchService(admin.KillSwitchDeps{
+		Pool:      pool,
+		Flags:     rdb,
+		Roles:     admin.AdminRoleResolver(adminRoleResolver),
+		Announcer: killSwitchAnnouncer{store: marketStore},
+		WS:        wsSrv,
+		Control:   killSwitchControlPub{nc: natsClient},
+		Canceller: restingOrderCanceller{svc: orderSvc},
+		Logf:      func(f string, a ...any) { log.Warn(fmt.Sprintf(f, a...)) },
+	})
+	if err != nil {
+		return fmt.Errorf("kill-switch service: %w", err)
+	}
+	if n, rerr := killSvc.ReconcileFlags(context.Background()); rerr != nil {
+		log.Warn("kill-switch flag reconcile failed", "err", rerr)
+	} else if n > 0 {
+		log.Info("kill-switch flags reconciled", "active_suspensions", n)
+	}
 
 	// Task 5.3.30: manual liquidation. Role resolution is the Phase-07
 	// Task 7.3.1 seam — nil fails closed (UNAUTHORIZED_ROLE) until the
@@ -751,10 +900,34 @@ func run() error {
 		"GET /api/v1/positions":           http.HandlerFunc(api.AccountPositions(fundStore)),
 		"GET /api/v1/account/risk-limits": http.HandlerFunc(api.AccountRiskLimits(riskLimits, fundStore)),
 		"GET /api/v1/deposits/{currency}": http.HandlerFunc(api.DepositInstructions(fundStore)),
-		"POST /api/v1/withdrawals":        http.HandlerFunc(api.CreateWithdrawal(withdrawalSvc)),
+		// Task 11.3.2: withdrawal create/confirm run the Phase-11 flow
+		// wrapper — whitelist/cooldown/beneficiary gates at create, the
+		// TOTP step-up at confirm, then nostro-aware dispatch.
+		"POST /api/v1/withdrawals": http.HandlerFunc(api.CreateWithdrawalFlow(flowSvc)),
 		"POST /api/v1/withdrawals/{id}/confirm": http.HandlerFunc(
-			api.ConfirmWithdrawal(withdrawalSvc)),
-		"GET /api/v1/funding":                         http.HandlerFunc(api.FundingHistory(historySvc)),
+			api.ConfirmWithdrawalStepUp(flowSvc)),
+		"POST /api/v1/admin/withdrawals/{id}/approve": http.HandlerFunc(
+			api.AdminWithdrawalReview(flowSvc, true)),
+		"POST /api/v1/admin/withdrawals/{id}/reject": http.HandlerFunc(
+			api.AdminWithdrawalReview(flowSvc, false)),
+		"GET /api/v1/funding": http.HandlerFunc(api.FundingHistory(historySvc)),
+		// Phase-11 Task 11.3.7 — beneficiary registry (client + admin).
+		"POST /api/v1/funding/bank-accounts":   http.HandlerFunc(api.FundingBankAccountCreate(bankAcctSvc)),
+		"GET /api/v1/funding/bank-accounts":    http.HandlerFunc(api.FundingBankAccountList(bankAcctSvc)),
+		"DELETE /api/v1/funding/bank-accounts": http.HandlerFunc(api.FundingBankAccountDelete(bankAcctSvc)),
+		"GET /api/v1/admin/funding/bank-accounts": http.HandlerFunc(
+			api.AdminBankAccountList(bankAcctSvc)),
+		"POST /api/v1/admin/funding/bank-accounts/{id}/verify": http.HandlerFunc(
+			api.AdminBankAccountVerify(bankAcctSvc, true)),
+		"POST /api/v1/admin/funding/bank-accounts/{id}/reject": http.HandlerFunc(
+			api.AdminBankAccountReject(bankAcctSvc, true)),
+		// Phase-11 Tasks 11.3.4/11.3.8/11.3.12 — kill-switch control plane.
+		"POST /api/v1/admin/kill-switch": http.HandlerFunc(
+			api.AdminKillSwitchSet(killSvc, true)),
+		"POST /api/v1/admin/kill-switch/reset": http.HandlerFunc(
+			api.AdminKillSwitchReset(killSvc, true)),
+		"GET /api/v1/admin/kill-switch": http.HandlerFunc(
+			api.AdminKillSwitchStatus(killSvc)),
 		"POST /api/v1/transfers":                      http.HandlerFunc(api.CreateTransfer(transferSvc)),
 		"GET /api/v1/transfers":                       http.HandlerFunc(api.TransferHistory(historySvc)),
 		"POST /api/v1/admin/chargebacks":              http.HandlerFunc(api.AdminChargebackCreate(chargebackSvc)),
@@ -763,6 +936,64 @@ func run() error {
 		"POST /api/v1/admin/chargebacks/{id}/submit":  http.HandlerFunc(api.AdminChargebackSubmit(chargebackSvc)),
 		"POST /api/v1/admin/chargebacks/{id}/resolve": http.HandlerFunc(api.AdminChargebackResolve(chargebackSvc)),
 		// --- end Cluster B handlers ---
+		// --- Phase-11 rails+returns live handlers (Tasks 11.3.1/11.3.11) ---
+		"GET /api/v1/funding/rails":           http.HandlerFunc(api.FundingRails(railSvc)),
+		"POST /api/v1/funding/rail-selection": http.HandlerFunc(api.FundingRailSelection(railSvc)),
+		"POST /api/v1/admin/funding/inbound-wires": http.HandlerFunc(
+			api.AdminInboundWire(depositGuard)),
+		"GET /api/v1/admin/funding/quarantine": http.HandlerFunc(
+			api.AdminQuarantineList(fundStore)),
+		"POST /api/v1/admin/funding/quarantine/{id}/resolve": http.HandlerFunc(
+			api.AdminQuarantineResolve(depositGuard)),
+		"POST /api/v1/admin/funding/returns": http.HandlerFunc(
+			api.AdminRailReturn(railSvc)),
+		// --- Phase-11 flows cluster (Tasks 11.3.2/11.3.3/11.3.6/11.3.10) ---
+		"POST /api/v1/deposits": http.HandlerFunc(
+			api.CreateDepositIntent(depositSvc)),
+		"POST /api/v1/admin/funding/deposits": http.HandlerFunc(
+			api.AdminDepositIngest(depositSvc)),
+		"POST /api/v1/admin/funding/deposits/{id}/confirm": http.HandlerFunc(
+			api.AdminDepositConfirm(depositSvc)),
+		"POST /api/v1/admin/funding/deposits/{id}/review": http.HandlerFunc(
+			api.AdminDepositReview(depositSvc)),
+		"GET /api/v1/funding/withdrawal-whitelist": http.HandlerFunc(
+			api.GetWithdrawalWhitelist(whitelistSvc)),
+		"POST /api/v1/funding/withdrawal-whitelist/enable": http.HandlerFunc(
+			api.SetWithdrawalWhitelist(whitelistSvc, true)),
+		"POST /api/v1/funding/withdrawal-whitelist/disable": http.HandlerFunc(
+			api.SetWithdrawalWhitelist(whitelistSvc, false)),
+		"GET /api/v1/admin/funding/nostro": http.HandlerFunc(
+			api.AdminNostroCoverage(dispatchSvc)),
+		"GET /api/v1/admin/funding/nostro/replenishments": http.HandlerFunc(
+			api.AdminReplenishmentList(dispatchSvc)),
+		"POST /api/v1/admin/funding/nostro/replenishments": http.HandlerFunc(
+			api.AdminReplenishmentCreate(dispatchSvc)),
+		"POST /api/v1/admin/funding/nostro/replenishments/{id}/decide": http.HandlerFunc(
+			api.AdminReplenishmentDecide(dispatchSvc)),
+		"GET /api/v1/admin/funding/ops-alerts": http.HandlerFunc(
+			api.AdminFundingOpsAlerts(dispatchSvc)),
+		// --- end flows cluster ---
+		// --- Phase-11 stats+fees cluster (Tasks 11.3.5/11.3.9) ---
+		"GET /api/v1/stats/24h":          http.HandlerFunc(api.MarketStats24hAll(marketDeps)),
+		"GET /api/v1/stats/24h/{symbol}": http.HandlerFunc(api.MarketStats24h(marketDeps)),
+		"POST /api/v1/funding/fee-estimate": http.HandlerFunc(
+			api.FundingFeeEstimate(feeSvc)),
+		"POST /api/v1/funding/convert": http.HandlerFunc(api.FundingConvert(convSvc)),
+		"GET /api/v1/funding/conversions": http.HandlerFunc(
+			api.FundingConversions(convSvc)),
+		"GET /api/v1/admin/funding/fees": http.HandlerFunc(
+			api.AdminFundingFeeList(feeAdminSvc, true)),
+		"POST /api/v1/admin/funding/fees": http.HandlerFunc(
+			api.AdminFundingFeeCreate(feeAdminSvc, true)),
+		"GET /api/v1/admin/funding/fees/{id}": http.HandlerFunc(
+			api.AdminFundingFeeGet(feeAdminSvc, true)),
+		"PUT /api/v1/admin/funding/fees/{id}": http.HandlerFunc(
+			api.AdminFundingFeeUpdate(feeAdminSvc, true)),
+		"DELETE /api/v1/admin/funding/fees/{id}": http.HandlerFunc(
+			api.AdminFundingFeeRetire(feeAdminSvc, true)),
+		"GET /api/v1/admin/funding/fees/{id}/versions": http.HandlerFunc(
+			api.AdminFundingFeeVersions(feeAdminSvc, true)),
+		// --- end Phase-11 handlers ---
 		// Wave-2 cluster C — market data REST (Task 5.3.5).
 		"GET /api/v1/book/{symbol}":   http.HandlerFunc(api.MarketBook(marketDeps)),
 		"GET /api/v1/trades/{symbol}": http.HandlerFunc(api.MarketTrades(marketDeps)),
@@ -975,32 +1206,36 @@ func run() error {
 	// bars writes, MarketDataOnly serves only market reads, Maintenance
 	// bars everything but health).
 	apiSurface := middleware.DegradationGate(rdb, router.WriteError)(
-		auth.OptionalAuthMiddleware(jwtIssuer, sessMgr)(
-			// Task 9.3.10: staged tiered shedding inside OptionalAuth so the
-			// tier resolver sees claims; cancels bypass entirely.
-			middleware.Shedding(shedder, middleware.ShedOptions{
-				ResolveTier: func(r *http.Request) ratelimit.Tier {
-					return tierResolver(r.Context(), auth.ClaimsFrom(r.Context()))
-				},
-				Emit: router.WriteError,
-			})(
-				// Task 9.3.23: during drain new non-cancel work rejects
-				// 503; in-flight requests finish inside srv.Shutdown.
-				middleware.RejectWhenDraining(drainFlag, router.WriteError)(
-					middleware.Idempotency(
-						middleware.NewRedisIdemStore(rdb.Client),
-						nil, idemResolver(keyStore), router.WriteError)(
-						middleware.APIVersion(middleware.VersionConfig{
-							Versions: map[int]string{1: apiVersion},
-							Emit:     router.WriteError,
-						})(
-							// Task 9.3.6: headers/410 unchanged; the Redis
-							// sink records per-key usage telemetry.
-							deprecation.MiddlewareWithTelemetry(depRules,
-								func(w http.ResponseWriter, req *http.Request, _ int, code, msg string) {
-									router.WriteError(w, req, code, msg, nil)
-								}, nil,
-								deprecation.RedisHitSink(rdb.Client))(mux)))))))
+		// Task 11.3.4: HTTP-layer kill-switch — while halt:global is
+		// raised (or unreadable), order-admission writes reject
+		// TRADING_HALTED; cancels/reads/WS pass (CANCEL_EXEMPT precedent).
+		middleware.KillSwitchGate(killResolver, router.WriteError)(
+			auth.OptionalAuthMiddleware(jwtIssuer, sessMgr)(
+				// Task 9.3.10: staged tiered shedding inside OptionalAuth so the
+				// tier resolver sees claims; cancels bypass entirely.
+				middleware.Shedding(shedder, middleware.ShedOptions{
+					ResolveTier: func(r *http.Request) ratelimit.Tier {
+						return tierResolver(r.Context(), auth.ClaimsFrom(r.Context()))
+					},
+					Emit: router.WriteError,
+				})(
+					// Task 9.3.23: during drain new non-cancel work rejects
+					// 503; in-flight requests finish inside srv.Shutdown.
+					middleware.RejectWhenDraining(drainFlag, router.WriteError)(
+						middleware.Idempotency(
+							middleware.NewRedisIdemStore(rdb.Client),
+							nil, idemResolver(keyStore), router.WriteError)(
+							middleware.APIVersion(middleware.VersionConfig{
+								Versions: map[int]string{1: apiVersion},
+								Emit:     router.WriteError,
+							})(
+								// Task 9.3.6: headers/410 unchanged; the Redis
+								// sink records per-key usage telemetry.
+								deprecation.MiddlewareWithTelemetry(depRules,
+									func(w http.ResponseWriter, req *http.Request, _ int, code, msg string) {
+										router.WriteError(w, req, code, msg, nil)
+									}, nil,
+									deprecation.RedisHitSink(rdb.Client))(mux))))))))
 
 	srv := &http.Server{
 		Addr: cfg.Gateway.Addr(),

@@ -29,6 +29,8 @@ type fakeMarketStore struct {
 	ticker      *marketapi.Ticker
 	klines      []marketapi.Kline
 	book        *marketapi.BookSnapshot
+	stats       *marketapi.Stats24h
+	statsAll    []marketapi.Stats24h
 	err         error
 }
 
@@ -62,6 +64,23 @@ func (f *fakeMarketStore) Klines(context.Context, string, string, time.Time, tim
 
 func (f *fakeMarketStore) Snapshot(context.Context, string, int) (*marketapi.BookSnapshot, error) {
 	return f.book, f.err
+}
+
+func (f *fakeMarketStore) Stats24h(_ context.Context, sym string, _ time.Time) (*marketapi.Stats24h, error) {
+	if f.err != nil || f.stats == nil {
+		return nil, f.err
+	}
+	if f.stats.Symbol == sym {
+		return f.stats, nil
+	}
+	return nil, nil
+}
+
+func (f *fakeMarketStore) Stats24hAll(context.Context, time.Time) ([]marketapi.Stats24h, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.statsAll, nil
 }
 
 type fakeAnnounceStore struct {

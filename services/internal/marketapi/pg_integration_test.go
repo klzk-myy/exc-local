@@ -273,6 +273,92 @@ func TestPgStoreBookAndTickerIntegration(t *testing.T) {
 	}
 }
 
+// TestPgStoreStats24hIntegration covers the Task 11.3.5 rolling-24h
+// statistics surface: single-symbol, venue-wide (quiet instruments
+// present with zeroed aggregates), unknown-symbol (nil,nil) and the
+// window-edge exclusion.
+func TestPgStoreStats24hIntegration(t *testing.T) {
+	pool, ctx := itest(t)
+	s := NewPgStore(pool)
+
+	var iid int64
+	if err := pool.QueryRow(ctx,
+		`SELECT id FROM instruments WHERE symbol='EUR/USD'`).Scan(&iid); err != nil {
+		t.Fatal(err)
+	}
+	insT := `INSERT INTO trades (instrument_id, buy_order_id, sell_order_id,
+	         buyer_account_id, seller_account_id, price, quantity, trade_seq, created_at)
+	         VALUES ($1,1,2,1,2,$2,$3,$4,$5)`
+	now := time.Now()
+	// Two in-window trades: 5000@1.08400 then 3000@1.08500.
+	if _, err := pool.Exec(ctx, insT, iid, 1.08400, 5000, 1, now.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, insT, iid, 1.08500, 3000, 2, now.Add(-30*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, insT, iid, 9.9, 7000, 3, now.Add(-48*time.Hour)); err != nil {
+		t.Fatal(err) // outside window
+	}
+
+	st, err := s.Stats24h(ctx, "EUR/USD", now)
+	if err != nil || st == nil {
+		t.Fatalf("Stats24h: %v", err)
+	}
+	if st.Window != "24h" || st.Symbol != "EUR/USD" || st.TradeCount != 2 {
+		t.Fatalf("stats=%+v", st)
+	}
+	if st.Volume != "8000.00000000" || st.QuoteVolume != "8675.00000000" {
+		t.Fatalf("volumes %s/%s", st.Volume, st.QuoteVolume)
+	}
+	if st.Open == nil || *st.Open != "1.08400000" ||
+		st.Last == nil || *st.Last != "1.08500000" ||
+		st.High == nil || *st.High != "1.08500000" ||
+		st.Low == nil || *st.Low != "1.08400000" {
+		t.Fatalf("prices o=%v h=%v l=%v c=%v", st.Open, st.High, st.Low, st.Last)
+	}
+	if st.PriceChange == nil || *st.PriceChange != "0.001" ||
+		st.PriceChangePct == nil {
+		t.Fatalf("change %v / %v", st.PriceChange, st.PriceChangePct)
+	}
+	if st.FirstTradeMs == nil || st.LastTradeMs == nil ||
+		*st.LastTradeMs <= *st.FirstTradeMs {
+		t.Fatalf("trade bounds %v %v", st.FirstTradeMs, st.LastTradeMs)
+	}
+
+	// Venue-wide: every instrument present; EUR/USD carries the trades.
+	all, err := s.Stats24hAll(ctx, now)
+	if err != nil || len(all) != 8 {
+		t.Fatalf("Stats24hAll len=%d err=%v", len(all), err)
+	}
+	found, quiet := false, 0
+	for _, r := range all {
+		if r.Symbol == "EUR/USD" {
+			found = true
+			if r.TradeCount != 2 {
+				t.Fatalf("all: EUR/USD stats=%+v", r)
+			}
+		} else if r.TradeCount == 0 && r.Last == nil && r.Volume == "0" {
+			quiet++
+		}
+	}
+	if !found || quiet != 7 {
+		t.Fatalf("found=%v quiet=%d", found, quiet)
+	}
+
+	// Quiet symbol, single-variant: zeroed row, nil price fields.
+	qs, err := s.Stats24h(ctx, "GBP/USD", now)
+	if err != nil || qs == nil || qs.TradeCount != 0 ||
+		qs.Open != nil || qs.Last != nil || qs.PriceChangePct != nil {
+		t.Fatalf("quiet stats=%+v err=%v", qs, err)
+	}
+	// Unknown symbol → (nil, nil), never a fabricated market.
+	u, err := s.Stats24h(ctx, "ZZZ/AAA", now)
+	if err != nil || u != nil {
+		t.Fatalf("unknown=%+v err=%v", u, err)
+	}
+}
+
 func TestPgStoreKlinesIntegration(t *testing.T) {
 	pool, ctx := itest(t)
 	s := NewPgStore(pool)

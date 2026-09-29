@@ -292,6 +292,14 @@ func (f fakeBatchRL) AllowBatch(context.Context, int64) (bool, error) { return f
 
 // newSvc wires a service against the canonical sharding.yaml (found via
 // the standard walk-up from services/internal/orders).
+// openKill is the always-open kill-switch fake — the seam fails closed
+// when nil, so tests that exercise happy paths must opt out explicitly.
+type openKill struct{}
+
+func (openKill) OrderHalt(context.Context, int64, string, string, string) (string, string, error) {
+	return "", "", nil
+}
+
 func newSvc(t *testing.T, st *fakeStore, sub *fakeSubmitter) *Service {
 	t.Helper()
 	shards, err := config.LoadShardMap("")
@@ -300,6 +308,7 @@ func newSvc(t *testing.T, st *fakeStore, sub *fakeSubmitter) *Service {
 	}
 	svc, err := NewService(Options{
 		Store: st, Submitter: sub, ShardMap: shards,
+		KillSwitch: openKill{},
 		AckTimeout: 200 * time.Millisecond,
 	})
 	if err != nil {
@@ -648,7 +657,8 @@ func TestBatchRateLimitGate(t *testing.T) {
 	}
 	svc, err := NewService(Options{
 		Store: st, Submitter: sub, ShardMap: shards,
-		BatchRL: fakeBatchRL{allow: false},
+		KillSwitch: openKill{},
+		BatchRL:    fakeBatchRL{allow: false},
 	})
 	if err != nil {
 		t.Fatalf("NewService: %v", err)

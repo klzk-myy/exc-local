@@ -42,6 +42,10 @@ struct RiskVerdict {
 inline constexpr char kCodeAccountSuspended[] = "ACCOUNT_SUSPENDED";
 inline constexpr char kCodeAccountFrozen[] = "ACCOUNT_FROZEN";       // §23: 403
 inline constexpr char kCodeAccountInactive[] = "ACCOUNT_INACTIVE";   // CLOSED/unknown
+// Phase-11 Task 11.3.4/11.3.8 — kill-switch suspension lattice
+// (SuspensionFlags): every scoped or global halt rejects new orders
+// with the §23 TRADING_HALTED code (503); cancels never consult it.
+inline constexpr char kCodeTradingHalted[] = "TRADING_HALTED";        // §23: 503
 inline constexpr char kCodeInstrumentSuspended[] = "INSTRUMENT_SUSPENDED";  // §23: 409
 inline constexpr char kCodeInstrumentHalted[] = "INSTRUMENT_HALTED";        // §23: 409
 inline constexpr char kCodeInstrumentDelisted[] = "INSTRUMENT_DELISTED";    // §23: 409

@@ -555,3 +555,95 @@ Scope: 26 tasks (2.3.1–2.3.26), 67 AC rows. Critical spec correction noted at 
 - **Deviations (spec §27):** KYC upload base64-in-JSON (JSON-only ApiClient),
   manual virtualization (no react-window), env-store absent→dev/corrupt→prod
   ruling, localStorage watchlists/layouts (no server endpoints).
+
+## [2026-09-29] — PHASE-11 FUNDING (RAILS+RETURNS CLUSTER) — LANDED
+
+- **Scope:** Tasks **11.3.1 Banking Rails Integration** + **11.3.11 Return-Code
+  Mapping & Third-Party Deposit Fraud**, extending (not replacing) the Phase-05
+  funding system. Migration **108** adds `suspense_account_mappings`,
+  `rail_payments`, `unmatched_reason_enum`, `quarantine_status_enum`,
+  `rail_payment_status_enum` (down pair verified). Store extended with deposit +
+  funding-tx lock/status + suspense insert/lock/list/status/links + rail-payment
+  insert/lock/lookup/transition methods.
+- **Rails:** canonical 6-rail capability matrix (SWIFT/SEPA/FEDNOW/ACH/CHAPS/
+  TARGET2) with currency/amount/cutoff/weekend/lag axes; deterministic selection
+  `FEDNOW → CHAPS → TARGET2 → SEPA → ACH → SWIFT`; scoped kill-switch gate
+  (`halt:rail:{id}`); `CapInstantOnly` keeps standard SEPA SCT eligible above the
+  €100k instant cap; fail-closed per candidate → `BANKING_RAIL_UNAVAILABLE` /
+  `RAIL_CUTOFF_EXCEEDED`. Six typed adapters persist `PREPARED` wire envelopes
+  (MT103/MT202/MT199, PAIN001/PACS008/PACS004, NACHA_FILE) as JSONB; a nil
+  transport can never claim dispatch.
+- **Returns & fraud:** ISO 20022 reason codes + SWIFT narrative + ACH R-codes;
+  unknown codes → `UNMAPPED` + `PENDING_REVIEW` + quarantine + P1 alert;
+  compensating journals for definitive withdrawal returns; Jaro-Winkler ≥0.85
+  originator-vs-KYC screen resolves `EXC{8digit}-{CCY}` references; mismatches
+  quarantine to GL `2150_SUSPENSE_DEPOSITS_{CCY}` (48h SLA), persist a
+  return-wire envelope, emit `THIRD_PARTY_DEPOSIT_REJECTED`. Suspense
+  resolution (release-to-client / return-to-source) posts the correct
+  double-entry journal and links return_payment_id.
+- **API/wiring:** 6 new live routes (`GET /api/v1/funding/rails`,
+  `POST /api/v1/funding/rail-selection`, `POST /api/v1/admin/funding/inbound-wires`,
+  `GET /api/v1/admin/funding/quarantine`,
+  `POST /api/v1/admin/funding/quarantine/{id}/resolve`,
+  `POST /api/v1/admin/funding/returns`) + gateway adapters (`railGate`,
+  `pgLegalNameResolver`) in `cmd/gateway`.
+- **Fixes during settle:** `InsertSuspenseMapping` now defaults empty status to
+  `QUARANTINED` and dedups via `ON CONFLICT (bank_tx_id) DO NOTHING` — a repeat
+  wire notification returns `ErrIdemConflict` without poisoning the enclosing
+  tx (SQLSTATE 25P02); `isNotFound` fixed to inspect `errors.Error.Code` field
+  (method vs field); deposit-guard return-wire variable shadowing removed;
+  SEPA instant-cap semantics corrected; kill-switch `adminActor` helper renamed
+  to resolve the api-package collision.
+- **Tests:** unit coverage for rail matrix/selection/adapters/return mapping/
+  Jaro-Winkler/deposit-guard/suspense-resolution/handlers; PG+Redis-gated
+  integration (`EXC_PG_TEST=1`) exercises migration 108 round-trip, suspense
+  dedup, rail-payment readback, `FOR UPDATE` locks — **PASS** on
+  `postgres://127.0.0.1:55433` + `redis://127.0.0.1:6379`. Full `go build` /
+  `go vet` / `go test ./...` green.
+- **Error codes:** 173 → **176** (`BANKING_RAIL_UNAVAILABLE` 503,
+  `FUNDING_FEE_EXCEEDS_AMOUNT` 422, `BENEFICIARY_HOLD_ACTIVE` 422;
+  `THIRD_PARTY_DEPOSIT_REJECTED` amended in
+  place per §17.12.2). **Migrations on disk:** 79 → **85** pairs (040, 078,
+  108, 198×2, 199 — sibling Phase-11 clusters: kill-switch, beneficiary
+  registry, fee schedule/conversion, trading suspensions, stats landed in the
+  same window).
+- **Honestly open:** `tests/spec` checkpoint legs for the 11.3.1/11.3.11 AC
+  rows not yet run; live bank connectivity is intentionally absent (envelopes
+  persist PREPARED, dispatch is a transport seam).
+
+## [2026-09-29] — PHASE-11 FUNDING, SUSPENSION & STATISTICS — SETTLE COMPLETE
+
+- **Scope:** all 12 Phase-11 tasks landed across 4 clusters — rails+returns
+  (entry above), flows+whitelist (11.3.2 withdrawal 15-min window + review
+  tiers, 11.3.3 deposit anti-fraud dual-source, 11.3.6 nostro-aware dispatch,
+  11.3.10 whitelist 24h timelock — migrations 078/199), kill-switch+
+  beneficiaries (11.3.4/11.3.8/11.3.12 scope lattice + Redis `halt:*` flags +
+  PG-authoritative `trading_suspensions`, C++ `SuspensionFlags` pre-trade
+  check-0 lattice, `middleware.KillSwitchGate`, 040 `bank_accounts`
+  maker-checker registry), stats+fees (11.3.5 rolling-24h stats, 11.3.9
+  versioned fee schedule + fail-closed conversion — migration 198).
+- **Checkpoints:** `tests/spec/checks/phase11.go` binds all **16/16 P11
+  checkpoints** — full 571-corpus run: **0 failures**, 2 honest skips
+  (Phase-02.5 72h soak gates), 250 pending (later phases). The prior
+  "checkpoint legs open" note in the rails entry is superseded.
+- **AC audit:** 74 DoD/SDD rows verified + ticked; **8 honestly open** —
+  live rail settlement ×4 (envelopes verified, no bank connectivity),
+  hourly-rate + exchange-wide withdrawal caps (per-tx + daily enforced;
+  hourly window unimplemented), FIX-session-vs-CoD interaction (Phase-18),
+  counterparty-kill 10µs bound (unmeasured), LP Tag-35=i ingress (Phase-18).
+- **Settle-pass fixes (root causes, §27):** migration-198
+  `currency_conversions` table collision with migration 110's P&L audit
+  table — renamed `funding_currency_conversions` (up would have failed on
+  any 110-applied DB; down would have dropped the wrong table); Stats24h
+  quote-volume rounded to the canonical 8dp scale; kill-switch
+  `InsertActive` now `RETURNING`s state/created_at; cross-package flake
+  fixed by scoping `operations/retention` test cleanup off the shared
+  `data_retention_holds` table; Phase-08 error-scenario tests gained an
+  explicit open `KillSwitch` fake (nil seam correctly fails closed);
+  OpenAPI-derived validators regenerated (357 ops); agent date drift
+  (2026-11-09) corrected to 2026-09-29 repo-wide.
+- **Verified:** `go build`/`go vet` clean; `go test -count=1 ./...` 46 pkgs
+  green on live scratch PG/Redis; migrations 040/078/108/198/199/200
+  up/down/re-up clean; dev-DB schema drift repaired.
+- **Error codes:** 173 → **180**; **migrations:** 79 → **85** pairs;
+  canonical counts §24 419 / tasks 479 / spec checkpoints 543 unchanged.

@@ -8,7 +8,7 @@
 //	EXC_REDIS_TEST_PASSWORD  redis password (default redpass)
 //
 // The scratch schema is created per run, seeded with a minimal fixture +
-// the real funding/ledger migrations (007,008,018,036,088,102,160,161,162).
+// the real funding/ledger migrations (007,008,018,036,088,102,108,160,161,162).
 package funding
 
 import (
@@ -49,6 +49,7 @@ func TestITMigrationRoundTrip(t *testing.T) {
 		t.Fatalf("anchor ddl: %v", err)
 	}
 	for _, m := range []string{
+		"108_suspense_accounts_routing.up.sql",
 		"160_funding_extensions.up.sql",
 		"161_internal_transfers.up.sql",
 		"162_chargebacks.up.sql",
@@ -59,6 +60,7 @@ func TestITMigrationRoundTrip(t *testing.T) {
 		"162_chargebacks.down.sql",
 		"161_internal_transfers.down.sql",
 		"160_funding_extensions.down.sql",
+		"108_suspense_accounts_routing.down.sql",
 	} {
 		execSQLFile(t, ctx, pool, m)
 	}
@@ -84,6 +86,25 @@ func TestITMigrationRoundTrip(t *testing.T) {
 	}
 	if n != 0 {
 		t.Fatalf("%d Cluster B tables survived the down migrations", n)
+	}
+	// Migration 108 (Phase-11 suspense + rail payments) round-trip.
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM information_schema.tables
+		 WHERE table_schema = current_schema()
+		   AND table_name IN ('suspense_account_mappings','rail_payments')`).Scan(&n); err != nil {
+		t.Fatalf("post-down 108 tables: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("%d migration-108 tables survived the down migration", n)
+	}
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM pg_type t JOIN pg_namespace ns ON ns.oid = t.typnamespace
+		 WHERE ns.nspname = current_schema()
+		   AND t.typname IN ('unmatched_reason_enum','quarantine_status_enum','rail_payment_status_enum')`).Scan(&n); err != nil {
+		t.Fatalf("post-down 108 enums: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("%d migration-108 enum types survived the down migration", n)
 	}
 }
 
@@ -227,6 +248,7 @@ func itSchema(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 		"160_funding_extensions.up.sql",
 		"161_internal_transfers.up.sql",
 		"162_chargebacks.up.sql",
+		"108_suspense_accounts_routing.up.sql", // Phase-11 suspense + rail payments
 	} {
 		execSQLFile(t, ctx, pool, m)
 	}
@@ -632,3 +654,143 @@ func TestITChargebackLifecycle(t *testing.T) {
 		t.Fatal("no admin audit rows")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Phase-11 Task 11.3.1/11.3.11 — suspense mappings + rail payments store
+// surface against real PostgreSQL (migration 108 tables + enums).
+// ---------------------------------------------------------------------------
+
+func TestITSuspenseAndRailPayments(t *testing.T) {
+	ctx, pool, _ := itPool(t)
+	itSchema(t, ctx, pool)
+	store := NewPgStore(pool)
+
+	tx, err := store.BeginTx(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	// Attributed PENDING_REVIEW deposit row (the quarantine funding row).
+	ref := "BANK-IT-1"
+	bm := "SEPA"
+	orig := "DE999"
+	idem := "wire:BANK-IT-1"
+	dep, err := store.InsertDepositPending(ctx, tx, DepositRow{
+		AccountID: 1, Currency: "EUR", Amount: decimal.MustFromString("2500"),
+		Status: FundingPendingReview, BankMethod: &bm, Reference: &ref,
+		ReferenceAccount: &orig, IdempotencyKey: &idem,
+		ReviewTier: strPtr(ReviewTierPendingReview),
+	})
+	if err != nil {
+		t.Fatalf("insert deposit: %v", err)
+	}
+	if dep.ID == 0 || dep.Status != FundingPendingReview {
+		t.Fatalf("deposit row %+v", dep)
+	}
+	// bank_tx_id + funding link on the suspense mapping.
+	score := 0.42
+	rail := "SEPA"
+	susp, err := store.InsertSuspenseMapping(ctx, tx, SuspenseRow{
+		BankTxID: "BANK-IT-1", FundingTransactionID: &dep.ID,
+		AccountID: ptr64(1), Rail: &rail, Currency: "EUR",
+		Amount:            decimal.MustFromString("2500"),
+		OriginatorName:    strPtr("Mallory"),
+		OriginatorAccount: &orig,
+		NameMatchScore:    &score,
+		UnmatchedReason:   "NAME_MISMATCH",
+		GLAccount:         "2150",
+		QuarantineStatus:  "QUARANTINED",
+		SLAExpiresAt:      time.Now().UTC().Add(48 * time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("insert suspense: %v", err)
+	}
+	// bank_tx_id UNIQUE — dup insert must surface ErrIdemConflict.
+	if _, err := store.InsertSuspenseMapping(ctx, tx, SuspenseRow{
+		BankTxID: "BANK-IT-1", Currency: "EUR",
+		Amount: decimal.MustFromString("1"), UnmatchedReason: "MISSING_REFERENCE",
+		SLAExpiresAt: time.Now().UTC().Add(time.Hour),
+	}); err != ErrIdemConflict {
+		t.Fatalf("dup bank_tx_id: %v", err)
+	}
+	// Rail payment row — persisted pacs.004 return-wire envelope.
+	rp, err := store.InsertRailPayment(ctx, tx, RailPaymentRow{
+		SuspenseMappingID: &susp.ID, Direction: RailDirectionReturn,
+		Rail: "SEPA", MessageType: MsgPacs004, EndToEndID: "E2E-IT-1",
+		Status: RailPaymentPrepared, Envelope: []byte(`{"msg":"pacs.004"}`),
+	})
+	if err != nil {
+		t.Fatalf("insert rail payment: %v", err)
+	}
+	if err := store.SetSuspenseLinks(ctx, tx, susp.ID, nil, &rp.ID); err != nil {
+		t.Fatalf("suspense links: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+
+	// Read-back paths (outside tx).
+	got, err := store.SuspenseByBankTx(ctx, "BANK-IT-1")
+	if err != nil || got.ReturnPaymentID == nil || *got.ReturnPaymentID != rp.ID {
+		t.Fatalf("suspense readback %+v %v", got, err)
+	}
+	if got.NameMatchScore == nil || *got.NameMatchScore != 0.42 {
+		t.Fatalf("score round-trip %+v", got.NameMatchScore)
+	}
+	gotRp, err := store.RailPaymentByEndToEndID(ctx, "E2E-IT-1")
+	if err != nil || gotRp.Status != RailPaymentPrepared {
+		t.Fatalf("rail payment readback %+v %v", gotRp, err)
+	}
+
+	// Status transitions inside a second tx.
+	tx2, err := store.BeginTx(ctx)
+	if err != nil {
+		t.Fatalf("begin2: %v", err)
+	}
+	defer tx2.Rollback(ctx) //nolint:errcheck
+	if _, err := store.SuspenseForUpdate(ctx, tx2, susp.ID); err != nil {
+		t.Fatalf("suspense lock: %v", err)
+	}
+	if _, err := store.RailPaymentForUpdate(ctx, tx2, rp.ID); err != nil {
+		t.Fatalf("rail lock: %v", err)
+	}
+	if _, err := store.FundingTxForUpdate(ctx, tx2, dep.ID); err != nil {
+		t.Fatalf("funding lock: %v", err)
+	}
+	inv := int64(500)
+	notes := "returned to originator"
+	now := time.Now().UTC()
+	if err := store.SetSuspenseStatus(ctx, tx2, susp.ID,
+		"RETURNED_TO_SOURCE", &inv, &notes, &now); err != nil {
+		t.Fatalf("suspense status: %v", err)
+	}
+	if err := store.SetFundingTxStatus(ctx, tx2, dep.ID, FundingFailed, nil); err != nil {
+		t.Fatalf("funding status: %v", err)
+	}
+	rc := "AC04"
+	reason := "third-party deposit rejected"
+	if err := store.SetRailPaymentStatus(ctx, tx2, rp.ID,
+		RailPaymentReturned, &rc, &reason, nil, &now); err != nil {
+		t.Fatalf("rail status: %v", err)
+	}
+	if err := tx2.Commit(ctx); err != nil {
+		t.Fatalf("commit2: %v", err)
+	}
+
+	// List filter — quarantine journal surfaces the row for ops.
+	rows, total, err := store.ListSuspense(ctx, SuspenseFilter{
+		Status: "RETURNED_TO_SOURCE", Limit: 10,
+	})
+	if err != nil || total != 1 || len(rows) != 1 {
+		t.Fatalf("list suspense %d %d %v", total, len(rows), err)
+	}
+	rows0, total0, err := store.ListSuspense(ctx, SuspenseFilter{
+		Status: "QUARANTINED", Limit: 10,
+	})
+	if err != nil || total0 != 0 || len(rows0) != 0 {
+		t.Fatalf("quarantined filter leaked %d rows", len(rows0))
+	}
+}
+
+func ptr64(v int64) *int64 { return &v }

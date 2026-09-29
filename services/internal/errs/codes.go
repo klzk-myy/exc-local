@@ -1,8 +1,11 @@
 // Embedded spec §23 error-code table (Task 5.3.21).
 //
 // The rows below are a verbatim transcription of the §23 registry table in
-// docs/Specification - Complete Exchange System Suite.md (149 codes,
-// remediation #37). specRow extracts the machine-useful fields from the
+// docs/Specification - Complete Exchange System Suite.md (180 codes;
+// count updated with the Phase-11 Tasks 11.3.2/11.3.3/11.3.6/11.3.9
+// landings — historical remediation counts noted in spec §23's
+// registration-history paragraph). specRow extracts the machine-useful
+// fields from the
 // spec's prose description at load time:
 //   - Owner:        first "Phase-NN Task N.N.N" (or bare "Phase-NN")
 //     citation in the description, when present.
@@ -80,7 +83,7 @@ func localRow(code string, httpStatus int, owner, desc string) CodeDef {
 		Owner: owner, Spec: false}
 }
 
-// specCodes is the verbatim spec §23 table (173 rows).
+// specCodes is the verbatim spec §23 table (180 rows).
 var specCodes = []CodeDef{
 	specRow("INVALID_REQUEST", 400, "Malformed request body (Phase-05 Task 5.3.29 API Gateway & Load Balancer — centralized OpenAPI-schema request validation; remediation #19)"),
 	specRow("UNAUTHORIZED", 401, "Missing or invalid auth token (Phase-05 Task 5.3.26 WebSocket Authentication Upgrade & In-Flight Token Renewal; REST JWT/OAuth per spec §8.4; remediation #19)"),
@@ -113,6 +116,7 @@ var specCodes = []CodeDef{
 	specRow("FUTURE_SETTLEMENT_PENDING", 409, "Future settlement pending (Phase-03 Task 3.3.3 T+1/T+2 Settlement Instructions; remediation #19)"),
 	specRow("CORPORATE_ACTION_SCHEDULED", 409, "Corporate action pending — **reserved, never emitted:** no corporate actions exist in fiat spot FX (spec §1 fiat-only scope); retained only to reserve the code; remediation #19"),
 	specRow("FUNDING_RATE_ERROR", 503, "Funding rate computation error (Phase-11 Task 11.3.9 Funding Fee Schedule; the FX analog is the Phase-03 Task 3.3.11 overnight swap-rate engine; remediation #19)"),
+	specRow("FUNDING_FEE_EXCEEDS_AMOUNT", 422, "Scheduled funding fee meets or exceeds the transaction amount; the movement is refused rather than posting a non-positive net credit/debit (Phase-11 Task 11.3.9 Funding Fee Schedule; fail-closed §2.7 — registered with the Task 11.3.9 landing)"),
 	specRow("TOKEN_IP_FORBIDDEN", 403, "API token IP mismatch"),
 	specRow("SANCTIONS_HIT", 403, "Sanctions screening positive (Phase-21 Task 21.3.1 Sanctions Screening / Task 21.3.10 C++ SanctionsHook; remediation #19)"),
 	specRow("KYC_REQUIRED", 403, "KYC verification required; enforced at two points — Phase-05 Task 5.3.3 order submission (fast gateway pre-check, also on the WS `order.place` path) with fail-closed C++ core rejection (Phase-14 Task 14.3.4 KYC Lifecycle Management owns the lifecycle; remediation #19, enforcement points pinned remediation #35)"),
@@ -124,7 +128,7 @@ var specCodes = []CodeDef{
 	specRow("MIN_NOTIONAL_VIOLATION", 400, "Order notional below instrument minimum — added 2026-09-15"),
 	specRow("OTR_LIMIT_EXCEEDED", 429, "Order-to-trade ratio limit breached (MiFID II RTS 9) — added 2026-09-15"),
 	specRow("BANK_ACCOUNT_NOT_VERIFIED", 422, "Withdrawal beneficiary not registered/verified — added 2026-09-15 (Phase-11 Task 11.3.7 Beneficiary Bank-Account Registry; remediation #19)"),
-	specRow("THIRD_PARTY_DEPOSIT_REJECTED", 422, "Deposit sender name does not match account holder — added 2026-09-15"),
+	specRow("THIRD_PARTY_DEPOSIT_REJECTED", 422, "Inbound wire originator name fails the Jaro-Winkler ≥0.85 match vs verified KYC legal name; funds quarantined to 2150_SUSPENSE_DEPOSITS and returned to source (Phase-11 Task 11.3.11 Third-Party Deposit Fraud; §17.12.2 — description amended 2026-11-09, supersedes 'Deposit sender name does not match account holder')"),
 	specRow("SESSION_NOT_ENTITLED", 403, "FIX session not entitled for account/instrument — added 2026-09-15"),
 	specRow("NEGATIVE_BALANCE_PROTECTED", 422, "Operation would push a retail balance negative — added 2026-09-15 (Phase-19 Task 19.3.9 Retail Negative-Balance Protection; remediation #19)"),
 	specRow("TRADE_BUST_PENDING", 409, "Trade under obvious-error review; settlement held — added 2026-09-15 (Phase-15 Task 15.3.5 Trade Bust & Price-Adjust Workflow; remediation #19)"),
@@ -255,6 +259,12 @@ var specCodes = []CodeDef{
 	specRow("INVALID_DEPTH_LIMIT", 400, "Requested book depth levels/cadence outside the supported {5,10,20}×{100,250,1000}ms table (Phase-06 Task 6.3.15 Configurable Depth; §24 #265 — cited by §27.1 L2 Book row but never registered; remediation #44 follow-on)"),
 	specRow("INVALID_INTERVAL", 400, "Kline/aggregate interval outside the canonical 13-timeframe set (Phase-06 Task 6.3.14; Phase-20 Task 20.3.1 REST surface — cited by §27.1 Klines row but never registered; remediation #44 follow-on)"),
 	specRow("TICKET_NOT_FOUND", 404, "Support ticket identifier does not resolve, or resolves to a ticket outside the caller's account scope (Phase-07 Task 7.3.7 Support Tickets & Complaints; cited by the §27.1 Complaints & Dispute Resolution matrix row but never tabled — registered 2026-09-28, remediation #44 follow-on)"),
+	specRow("BANKING_RAIL_UNAVAILABLE", 503, "No banking rail can carry the instruction — every candidate failed currency, amount-cap, availability (scoped kill-switch) or account-eligibility screening; fail-closed (Phase-11 Task 11.3.1 Banking Rails Integration; §24 Banking Rails matrix row)"),
+	specRow("BENEFICIARY_HOLD_ACTIVE", 422, "Withdrawal target is a VERIFIED beneficiary still inside its 24-hour new-account hold — retry after `unlocked_at` (Phase-11 Task 11.3.7 Beneficiary Bank-Account Registry; §24 #391 hold, verified_at + 24h — distinct from `BANK_ACCOUNT_NOT_VERIFIED` which covers unregistered/unverified destinations)"),
+	specRow("WITHDRAWAL_WHITELIST_ONLY", 422, "Whitelist-only mode is enabled for the account and the destination resolves to no VERIFIED bank_accounts beneficiary (Phase-11 Task 11.3.10 Withdrawal Whitelist Mode; §5.23/§24 #391 — registered for the flows cluster)"),
+	specRow("WITHDRAWAL_WHITELIST_LOCKED", 423, "Account-scoped withdrawal egress lock — whitelist-only mode was disabled less than 24 hours ago (Phase-11 Task 11.3.10 deactivation safety lock; account-scoped, never platform-wide — remediation #35 semantics)"),
+	specRow("WHITELIST_CHANGE_LOCKED", 429, "Whitelist-mode re-enable is rate-limited until timelock_until lapses (Phase-11 Task 11.3.10; the 24h deactivation latch — documented unlock path is to wait out the latch)"),
+	specRow("NOSTRO_INSUFFICIENT_FUNDS", 500, "Aggregate ACTIVE nostro balance cannot cover the withdrawal — the withdrawal is QUEUED for dispatch, never rejected (Phase-11 Task 11.3.6 Nostro-Aware Withdrawals; §27.1 Nostro/Vostro matrix code — emitted on the durable funding_ops_alerts trail)"),
 }
 
 // localCodes are emitted by the gateway but carry no spec §23 row yet.

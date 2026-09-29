@@ -180,6 +180,110 @@ func (s *PgStore) Ticker24h(ctx context.Context, symbol string, now time.Time) (
 	return tk, nil
 }
 
+// stats24hSQL aggregates the rolling 24h trade window per symbol, one row
+// per instrument. The LEFT JOIN keeps quiet symbols present with zeroed
+// aggregates (COUNT(t.id)=0 → NULL price columns). first/last are the
+// window-edge trades by (created_at, id) — the same ordering Ticker24h
+// uses. $1 = window start (now−24h), $2 = window end (now); the optional
+// symbol predicate ($3) narrows to one instrument.
+const stats24hSQL = `
+	SELECT i.symbol, COUNT(t.id),
+	       MIN(t.price)::text, MAX(t.price)::text,
+	       (ARRAY_AGG(t.price ORDER BY t.created_at ASC,  t.id ASC ))[1]::text,
+	       (ARRAY_AGG(t.price ORDER BY t.created_at DESC, t.id DESC))[1]::text,
+	       COALESCE(SUM(t.quantity), 0)::text,
+	       ROUND(COALESCE(SUM(t.quantity * t.price), 0), 8)::text,
+	       MIN(t.created_at), MAX(t.created_at)
+	FROM instruments i
+	LEFT JOIN trades t
+	  ON t.instrument_id = i.id
+	 AND t.created_at >= $1 AND t.created_at < $2`
+
+// scanStats24h maps one stats row into Stats24h. count==0 yields the
+// zeroed row — symbol + volumes + window bounds, nil price fields.
+func scanStats24h(row interface {
+	Scan(...any) error
+}, now time.Time) (*Stats24h, error) {
+	var (
+		st                     Stats24h
+		low, high, first, last *string
+		firstAt, lastAt        *time.Time
+	)
+	if err := row.Scan(&st.Symbol, &st.TradeCount, &low, &high,
+		&first, &last, &st.Volume, &st.QuoteVolume, &firstAt, &lastAt); err != nil {
+		return nil, err
+	}
+	st.Window = "24h"
+	st.ServerTimeMs = now.UnixMilli()
+	st.CloseTimeMs = now.UnixMilli()
+	st.OpenTimeMs = now.Add(-24 * time.Hour).UnixMilli()
+	if st.TradeCount == 0 {
+		return &st, nil
+	}
+	st.Open, st.High, st.Low, st.Last = first, high, low, last
+	if firstAt != nil {
+		ms := firstAt.UnixMilli()
+		st.FirstTradeMs = &ms
+	}
+	if lastAt != nil {
+		ms := lastAt.UnixMilli()
+		st.LastTradeMs = &ms
+	}
+	if first != nil && last != nil {
+		if o, err1 := decimal.NewFromString(*first); err1 == nil {
+			if c, err2 := decimal.NewFromString(*last); err2 == nil {
+				chg := c.Sub(o)
+				s := chg.String()
+				st.PriceChange = &s
+				if !o.IsZero() {
+					pct := chg.Div(o).Mul(decimal.NewFromInt(100)).Round(4)
+					ps := pct.String()
+					st.PriceChangePct = &ps
+				}
+			}
+		}
+	}
+	return &st, nil
+}
+
+// Stats24h implements Store.Stats24h — single-symbol rolling 24h
+// statistics (Task 11.3.5). (nil, nil) for an unknown symbol.
+func (s *PgStore) Stats24h(ctx context.Context, symbol string, now time.Time) (*Stats24h, error) {
+	st, err := scanStats24h(s.pool.QueryRow(ctx,
+		stats24hSQL+` WHERE i.symbol = $3 GROUP BY i.symbol`,
+		now.Add(-24*time.Hour), now, symbol), now)
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("stats24h %s: %w", symbol, err)
+	}
+	return st, nil
+}
+
+// Stats24hAll implements Store.Stats24hAll — the venue-wide variant.
+func (s *PgStore) Stats24hAll(ctx context.Context, now time.Time) ([]Stats24h, error) {
+	rows, err := s.pool.Query(ctx,
+		stats24hSQL+` GROUP BY i.symbol ORDER BY i.symbol`,
+		now.Add(-24*time.Hour), now)
+	if err != nil {
+		return nil, fmt.Errorf("stats24h all: %w", err)
+	}
+	defer rows.Close()
+	out := []Stats24h{}
+	for rows.Next() {
+		st, err := scanStats24h(rows, now)
+		if err != nil {
+			return nil, fmt.Errorf("scan stats24h: %w", err)
+		}
+		out = append(out, *st)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("stats24h cursor: %w", err)
+	}
+	return out, nil
+}
+
 // Klines reads pre-materialized fx_klines bars (spec §10.3 contract).
 // Returns bars ascending by open_time: the query takes the newest `limit`
 // bars at or before `to` and reorders.

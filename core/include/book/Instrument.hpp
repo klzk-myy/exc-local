@@ -27,6 +27,21 @@ inline constexpr int64_t kFixedScale = Decimal::SCALE;  // 100'000'000
 // spec §5.1 instrument_type enum (verbatim order).
 enum class InstrumentType : uint8_t { SPOT, FORWARD, SWAP, NDF, OPTION };
 
+// Wire/flag name for an instrument class — identical spelling to the
+// Go `instruments.instrument_type` values the kill-switch lattice keys
+// on (`halt:instrumentclass:{TYPE}`, Task 11.3.8).
+[[nodiscard]] constexpr const char* instrument_type_name(
+    InstrumentType t) noexcept {
+    switch (t) {
+        case InstrumentType::SPOT:    return "SPOT";
+        case InstrumentType::FORWARD: return "FORWARD";
+        case InstrumentType::SWAP:    return "SWAP";
+        case InstrumentType::NDF:     return "NDF";
+        case InstrumentType::OPTION:  return "OPTION";
+    }
+    return "SPOT";
+}
+
 // spec §5.1 status enum (verbatim order; CANCEL_ONLY per remediation #14).
 enum class InstrumentStatus : uint8_t {
     DRAFT, ACTIVE, CANCEL_ONLY, SUSPENDED, HALTED, RESTRICTED, DELISTED

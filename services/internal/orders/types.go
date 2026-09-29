@@ -68,6 +68,7 @@ type Instrument struct {
 	Symbol           string
 	BaseCurrency     string
 	QuoteCurrency    string
+	InstrumentType   string // SPOT | FORWARD | SWAP | NDF | OPTION — the §24 #152 instrument-class axis
 	Status           string
 	TickSize         decimal.Decimal
 	LotSize          decimal.Decimal

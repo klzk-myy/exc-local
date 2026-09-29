@@ -41,8 +41,18 @@ type WithdrawalService struct {
 	limits  WithdrawalLimiter // nil = cap enforcement not wired
 	usd     UsdConverter      // nil = every withdrawal tiers PENDING_REVIEW
 	alerter OpsAlerter        // nil = alerts skipped (logged)
+	bens    BeneficiaryGate   // nil = registry check not wired
+	rails   RailController    // nil = rail-suspension check not wired
 	clock   func() time.Time
 	logf    func(format string, args ...any)
+}
+
+// BeneficiaryGate is the Task 11.3.7 verified-beneficiary check —
+// *BankAccountService satisfies it. Codes propagate: unregistered or
+// non-VERIFIED destinations → BANK_ACCOUNT_NOT_VERIFIED (422), a
+// beneficiary inside its 24h hold → BENEFICIARY_HOLD_ACTIVE (422).
+type BeneficiaryGate interface {
+	AssertWithdrawable(ctx context.Context, accountID int64, reference string) error
 }
 
 // NewWithdrawalService wires the service; store/poster/checker are
@@ -69,6 +79,23 @@ func (s *WithdrawalService) WithUSDConverter(c UsdConverter) *WithdrawalService 
 // WithAlerter wires the ops alerter for >$50K review entries.
 func (s *WithdrawalService) WithAlerter(a OpsAlerter) *WithdrawalService {
 	s.alerter = a
+	return s
+}
+
+// WithBeneficiaries wires the Task 11.3.7 verified-beneficiary gate —
+// withdrawals may only target VERIFIED beneficiaries past their 24h
+// hold. Production wiring is mandatory; nil keeps the legacy path for
+// pre-registry deployments/tests.
+func (s *WithdrawalService) WithBeneficiaries(b BeneficiaryGate) *WithdrawalService {
+	s.bens = b
+	return s
+}
+
+// WithRailController wires the Task 11.3.12 SCOPE_RAIL suspension check —
+// a withdrawal on a suspended rail is refused at create time with
+// SETTLEMENT_RAIL_REJECTED (rail-state re-check also runs at dispatch).
+func (s *WithdrawalService) WithRailController(c RailController) *WithdrawalService {
+	s.rails = c
 	return s
 }
 
@@ -160,6 +187,18 @@ func (s *WithdrawalService) Create(ctx context.Context, req CreateWithdrawalRequ
 
 	// State gate (§5.3.12): FROZEN/SUSPENDED/CLOSED fail closed.
 	if err := s.checker.AssertMutable(ctx, req.AccountID); err != nil {
+		return nil, err
+	}
+
+	// Task 11.3.7: destination must be a VERIFIED beneficiary past its
+	// 24h hold (registry-owned check; codes propagate verbatim).
+	if s.bens != nil {
+		if err := s.bens.AssertWithdrawable(ctx, req.AccountID, refAcct); err != nil {
+			return nil, err
+		}
+	}
+	// Task 11.3.12 SCOPE_RAIL: a suspended rail refuses at create time.
+	if err := AssertRailOperational(ctx, s.rails, method); err != nil {
 		return nil, err
 	}
 
