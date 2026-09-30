@@ -1711,5 +1711,97 @@ snapshots, costs disclosure, depreciation notices, marketing-ops.
   `validateDerivativeParams` coverage rides FIX contract tests +
   structural binding (no dedicated unit test — flagged).
 - 91/91 DoD/SDD rows ticked in `docs/Phase-22-Derivatives-Foundation.md`.
-- Next: Phase-23 (Settlement & Backoffice hardening — remaining API/
-  reporting surfaces).
+- Next: Phase-23 (Market Data Products — historical/export/premium
+  feeds/analytics surfaces).
+
+## [2026-09-30 13:20 UTC] — Phase 23 START (Market Data Products)
+
+- 5 parallel agents dispatched on disjoint scopes:
+  history core + guards `marketdata/historical.go`/`tick_data_api.go`/
+    `history_guards.go` + api/handlers_history.go extension (23.3.1/.4/.8);
+  export `marketdata/export*.go` + mig 256 (23.3.2);
+  premium feeds + Greeks `marketdata/premium.go`/`greeks_feed.go` +
+    mig 257 (23.3.3/.5);
+  sentiment/positioning/performance `marketdata/sentiment.go`/
+    `positioning.go`/`performance.go` (23.3.6/.10/.11);
+  block-trades + swap-rates `marketdata/block_trades.go`/`swap_rates.go`
+    (23.3.7/.9).
+- Route registrations + gateway bindings owned by orchestrator
+  (agents return `routes_to_register` lists).
+- Commit: ebf6e82 (Phase-22 baseline).
+
+### [2026-10-01 09:40 UTC] — PHASE 23 COMPLETE — 11/11 tasks, 11/11 checkpoints green
+
+- **Verification:** all 11 P23 spec checkpoints PASS across the canonical
+  4-shard grid (`tests/spec/checks/phase23.go`, registered in
+  `checks/register.go`); `go build ./...` + `go vet ./...` + full
+  `go test ./...` green across `marketdata`, `api`, `gateway`, `ws`,
+  `analytics`, `options`, `errs` and every other services package;
+  PG migrations 256/257 round-tripped on dev PG; CH schemas 008/009
+  applied.
+- **Landed (5 agent clusters + orchestrator wiring):**
+  - Historical data API: CH-partitioned trades/ticks/klines, tier-based
+    delay + rate limiting, keyset pagination over multi-million rows.
+  - Data export: CSV/JSON/Parquet, sync for small requests, async
+    `export_jobs` worker (mig 256), 1M-row cap (`EXPORT_LIMIT_EXCEEDED`),
+    object-store artifacts + expiring download links, job-ownership
+    isolation, email-notification seam.
+  - Premium feeds: `premium_l3@`, `depth_full@`, `auction@`,
+    `greeks@{underlying}` — premium-tier API key + ACTIVE per-feed
+    subscription (mig 257); `FeedEntitlements` always installed on the
+    WS server (nil store fails closed); monthly billing via 06:00-UTC
+    gateway sweep.
+  - Greeks feed: `marketdata` producer computing delta/gamma/vega/
+    theta/rho in-process via `OptionsGreeksPricer` (GK European,
+    lattice American) at ~100ms cadence; CH `greeks_snapshots` (schema
+    008); optional JetStream republish; freeze-last-good on stale
+    inputs; `VolFunc` seam intentionally unwired.
+  - Sentiment/positioning/performance: OI + long-short + taker-flow +
+    positioning endpoints (5-min non-premium delay, 100-account cohort
+    floor, string-decimal serialization, no account leakage);
+    `sentiment@` 30s channel; block-tape history (CH
+    `exchange_analytics.block_trades_tape`, schema 009) with
+    publication delay + correction/bust lineage + CSV export; swap-rate
+    history from the PG accrual journal (interbank+markup split,
+    triple-swap-Wednesday flag); public venue performance (aggregate
+    spreads/latency/fill-rate/uptime, 5-min cache, last-good hold on
+    divergence, `INSUFFICIENT_DATA` — never zero-filled).
+  - Query guards: 10s hard timeout → `HISTORICAL_QUERY_TIMEOUT` 504;
+    Redis 60s cache on closed intervals (best-effort, never blocks);
+    pre-open participant masking; missing CH sources →
+    `SERVICE_DEGRADED`, never empty pages.
+- **Wiring:** `cmd/gateway` constructs all Phase-23 REST deps, OI +
+  sentiment producers (shared delayed rings with the WS surface),
+  export worker, premium biller; `cmd/marketdata` constructs the four
+  premium producers + Greeks feed (marks via `oracle.Provider`, curves
+  via `rates.Store`, contracts via PG option-series) + entitlement
+  gate. 13 route rows added/updated in the frozen registry incl.
+  `/api/v1/export-jobs[/{id}[/download]]`.
+- **Settle fixes:** CH schema 009 re-qualified to `exchange_analytics.`
+  (was landing in `default`); `PremiumL3Producer.Run` nil-source guard
+  + `MsgSource`→`ByteSource` adapter; `P23-T23.3.10-C1` binding
+  corrected to real symbols (`TakerFlowStore`/`TakerFlowBucket`);
+  `anDeps.Stats` type-asserted for the venue fill-rate source.
+- **Migrations:** 256 (`export_jobs`) + 257 (`premium_feed_subscriptions`)
+  — 184 → **186** on disk, zero collisions, `.down.sql` paired;
+  CH schemas 008/009 landed.
+- **Error registry:** +3 localCodes (`EXPORT_LIMIT_EXCEEDED` 400,
+  `EXPORT_JOB_NOT_FOUND` 404, `EXPORT_FORMAT_INVALID` 400) — emitted
+  207 → **210**; localCodes 40 → **43** pending §23 transcription.
+- **Checkpoint corpus:** regenerated — 542 extracted, 543 raw matches,
+  520 bound IDs (509 + 11 P23), 22 pending (all Phase-24 + env-bound
+  Phase-08.5).
+- **Honest seams** (spec §27 + phase addendum): Greeks computed
+  in-process (no upstream precomputed-Greeks publisher exists);
+  `VolFunc` unwired — missing IV freezes the last good frame rather
+  than fabricating volatility; swap-rate history reads the PG accrual
+  journal directly (no JetStream→CH projection); OI history is an
+  in-memory 24h minute ring (delay contract met; durable CH OI is
+  future work); `PerformanceReferenceSource` nil — available TCA rows
+  carry slippage, not the independent published fill-rate/latency
+  metrics needed for reconciliation.
+- 48/48 DoD/SDD rows ticked in `docs/Phase-23-Market-Data-Products.md`;
+  spec §27 settle record appended; meta-docs synced (MEMORY/CONTEXT/
+  AGENTS/CLAUDE).
+- Next: Phase-24 (Backoffice & Settlement — custody, PB/nostro recon,
+  CLS PvP, settlement ops — 21 pending checkpoints).

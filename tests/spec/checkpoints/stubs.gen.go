@@ -7,17 +7,6 @@ package checkpoints
 // as pending/missing.
 var PendingStubs = []string{
 	"P08.5-T8.5.3.1-C1", // Phase-08.5-PreProduction-LoadTest.md:45 [75k/sec staging gate — defined first, validated against spe…]
-	"P23-T23.3.1-C1",    // Phase-23-Market-Data-Products.md:42 [historical data API with partitioning]
-	"P23-T23.3.2-C1",    // Phase-23-Market-Data-Products.md:65 [data export CSV/JSON/Parquet]
-	"P23-T23.3.3-C1",    // Phase-23-Market-Data-Products.md:90 [premium data feeds]
-	"P23-T23.3.4-C1",    // Phase-23-Market-Data-Products.md:118 [historical tick data API]
-	"P23-T23.3.5-C1",    // Phase-23-Market-Data-Products.md:142 [real-time Greeks feed]
-	"P23-T23.3.6-C1",    // Phase-23-Market-Data-Products.md:152 [sentiment analytics enforce delay and minimum-cohort privac…]
-	"P23-T23.3.7-C1",    // Phase-23-Market-Data-Products.md:162 [historical block-trade API preserves publication delay, ano…]
-	"P23-T23.3.8-C1",    // Phase-23-Market-Data-Products.md:175 [Historical market data queries enforce query timeouts, cach…]
-	"P23-T23.3.9-C1",    // Phase-23-Market-Data-Products.md:193 [swap-rate history reconciled to accrual journals (§24 #358)]
-	"P23-T23.3.10-C1",   // Phase-23-Market-Data-Products.md:211 [taker-volume and positioning ratios with delay/cohort guard…]
-	"P23-T23.3.11-C1",   // Phase-23-Market-Data-Products.md:230 [aggregate-only public performance statistics reconciled to …]
 	"P24-T24.3.1-C1",    // Phase-24-Backoffice-Settlement.md:43 [nostro/vostro account management]
 	"P24-T24.3.2-C1",    // Phase-24-Backoffice-Settlement.md:71 [nostro/vostro reconciliation]
 	"P24-T24.3.3-C1",    // Phase-24-Backoffice-Settlement.md:95 [settlement confirmation tracking]

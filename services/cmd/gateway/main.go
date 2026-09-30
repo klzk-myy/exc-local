@@ -1755,6 +1755,89 @@ func run() error {
 			return fmt.Errorf("rts28 service: %w", rerr)
 		}
 	}
+
+	// Phase-23 market-data products — history/export/stats read
+	// surfaces. Every source seam is interface-typed + nil-able: a CH
+	// outage leaves the handler answering SERVICE_DEGRADED, never an
+	// empty page standing in for "unavailable" (spec §2.7). Tier
+	// resolution fails CLOSED to the free/delayed view — under-
+	// entitlement is never a violation.
+	histTier := marketdata.RateTierHistoryResolver(tierResolver)
+	histDeps.Tiers = histTier
+	histDeps.Cache = rdb.Client
+	histDeps.SessionOpen = func(string) (time.Time, error) {
+		// Venue-wide 24/5 weekly open (Sunday 21:00 UTC) — the bounded
+		// pre-open masking window anchors to it, instrument-independent.
+		return marketdata.VenueWeekOpenUTC(time.Now().UTC()), nil
+	}
+	if chConn != nil {
+		histDeps.Trades = marketdata.NewTradeHistoryStore(chConn)
+	}
+	// Task 23.3.7 — published anonymous block tape (correction lineage
+	// annotated by the store; schema has no participant columns).
+	blockTapeDeps := &api.BlockTapeHistoryDeps{
+		Instruments: marketStore, Tiers: histTier, Cache: rdb.Client,
+	}
+	if chConn != nil {
+		blockTapeDeps.Tape = marketdata.NewBlockTapeStore(chConn)
+	}
+	// Task 23.3.9 — swap-rate history reads the Task 3.3.11 accrual
+	// journal in PG directly (no JetStream→CH projection exists).
+	swapRateDeps := &api.SwapRateHistoryDeps{
+		History:     marketdata.NewPgSwapRateHistory(pool),
+		Instruments: marketStore, Tiers: histTier, Cache: rdb.Client,
+	}
+	// Task 23.3.2 — data export (CSV/JSON/Parquet): ≤50k rows inline,
+	// async through export_jobs → S3 → link email (24h expiry). The
+	// worker sweeps due jobs once a minute; the email rides the dev log
+	// seam until production binds SMTP/SES (same convention as 20.3.8).
+	exportSvc := &marketdata.ExportService{
+		Jobs:       marketdata.NewPgJobStore(pool),
+		IntervalOK: analytics.PersistedInterval,
+		LinkBase:   strings.TrimRight(os.Getenv("EXC_PUBLIC_BASE_URL"), "/"),
+		Logf:       func(f string, a ...any) { log.Warn(fmt.Sprintf(f, a...)) },
+	}
+	if chConn != nil {
+		exportSvc.Trades = marketdata.NewCHTradesStore(chConn)
+		exportSvc.Ticks = api.ExportTickSource{Store: analytics.NewTickStore(chConn)}
+		exportSvc.Klines = api.ExportKlineSource{Store: analytics.NewOHLCVStore(chConn)}
+	}
+	exportSvc.Notifier = marketdata.ReportingNotifier{
+		Mail:     reporting.LogEmailSender{Log: log},
+		LinkBase: exportSvc.LinkBase,
+	}
+	exportSvc.Recipients = reporting.NewPgRecipientSource(pool)
+	go exportSvc.Run(sweepCtx, time.Minute)
+	exportDeps := &api.ExportDeps{Exporter: exportSvc, Instruments: marketStore}
+
+	// Phase-23 Task 23.3.3 — premium-feed subscription billing. The
+	// sweeper posts monthly renewals through the §5.3 double-entry
+	// poster once a day (06:00 UTC, after the venue-governance slot)
+	// and republishes each committed charge to JetStream "funding".
+	// A nil poster fails closed — nothing is marked billed unpaid.
+	premiumFeedBiller := marketdata.NewPremiumFeedBiller(
+		marketdata.NewPgxFeedSubscriptionStore(pool), ledgerSvc,
+		marketdata.BillingEventSinkFunc(
+			func(ctx context.Context, ev marketdata.PremiumFeedBillingEvent) error {
+				if natsClient == nil {
+					return nil
+				}
+				payload, _ := json.Marshal(ev)
+				_, err := natsClient.Publish(ctx, "funding", 0,
+					fmt.Sprintf("premium-feed-%d", ev.SubscriptionID), payload)
+				return err
+			}), nil, log)
+	runDailyUTC(sweepCtx, log, "premium-feed-billing", 360,
+		func(ctx context.Context) {
+			n, berr := premiumFeedBiller.BillDue(ctx)
+			if berr != nil {
+				log.Error("premium feed billing sweep failed", "err", berr)
+				return
+			}
+			if n > 0 {
+				log.Info("premium feed billing sweep", "billed", n)
+			}
+		})
 	// Phase-21 Task 21.3.15/19 daily jobs — 05:00 UTC, after the
 	// Phase-20 02:00 RTS28 and Phase-21 03:00 Basel slots: materialize
 	// yesterday's RTS 27 daily stats from ClickHouse and sweep the
@@ -1805,6 +1888,10 @@ func run() error {
 		log.Warn("EXC_REPORTS_S3_BUCKET unset — report documents held in-process (dev only)")
 		reportDocs = analytics.NewMemFileStore()
 	}
+	// Phase-23 Task 23.3.2 — export artifacts ride the same S3 client
+	// (async jobs Put under their own key prefix; nil → Admit fails
+	// closed for async exports only, sync still serves).
+	exportSvc.Objects = reportObjects
 
 	// Task 20.3.8 — client-facing PDFs (statements, confirmations,
 	// invoices) are AES-128 encrypted at render (pdfsec V4/R4). The
@@ -3761,6 +3848,83 @@ func run() error {
 	}, log)
 	go statusAgg.Run(sweepCtx, time.Second)
 
+	// ---- Phase-23 stats surfaces (Tasks 23.3.6/.10/.11) ----
+	// The OI and sentiment producers run in-gateway against the shared
+	// position store so the REST reads serve the same delayed rings the
+	// WS feed publishes (emit is a no-op here — fan-out lives in
+	// cmd/marketdata). Below-cohort and delayed horizons are enforced by
+	// the producers/handlers, never by trusting the caller.
+	symByID := map[int64]string{}
+	idBySym := map[string]int64{}
+	var perfSyms []string
+	if insts, ierr := marketStore.ListInstruments(context.Background()); ierr == nil {
+		for _, in := range insts {
+			symByID[in.ID] = in.Symbol
+			idBySym[in.Symbol] = in.ID
+			perfSyms = append(perfSyms, in.Symbol)
+		}
+	} else {
+		log.Warn("instrument list unavailable — Phase-23 stats surfaces degrade",
+			"err", ierr)
+	}
+	noopEmit := func(string, uint64, any) {}
+	oiProd := marketdata.NewOIProducer(marketdata.OIProducerConfig{
+		Logger: log, Symbols: perfSyms},
+		marketdata.NewPgxOpenInterestSource(pool, symByID, nil), noopEmit)
+	go func() {
+		if err := oiProd.Run(sweepCtx); err != nil &&
+			!errors.Is(err, context.Canceled) {
+			log.Error("oi producer exited", "err", err)
+		}
+	}()
+	var sentFlow marketdata.TakerFlowSource
+	if chConn != nil {
+		sentFlow = marketdata.NewTakerFlowStore(chConn)
+	}
+	sentProd := marketdata.NewSentimentProducer(marketdata.SentimentProducerConfig{
+		Logger: log, Symbols: perfSyms},
+		marketdata.NewPgxPositionCohortSource(pool, idBySym, nil),
+		sentFlow, noopEmit)
+	go func() {
+		if err := sentProd.Run(sweepCtx); err != nil &&
+			!errors.Is(err, context.Canceled) {
+			log.Error("sentiment producer exited", "err", err)
+		}
+	}()
+	var flowSrc api.TakerFlowAnalytics
+	if chConn != nil {
+		flowSrc = marketdata.NewTakerFlowStore(chConn)
+	}
+	// Task 23.3.11 — aggregate-only venue stats; rts27_daily_stats
+	// rows feed spread/latency; uptime rides the ops ledger; RTS-27
+	// quarterly figures come from the published-artifact register.
+	// Reference stays nil — TCA rows carry slippage, not the published
+	// fill-rate/latency metrics, so no independent second source exists
+	// yet (honest seam; the divergence-hold path is covered by tests).
+	var venueFills marketdata.VenueFillRateSource
+	if vs, ok := anDeps.Stats.(*analytics.VolumeStatsStore); ok && vs != nil {
+		venueFills = api.NewVenueFillRateSource(vs)
+	}
+	perfSvc := marketdata.NewVenuePerformanceService(
+		marketdata.VenuePerformanceConfig{Logger: log, Symbols: perfSyms},
+		marketdata.VenuePerformanceDeps{
+			Daily:  marketdata.NewPgVenueDayStatsSource(pool),
+			Fills:  venueFills,
+			Uptime: statusAgg,
+			RTS27:  api.RTS27FiguresSource{Svc: rts27Svc},
+			Alerts: observability.LogSink{Log: log},
+		})
+	statsDeps := &api.MarketStatsDeps{
+		Instruments: marketStore,
+		OI:          oiProd,
+		Sentiment:   sentProd,
+		Flow:        flowSrc,
+		Performance: perfSvc,
+		Cache:       rdb.Client,
+		ResolveTier: tierResolver,
+		Guard:       marketdata.HistoryQueryGuard{},
+	}
+
 	// Drain latch (9.3.23): flips on signal — readiness reports
 	// unhealthy immediately while in-flight work drains.
 	drainFlag := &middleware.DrainFlag{}
@@ -4762,13 +4926,30 @@ func run() error {
 		// Phase-20 read surface — every dep fails closed when its store
 		// is nil (CH down at boot → 503 SERVICE_DEGRADED, never an empty
 		// report standing in for "unavailable").
-		"GET /api/v1/history/ticks/{symbol}":           http.HandlerFunc(api.HistoryTicks(histDeps)),
-		"GET /api/v1/history/klines/{symbol}":          http.HandlerFunc(api.HistoryKlines(histDeps)),
-		"GET /api/v1/analytics/volume":                 http.HandlerFunc(api.AnalyticsVolume(anDeps)),
-		"GET /api/v1/analytics/stats":                  http.HandlerFunc(api.AnalyticsStats(anDeps)),
-		"GET /api/v1/analytics/pnl":                    http.HandlerFunc(api.AnalyticsPnL(anDeps)),
-		"GET /api/v1/account/statements":               http.HandlerFunc(api.AccountStatements(stmtSvc)),
-		"GET /api/v1/account/statements/{id}/download": http.HandlerFunc(api.AccountStatementDownload(stmtSvc)),
+		"GET /api/v1/history/ticks/{symbol}":  http.HandlerFunc(api.HistoryTicks(histDeps)),
+		"GET /api/v1/history/klines/{symbol}": http.HandlerFunc(api.HistoryKlines(histDeps)),
+		// Phase-23 market-data products — history/trades + export
+		// (23.3.2/.4), block tape (23.3.7), swap-rate series (23.3.9),
+		// stats surfaces (23.3.6/.10/.11). Same fail-closed convention:
+		// unwired sources answer SERVICE_DEGRADED.
+		"GET /api/v1/history/trades/{symbol}":             http.HandlerFunc(api.HistoryTrades(histDeps)),
+		"GET /api/v1/history/trades/{symbol}/export":      http.HandlerFunc(api.HistoryTradesExport(exportDeps)),
+		"GET /api/v1/export-jobs":                         http.HandlerFunc(api.ExportJobList(exportDeps)),
+		"GET /api/v1/export-jobs/{id}":                    http.HandlerFunc(api.ExportJobStatus(exportDeps)),
+		"GET /api/v1/export-jobs/{id}/download":           http.HandlerFunc(api.ExportJobDownload(exportDeps)),
+		"GET /api/v1/history/block-trades/{symbol}":       http.HandlerFunc(api.HistoryBlockTrades(blockTapeDeps)),
+		"GET /api/v1/history/swap-rates":                  http.HandlerFunc(api.HistorySwapRates(swapRateDeps)),
+		"GET /api/v1/analytics/open-interest/{symbol}":    http.HandlerFunc(api.AnalyticsOpenInterest(statsDeps)),
+		"GET /api/v1/analytics/long-short-ratio/{symbol}": http.HandlerFunc(api.AnalyticsLongShortRatio(statsDeps)),
+		"GET /api/v1/analytics/taker-flow/{symbol}":       http.HandlerFunc(api.AnalyticsTakerFlow(statsDeps)),
+		"GET /api/v1/market/taker-volume":                 http.HandlerFunc(api.MarketTakerVolume(statsDeps)),
+		"GET /api/v1/market/positioning":                  http.HandlerFunc(api.MarketPositioning(statsDeps)),
+		"GET /api/v1/market/performance":                  http.HandlerFunc(api.MarketPerformance(statsDeps)),
+		"GET /api/v1/analytics/volume":                    http.HandlerFunc(api.AnalyticsVolume(anDeps)),
+		"GET /api/v1/analytics/stats":                     http.HandlerFunc(api.AnalyticsStats(anDeps)),
+		"GET /api/v1/analytics/pnl":                       http.HandlerFunc(api.AnalyticsPnL(anDeps)),
+		"GET /api/v1/account/statements":                  http.HandlerFunc(api.AccountStatements(stmtSvc)),
+		"GET /api/v1/account/statements/{id}/download":    http.HandlerFunc(api.AccountStatementDownload(stmtSvc)),
 		"GET /api/v1/account/confirmations/{trade_id}": http.HandlerFunc(api.AccountConfirmation(api.ConfirmationReadDeps{
 			Service: confSvc, AdminLookup: confTracker})),
 		"GET /api/v1/account/income":    http.HandlerFunc(api.AccountIncome(incomeSrc)),

@@ -113,8 +113,14 @@ func run() error {
 		log.Warn("no JWT key material — private WS JWT auth fails closed")
 	}
 	var sigVerifier *auth.SignatureVerifier
+	// Phase-23 Task 23.3.3 premium-feed gate — bound unconditionally:
+	// a missing subscription store denies every premium bind (fail-
+	// closed), never widens access on an infra miss. Public channels
+	// pass through ungated by design (spec §10.7).
+	entitlements := &marketdata.FeedEntitlements{}
 	if pool, perr := db.NewPool(ctx, cfg.Postgres.DSN, cfg.Postgres.MaxConns); perr == nil {
 		defer pool.Close()
+		entitlements.Store = marketdata.NewPgxFeedSubscriptionStore(pool)
 		dataKey, derr := config.DecodeDataKey(cfg.Secrets.DataKey)
 		if derr != nil {
 			dev := sha256.Sum256([]byte("exc.local non-production secret-box data key v1"))
@@ -136,12 +142,13 @@ func run() error {
 	}
 
 	srv := marketdata.NewServer(marketdata.Config{
-		Logger:     log,
-		Issuer:     jwtIssuer,
-		Verifier:   sigVerifier,
-		Dedup:      dedup,
-		Journal:    journal,
-		TrustProxy: cfg.Environment != "production" && os.Getenv("EXC_TRUST_PROXY") == "1",
+		Logger:       log,
+		Issuer:       jwtIssuer,
+		Verifier:     sigVerifier,
+		Dedup:        dedup,
+		Journal:      journal,
+		Entitlements: entitlements,
+		TrustProxy:   cfg.Environment != "production" && os.Getenv("EXC_TRUST_PROXY") == "1",
 	})
 
 	// Task 6.3.5: the private order stream — order-lifecycle producers
@@ -193,7 +200,7 @@ func run() error {
 	}()
 
 	// ===== WAVE-2 ADDITIVE BLOCK — producer startup (producers.go) =====
-	sp := startStreamProducers(ctx, cfg, srv, bboTap, log)
+	sp := startStreamProducers(ctx, cfg, srv, bboTap, rdb.Client, log)
 	_ = sp // retained for future /healthz producer-depth reporting
 	// ===== END WAVE-2 ADDITIVE BLOCK =====
 

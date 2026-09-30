@@ -60,7 +60,13 @@ var ListSpecs = []ListSpec{
 	{Path: "/api/v1/klines/{symbol}", Default: 500, Max: 1500,
 		Sortable:   []string{"open_time"},
 		Filterable: []string{"interval", "start_time", "end_time"}},
-	{Path: "/api/v1/history/ticks/{symbol}", Default: 100, Max: 1000,
+	// Phase-23 Task 23.3.4 raised the tick-history page contract to
+	// 1000/10000 (supersedes the Phase-20 100/1000 row).
+	{Path: "/api/v1/history/ticks/{symbol}", Default: 1000, Max: 10000,
+		Sortable:   []string{"ts"},
+		Filterable: []string{"from", "to"}},
+	// Phase-23 Task 23.3.1 — enriched trades projection history.
+	{Path: "/api/v1/history/trades/{symbol}", Default: 1000, Max: 10000,
 		Sortable:   []string{"ts"},
 		Filterable: []string{"from", "to"}},
 	{Path: "/api/v1/transfers", Default: 100, Max: 500,

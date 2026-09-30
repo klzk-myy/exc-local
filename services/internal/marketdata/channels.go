@@ -67,6 +67,14 @@ var channelTypes = map[string]ChannelClass{
 	"stats":          ClassNone, // Task 6.3.20 all-market statistics
 	"miniTicker":     ClassNone, // Task 6.3.20 all-symbol mini ticker
 	"blockTrades":    ClassNone, // Task 6.3.20 delayed block tape
+	// Phase-23 Task 23.3.3/23.3.5 premium feeds — every bind routes
+	// through FeedEntitlements (premium.go): authenticated premium tier +
+	// an ACTIVE per-feed subscription (migration 257). premium_l3 shares
+	// the L3-class 5-subscription budget with l3@/l3Book@.
+	"premium_l3": ClassL3,
+	"depth_full": ClassL2,
+	"auction":    ClassNone,
+	"greeks":     ClassNone, // Task 23.3.5 — spec §24 #250
 }
 
 // klineIntervals is the canonical 13-timeframe set pinned by spec §24

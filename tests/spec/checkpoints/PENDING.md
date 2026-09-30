@@ -13,17 +13,6 @@ r.Register("P05-T5.3.1-C1", func(ctx context.Context, env *spec.Env) spec.Result
 | Checkpoint | Task | Status | Text |
 |---|---|---|---|
 | `P08.5-T8.5.3.1-C1` | 8.5.3.1 (Phase-08.5-PreProduction-LoadTest.md:45) | [ ] | 75k/sec staging gate — defined first, validated against spec — **deferred: environment-bound** (req… |
-| `P23-T23.3.1-C1` | 23.3.1 (Phase-23-Market-Data-Products.md:42) | [ ] | historical data API with partitioning |
-| `P23-T23.3.2-C1` | 23.3.2 (Phase-23-Market-Data-Products.md:65) | [ ] | data export CSV/JSON/Parquet |
-| `P23-T23.3.3-C1` | 23.3.3 (Phase-23-Market-Data-Products.md:90) | [ ] | premium data feeds |
-| `P23-T23.3.4-C1` | 23.3.4 (Phase-23-Market-Data-Products.md:118) | [ ] | historical tick data API |
-| `P23-T23.3.5-C1` | 23.3.5 (Phase-23-Market-Data-Products.md:142) | [ ] | real-time Greeks feed |
-| `P23-T23.3.6-C1` | 23.3.6 (Phase-23-Market-Data-Products.md:152) | [ ] | sentiment analytics enforce delay and minimum-cohort privacy (§24 #276) |
-| `P23-T23.3.7-C1` | 23.3.7 (Phase-23-Market-Data-Products.md:162) | [ ] | historical block-trade API preserves publication delay, anonymity, and correction lineage (§24 #291) |
-| `P23-T23.3.8-C1` | 23.3.8 (Phase-23-Market-Data-Products.md:175) | [ ] | Historical market data queries enforce query timeouts, cache frequent requests, and mask pre-open p… |
-| `P23-T23.3.9-C1` | 23.3.9 (Phase-23-Market-Data-Products.md:193) | [ ] | swap-rate history reconciled to accrual journals (§24 #358) |
-| `P23-T23.3.10-C1` | 23.3.10 (Phase-23-Market-Data-Products.md:211) | [ ] | taker-volume and positioning ratios with delay/cohort guards (§24 #359) |
-| `P23-T23.3.11-C1` | 23.3.11 (Phase-23-Market-Data-Products.md:230) | [ ] | aggregate-only public performance statistics reconciled to TCA/SLO (§24 #380) |
 | `P24-T24.3.1-C1` | 24.3.1 (Phase-24-Backoffice-Settlement.md:43) | [ ] | nostro/vostro account management |
 | `P24-T24.3.2-C1` | 24.3.2 (Phase-24-Backoffice-Settlement.md:71) | [ ] | nostro/vostro reconciliation |
 | `P24-T24.3.3-C1` | 24.3.3 (Phase-24-Backoffice-Settlement.md:95) | [ ] | settlement confirmation tracking |

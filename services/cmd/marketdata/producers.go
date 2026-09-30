@@ -36,6 +36,12 @@
 //	EXC_MARKETDATA_BLOCK_MIN_USD      block threshold (default 1000000)
 //	EXC_MARKETDATA_OI                 "1" on / "0" off (default: on when
 //	                                  Postgres DSN configured)
+//	EXC_MARKETDATA_SENTIMENT          "1" on / "0" off (default on —
+//	                                  sentiment@ producer, Task 23.3.6)
+//	EXC_MARKETDATA_GREEKS             "1" on / "0" off (default on —
+//	                                  greeks@ producer, Task 23.3.5)
+//	EXC_MARKETDATA_PREMIUM            "1" on / "0" off (default on —
+//	                                  premium bundle, Task 23.3.3)
 package main
 
 import (
@@ -48,11 +54,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+	goredis "github.com/redis/go-redis/v9"
+
+	"exchange/internal/analytics"
 	"exchange/internal/config"
 	"exchange/internal/db"
 	"exchange/internal/ipc"
 	"exchange/internal/marketdata"
 	excnats "exchange/internal/nats"
+	"exchange/internal/oracle"
+	"exchange/internal/oracle/rates"
 	"exchange/internal/ws"
 	"exchange/pkg/decimal"
 )
@@ -67,8 +79,78 @@ type streamProducers struct {
 	Blocks *marketdata.BlockTapeProducer
 	Liqs   *marketdata.LiquidationsProducer
 	OI     *marketdata.OIProducer
+	// Sentiment is the Phase-23 Task 23.3.6 sentiment@{symbol} producer
+	// (30s cadence, 5m-delayed cohort + taker flow).
+	Sentiment *marketdata.SentimentProducer
+	// Greeks is the Phase-23 Task 23.3.5 greeks@{underlying} producer
+	// (100ms matrix, premium-bundle entitlement enforced at subscribe).
+	Greeks *marketdata.GreeksFeed
+	// Premium feeds — Task 23.3.3 bundle: premium_l3@ (order-level),
+	// full_depth@ (raw book deltas), auctions@ (delayed auction tape).
+	PremiumL3 *marketdata.PremiumL3Producer
+	FullDepth *marketdata.FullDepthProducer
+	Auctions  *marketdata.AuctionsProducer
 
 	closeNATS func()
+}
+
+// greeksInputSource resolves the per-underlying market inputs from the
+// shared Redis seams — the oracle mark (oracle:mark:{sym}) and the
+// Task 19.5.3.5 discount curves (curve:{ccy}). The VolFunc seam stays
+// unwired: no IV-surface publisher exists yet, and the feed's contract
+// freezes a contract frame (stale:true) rather than substitute a
+// guessed vol. Curve misses degrade identically — MarketFromCurves
+// re-validates completeness before a single greek is computed.
+type greeksInputSource struct {
+	marks  *oracle.Provider
+	curves *rates.Store
+}
+
+func (s greeksInputSource) Snapshot(ctx context.Context,
+	underlying string) (marketdata.GreeksInput, error) {
+	mv, err := s.marks.Mark(ctx, underlying)
+	if err != nil {
+		return marketdata.GreeksInput{}, err
+	}
+	if !mv.Found {
+		return marketdata.GreeksInput{},
+			fmt.Errorf("greeks input: no mark for %s", underlying)
+	}
+	base, quote, _ := strings.Cut(underlying, "/")
+	var bc, qc rates.Curve
+	if c, cerr := s.curves.GetCurve(ctx, base); cerr == nil {
+		bc = c
+	}
+	if c, cerr := s.curves.GetCurve(ctx, quote); cerr == nil {
+		qc = c
+	}
+	return marketdata.GreeksInput{
+		Mark:   mv.Price.InexactFloat64(),
+		MarkAt: mv.ValidAt,
+		Stale:  mv.Stale,
+		Base:   bc,
+		Quote:  qc,
+	}, nil
+}
+
+// msgToByteSource drops the routing subject — WireL3Source consumes
+// raw wire payloads and the subject is unused on the "l3" stream (the
+// resolver, not the route token, resolves instrument symbols).
+func msgToByteSource(src marketdata.MsgSource) marketdata.ByteSource {
+	return func(ctx context.Context) (<-chan []byte, error) {
+		in, err := src(ctx)
+		if err != nil {
+			return nil, err
+		}
+		out := make(chan []byte, 4096)
+		go func() {
+			defer close(out)
+			for m := range in {
+				out <- m.Data
+			}
+		}()
+		return out, nil
+	}
 }
 
 // chanTrades adapts a FanOut tap channel to a TradeSource.
@@ -283,7 +365,7 @@ func oiIntervalSeconds(iv string) (int, error) {
 // fail-loud but never block startup — the WS surface stays up.
 func startStreamProducers(ctx context.Context, cfg *config.Config,
 	srv *marketdata.Server, bboTap <-chan marketdata.BookDelta,
-	log *slog.Logger) *streamProducers {
+	rdb *goredis.Client, log *slog.Logger) *streamProducers {
 
 	res := instrumentResolver()
 	sp := &streamProducers{}
@@ -342,10 +424,21 @@ func startStreamProducers(ctx context.Context, cfg *config.Config,
 		Logger: log, Delay: blockDelay, ThresholdUSD: blockMin,
 	}, srcFor("blocks"), srv.Publish)
 
-	// --- BBO (delta tap) ---------------------------------------------
-	var bboSrc marketdata.DeltaSource
+	// --- BBO + full-depth (delta tap) ---------------------------------
+	// The raw pre-conflation stream feeds both the BBO conflator input
+	// and the Phase-23 Task 23.3.3 full_depth@ premium channel — a
+	// FanOut mirror keeps them independent (same trade-hub pattern).
+	var bboSrc, depthSrc marketdata.DeltaSource
 	if bboTap != nil {
-		bboSrc = chanDeltas(bboTap)
+		deltaHub := marketdata.NewFanOut(bboTap)
+		bboSrc = chanDeltas(deltaHub.Subscribe(8192))
+		depthSrc = chanDeltas(deltaHub.Subscribe(8192))
+		go func() {
+			if err := deltaHub.Run(ctx); err != nil &&
+				!errors.Is(err, context.Canceled) {
+				log.Error("marketdata: delta fanout exited", "err", err)
+			}
+		}()
 	}
 	sp.BBO = marketdata.NewBBOProducer(
 		marketdata.BBOProducerConfig{Logger: log}, bboSrc, srv.Publish)
@@ -371,31 +464,192 @@ func startStreamProducers(ctx context.Context, cfg *config.Config,
 	// --- Open interest (positions aggregate) --------------------------
 	sp.OI = marketdata.NewOIProducer(marketdata.OIProducerConfig{Logger: log},
 		nil, srv.Publish)
-	if cfg.Postgres.DSN != "" &&
-		envOr("EXC_MARKETDATA_OI", "1") != "0" {
+
+	// Shared positions-table pool for the position-derived producers —
+	// open interest (above) and the Phase-23 sentiment cohort (below)
+	// both read §5.13 `positions`. A dial failure leaves every
+	// position-derived feed in its suppressed/idle mode rather than
+	// blocking startup.
+	var posPool *pgxpool.Pool
+	if cfg.Postgres.DSN != "" {
 		poolCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		pool, perr := db.NewPool(poolCtx, cfg.Postgres.DSN, cfg.Postgres.MaxConns)
+		p, perr := db.NewPool(poolCtx, cfg.Postgres.DSN, cfg.Postgres.MaxConns)
 		cancel()
 		if perr != nil {
-			log.Error("marketdata: postgres unavailable — openInterest idle",
+			log.Error("marketdata: postgres unavailable — position-derived feeds idle",
 				"err", perr)
 		} else {
-			oiSrc := marketdata.NewPgxOpenInterestSource(pool,
-				instrumentIDMap(res), nil)
-			syms := make([]string, 0, len(instrumentIDMap(res)))
-			for _, s := range instrumentIDMap(res) {
-				syms = append(syms, s)
+			posPool = p
+		}
+	}
+	if posPool != nil && envOr("EXC_MARKETDATA_OI", "1") != "0" {
+		oiSrc := marketdata.NewPgxOpenInterestSource(posPool,
+			instrumentIDMap(res), nil)
+		syms := make([]string, 0, len(instrumentIDMap(res)))
+		for _, s := range instrumentIDMap(res) {
+			syms = append(syms, s)
+		}
+		sp.OI = marketdata.NewOIProducer(marketdata.OIProducerConfig{
+			Logger: log, Symbols: syms,
+		}, oiSrc, srv.Publish)
+		srv.SetSnapshotSource("openInterest", sp.OI)
+		if err := srv.RegisterMethod("openInterest.history",
+			oiHistoryHandler(sp.OI)); err != nil {
+			log.Error("marketdata: openInterest.history register failed",
+				"err", err)
+		}
+	}
+
+	// --- Sentiment & positioning (Phase-23 Task 23.3.6, spec §10.8) ----
+	// sentiment@{symbol} pushes the 5m-delayed long/short cohort plus a
+	// trailing taker-flow window every 30s (public channel — the delay
+	// is structural). Cohort = same PG positions pool as OI; flow =
+	// ClickHouse `trades` projection. Either source missing suppresses
+	// only its frame section — the producer degrades per-source.
+	sp.Sentiment = marketdata.NewSentimentProducer(
+		marketdata.SentimentProducerConfig{Logger: log},
+		nil, nil, srv.Publish)
+	if envOr("EXC_MARKETDATA_SENTIMENT", "1") != "0" {
+		var posSrc marketdata.PositionCohortSource
+		if posPool != nil {
+			// Cohort query is keyed on instrument_id — invert the
+			// resolver's id→symbol map.
+			symToID := map[string]int64{}
+			for id, sym := range instrumentIDMap(res) {
+				symToID[sym] = id
 			}
-			sp.OI = marketdata.NewOIProducer(marketdata.OIProducerConfig{
-				Logger: log, Symbols: syms,
-			}, oiSrc, srv.Publish)
-			srv.SetSnapshotSource("openInterest", sp.OI)
-			if err := srv.RegisterMethod("openInterest.history",
-				oiHistoryHandler(sp.OI)); err != nil {
-				log.Error("marketdata: openInterest.history register failed",
-					"err", err)
+			posSrc = marketdata.NewPgxPositionCohortSource(posPool,
+				symToID, nil)
+		}
+		var flowSrc marketdata.TakerFlowSource
+		if ch, derr := analytics.Dial(ctx, analytics.ConfigFromEnv()); derr != nil {
+			log.Error("marketdata: clickhouse unavailable — sentiment taker flow idle",
+				"err", derr)
+		} else {
+			flowSrc = marketdata.NewTakerFlowStore(ch)
+			prev := sp.closeNATS
+			sp.closeNATS = func() {
+				_ = ch.Close()
+				if prev != nil {
+					prev()
+				}
 			}
 		}
+		syms := make([]string, 0, len(instrumentIDMap(res)))
+		for _, s := range instrumentIDMap(res) {
+			syms = append(syms, s)
+		}
+		sp.Sentiment = marketdata.NewSentimentProducer(
+			marketdata.SentimentProducerConfig{Logger: log, Symbols: syms},
+			posSrc, flowSrc, srv.Publish).WithSymbolSource(
+			func() []string { return srv.ActiveSymbolsFor("sentiment") })
+		srv.SetSnapshotSource("sentiment", sp.Sentiment)
+	}
+
+	// --- Greeks feed (Phase-23 Task 23.3.5, spec §24 #250) ------------
+	// greeks@{underlying} emits the full option matrix every 100ms to
+	// premium-bundle subscribers. Contracts read the derivative-
+	// instruments table (positions pool); inputs ride the Redis oracle
+	// mark + Task 19.5.3.5 curves via greeksInputSource; frames
+	// republish to JetStream and snapshot to ClickHouse 008. A missing
+	// vol surface freezes contract frames (stale:true) — never a guess.
+	sp.Greeks = marketdata.NewGreeksFeed(marketdata.GreeksFeedConfig{
+		Logger: log,
+		Symbols: func() []string {
+			return srv.ActiveSymbolsFor(marketdata.FeedGreeks)
+		},
+	}, srv.Publish)
+	if envOr("EXC_MARKETDATA_GREEKS", "1") != "0" {
+		gcfg := marketdata.GreeksFeedConfig{
+			Logger: log,
+			Symbols: func() []string {
+				return srv.ActiveSymbolsFor(marketdata.FeedGreeks)
+			},
+		}
+		if posPool != nil {
+			gcfg.Contracts = marketdata.NewPgxOptionSeriesSource(posPool)
+		}
+		gcfg.Inputs = greeksInputSource{
+			marks:  oracle.NewProvider(rdb),
+			curves: rates.NewStore(rdb),
+		}
+		if ch, derr := analytics.Dial(ctx, analytics.ConfigFromEnv()); derr != nil {
+			log.Error("marketdata: clickhouse unavailable — greeks history sink idle",
+				"err", derr)
+		} else {
+			gcfg.Sink = marketdata.NewCHGreeksStore(ch)
+			prev := sp.closeNATS
+			sp.closeNATS = func() {
+				_ = ch.Close()
+				if prev != nil {
+					prev()
+				}
+			}
+		}
+		if nc, nerr := connectNATS(ctx, cfg, log); nerr != nil {
+			log.Error("marketdata: nats unavailable — greeks republish idle",
+				"err", nerr)
+		} else {
+			gcfg.Publisher = marketdata.JetStreamGreeksPublisher(nc, "analytics", 0)
+			prev := sp.closeNATS
+			sp.closeNATS = func() {
+				nc.Close()
+				if prev != nil {
+					prev()
+				}
+			}
+		}
+		sp.Greeks = marketdata.NewGreeksFeed(gcfg, srv.Publish)
+	}
+
+	// --- Premium feeds (Phase-23 Task 23.3.3) --------------------------
+	// premium_l3@{sym} relays engine L3 rows off the dedicated "l3"
+	// JetStream stream (bridge route.go owns the routing); full_depth@
+	// rides the raw delta mirror opened above; auctions@ re-emits
+	// delayed liquidation-auction events off a second margin-events
+	// consumer. Entitlement enforcement lives on the server bind —
+	// producers publish frames, never policy.
+	sp.PremiumL3 = marketdata.NewPremiumL3Producer(nil, srv.Publish, log)
+	sp.FullDepth = marketdata.NewFullDepthProducer(depthSrc, srv.Publish, nil, log)
+	sp.Auctions = marketdata.NewAuctionsProducer(
+		marketdata.LiquidationsProducerConfig{Logger: log}, nil, srv.Publish)
+	if envOr("EXC_MARKETDATA_PREMIUM", "1") != "0" {
+		if nc, nerr := connectNATS(ctx, cfg, log); nerr != nil {
+			log.Error("marketdata: nats unavailable — premium_l3 feed idle",
+				"err", nerr)
+		} else {
+			l3src := marketdata.NewWireL3Source(
+				msgToByteSource(marketdata.JetStreamMsgSource(nc, "l3",
+					"marketdata-premium-l3", "l3.*.*", log)),
+				res, log)
+			sp.PremiumL3 = marketdata.NewPremiumL3Producer(
+				l3src, srv.Publish, log)
+			prev := sp.closeNATS
+			sp.closeNATS = func() {
+				nc.Close()
+				if prev != nil {
+					prev()
+				}
+			}
+		}
+		sp.FullDepth = marketdata.NewFullDepthProducer(
+			depthSrc, srv.Publish, nil, log)
+		aucSrc, closeAuc, aerr := buildLiquidationSource(ctx, cfg, res, log)
+		if aerr != nil {
+			log.Error("marketdata: auctions source unavailable — feed idle",
+				"err", aerr)
+		} else {
+			prev := sp.closeNATS
+			sp.closeNATS = func() {
+				closeAuc()
+				if prev != nil {
+					prev()
+				}
+			}
+		}
+		sp.Auctions = marketdata.NewAuctionsProducer(
+			marketdata.LiquidationsProducerConfig{Logger: log},
+			aucSrc, srv.Publish)
 	}
 
 	// --- Launch -------------------------------------------------------
@@ -404,6 +658,9 @@ func startStreamProducers(ctx context.Context, cfg *config.Config,
 		"ticker": sp.Ticker.Run, "stats": sp.Stats.Run,
 		"blockTrades": sp.Blocks.Run, "bbo": sp.BBO.Run,
 		"liquidations": sp.Liqs.Run, "openInterest": sp.OI.Run,
+		"sentiment": sp.Sentiment.Run, "greeks": sp.Greeks.Run,
+		"premiumL3": sp.PremiumL3.Run, "fullDepth": sp.FullDepth.Run,
+		"auctions": sp.Auctions.Run,
 	}
 	for name, run := range runners {
 		go func(name string, run func(context.Context) error) {

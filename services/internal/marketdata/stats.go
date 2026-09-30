@@ -330,6 +330,7 @@ type blockCorrectionData struct {
 	Kind              string `json:"kind"`  // "CORRECTION" | "BUST"
 	BlockTradeID      uint64 `json:"block_trade_id"`
 	OriginalTradeID   uint64 `json:"original_trade_id"`
+	Symbol            string `json:"symbol"` // channel symbol — added for the Phase-23 tape sink (23.3.7)
 	CorrectedPrice    string `json:"corrected_price,omitempty"`
 	CorrectedQuantity string `json:"corrected_quantity,omitempty"`
 	TsMs              int64  `json:"ts_ms"`
@@ -524,14 +525,28 @@ func (p *BlockTapeProducer) PushCorrection(tradeID uint64, kind,
 		return
 	}
 	ch := "blockTrades@" + ref.symbol
-	p.emit(ch, p.seq.next(ch), blockCorrectionData{
+	corr := blockCorrectionData{
 		Event: "blockTradeCorrection", Kind: kind,
 		BlockTradeID:      ref.blockID,
 		OriginalTradeID:   tradeID,
+		Symbol:            ref.symbol,
 		CorrectedPrice:    correctedPrice,
 		CorrectedQuantity: correctedQty,
 		TsMs:              p.cfg.Now().UnixMilli(),
-	})
+	}
+	p.emit(ch, p.seq.next(ch), corr)
+	// Phase-23 Task 23.3.7: sinks implementing BlockTapeCorrectionSink
+	// also persist the correction so the historical tape carries the
+	// print→correction lineage. Sinks without it stay prints-only — the
+	// broadcast above is unaffected either way.
+	if s, ok := p.cfg.Sink.(BlockTapeCorrectionSink); ok {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		if err := s.RecordCorrection(ctx, corr); err != nil {
+			p.cfg.Logger.Error("marketdata: block tape correction sink failed",
+				"block_trade_id", ref.blockID, "err", err)
+		}
+		cancel()
+	}
 }
 
 // Run drives the producer until ctx is cancelled.

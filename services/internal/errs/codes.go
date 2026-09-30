@@ -446,4 +446,13 @@ var localCodes = []CodeDef{
 	// canonical table has no row for it; spec §13.4/§13.11.
 	localRow("LIQUIDATION_FAILED", 500, "Phase-19 Task 19.3.3",
 		"Liquidation dispatch or processing failed — queue enqueue, level re-read, mass cancel or position close degraded; ops is paged and the account remains flagged (spec §13.4, §13.11; §2.7 fail-closed)"),
+	// Phase-23 Task 23.3.2 — data export (CSV/JSON/Parquet + async job)
+	// admission codes emitted by internal/api/handlers_export.go over
+	// internal/marketdata. The §23 fix is a spec-side transcription row.
+	localRow("EXPORT_LIMIT_EXCEEDED", 400, "Phase-23 Task 23.3.2",
+		"Export request exceeds the 1,000,000-row per-export cap — narrow the time range or request a smaller bound (spec §10, §16.6)"),
+	localRow("EXPORT_JOB_NOT_FOUND", 404, "Phase-23 Task 23.3.2",
+		"Export job does not resolve, resolves outside the caller's account scope, or its 24-hour download link has expired — expiry is a miss, never a stale ref (spec §10, §16.6; §2.7 fail-closed)"),
+	localRow("EXPORT_FORMAT_INVALID", 400, "Phase-23 Task 23.3.2",
+		"Export format is not one of csv|json|parquet — the value is rejected, never defaulted (spec §10, §16.6)"),
 }

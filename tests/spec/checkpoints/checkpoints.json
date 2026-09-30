@@ -5623,7 +5623,7 @@
       "text": "historical data API with partitioning",
       "file": "Phase-23-Market-Data-Products.md",
       "line": 42,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -5634,7 +5634,7 @@
       "text": "data export CSV/JSON/Parquet",
       "file": "Phase-23-Market-Data-Products.md",
       "line": 65,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -5645,7 +5645,7 @@
       "text": "premium data feeds",
       "file": "Phase-23-Market-Data-Products.md",
       "line": 90,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -5656,7 +5656,7 @@
       "text": "historical tick data API",
       "file": "Phase-23-Market-Data-Products.md",
       "line": 118,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -5667,7 +5667,7 @@
       "text": "real-time Greeks feed",
       "file": "Phase-23-Market-Data-Products.md",
       "line": 142,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -5678,7 +5678,7 @@
       "text": "sentiment analytics enforce delay and minimum-cohort privacy (§24 #276)",
       "file": "Phase-23-Market-Data-Products.md",
       "line": 152,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -5689,7 +5689,7 @@
       "text": "historical block-trade API preserves publication delay, anonymity, and correction lineage (§24 #291)",
       "file": "Phase-23-Market-Data-Products.md",
       "line": 162,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -5700,7 +5700,7 @@
       "text": "Historical market data queries enforce query timeouts, cache frequent requests, and mask pre-open participant data (§24 #325)",
       "file": "Phase-23-Market-Data-Products.md",
       "line": 175,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -5711,7 +5711,7 @@
       "text": "swap-rate history reconciled to accrual journals (§24 #358)",
       "file": "Phase-23-Market-Data-Products.md",
       "line": 193,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -5722,7 +5722,7 @@
       "text": "taker-volume and positioning ratios with delay/cohort guards (§24 #359)",
       "file": "Phase-23-Market-Data-Products.md",
       "line": 211,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -5733,7 +5733,7 @@
       "text": "aggregate-only public performance statistics reconciled to TCA/SLO (§24 #380)",
       "file": "Phase-23-Market-Data-Products.md",
       "line": 230,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
