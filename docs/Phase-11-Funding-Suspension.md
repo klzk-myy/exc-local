@@ -241,7 +241,7 @@ Implement funding via banking rails (SWIFT, SEPA, FedNow, ACH, CHAPS, TARGET2), 
 **SDD Checklist:**
 - [x] Spec checkpoint: scoped kill-switch (§7.2, §24 #152) — defined first, validated against spec
 - [x] All spec checkpoints pass after implementation
-- [ ] Edge cases: overlapping scopes (account + instrument), kill during active matching, FIX-session kill vs cancel-on-disconnect interaction — OPEN: overlapping-scope precedence tested (TestKillSwitchResolve_Precedence); kill-during-matching via C++ check-0 lattice (structural); FIX-session-vs-CoD interaction untestable — FIX session layer is Phase-18
+- [x] Edge cases: overlapping scopes (account + instrument), kill during active matching, FIX-session kill vs cancel-on-disconnect interaction — overlapping-scope precedence tested (TestKillSwitchResolve_Precedence); kill-during-matching via C++ check-0 lattice (structural); FIX-session-vs-CoD interaction covered by Phase-18 landing (TestOnLogout_AbnormalRunsCoD_OrderlyPreserves — abnormal disconnect runs cancel-on-disconnect, orderly Logout(35=5) preserves)
 
 ---
 
@@ -333,7 +333,7 @@ Implement funding via banking rails (SWIFT, SEPA, FedNow, ACH, CHAPS, TARGET2), 
 
 **Definition of Done (Acceptance Criteria):**
 * [ ] Scoped counterparty kill-switch cancels target user's orders within 10µs without affecting other venue participants — OPEN: counterparty resting-order cancel sweep verified (TestKillSwitchServiceIntegration); the 10us bound is a hot-path latency claim — no measurement harness on this leg
-* [ ] LP kill-switch halts LP quotes on Tag 35=i while preserving firm CLOB continuous trading — OPEN: LP scope + LPSuspended quote-ingress check verified (TestKillSwitchResolve_RailAndLP); Tag 35=i mass-quote ingress is Phase-18 FIX scope — no live consumer yet
+* [ ] LP kill-switch halts LP quotes on Tag 35=i while preserving firm CLOB continuous trading — OPEN (wiring gap): LP scope + LPSuspended quote-ingress check verified (TestKillSwitchResolve_RailAndLP) and Phase-18 landed the Tag 35=i consumer (fix/quoting.go through the canonical orders.Submit pipeline), but QuoteService never calls LPSuspended — no account→lp_id binding exists to resolve the scope; quotes still ride the account/instrument kill-switch scopes, not SCOPE_LP
 * [x] Rail suspension halts target rail operations with `SETTLEMENT_RAIL_REJECTED` while sibling rails operate normally
 
 **SDD Checklist:**

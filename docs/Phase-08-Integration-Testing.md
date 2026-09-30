@@ -126,9 +126,9 @@ End-to-end integration testing of all Phase 1–7 components: C++ core, Go gatew
 3. **Traceability Automation:** Verify all 419 acceptance criteria and their error test cases pass in the CI test runner.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Multi-service error scenarios execute cleanly in CI — suite green locally (24/24); no CI job runs tests/integration/error_scenarios yet
+* [ ] Multi-service error scenarios execute cleanly in CI — suite green locally (24/24); `error-scenarios` job authored in .github/workflows/ci.yml (go test -count=1 -v ./tests/integration/error_scenarios) *(open — pending-remote: remote CI run unobserved on this host)*
 * [x] Gateway circuit breaker transitions validated under synthetic fault injection
-* [ ] All 419 §24 criteria verified mapped and passing — mapped 419/419; passing subset is Phase-1–7 scope (135 pass / 10 env-blocked); later-phase criteria remain PLANNED by design
+* [ ] All 419 §24 criteria verified mapped and passing — mapped 419/419 (traceability.json, 0 defects); post-completion corpus: 568 pass / 2 env-bound skip / 1 env-bound pending / 0 fail — the env-bound remainder (72h soak, 75k/s staging gate) keeps this row honestly open
 
 **SDD Checklist:**
 - [x] Spec checkpoint: End-to-end error scenario test suite and circuit breaker assertions (§24 #307) — defined first, validated against spec

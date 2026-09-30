@@ -605,7 +605,7 @@ Implement production deployment: bare metal C++ core provisioning, Kubernetes Go
 
 **Definition of Done (Acceptance Criteria):**
 * [x] Gateway drains HTTP requests and closes WS with reconnect message
-* [ ] FIX Gateway completes logout sequence on SIGTERM *(open — open: FIX logout hook is a documented no-op stub pending Phase-18 QuickFIX session)*
+* [x] FIX Gateway completes logout sequence on SIGTERM — Phase-18 landed it (supersedes the earlier no-op-stub note): cmd/fix/main.go ctx.Done → drainer.Drain latches the logon gate (ErrDraining → FromAdmin rejects new Logons), sends News(35=B) advisory, emits Logout(35=5) Text="Scheduled maintenance" to every active session, waits ≤10s for peer Logouts then force-closes stragglers; gw.Stop quickfixgo teardown is idempotent for drained sessions (fix/drain.go, fix/drain_test.go)
 * [x] K8s PreStop hook and terminationGracePeriodSeconds configured
 
 **SDD Checklist:**

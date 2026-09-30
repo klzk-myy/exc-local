@@ -170,6 +170,19 @@ jobs:
       - name: Go unit tests (spec-validation harness module)
         run: cd tests/spec && go test -count=1 ./...
 
+  # ── 2c. Multi-service fault-injection suite (Phase-08 §8.7) ───────────────
+  error-scenarios:
+    name: Error scenarios (fault injection + circuit breaker)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: tests/integration/error_scenarios/go.mod
+          cache: true
+      - name: Multi-service error scenarios
+        run: cd tests/integration/error_scenarios && go test -count=1 -v ./...
+
   # ── 2b. Frontend (Phase-10 Trader UI scaffold) ────────────────────────────
   frontend:
     name: Frontend (typecheck + lint + test + bundle budget)
