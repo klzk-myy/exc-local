@@ -23,6 +23,13 @@ var Streams = []string{
 	// bridge (l3.{shard}.{symbol}). Distinct from "analytics" because its
 	// retention cadence and premium-tier consumers differ.
 	"l3",
+	// Task 7.3.9 feed seam — venue-side LP quote events published by the
+	// FIX mass-quote path on quotes.lp.{lp_id}.{symbol-token}, consumed
+	// by marketdata's LPBookProducer. A dedicated stream (not
+	// "analytics"): the subject space must not collide with the bridge's
+	// FlatBuffers wire-event subjects, and per-LP ordering is a distinct
+	// ordering domain from the engine's {shard}.{symbol} key.
+	"quotes",
 }
 
 const (

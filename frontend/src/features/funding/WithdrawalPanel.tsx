@@ -12,6 +12,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiClient } from '@/app/runtime';
+import { cmpDecimal, useValidatedField, type FieldRule } from '@/lib/input-helpers';
 import {
   CopyButton,
   ErrorBox,
@@ -27,6 +28,26 @@ import {
 } from '@/lib/ui';
 
 import * as api from './api';
+
+const RULE_AMOUNT: FieldRule = {
+  name: 'amount',
+  label: 'Amount',
+  required: true,
+  kind: 'decimal',
+  positive: true,
+};
+const RULE_REFERENCE: FieldRule = {
+  name: 'reference_account',
+  label: 'Beneficiary account',
+  required: true,
+  kind: 'string',
+};
+const RULE_TOKEN: FieldRule = {
+  name: 'token',
+  label: 'Confirmation token',
+  required: true,
+  kind: 'string',
+};
 
 function TierNote({ tier }: { tier?: string }) {
   const t = api.REVIEW_TIERS.find((x) => x.tier === tier);
@@ -60,9 +81,9 @@ function ConfirmCountdown({ createdOrExpiry }: { createdOrExpiry: string }) {
 
 function PendingWithdrawalRow({ row }: { row: api.FundingTxRow }) {
   const qc = useQueryClient();
-  const [token, setToken] = useState('');
+  const token = useValidatedField(RULE_TOKEN);
   const confirm = useMutation({
-    mutationFn: () => api.confirmWithdrawal(apiClient, row.id, token),
+    mutationFn: () => api.confirmWithdrawal(apiClient, row.id, token.value),
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ['funding'] });
     },
@@ -103,12 +124,9 @@ function PendingWithdrawalRow({ row }: { row: api.FundingTxRow }) {
           id={`tok-${row.id}`}
           className={`${inputCls} flex-1`}
           placeholder="Confirmation token (emailed)"
-          value={token}
-          onChange={(e) => {
-            setToken(e.target.value);
-          }}
+          {...token.inputProps}
         />
-        <button type="submit" className={btnPrimary} disabled={confirm.isPending || token === ''}>
+        <button type="submit" className={btnPrimary} disabled={confirm.isPending || !token.valid}>
           Confirm
         </button>
       </form>
@@ -130,24 +148,26 @@ export default function WithdrawalPanel() {
   });
 
   const [currency, setCurrency] = useState('USD');
-  const [amount, setAmount] = useState('');
-  const [reference, setReference] = useState('');
+  const amount = useValidatedField(RULE_AMOUNT);
+  const reference = useValidatedField(RULE_REFERENCE);
   const [method, setMethod] = useState<string>('SWIFT');
   const [confirmVia, setConfirmVia] = useState<string>('email');
   const [created, setCreated] = useState<api.WithdrawalResult | null>(null);
 
   const balance = (bals.data ?? []).find((b) => b.currency === currency);
+  // Business rule (server remains authoritative): amount vs available
+  // balance — cmpDecimal returns null on non-decimal input → no flag.
   const exceeds =
     balance !== undefined &&
-    amount !== '' &&
-    Number.parseFloat(amount) > Number.parseFloat(balance.available);
+    amount.value !== '' &&
+    cmpDecimal(amount.value, balance.available) === 1;
 
   const create = useMutation({
     mutationFn: () =>
       api.createWithdrawal(apiClient, {
         currency,
-        amount,
-        referenceAccount: reference,
+        amount: amount.value,
+        referenceAccount: reference.value,
         bankMethod: method,
         confirmMethod: confirmVia,
         idempotencyKey: api.newIdempotencyKey(),
@@ -219,37 +239,35 @@ export default function WithdrawalPanel() {
               </select>
             )}
           </Field>
-          <Field label="Amount" required error={exceeds ? 'Exceeds available balance' : null}>
-            {(id, describedBy, invalid) => (
+          <Field
+            label="Amount"
+            required
+            error={amount.error ?? (exceeds ? 'Exceeds available balance' : null)}
+          >
+            {(id, describedBy) => (
               <input
                 id={id}
                 aria-describedby={describedBy}
-                aria-invalid={invalid || exceeds}
                 className={inputCls}
                 inputMode="decimal"
                 placeholder="0.00"
-                value={amount}
-                onChange={(e) => {
-                  setAmount(e.target.value);
-                }}
+                {...amount.inputProps}
+                aria-invalid={exceeds || amount.inputProps['aria-invalid']}
               />
             )}
           </Field>
           <Field
             label="Beneficiary account (IBAN / account reference)"
             required
+            error={reference.error}
             hint="Use a registered beneficiary account — third-party withdrawals are rejected."
           >
-            {(id, describedBy, invalid) => (
+            {(id, describedBy) => (
               <input
                 id={id}
                 aria-describedby={describedBy}
-                aria-invalid={invalid}
                 className={inputCls}
-                value={reference}
-                onChange={(e) => {
-                  setReference(e.target.value);
-                }}
+                {...reference.inputProps}
               />
             )}
           </Field>
@@ -298,7 +316,7 @@ export default function WithdrawalPanel() {
           <button
             type="submit"
             className={btnPrimary}
-            disabled={create.isPending || amount === '' || reference === '' || exceeds}
+            disabled={create.isPending || !amount.valid || !reference.valid || exceeds}
           >
             {create.isPending ? 'Creating…' : 'Create withdrawal'}
           </button>

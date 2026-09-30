@@ -49,6 +49,8 @@ const OK_AUDIT = {
   total: 1,
 };
 
+const OK_INSTRUMENTS = { instruments: [] };
+
 const OK_STATUS = {
   status: 'operational',
   mode: 'Normal',
@@ -96,6 +98,7 @@ describe('AdminPage (Super Admin)', () => {
       'GET /api/v1/admin/support/tickets': { body: OK_TICKETS },
       'GET /api/v1/admin/dual-control': { body: { requests: [] } },
       'GET /api/v1/admin/audit-log': { body: OK_AUDIT },
+      'GET /api/v1/admin/instruments': { body: OK_INSTRUMENTS },
     });
     renderApp(<AdminPage />);
 
@@ -132,6 +135,7 @@ describe('AdminPage (Super Admin)', () => {
       'GET /api/v1/admin/dual-control': { body: { requests: [] } },
       'GET /api/v1/admin/audit-log': { body: OK_AUDIT },
       'GET /api/v1/admin/ops/health': { body: { mode: 'Normal' } },
+      'GET /api/v1/admin/instruments': { body: OK_INSTRUMENTS },
     });
     renderApp(<AdminPage />);
     await waitFor(() => expect(screen.getAllByTestId('access-denied').length).toBeGreaterThan(0));
@@ -147,6 +151,7 @@ describe('AdminPage (Super Admin)', () => {
       'GET /api/v1/admin/dual-control': { body: { requests: [] } },
       'GET /api/v1/admin/audit-log': { body: { data: [], next_cursor: '', limit: 50, total: 0 } },
       'GET /api/v1/admin/ops/health': { body: { mode: 'Normal' } },
+      'GET /api/v1/admin/instruments': { body: OK_INSTRUMENTS },
       'GET /api/v1/admin/support/accounts/1001': {
         body: {
           account_id: 1001,

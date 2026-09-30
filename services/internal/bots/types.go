@@ -7,8 +7,9 @@
 // channel). On a child fill the engine places the opposite order at the
 // adjacent grid level and books the round-trip as realized grid PnL.
 //
-// Concurrency contract: at most MaxConcurrentBots RUNNING bots per
-// account, enforced inside the create transaction under an account row
+// Concurrency contract: at most MaxConcurrentBots live (RUNNING or
+// PAUSED) bots per account, enforced inside the create transaction under
+// an account row
 // lock. Fill→counter flips are idempotent under at-least-once delivery:
 // grid_bot_orders.source_child_id carries a partial unique index, so a
 // re-delivered fill can never spawn a second counter order.
@@ -37,8 +38,9 @@ func errorf(code, format string, args ...any) *excerrors.Error {
 	return excerrors.New(code, fmt.Sprintf(format, args...))
 }
 
-// MaxConcurrentBots is the R13 cap on concurrently RUNNING grid bots
-// per account (spec §10.2 grid-bot wizard note + §24 #275).
+// MaxConcurrentBots is the R13 cap on concurrently live grid bots per
+// account — RUNNING + PAUSED both hold a slot (spec §10.2 grid-bot
+// wizard note + §24 #275): pausing must never free a slot for a 6th bot.
 const MaxConcurrentBots = 5
 
 // Grid bounds per Task 16.3.19: grid_count ∈ [5, 200].
@@ -56,6 +58,7 @@ const (
 // Bot lifecycle (grid_bot_status_enum).
 const (
 	StatusRunning   = "RUNNING"
+	StatusPaused    = "PAUSED"    // frozen — children work, no new legs (Task 10.3.26)
 	StatusCompleted = "COMPLETED" // take-profit excursion — clean exit
 	StatusStopped   = "STOPPED"   // user stop / stop-loss excursion
 	StatusFailed    = "FAILED"    // unrecoverable placement failure

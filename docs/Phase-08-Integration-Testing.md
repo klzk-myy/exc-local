@@ -35,7 +35,7 @@ End-to-end integration testing of all Phase 1–7 components: C++ core, Go gatew
 
 **Definition of Done (Acceptance Criteria):**
 * [x] All **419** §24 criteria have an owner phase, stable test ID/contract and phase AC (supersedes prior 414, 401, 398, 397, 334, 333, 256 — the count lagged remediations #13–#18 — and earlier 252, 237, 219, 206, 201, 192, 174, 164, 128)
-* [ ] All Phase 1–7-owned tests run against ephemeral Docker Compose and pass — env-blocked: docker socket unusable on this host; suite executed against live scratch PG/Redis — 135 PASS / 10 BLOCKED (docker×5, sentinel×2, aeronmd×1, snapbench-evidence×2) / 0 FAIL
+* [ ] All Phase 1–7-owned tests run against ephemeral Docker Compose and pass — partial 2026-09-30: docker socket USABLE now (gate green); suite re-run against live dev topology — 113 PASS / 0 FAIL / 9 BLOCKED (compose-runner legs dr-failover·pg-pitr·pg-rpo-rto×3 env-bound, ch-backup/haproxy pending drill scripts, 1 soak-evidence + other evidence legs); sentinel+aeron+snapbench legs now execute (aeronmd vendored: Aeron p99 3.9µs; sentinel quorum probed live; snapbench 13.2M ord/s build evidence). Ephemeral-compose re-provisioning leg still open — suite runs against the running compose stack rather than a freshly provisioned ephemeral one
 * [x] Executable subset passes in < 20 min; post-Phase-24 gate requires all **419** executable/pass with zero PLANNED
 
 **SDD Checklist:**

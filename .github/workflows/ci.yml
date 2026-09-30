@@ -413,3 +413,9 @@ jobs:
 
       - name: Blue-green synthetic-order gate evidence (9.3.26)
         run: bash deploy/scripts/tests/bluegreen_gate_test.sh
+
+      - name: Burn-rate alert rules chaos test (9.3.14)
+        run: |
+          docker run --rm --entrypoint promtool \
+            -v "$PWD/deploy/prometheus:/rules" prom/prometheus:v2.53.0 \
+            test rules /rules/tests/exchange_alerts.test.yml

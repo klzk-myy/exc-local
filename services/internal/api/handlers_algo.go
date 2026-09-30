@@ -308,8 +308,9 @@ func AlgoList(d *AlgoDeps) http.HandlerFunc {
 
 // AlgoCancelAll — DELETE /algo-orders: every non-terminal parent of the
 // account is cancelled (children terminated via the pipeline with the
-// Task 16.3.22 race reconcile), plus every RUNNING grid bot when the
-// bots engine is wired — zero orphan slices per §24 #365. ?symbol=
+// Task 16.3.22 race reconcile), plus every live (RUNNING or PAUSED —
+// paused children still rest on the book) grid bot when the bots engine
+// is wired — zero orphan slices per §24 #365. ?symbol=
 // scopes the sweep to one instrument.
 func AlgoCancelAll(d *AlgoDeps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -335,7 +336,8 @@ func AlgoCancelAll(d *AlgoDeps) http.HandlerFunc {
 				return
 			}
 			for i := range bl {
-				if bl[i].Status != bots.StatusRunning {
+				if bl[i].Status != bots.StatusRunning &&
+					bl[i].Status != bots.StatusPaused {
 					continue
 				}
 				if symbol != "" && bl[i].Symbol != symbol {

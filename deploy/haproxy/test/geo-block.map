@@ -1,0 +1,1 @@
+# empty = no geo denies (dev/test default, per haproxy.cfg comment)

@@ -8,23 +8,42 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
 
 import { apiClient } from '@/app/runtime';
+import { useValidatedField, validateField, type FieldRule } from '@/lib/input-helpers';
 import { ErrorBox, Field, btnPrimary, cardCls, inputCls, tableCls, tdCls, thCls } from '@/lib/ui';
 
 import * as api from './api';
 import TotpEnrollment from './TotpEnrollment';
 import WebAuthnPanel from './WebAuthnPanel';
 
+const REQUIRED = (name: string, label: string): FieldRule => ({
+  name,
+  label,
+  required: true,
+  kind: 'string',
+});
+/** Anti-phishing code rule — bounds mirror api.ANTI_PHISHING_{MIN,MAX}
+ * (12.3.10). Live-validated below since the error shows on type. */
+const RULE_ANTI_PHISHING: FieldRule = {
+  name: 'code',
+  label: 'Anti-phishing code',
+  required: true,
+  kind: 'string',
+  minLength: api.ANTI_PHISHING_MIN,
+  maxLength: api.ANTI_PHISHING_MAX,
+};
+
 function PasswordChangeForm() {
-  const [current, setCurrent] = useState('');
-  const [next, setNext] = useState('');
-  const [confirm, setConfirm] = useState('');
-  const mismatch = confirm !== '' && confirm !== next;
+  const current = useValidatedField(REQUIRED('current_password', 'Current password'));
+  const next = useValidatedField(REQUIRED('new_password', 'New password'));
+  const confirm = useValidatedField(REQUIRED('confirm', 'Confirm new password'));
+  // Cross-field rule — the shared framework has no equality combinator.
+  const mismatch = confirm.value !== '' && confirm.value !== next.value;
   const mut = useMutation({
-    mutationFn: () => api.changePassword(apiClient, current, next),
+    mutationFn: () => api.changePassword(apiClient, current.value, next.value),
     onSuccess: () => {
-      setCurrent('');
-      setNext('');
-      setConfirm('');
+      current.reset();
+      next.reset();
+      confirm.reset();
     },
   });
 
@@ -43,62 +62,51 @@ function PasswordChangeForm() {
           mut.mutate();
         }}
       >
-        <Field label="Current password" required>
-          {(id, describedBy, invalid) => (
+        <Field label="Current password" required error={current.error}>
+          {(id, describedBy) => (
             <input
               id={id}
               aria-describedby={describedBy}
-              aria-invalid={invalid}
               className={inputCls}
               type="password"
               autoComplete="current-password"
-              value={current}
-              onChange={(e) => {
-                setCurrent(e.target.value);
-              }}
+              {...current.inputProps}
             />
           )}
         </Field>
-        <Field label="New password" required>
-          {(id, describedBy, invalid) => (
+        <Field label="New password" required error={next.error}>
+          {(id, describedBy) => (
             <input
               id={id}
               aria-describedby={describedBy}
-              aria-invalid={invalid}
               className={inputCls}
               type="password"
               autoComplete="new-password"
-              value={next}
-              onChange={(e) => {
-                setNext(e.target.value);
-              }}
+              {...next.inputProps}
             />
           )}
         </Field>
         <Field
           label="Confirm new password"
           required
-          error={mismatch ? 'Passwords do not match' : null}
+          error={mismatch ? 'Passwords do not match' : confirm.error}
         >
-          {(id, describedBy, invalid) => (
+          {(id, describedBy) => (
             <input
               id={id}
               aria-describedby={describedBy}
-              aria-invalid={invalid || mismatch}
               className={inputCls}
               type="password"
               autoComplete="new-password"
-              value={confirm}
-              onChange={(e) => {
-                setConfirm(e.target.value);
-              }}
+              {...confirm.inputProps}
+              aria-invalid={mismatch || confirm.inputProps['aria-invalid']}
             />
           )}
         </Field>
         <button
           type="submit"
           className={btnPrimary}
-          disabled={mut.isPending || current === '' || next === '' || mismatch}
+          disabled={mut.isPending || !current.valid || !next.valid || mismatch}
         >
           {mut.isPending ? 'Updating…' : 'Change password'}
         </button>
@@ -109,7 +117,10 @@ function PasswordChangeForm() {
 
 function AntiPhishingForm() {
   const [code, setCode] = useState('');
-  const valid = api.antiPhishingValid(code);
+  // Task 10.3.29 shared rule — validated eagerly (error shows on type,
+  // not just blur) so the live hint survives unchanged.
+  const codeErr = code !== '' ? (validateField(RULE_ANTI_PHISHING, code)?.message ?? null) : null;
+  const valid = validateField(RULE_ANTI_PHISHING, code) === null;
   const mut = useMutation({ mutationFn: () => api.setAntiPhishingCode(apiClient, code) });
 
   return (
@@ -134,11 +145,7 @@ function AntiPhishingForm() {
         <Field
           label="Anti-phishing code"
           required
-          error={
-            code !== '' && !valid
-              ? `Must be ${api.ANTI_PHISHING_MIN}–${api.ANTI_PHISHING_MAX} characters`
-              : null
-          }
+          error={codeErr}
         >
           {(id, describedBy, invalid) => (
             <input

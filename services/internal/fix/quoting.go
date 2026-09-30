@@ -172,6 +172,59 @@ type LPGuard interface {
 	LPSuspended(ctx context.Context, lpID string) (bool, string, error)
 }
 
+// ---------------------------------------------------------------------------
+// Task 7.3.9 feed seam — accepted quotes/withdrawals toward market-data
+// distribution (per-LP pricing: lpBook@{lpID}/{symbol}).
+// ---------------------------------------------------------------------------
+
+// LPQuoteEventKind discriminates the distribution-facing quote events.
+type LPQuoteEventKind string
+
+const (
+	// LPQuoteEventUpdate carries the LP's current levels for the symbol.
+	LPQuoteEventUpdate LPQuoteEventKind = "UPDATE"
+	// LPQuoteEventWithdraw pulls the LP's book for the symbol (35=Z
+	// cancel, or a same-set requote whose tracked legs were cancelled
+	// but failed to replace).
+	LPQuoteEventWithdraw LPQuoteEventKind = "WITHDRAW"
+)
+
+// LPQuoteLevel is one distributed price level — decimal price and
+// quantity, matching the lpQuoteJSON wire schema the marketdata side
+// decodes (internal/marketdata lp_pricing.go).
+type LPQuoteLevel struct {
+	Price decimal.Decimal
+	Qty   decimal.Decimal
+}
+
+// LPQuoteEvent is the transport-neutral quote event emitted by
+// QuoteService. InstrumentID/Symbol are the venue-canonical pair
+// (resolved via the order pipeline's instrument lookup); Seq is the
+// service-local event sequence (diagnostics — channel seqs are
+// allocated by the marketdata producer); Ts anchors the consumer's
+// staleness gate.
+type LPQuoteEvent struct {
+	Kind         LPQuoteEventKind
+	LPID         int64
+	InstrumentID int64
+	Symbol       string
+	Bids         []LPQuoteLevel // best-first
+	Asks         []LPQuoteLevel // best-first
+	Seq          uint64
+	Ts           time.Time
+}
+
+// QuoteEventSink observes the distribution-facing LP quote stream —
+// production wiring is JetStreamQuoteSink (quote_events.go), which
+// publishes onto the "quotes" JetStream stream for marketdata's
+// LPBookProducer. Implementations must be non-blocking: EmitLPQuote is
+// invoked inline on the 35=i/35=Z admission path, so a slow sink must
+// never stall quote admission (the JetStream sink enqueues and drains
+// on its own goroutine). Nil sink disables emission entirely.
+type QuoteEventSink interface {
+	EmitLPQuote(ctx context.Context, ev LPQuoteEvent) error
+}
+
 // QuoteService owns the mass-quote lifecycle: admission checks, order
 // placement/replacement through the pipeline, per-set state for
 // QuoteCancel (35=Z), and per-entry acknowledgement construction.
@@ -182,11 +235,13 @@ type QuoteService struct {
 	obs     ComplianceObserver
 	lpRes   LPAccountResolver
 	lpGuard LPGuard
+	sink    QuoteEventSink
 	logf    func(format string, args ...any)
 
-	mu   sync.Mutex
-	sets map[string]*quoteSet // key: account|session|setID
-	gen  uint64               // quote-order COID generation counter
+	mu    sync.Mutex
+	sets  map[string]*quoteSet // key: account|session|setID
+	gen   uint64               // quote-order COID generation counter
+	evSeq uint64               // LPQuoteEvent sequence
 }
 
 // quoteSet tracks one acknowledged quote set's live order ids so a
@@ -245,6 +300,18 @@ func (s *QuoteService) WithLPGate(res LPAccountResolver, guard LPGuard) *QuoteSe
 	return s
 }
 
+// WithQuoteEventSink binds the Task 7.3.9 feed seam: accepted MassQuote
+// entries emit one aggregated UPDATE per (lp, symbol); 35=Z cancels and
+// tracked-but-unreplaced entries emit WITHDRAW. The sink needs the
+// account→LP hop to build its subject, so emission silently skips when
+// lpRes is unbound or resolves lpID ≤ 0 (non-LP quoting accounts have no
+// lpBook channel). Emit failures are logged, never fatal — distribution
+// is best-effort and must not fail firm quote admission.
+func (s *QuoteService) WithQuoteEventSink(sink QuoteEventSink) *QuoteService {
+	s.sink = sink
+	return s
+}
+
 func setKey(accountID int64, sessionID, setID string) string {
 	return fmt.Sprintf("%d|%s|%s", accountID, sessionID, setID)
 }
@@ -297,7 +364,8 @@ func (s *QuoteService) SubmitMassQuote(ctx context.Context, sessionID string,
 	// quoting entirely — the whole set rejects with per-entry ack
 	// rejections while the LP's (and everyone else's) firm CLOB order
 	// flow continues untouched on the order path.
-	if halt := s.lpGateCheck(ctx, acct.ID); halt != "" {
+	lpID, halt := s.lpGateCheck(ctx, acct.ID)
+	if halt != "" {
 		for _, e := range q.Entries {
 			ack.Entries = append(ack.Entries, QuoteAckEntry{
 				QuoteEntryID: e.QuoteEntryID, Symbol: e.Symbol,
@@ -310,53 +378,162 @@ func (s *QuoteService) SubmitMassQuote(ctx context.Context, sessionID string,
 	}
 	key := setKey(accountID, sessionID, q.QuoteSetID)
 
+	// Task 7.3.9 feed seam: per-symbol distribution outcomes accumulate
+	// across the batch, then emit once per (lp, symbol) — an LP quoting
+	// one symbol through several entries yields a single multi-level
+	// update; a rejected entry whose tracked legs were cancelled
+	// withdraws the symbol unless a sibling entry in the same set
+	// re-established levels.
+	emits := map[string]*quoteEmit{}
+	var emitOrder []string
 	for _, e := range q.Entries {
-		ae := s.applyEntry(ctx, acct, key, sessionID, q.QuoteSetID, e)
+		ae, em := s.applyEntry(ctx, acct, key, sessionID, q.QuoteSetID, e)
 		ack.Entries = append(ack.Entries, ae)
+		if em != nil {
+			agg, ok := emits[em.symbol]
+			if !ok {
+				agg = &quoteEmit{symbol: em.symbol, instrumentID: em.instrumentID}
+				emits[em.symbol] = agg
+				emitOrder = append(emitOrder, em.symbol)
+			}
+			agg.bids = append(agg.bids, em.bids...)
+			agg.asks = append(agg.asks, em.asks...)
+			agg.withdrew = agg.withdrew || em.withdrew
+		}
+	}
+	for _, sym := range emitOrder {
+		agg := emits[sym]
+		ev := LPQuoteEvent{LPID: lpID, InstrumentID: agg.instrumentID,
+			Symbol: agg.symbol, Ts: time.Now()}
+		if len(agg.bids)+len(agg.asks) > 0 {
+			ev.Kind = LPQuoteEventUpdate
+			ev.Bids, ev.Asks = agg.bids, agg.asks
+		} else if agg.withdrew {
+			ev.Kind = LPQuoteEventWithdraw
+		} else {
+			continue
+		}
+		s.emitLPQuote(ctx, ev)
 	}
 	return ack, nil
 }
 
 // lpGateCheck resolves the session account → LP entity and evaluates
-// the SCOPE_LP flag. Returns the rejection detail ("" = clear to
-// quote). Fail closed on every unverifiable leg — a lookup error, a
-// flag-scan error or a half-wired gate rejects quoting rather than
-// admit a possibly-suspended LP (spec §2.7). Accounts with no
-// lp_accounts binding skip the scope: they were never an LP.
-func (s *QuoteService) lpGateCheck(ctx context.Context, accountID int64) string {
+// the SCOPE_LP flag. Returns the resolved lpID (0 when the account is
+// not LP-bound or the check could not run) plus the rejection detail
+// ("" = clear to quote). Fail closed on every unverifiable leg — a
+// lookup error, a flag-scan error or a half-wired gate rejects quoting
+// rather than admit a possibly-suspended LP (spec §2.7). Accounts with
+// no lp_accounts binding skip the scope: they were never an LP.
+func (s *QuoteService) lpGateCheck(ctx context.Context, accountID int64) (int64, string) {
 	if s.lpRes == nil && s.lpGuard == nil {
-		return "" // gate unwired (dev/test) — documented WithLPGate opt-out
+		return s.lpIDForEmit(ctx, accountID), "" // gate unwired — still resolve for the feed seam
 	}
 	if s.lpRes == nil || s.lpGuard == nil {
-		return "TRADING_HALTED: LP kill-switch gate partially wired — cannot verify LP state"
+		return 0, "TRADING_HALTED: LP kill-switch gate partially wired — cannot verify LP state"
 	}
 	lpID, err := s.lpRes.LPForAccount(ctx, accountID)
 	if err != nil {
-		return fmt.Sprintf("TRADING_HALTED: LP account binding unverifiable: %v", err)
+		return 0, fmt.Sprintf("TRADING_HALTED: LP account binding unverifiable: %v", err)
 	}
 	if lpID <= 0 {
-		return "" // not an LP-bound account — SCOPE_LP does not apply
+		return 0, "" // not an LP-bound account — SCOPE_LP does not apply
 	}
 	suspended, reason, err := s.lpGuard.LPSuspended(ctx,
 		strconv.FormatInt(lpID, 10))
 	if err != nil {
-		return fmt.Sprintf("TRADING_HALTED: LP[%d] kill-switch check failed: %v", lpID, err)
+		return 0, fmt.Sprintf("TRADING_HALTED: LP[%d] kill-switch check failed: %v", lpID, err)
 	}
 	if !suspended {
-		return ""
+		return lpID, ""
 	}
 	if strings.TrimSpace(reason) == "" {
 		reason = "liquidity provider suspended"
 	}
-	return fmt.Sprintf("TRADING_HALTED: LP[%d] %s", lpID, reason)
+	return lpID, fmt.Sprintf("TRADING_HALTED: LP[%d] %s", lpID, reason)
+}
+
+// lpIDForEmit resolves the account→LP hop for the feed seam alone —
+// used when the SCOPE_LP gate is unwired (dev/test WithLPGate opt-out)
+// so quote events still carry the lp_id their subject routes on.
+func (s *QuoteService) lpIDForEmit(ctx context.Context, accountID int64) int64 {
+	if s.lpRes == nil {
+		return 0
+	}
+	lpID, err := s.lpRes.LPForAccount(ctx, accountID)
+	if err != nil {
+		s.logf("fix quoting: lp quote feed — account %d → lp lookup failed: %v",
+			accountID, err)
+		return 0
+	}
+	return lpID
+}
+
+// emitLPQuote hands one event to the bound sink. lpID ≤ 0 means the
+// account has no lpBook channel to route to — skip silently. Emit
+// errors are logged and swallowed: distribution must never fail firm
+// quote admission (spec §2.7 — the feed degrades, quoting continues).
+func (s *QuoteService) emitLPQuote(ctx context.Context, ev LPQuoteEvent) {
+	if s.sink == nil || ev.LPID <= 0 {
+		return
+	}
+	s.mu.Lock()
+	s.evSeq++
+	ev.Seq = s.evSeq
+	s.mu.Unlock()
+	if ev.Ts.IsZero() {
+		ev.Ts = time.Now()
+	}
+	if err := s.sink.EmitLPQuote(ctx, ev); err != nil {
+		s.logf("fix quoting: lp quote emit failed (lp=%d %s %s): %v",
+			ev.LPID, ev.Kind, ev.Symbol, err)
+	}
+}
+
+// emitWithdrawals resolves the LP once and fans out WITHDRAW events for
+// the supplied (instrument, symbol) pairs — the 35=Z distribution path.
+func (s *QuoteService) emitWithdrawals(ctx context.Context, accountID int64,
+	ems []quoteEmit) {
+	if s.sink == nil || len(ems) == 0 {
+		return
+	}
+	lpID := s.lpIDForEmit(ctx, accountID)
+	if lpID <= 0 {
+		return
+	}
+	seen := map[string]bool{}
+	now := time.Now()
+	for _, em := range ems {
+		if em.symbol == "" || seen[em.symbol] {
+			continue
+		}
+		seen[em.symbol] = true
+		s.emitLPQuote(ctx, LPQuoteEvent{
+			Kind: LPQuoteEventWithdraw, LPID: lpID,
+			InstrumentID: em.instrumentID, Symbol: em.symbol, Ts: now,
+		})
+	}
+}
+
+// quoteEmit is the distribution-facing outcome of one quote entry:
+// accepted levels append to the symbol's update; a rejected entry whose
+// previously-tracked legs were cancelled marks the symbol for withdraw
+// (the book no longer stands behind the old levels).
+type quoteEmit struct {
+	instrumentID int64
+	symbol       string
+	bids, asks   []LPQuoteLevel
+	withdrew     bool
 }
 
 // applyEntry handles one quote entry end-to-end and returns its ack
-// line. Rejections are per-entry and never abort the set (a bad symbol
-// must not strand the other instruments — the same per-entry semantics
-// 35=b encodes).
+// line plus the optional distribution event (nil = nothing to emit —
+// rejects that never touched live legs stay silent on the feed).
+// Rejections are per-entry and never abort the set (a bad symbol must
+// not strand the other instruments — the same per-entry semantics 35=b
+// encodes).
 func (s *QuoteService) applyEntry(ctx context.Context, acct *orders.Account,
-	key, sessionID, setID string, e QuoteEntry) QuoteAckEntry {
+	key, sessionID, setID string, e QuoteEntry) (QuoteAckEntry, *quoteEmit) {
 	reject := func(text string) QuoteAckEntry {
 		return QuoteAckEntry{
 			QuoteEntryID: e.QuoteEntryID, Symbol: e.Symbol,
@@ -365,19 +542,19 @@ func (s *QuoteService) applyEntry(ctx context.Context, acct *orders.Account,
 		}
 	}
 	if strings.TrimSpace(e.QuoteEntryID) == "" {
-		return reject("QUOTE_REQUEST_REJECTED: QuoteEntryID required")
+		return reject("QUOTE_REQUEST_REJECTED: QuoteEntryID required"), nil
 	}
 	hasBid := e.BidPx != nil && e.BidSize != nil
 	hasAsk := e.OfferPx != nil && e.OfferSize != nil
 	if !hasBid && !hasAsk {
-		return reject("QUOTE_REQUEST_REJECTED: entry carries no quote side")
+		return reject("QUOTE_REQUEST_REJECTED: entry carries no quote side"), nil
 	}
 	inst, err := s.pipe.InstrumentBySymbol(ctx, e.Symbol)
 	if err != nil {
-		return reject(fmt.Sprintf("INTERNAL_ERROR: instrument lookup: %v", err))
+		return reject(fmt.Sprintf("INTERNAL_ERROR: instrument lookup: %v", err)), nil
 	}
 	if inst == nil {
-		return reject(fmt.Sprintf("QUOTE_REQUEST_REJECTED: unknown symbol %q", e.Symbol))
+		return reject(fmt.Sprintf("QUOTE_REQUEST_REJECTED: unknown symbol %q", e.Symbol)), nil
 	}
 	// mm_programs entitlement: the session's bound account must hold an
 	// ACTIVE program covering this instrument (program-wide or
@@ -385,15 +562,15 @@ func (s *QuoteService) applyEntry(ctx context.Context, acct *orders.Account,
 	// SESSION_NOT_ENTITLED.
 	prog, err := s.ent.Entitled(ctx, acct.ID, inst.ID)
 	if err != nil {
-		return reject(fmt.Sprintf("SERVICE_DEGRADED: entitlement lookup failed: %v", err))
+		return reject(fmt.Sprintf("SERVICE_DEGRADED: entitlement lookup failed: %v", err)), nil
 	}
 	if prog == nil {
-		return reject(fmt.Sprintf("SESSION_NOT_ENTITLED: no active mm program covers %s", inst.Symbol))
+		return reject(fmt.Sprintf("SESSION_NOT_ENTITLED: no active mm program covers %s", inst.Symbol)), nil
 	}
 	// MMP lockout: quotes stay rejected until the explicit reset while a
 	// protection trigger stands (§24.x MM Program row).
 	if s.mmp != nil && s.mmp.MMPLocked(ctx, acct.ID, inst.ID) {
-		return reject(fmt.Sprintf("MMP_LOCKED_OUT: market-maker protection triggered on %s — reset required", inst.Symbol))
+		return reject(fmt.Sprintf("MMP_LOCKED_OUT: market-maker protection triggered on %s — reset required", inst.Symbol)), nil
 	}
 	// Atomic level replacement: the new generation cancels the prior
 	// bid/ask before placing, so the book never carries both.
@@ -407,6 +584,16 @@ func (s *QuoteService) applyEntry(ctx context.Context, acct *orders.Account,
 	s.mu.Unlock()
 
 	st := &quoteEntryState{symbol: inst.Symbol, instrumentID: inst.ID}
+	// The reject-after-cancel outcomes below withdraw the feed levels —
+	// prev's legs are gone from the book even though the replacement
+	// never posted.
+	feedDrop := func() *quoteEmit {
+		if prev == nil {
+			return nil
+		}
+		return &quoteEmit{instrumentID: prev.instrumentID,
+			symbol: prev.symbol, withdrew: true}
+	}
 	submitSide := func(side string, px, qty *decimal.Decimal) (*orders.Ack, error) {
 		return s.pipe.Submit(ctx, acct, &orders.SubmitRequest{
 			Symbol:        inst.Symbol,
@@ -424,7 +611,8 @@ func (s *QuoteService) applyEntry(ctx context.Context, acct *orders.Account,
 	if hasBid {
 		ack, err := submitSide(orders.SideBuy, e.BidPx, e.BidSize)
 		if err != nil {
-			return reject("ORDER_REJECTED: bid leg: " + excerrors.CodeOf(err) + " " + err.Error())
+			return reject("ORDER_REJECTED: bid leg: "+excerrors.CodeOf(err)+" "+err.Error()),
+				feedDrop()
 		}
 		st.bidOrderID = ack.OrderID
 	}
@@ -439,7 +627,8 @@ func (s *QuoteService) applyEntry(ctx context.Context, acct *orders.Account,
 				}
 				st.bidOrderID = 0
 			}
-			return reject("ORDER_REJECTED: ask leg: " + excerrors.CodeOf(err) + " " + err.Error())
+			return reject("ORDER_REJECTED: ask leg: "+excerrors.CodeOf(err)+" "+err.Error()),
+				feedDrop()
 		}
 		st.askOrderID = ack.OrderID
 	}
@@ -453,10 +642,17 @@ func (s *QuoteService) applyEntry(ctx context.Context, acct *orders.Account,
 			s.logf("fix quoting: obligation sample failed: %v", err)
 		}
 	}
+	em := &quoteEmit{instrumentID: inst.ID, symbol: inst.Symbol}
+	if hasBid {
+		em.bids = []LPQuoteLevel{{Price: *e.BidPx, Qty: *e.BidSize}}
+	}
+	if hasAsk {
+		em.asks = []LPQuoteLevel{{Price: *e.OfferPx, Qty: *e.OfferSize}}
+	}
 	return QuoteAckEntry{
 		QuoteEntryID: e.QuoteEntryID, Symbol: inst.Symbol,
 		Status: QuoteStatusAccepted,
-	}
+	}, em
 }
 
 func (s *QuoteService) entryState(key, entryID string) *quoteEntryState {
@@ -514,7 +710,11 @@ func (s *QuoteService) CancelQuotes(ctx context.Context, sessionID string,
 	}
 	// Per-quote-set cancel — the narrowest scope.
 	if strings.TrimSpace(c.QuoteSetID) != "" {
-		return s.cancelSet(ctx, acct, sessionID, c.QuoteSetID)
+		n, ems, err := s.cancelSet(ctx, acct, sessionID, c.QuoteSetID)
+		if err == nil {
+			s.emitWithdrawals(ctx, accountID, ems)
+		}
+		return n, err
 	}
 	switch c.CancelType {
 	case QuoteCancelPerSymbol:
@@ -540,6 +740,9 @@ func (s *QuoteService) CancelQuotes(ctx context.Context, sessionID string,
 			return 0, err
 		}
 		s.dropEntries(func(st *quoteEntryState) bool { return st.instrumentID == inst.ID })
+		s.emitWithdrawals(ctx, accountID, []quoteEmit{
+			{instrumentID: inst.ID, symbol: inst.Symbol},
+		})
 		return res.Cancelled, nil
 	case QuoteCancelAllQuotes:
 		res, err := s.pipe.MassCancel(ctx, orders.MassCancelScope{
@@ -550,14 +753,19 @@ func (s *QuoteService) CancelQuotes(ctx context.Context, sessionID string,
 		if err != nil {
 			return 0, err
 		}
+		var ems []quoteEmit
 		s.mu.Lock()
 		for k, set := range s.sets {
 			if strings.HasPrefix(k, fmt.Sprintf("%d|%s|", accountID, sessionID)) {
-				_ = set
+				for _, st := range set.entries {
+					ems = append(ems, quoteEmit{
+						instrumentID: st.instrumentID, symbol: st.symbol})
+				}
 				delete(s.sets, k)
 			}
 		}
 		s.mu.Unlock()
+		s.emitWithdrawals(ctx, accountID, ems)
 		return res.Cancelled, nil
 	default:
 		return 0, excerrors.New("INVALID_REQUEST",
@@ -566,9 +774,11 @@ func (s *QuoteService) CancelQuotes(ctx context.Context, sessionID string,
 }
 
 // cancelSet cancels every tracked leg of one quote set and drops its
-// state. Idempotent: a second cancel of the same set reports 0.
+// state. Idempotent: a second cancel of the same set reports 0. The
+// returned quoteEmit list carries the affected (instrument, symbol)
+// pairs for the distribution-feed withdrawal fan-out.
 func (s *QuoteService) cancelSet(ctx context.Context, acct *orders.Account,
-	sessionID, setID string) (int, error) {
+	sessionID, setID string) (int, []quoteEmit, error) {
 	key := setKey(acct.ID, sessionID, setID)
 	s.mu.Lock()
 	set := s.sets[key]
@@ -577,10 +787,13 @@ func (s *QuoteService) cancelSet(ctx context.Context, acct *orders.Account,
 	}
 	s.mu.Unlock()
 	if set == nil {
-		return 0, nil
+		return 0, nil, nil
 	}
 	cancelled := 0
+	ems := make([]quoteEmit, 0, len(set.entries))
 	for _, st := range set.entries {
+		ems = append(ems, quoteEmit{
+			instrumentID: st.instrumentID, symbol: st.symbol})
 		for _, id := range []int64{st.bidOrderID, st.askOrderID} {
 			if id == 0 {
 				continue
@@ -593,7 +806,7 @@ func (s *QuoteService) cancelSet(ctx context.Context, acct *orders.Account,
 			cancelled++
 		}
 	}
-	return cancelled, nil
+	return cancelled, ems, nil
 }
 
 // dropEntries removes tracked entries matching pred across all sets —

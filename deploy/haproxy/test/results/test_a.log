@@ -1,0 +1,20 @@
+== baseline ==
+gw-blue-1  status=UP         check=L7OK
+gw-blue-2  status=UP         check=L7OK
+BACKEND    status=UP         check=
+GET / -> BLUE-1
+== kill BLUE-1 (pid 2909665) @ 18:34:52.969895639 ==
+  probe @pre-fail status=UP -> HTTP 503
+  probe @pre-fail status=UP 2/3 -> HTTP 503
+first check failure ('UP 2/3') at +2.224350402s
+fully DOWN at +6.662107252s
+fall-window probes: 2 ok, 2 failed
+== traffic immediately after DOWN (expect BLUE-2 backup) ==
+post-DOWN: 10 ok, 0 failed
+GET / -> BLUE-2
+== restart BLUE-1 @ 18:35:00.181880826 ==
+UP again at +3.506405813s (rise 2 x inter 2s)
+== post-recovery traffic (leastconn -> primary) ==
+GET / -> BLUE-1
+GET / -> BLUE-1
+GET / -> BLUE-1

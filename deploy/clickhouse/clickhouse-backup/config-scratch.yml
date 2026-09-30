@@ -1,0 +1,48 @@
+# clickhouse-backup configuration — SCRATCH/restore-target cluster
+# (Task 4.3.6 restore drill, spec §18.3, runbook: ../RUNBOOK.md)
+#
+# Pair of config.yml. During the quarterly restore drill this file is pointed
+# at a throwaway ClickHouse node/cluster while the s3: block reads the same
+# backup bucket, so `backup.sh restore <name>` lands on the scratch target and
+# never touches production:
+#
+#   CLICKHOUSE_BACKUP_CONFIG=.../config-scratch.yml ./backup.sh restore daily-YYYYMMDD
+#
+# Deploy-time env substitution (envsubst): clickhouse-backup does NOT expand
+# ${ENV_VAR} references itself — render this file first (the dev driver
+# deploy/scripts/ch_restore_drill.sh does it automatically). Credentials come
+# from the secrets store (Vault/KMS per Phase-13.5), never commit values.
+
+general:
+  remote_storage: s3
+  backups_to_keep_remote: 35
+  max_concurrency: 4
+
+clickhouse:
+  # SCRATCH cluster endpoint — distinct vars so src and dst templates can be
+  # rendered from one environment without clashing.
+  host: ${CH_SCRATCH_HOST:-127.0.0.1}
+  port: ${CH_SCRATCH_PORT:-9000}
+  username: ${CH_SCRATCH_USER:-default}
+  password: ${CH_SCRATCH_PASSWORD:-}
+  secure: false
+  # restore creates the databases/tables from backup metadata; still skip
+  # internal schemas
+  skip_tables:
+    - system.*
+    - INFORMATION_SCHEMA.*
+    - information_schema.*
+  timeout: 15m
+
+s3:
+  access_key: ${AWS_ACCESS_KEY_ID}
+  secret_key: ${AWS_SECRET_ACCESS_KEY}
+  bucket: ${S3_BUCKET:-exchange-ch-backup}
+  # backups land at s3://exchange-ch-backup/{backup-name}/ — read side only
+  endpoint: ${AWS_ENDPOINT_URL:-https://s3.eu-west-1.amazonaws.com}
+  region: ${AWS_REGION:-eu-west-1}
+  acl: private
+  force_path_style: true      # required for MinIO/versitygw/R2/ceph S3-compatible
+  compression_format: zstd
+  sse: AES256
+  part_size: 128MiB

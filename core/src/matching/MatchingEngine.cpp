@@ -1791,6 +1791,11 @@ void MatchingEngine::gslo_fill(Order* node, const OrderAux& aux,
         return;
     }
     node->filled_qty_units += fill;
+    // Off-book mutation: gslo fills settle a pending trigger outside the
+    // resting book, so apply_fill's seq bump never runs — advance the
+    // mutation counter explicitly or the published fill seq collides with
+    // the previous mutation's (Phase-09 swap-drill finding).
+    book_.bump_book_seq();
     last_price_ticks_ = stop_ticks;
     ++trades_emitted_;
     ++gslo_fills_;

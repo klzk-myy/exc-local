@@ -78,46 +78,45 @@ Non-negotiables when editing docs:
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **exc.local** (875 symbols, 872 relationships, 0 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **exc-local** (69751 symbols, 250123 relationships, 664 execution flows).
 
-> If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
+> Index stale? Run `node .gitnexus/run.cjs analyze --index-only` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? Bootstrap with `npx`, `bunx`, or `pnpm dlx` — e.g. `bunx gitnexus@latest analyze` (npm 11 npx crash; #1939).
 
 ## Always Do
 
-- **MUST run impact analysis before editing any symbol.** Before modifying a function, class, or method, run `gitnexus_impact({target: "symbolName", direction: "upstream"})` and report the blast radius (direct callers, affected processes, risk level) to the user.
-- **MUST run `gitnexus_detect_changes()` before committing** to verify your changes only affect expected symbols and execution flows.
-- **MUST warn the user** if impact analysis returns HIGH or CRITICAL risk before proceeding with edits.
-- When exploring unfamiliar code, use `gitnexus_query({query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
-- When you need full context on a specific symbol — callers, callees, which execution flows it participates in — use `gitnexus_context({name: "symbolName"})`.
+- **MUST run impact before editing.** Use `impact({target: "symbolName", direction: "upstream"})` or `node .gitnexus/run.cjs impact "symbolName" --direction upstream --repo .`; report callers, processes, and risk. Never substitute grep for graph analysis.
+- **MUST analyze graph changes before committing.** Use `detect_changes({scope: "all"})` (MCP) or `node .gitnexus/run.cjs detect-changes --scope all --repo .` (CLI fallback). `partial: true` or `truncated: true` is not a clean check — a zero means unseen, not unaffected; re-run it. For regression review: `detect_changes({scope: "compare", base_ref: "main"})` or `node .gitnexus/run.cjs detect-changes --scope compare --base-ref "main" --repo .`.
+- MUST warn on HIGH/CRITICAL `risk` pre-edit; never use `riskSharedAxes` to waive a HIGH/CRITICAL `risk` warning. Compare File/symbol: MCP File omits axes; Graph-RAG expands File.
+- **MUST treat `risk: UNKNOWN` as unresolved, not as low.** An empty caller set is not evidence the symbol is unused — it can also mean the callers are not resolvable by the index (plain-object property access, dynamic dispatch, cross-language calls). `impact` pairs `UNKNOWN` with a `riskNote` saying so. Confirm with a text search before treating the symbol as safe to change or delete; do not proceed on the strength of a zero.
+- **MUST use `query({search_query: "concept"})` for concepts/flows, `context({name: "symbolName"})` for a named symbol, or `impact` for blast radius, on read-only callers, dependencies, imports, or execution flow.** Graph first; text search only for empty/`UNKNOWN`/literals.
+- For security review, `explain({target: "fileOrSymbol"})` lists taint findings (source→sink flows; needs `analyze --pdg`).
 
 ## Never Do
 
-- NEVER edit a function, class, or method without first running `gitnexus_impact` on it.
-- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis.
-- NEVER rename symbols with find-and-replace — use `gitnexus_rename` which understands the call graph.
-- Phase-24 backoffice & settlement — settle record (2026-10-01 — verification pass, all 21 tasks): **21/21 P24 checkpoints bound and green** (`checks/phase24.go`); **140/140 DoD/SDD**. Clusters: nostro acct registry + daily recon (break categories, auto-resolve, threshold rules; migs 035/261) · MT900/910 confirmations w/ `ALREADY_SETTLED` replay + 2-BD overdue sweep · immutable SWIFT journal · MIFID2/EMIR/FINCEN_CTR/FINCEN_SAR/BASEL3/MONTHLY exports · exception lifecycle (detect→investigate→dual-queue resolve retry/reverse/write-off; mig 260) · PB give-up affirmation recon + collateral move · CLS ISO-20022 PvP lifecycle incl. discrepancy quarantine (mig 259) · SSI + bilateral netting w/ ISDA-agreement gate (044) · rail cut-offs TZ-aware + value-date roll (107) · MT940/MT942/camt.053 ingest checksum-dedup (057) + DepositGuard suspense routing (262) · bunched allocations VWAP/pro-rata conserving per-fill qty + FIX 35=J→35=AK + T+0 escalation incl. LOCKED (055) · client-money segregation/daily recon/4-tier shortfall (056) · treasury own-funds + contingent capital (082) · assurance evidence packs + dual-controlled certifications (083) · CSDR fails/penalties/buy-in (084) · ops hardening aging/Herstatt/failover monitors. Wiring: `cmd/gateway/adapters.go` Phase-24 seam set (boSettlementConfirmer, suspenseGuard, PgJournalPoster, cmFundSource/NBP/Statement/Suspension, boMarkPricer, boCutoffEvaluator, pgStressedOutflows, boRestitutionAlerter); ~70 routes live; daily CSDR/buy-in + hourly ops sweeps. Settle fixes: InsertAllocation JSONB `null`→`[]` (22023), confirmation test → real PG tracker, correction test → fill-conservation, EscalateUnallocated +LOCKED groups. Counts: codes 210 → **234** emitted (+24 localCodes, 68 pending) · migrations **199** · bound IDs **541** · routes registered-live **549** (zero registry↔handler drift). Seams: confirmation/roll mounts conditional on EXC_SENDER_BIC+calendar (503 shim); rail-dispatch unwired (payments park); restitution FIX drop-copy session-bound; ReconcileDay/EvaluateLiquidity human-principal (dual-control).
-- Added 2026-09-30 (gap-closure round — 10-agent dispatch on audited unchecked rows, 24 checklist rows ticked): actionable items from the `aa704bc` census (119 annotated-open rows) closed: **FIX 35=i/35=Z wire layer** (`fix/app_quoting.go` — group templates must enumerate every emitted field with delimiter 299 first; session account-binding + per-entry allowed_instruments gates → 35=b per-entry acks; `cmd/fix` binds QuoteService + `WithLPGate(PgxLPAccountResolver→LPSuspended)` — Phase-11 SCOPE_LP now real on the wire, 5 wire tests incl. suspended-LP-rejects-set-while-CLOB-continues) · **withdrawal caps** hourly + exchange-wide daily (mig 272; `CheckWithdrawal` enforces all four legs) · **kill-switch sweep measured** 1.5–2.9µs/order (10µs bound) · **FIX failover E2E** on live PG+Redis: resume median 2.06ms/max 67.9ms (5s bound) · **Phase-09 ops surface**: DORA material-incident closure gate (`operations/dora`, new code `INCIDENT_CLOSURE_BLOCKED` 409), `cmd/watchdogd` Tier-3 supervisor (shm ring headers, leader-lock revoke, sd_notify), incident war-room bot, quarterly capacity generator (mig 274), public postmortem archive (`cmd/postmortem-archive` + `ops.Sanitize`), mandatory synthetic-order blue-green gate + 10-case evidence suite, `docs/API-MIGRATION-GUIDE.md`, `ops-contracts` CI job (observability budgets + blue-green gate tests), status freshness ~1s (3s bound), cancel-exempt lane p99 975ns (100µs bound) · **Phase-10 a11y**: jest-axe 11 audits — 41/41 wcag21aa green across 10 screen groups · **C++ trace spans** (TraceContext/IpcPublisher/L3Publisher/EnginePump + test_trace; 37/37 ctest) — Go send-path `InjectAeronTrace` remains the open seam (Phase-09:291). Migrations 199 → **203** (271 `lp_accounts`, 272 exchange cap, 273 `dora_incidents`, 274 `capacity_reports` — up/down/up clean) · codes 234 → **235** emitted (**69** localCodes pending §23) · PII 197 cols/**356** tables. Deliberately open: Phase-07:224 (`LPPriceFilter` landed, no LP-quote ingress feeds distribution — gap), Phase-08:131 (CI job authored, pending remote run), Phase-16:235 (no official benchmark), ~85 env-bound rows (soak/staging/multi-region/PagerDuty/hardware/edge/live rails). Census 119 → **95** annotated-open. Corpus: 568 pass / 2 env-skip / 1 env-pending / 0 fail.
-- NEVER commit changes without running `gitnexus_detect_changes()` to check affected scope.
+- NEVER edit a function, class, or method before MCP/CLI impact analysis.
+- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis, and never read `UNKNOWN` as an all-clear — it means the walk could not answer, which is the one verdict that requires confirming by other means.
+- NEVER rename symbols with find-and-replace — use `rename` which understands the call graph.
+- NEVER commit before MCP/CLI graph change analysis.
 
 ## Resources
 
 | Resource | Use for |
-|----------|---------|
-| `gitnexus://repo/exc.local/context` | Codebase overview, check index freshness |
-| `gitnexus://repo/exc.local/clusters` | All functional areas |
-| `gitnexus://repo/exc.local/processes` | All execution flows |
-| `gitnexus://repo/exc.local/process/{name}` | Step-by-step execution trace |
+| --- | --- |
+| `gitnexus://repo/exc-local/context` | Codebase overview, check index freshness |
+| `gitnexus://repo/exc-local/clusters` | All functional areas |
+| `gitnexus://repo/exc-local/processes` | All execution flows |
+| `gitnexus://repo/exc-local/process/{name}` | Step-by-step execution trace |
 
 ## CLI
 
 | Task | Read this skill file |
-|------|---------------------|
-| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md` |
-| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
-| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md` |
-| Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
-| Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
-| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
+| --- | --- |
+| Understand architecture / "How does X work?" | `.claude/skills/gitnexus-exploring/SKILL.md` |
+| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus-impact-analysis/SKILL.md` |
+| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus-debugging/SKILL.md` |
+| Rename / extract / split / refactor | `.claude/skills/gitnexus-refactoring/SKILL.md` |
+| Tools, resources, schema reference | `.claude/skills/gitnexus-guide/SKILL.md` |
+| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus-cli/SKILL.md` |
 
 <!-- gitnexus:end -->
 

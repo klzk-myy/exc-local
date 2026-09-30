@@ -259,6 +259,15 @@ bool RecoveryManager::read_snapshot(RecoveryResult& res, BookState& bs,
                 return false;
             }
             bs.parsed = std::move(parsed);
+            // v2 counters trailer: snapshot-covered trades never re-enter the
+            // replay loop, so the WAL tail scan alone would restart the
+            // allocator at 1 and re-issue journaled ids on the next fill.
+            // The captured counter is authoritative for every seq the
+            // snapshot covers (Phase-09 swap-drill finding).
+            if (bs.parsed.next_trade_id > 1 &&
+                bs.parsed.next_trade_id - 1 > res.max_trade_id) {
+                res.max_trade_id = bs.parsed.next_trade_id - 1;
+            }
             bs.snapshot_have = true;
             bs.snapshot_seq = seq;
             bs.snapshot_book_seq = bs.parsed.header.book_seq;
@@ -292,10 +301,7 @@ bool RecoveryManager::restore_snapshot(RecoveryResult& res,
 
         // Rebuild levels+orders by re-insertion: add_order() tail-appends into
         // each level, so replaying the level-major FIFO stream order restores
-        // price-time priority exactly. There is no OrderBook API to install
-        // book_seq_ (pinned comment records the WAL cursor there instead), so
-        // the recovered mutation counter starts at the restored order count —
-        // the WAL-cursor invariant is tracked by this manager.
+        // price-time priority exactly.
         for (const auto& po : bs.parsed.orders) {
             Order* out = nullptr;
             const BookError e = bs.book->add_order(po.tmpl, &out);
@@ -315,6 +321,12 @@ bool RecoveryManager::restore_snapshot(RecoveryResult& res,
                                           : "restored book failed audit");
             return false;
         }
+        // Rebase the mutation counter to the covered WAL cursor: the cursor
+        // strictly dominates the pre-snapshot mutation count (TIME_TICK and
+        // non-mutation rows inflate it), so post-restart fills/L3 events can
+        // never re-issue a prior generation's book_seq values (Phase-09
+        // swap-drill finding: fills collided across generations).
+        bs.book->set_book_seq(bs.snapshot_book_seq);
         bs.snapshot_loaded = true;
         bs.cursor = bs.snapshot_seq;
         return true;

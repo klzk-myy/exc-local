@@ -42,6 +42,9 @@
 //	                                  greeks@ producer, Task 23.3.5)
 //	EXC_MARKETDATA_PREMIUM            "1" on / "0" off (default on —
 //	                                  premium bundle, Task 23.3.3)
+//	EXC_MARKETDATA_LPBOOKS            "1" on / "0" off (default on —
+//	                                  lpBook@{lpID}/{symbol}, Task 7.3.9)
+//	EXC_MARKETDATA_LP_STREAM          LP quote stream (default "quotes")
 package main
 
 import (
@@ -90,6 +93,10 @@ type streamProducers struct {
 	PremiumL3 *marketdata.PremiumL3Producer
 	FullDepth *marketdata.FullDepthProducer
 	Auctions  *marketdata.AuctionsProducer
+	// LPBooks is the Phase-07 Task 7.3.9 lpBook@{lpID}/{symbol} producer:
+	// per-LP pricing config (lp_instrument_configs) applied to the
+	// FIX-sourced quote feed on the "quotes" JetStream stream.
+	LPBooks *marketdata.LPBookProducer
 
 	closeNATS func()
 }
@@ -652,6 +659,50 @@ func startStreamProducers(ctx context.Context, cfg *config.Config,
 			aucSrc, srv.Publish)
 	}
 
+	// --- LP books (Phase-07 Task 7.3.9) --------------------------------
+	// lpBook@{lpID}/{symbol} distributes LP quotes after the per-LP
+	// pricing config (markup/skew, staleness, enabled + LP lifecycle
+	// gates) is applied. Quote events arrive on the dedicated "quotes"
+	// JetStream stream — published by the FIX mass-quote path
+	// (internal/fix JetStreamQuoteSink, Task 18.3.7). The pricing config
+	// rides the shared positions pool (lp_instrument_configs lives in
+	// the same exchange DB); a missing pool leaves the filter
+	// snapshot-less, which drops every quote as unconfigured — the
+	// fail-closed default the task mandates. The producer is always
+	// constructed (Push stays live for embedders) and registered as the
+	// lpBook snapshot source regardless of feed state.
+	lpFilter := marketdata.NewLPPriceFilter(nil, log)
+	var lpQuoteSrc marketdata.LPQuoteSource
+	if envOr("EXC_MARKETDATA_LPBOOKS", "1") != "0" {
+		if posPool != nil {
+			lpFilter = marketdata.NewLPPriceFilter(
+				marketdata.NewPgxLPConfigSource(posPool), log)
+		} else {
+			log.Error("marketdata: postgres unavailable — lpBook quotes " +
+				"drop unconfigured until a pool binds")
+		}
+		if nc, nerr := connectNATS(ctx, cfg, log); nerr != nil {
+			log.Error("marketdata: nats unavailable — lpBook feed idle",
+				"err", nerr)
+		} else {
+			lpQuoteSrc = marketdata.JetStreamLPQuoteSource(nc,
+				envOr("EXC_MARKETDATA_LP_STREAM", marketdata.LPQuoteStream),
+				marketdata.LPQuoteDurable,
+				marketdata.SubjectSymbols(res), log)
+			prev := sp.closeNATS
+			sp.closeNATS = func() {
+				nc.Close()
+				if prev != nil {
+					prev()
+				}
+			}
+		}
+	}
+	sp.LPBooks = marketdata.NewLPBookProducer(
+		marketdata.LPBookProducerConfig{Logger: log}, lpQuoteSrc, lpFilter,
+		srv.Publish)
+	srv.SetSnapshotSource("lpBook", sp.LPBooks)
+
 	// --- Launch -------------------------------------------------------
 	runners := map[string]func(context.Context) error{
 		"trades": sp.Trades.Run, "aggTrades": sp.Agg.Run,
@@ -660,7 +711,7 @@ func startStreamProducers(ctx context.Context, cfg *config.Config,
 		"liquidations": sp.Liqs.Run, "openInterest": sp.OI.Run,
 		"sentiment": sp.Sentiment.Run, "greeks": sp.Greeks.Run,
 		"premiumL3": sp.PremiumL3.Run, "fullDepth": sp.FullDepth.Run,
-		"auctions": sp.Auctions.Run,
+		"auctions": sp.Auctions.Run, "lpBooks": sp.LPBooks.Run,
 	}
 	for name, run := range runners {
 		go func(name string, run func(context.Context) error) {

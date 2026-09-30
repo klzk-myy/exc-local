@@ -81,3 +81,16 @@ func ContextFromAeron(ctx context.Context, frame []byte) (context.Context, bool)
 	}
 	return ContextWithSpanContext(ctx, sc), true
 }
+
+// StripAeronTrace peels the optional 64B block off a received frame:
+// body aliases payload at the event offset. ok reports the block was
+// present — consumers that continue the trace use sc; every decode
+// site must call this before touching the FlatBuffers root, since the
+// engine echoes the block verbatim on frames answering a traced
+// command (Task 9.3.11 wire contract — block-at-0, Event at +64).
+func StripAeronTrace(payload []byte) (body []byte, sc SpanContext, ok bool) {
+	if sc, ok = ExtractAeronTrace(payload); ok {
+		return payload[AeronTraceHeaderLen:], sc, true
+	}
+	return payload, SpanContext{}, false
+}

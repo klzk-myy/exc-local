@@ -190,6 +190,39 @@ func (e *Env) probeRedis(ctx context.Context) string {
 	return redisPing(cctx, e.RedisAddr, e.RedisDB)
 }
 
+// GateSentinel reports "" when a live Sentinel quorum is reachable —
+// EXC_SENTINEL_ADDRS is a CSV of host:port sentinel endpoints (the dev
+// compose maps 127.0.0.1:36379-36381). The gate TCP-probes each listed
+// addr and requires ≥2 reachable (quorum=2 per deploy/redis/sentinel.conf);
+// the bound legs then run the EXC_SENTINEL_TEST suite which probes again.
+func (e *Env) GateSentinel(ctx context.Context) string {
+	if r := e.GateRedis(ctx); r != "" {
+		return r
+	}
+	raw := os.Getenv("EXC_SENTINEL_ADDRS")
+	if raw == "" {
+		return "EXC_SENTINEL_ADDRS unset (CSV of sentinel host:port, dev = 127.0.0.1:36379,127.0.0.1:36380,127.0.0.1:36381)"
+	}
+	reachable := 0
+	for _, a := range strings.Split(raw, ",") {
+		a = strings.TrimSpace(a)
+		if a == "" {
+			continue
+		}
+		cctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		conn, err := (&net.Dialer{}).DialContext(cctx, "tcp", a)
+		cancel()
+		if err == nil {
+			conn.Close()
+			reachable++
+		}
+	}
+	if reachable < 2 {
+		return fmt.Sprintf("sentinel quorum unmet: %d reachable (need ≥2) in EXC_SENTINEL_ADDRS=%q", reachable, raw)
+	}
+	return ""
+}
+
 // GateNATS probes the JetStream seed.
 func (e *Env) GateNATS(ctx context.Context) string {
 	cctx, cancel := context.WithTimeout(ctx, 4*time.Second)

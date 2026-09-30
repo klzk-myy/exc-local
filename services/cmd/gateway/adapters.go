@@ -148,6 +148,29 @@ func (a vdpAlerter) Raise(_ context.Context, severity, code, message string) err
 	return a.nc.Conn().Publish("ops.alerts.security", payload)
 }
 
+// secretsAlerter routes secrets-inventory SLA alerts (Task 9.3.29 item
+// 4 — SECRET_ROTATION_OVERDUE, P2) to the same ops security channel.
+// Best-effort like vdpAlerter: a disconnected bus degrades to logging,
+// never an error — the evaluator must not wedge on alerting.
+// Implements security.Alerter.
+type secretsAlerter struct {
+	nc *nats.Client
+}
+
+func (a secretsAlerter) Raise(_ context.Context, severity, code, message string) error {
+	payload, err := json.Marshal(map[string]string{
+		"severity": severity, "code": code, "message": message,
+		"source": "secrets-inventory",
+	})
+	if err != nil {
+		return err
+	}
+	if a.nc == nil || !a.nc.Connected() {
+		return nil
+	}
+	return a.nc.Conn().Publish("ops.alerts.security", payload)
+}
+
 // orderDispatchAdapter binds accounts.OrderDispatcher (dead-man sweeper,
 // close-all) to orders.Service — the single dispatch path, never a
 // direct engine call.

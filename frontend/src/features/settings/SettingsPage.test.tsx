@@ -93,7 +93,7 @@ describe('SecurityPanel', () => {
     renderSettings('security');
     const user = userEvent.setup();
     await user.type(await screen.findByLabelText(/Anti-phishing code/), 'abc');
-    expect(screen.getByRole('alert')).toHaveTextContent('4–32 characters');
+    expect(screen.getByRole('alert')).toHaveTextContent('at least 4 characters');
     expect(screen.getByRole('button', { name: 'Save code' })).toBeDisabled();
     expect(calls.some((c) => c.url.includes('anti-phishing'))).toBe(false);
   });

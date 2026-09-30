@@ -11,6 +11,7 @@ import { useMutation } from '@tanstack/react-query';
 
 import { apiClient } from '@/app/runtime';
 import * as authApi from '@/features/auth/api';
+import { useValidatedField, type FieldRule } from '@/lib/input-helpers';
 import {
   CopyButton,
   ErrorBox,
@@ -23,6 +24,13 @@ import {
   inputCls,
 } from '@/lib/ui';
 
+const REQUIRED = (name: string, label: string): FieldRule => ({
+  name,
+  label,
+  required: true,
+  kind: 'string',
+});
+
 type Phase =
   | { kind: 'idle' }
   | { kind: 'enrolling'; secret: string; otpauthUri: string }
@@ -30,9 +38,9 @@ type Phase =
 
 export default function TotpEnrollment() {
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' });
-  const [code, setCode] = useState('');
-  const [password, setPassword] = useState('');
-  const [disableCode, setDisableCode] = useState('');
+  const code = useValidatedField(REQUIRED('totp_code', 'Authenticator code'));
+  const password = useValidatedField(REQUIRED('password', 'Password'));
+  const disableCode = useValidatedField(REQUIRED('totp_code', 'Authenticator code'));
   const [disabling, setDisabling] = useState(false);
 
   const setup = useMutation({ mutationFn: () => authApi.totpSetup(apiClient) });
@@ -40,15 +48,15 @@ export default function TotpEnrollment() {
     mutationFn: (c: string) => authApi.totpVerify(apiClient, c),
     onSuccess: (r) => {
       setPhase({ kind: 'done', backupCodes: r.backupCodes });
-      setCode('');
+      code.reset();
     },
   });
   const disable = useMutation({
-    mutationFn: () => authApi.totpDisable(apiClient, password, disableCode),
+    mutationFn: () => authApi.totpDisable(apiClient, password.value, disableCode.value),
     onSuccess: () => {
       setDisabling(false);
-      setPassword('');
-      setDisableCode('');
+      password.reset();
+      disableCode.reset();
       setPhase({ kind: 'idle' });
     },
   });
@@ -106,26 +114,22 @@ export default function TotpEnrollment() {
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              verify.mutate(code);
+              verify.mutate(code.value);
             }}
           >
-            <Field label="Authenticator code" required>
-              {(id, describedBy, invalid) => (
+            <Field label="Authenticator code" required error={code.error}>
+              {(id, describedBy) => (
                 <input
                   id={id}
                   aria-describedby={describedBy}
-                  aria-invalid={invalid}
                   className={inputCls}
                   inputMode="numeric"
                   autoComplete="one-time-code"
-                  value={code}
-                  onChange={(e) => {
-                    setCode(e.target.value);
-                  }}
+                  {...code.inputProps}
                 />
               )}
             </Field>
-            <button type="submit" className={btnPrimary} disabled={verify.isPending || code === ''}>
+            <button type="submit" className={btnPrimary} disabled={verify.isPending || !code.valid}>
               {verify.isPending ? 'Verifying…' : 'Verify & activate'}
             </button>
           </form>
@@ -171,42 +175,34 @@ export default function TotpEnrollment() {
               disable.mutate();
             }}
           >
-            <Field label="Password" required>
-              {(id, describedBy, invalid) => (
+            <Field label="Password" required error={password.error}>
+              {(id, describedBy) => (
                 <input
                   id={id}
                   aria-describedby={describedBy}
-                  aria-invalid={invalid}
                   className={inputCls}
                   type="password"
                   autoComplete="current-password"
-                  value={password}
-                  onChange={(e) => {
-                    setPassword(e.target.value);
-                  }}
+                  {...password.inputProps}
                 />
               )}
             </Field>
-            <Field label="Authenticator code" required>
-              {(id, describedBy, invalid) => (
+            <Field label="Authenticator code" required error={disableCode.error}>
+              {(id, describedBy) => (
                 <input
                   id={id}
                   aria-describedby={describedBy}
-                  aria-invalid={invalid}
                   className={inputCls}
                   inputMode="numeric"
                   autoComplete="one-time-code"
-                  value={disableCode}
-                  onChange={(e) => {
-                    setDisableCode(e.target.value);
-                  }}
+                  {...disableCode.inputProps}
                 />
               )}
             </Field>
             <button
               type="submit"
               className={btnDanger}
-              disabled={disable.isPending || password === '' || disableCode === ''}
+              disabled={disable.isPending || !password.valid || !disableCode.valid}
             >
               {disable.isPending ? 'Disabling…' : 'Disable 2FA'}
             </button>

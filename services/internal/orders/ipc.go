@@ -15,6 +15,7 @@ import (
 
 	"exchange/internal/ipc"
 	"exchange/internal/ipc/wire"
+	"exchange/internal/tracing"
 	"exchange/pkg/decimal"
 )
 
@@ -286,10 +287,24 @@ func (s *ShmSubmitter) Channel(shard uint16) (*ipc.Channel, error) {
 	return c, nil
 }
 
-func (s *ShmSubmitter) Send(_ context.Context, shard uint16, payload []byte) error {
+func (s *ShmSubmitter) Send(ctx context.Context, shard uint16, payload []byte) error {
 	c, err := s.Channel(shard)
 	if err != nil {
 		return err
+	}
+	// Task 9.3.11 — HTTP -> Aeron -> C++ trace continuity: prepend the
+	// 64B EXCTRACE block when the caller carries a span context. The
+	// engine decodes the Event at +64 when the magic is present and
+	// echoes the block verbatim on emitted frames. Untraced sends keep
+	// the legacy layout. Tracing never rejects traffic: a frame that
+	// would exceed the slot with the block ships untraced, never
+	// dropped.
+	if _, ok := tracing.SpanContextFrom(ctx); ok &&
+		len(payload)+tracing.AeronTraceHeaderLen <= int(ipc.DefaultRingSlotPayload) {
+		frame := make([]byte, tracing.AeronTraceHeaderLen+len(payload))
+		tracing.InjectAeronTrace(ctx, frame[:tracing.AeronTraceHeaderLen])
+		copy(frame[tracing.AeronTraceHeaderLen:], payload)
+		payload = frame
 	}
 	if !c.Send(payload) {
 		return codeErr("ENGINE_OVERLOAD",
@@ -401,6 +416,11 @@ type Consumer struct {
 	// handle (Phase-13.5 pen-test remediation): a corrupt shm slot must
 	// poison one frame, never the consumer goroutine.
 	malformed atomic.Int64
+	// tracer is the optional Task-9.3.11 continuation seam — when bound,
+	// each frame that arrives carrying the C++-echoed EXCTRACE block
+	// mints one CONSUMER span remote-parented on it. Nil → the block is
+	// still stripped before decode; spans simply aren't emitted.
+	tracer *tracing.Tracer
 }
 
 func NewConsumer(sub Submitter, store Store, pending *pendingConfirms) *Consumer {
@@ -429,6 +449,13 @@ func (c *Consumer) WithGSLOHook(h func(orderID int64, price, qty decimal.Decimal
 // code: 0 user, 1 expired, 7 OCO sibling, …). Nil hook → zero overhead.
 func (c *Consumer) WithCancelHook(h func(orderID int64, reason uint8)) *Consumer {
 	c.onCancel = h
+	return c
+}
+
+// WithTracer binds the span exporter used for the engine->Go trace hop
+// (Task 9.3.11). Nil keeps the no-span path.
+func (c *Consumer) WithTracer(t *tracing.Tracer) *Consumer {
+	c.tracer = t
 	return c
 }
 
@@ -524,11 +551,26 @@ func (c *Consumer) handle(payload []byte) {
 			c.malformed.Add(1)
 		}
 	}()
-	if len(payload) < 8 { // uoffset + minimal table — not a valid Event
+	// Task 9.3.11 — the engine echoes the 64B EXCTRACE block verbatim on
+	// frames answering a traced command; strip it before decode and
+	// continue the trace when a tracer is bound.
+	body, tsc, traced := tracing.StripAeronTrace(payload)
+	if len(body) < 8 { // uoffset + minimal table — not a valid Event
 		c.malformed.Add(1)
 		return
 	}
-	ev := ipc.DecodeEvent(payload)
+	var span *tracing.Span
+	if traced && c.tracer != nil {
+		_, span = c.tracer.Start(
+			tracing.ContextWithSpanContext(context.Background(), tsc),
+			"orders.consume", tracing.KindConsumer)
+		defer func() {
+			if span != nil {
+				span.Finish()
+			}
+		}()
+	}
+	ev := ipc.DecodeEvent(body)
 	if ev == nil {
 		return
 	}

@@ -299,7 +299,8 @@ void blob_put(std::vector<uint8_t>& b, const T& v) {
 bool SnapshotStore::serialize_book(const OrderBook& book,
                                    uint32_t instrument_id, uint64_t wal_seq,
                                    std::vector<uint8_t>& out,
-                                   WalBookSnapshotHeader& header_out) noexcept {
+                                   WalBookSnapshotHeader& header_out,
+                                   uint64_t next_trade_id) noexcept {
     try {
         out.clear();
         // Levels: bids descending then asks ascending (pinned contract order).
@@ -328,7 +329,8 @@ bool SnapshotStore::serialize_book(const OrderBook& book,
             sizeof(WalSnapshotLevel) * level_count +
             sizeof(WalSnapshotOrder) * order_count +
             sizeof(WalSnapshotExtHeader) +
-            sizeof(WalSnapshotOrderExt) * order_count;
+            sizeof(WalSnapshotOrderExt) * order_count +
+            sizeof(WalSnapshotCounters);
         if (total > kSnapMaxPayload) return false;
         out.reserve(static_cast<std::size_t>(total));
 
@@ -394,6 +396,15 @@ bool SnapshotStore::serialize_book(const OrderBook& book,
                 }
             }
         }
+
+        // v2 counters trailer — allocator high-water marks. A fingerprinting
+        // caller passes next_trade_id=0 (book content only, same convention
+        // as wal_seq=0 in wal_audit).
+        WalSnapshotCounters ctr{};
+        ctr.magic = kSnapCtrMagic;
+        ctr.version = kSnapCtrVersion;
+        ctr.next_trade_id = next_trade_id;
+        blob_put(out, ctr);
         return out.size() == total;
     } catch (...) {
         return false;  // bad_alloc etc. — cold path, fail-closed
@@ -476,11 +487,23 @@ bool SnapshotStore::parse_book(const uint8_t* blob, uint64_t len,
         std::memcpy(&xh, p, sizeof(xh));
         p += sizeof(xh);
         left -= sizeof(xh);
-        if (xh.magic != kSnapExtMagic || xh.version != kSnapExtVersion ||
-            xh.order_count != oc) {
+        if (xh.magic != kSnapExtMagic || xh.version < 1 ||
+            xh.version > kSnapExtVersion || xh.order_count != oc) {
             return false;
         }
-        if (left != sizeof(WalSnapshotOrderExt) * oc) return false;
+        const uint64_t ext_orders = sizeof(WalSnapshotOrderExt) * oc;
+        const uint64_t ctr_bytes =
+            (xh.version >= 2) ? sizeof(WalSnapshotCounters) : 0;
+        if (left != ext_orders + ctr_bytes) return false;
+        if (ctr_bytes != 0) {
+            WalSnapshotCounters ctr{};
+            std::memcpy(&ctr, p + ext_orders, sizeof(ctr));
+            if (ctr.magic != kSnapCtrMagic ||
+                ctr.version != kSnapCtrVersion) {
+                return false;
+            }
+            out.next_trade_id = ctr.next_trade_id;
+        }
         if (oc == 0) return true;
 
         out.orders.resize(static_cast<std::size_t>(oc));
@@ -540,7 +563,8 @@ SnapshotOutcome SnapshotStore::maybe_snapshot(const OrderBook& book,
                                               uint32_t instrument_id,
                                               uint64_t wal_seq,
                                               uint64_t now_ns,
-                                              uint64_t trades_delta) noexcept {
+                                              uint64_t trades_delta,
+                                              uint64_t next_trade_id) noexcept {
     trades_acc_ += trades_delta;
     const bool trade_hit = trades_acc_ >= policy_.trade_interval;
     const bool time_hit =
@@ -549,7 +573,7 @@ SnapshotOutcome SnapshotStore::maybe_snapshot(const OrderBook& book,
         // First-ever snapshot is unconditional — a boot's earliest checkpoint
         // bounds worst-case replay depth.
         const SnapshotOutcome o =
-            force_snapshot(book, instrument_id, wal_seq);
+            force_snapshot(book, instrument_id, wal_seq, next_trade_id);
         if (o == SnapshotOutcome::Taken) last_ns_ = now_ns;
         return o;
     }
@@ -558,10 +582,12 @@ SnapshotOutcome SnapshotStore::maybe_snapshot(const OrderBook& book,
 
 SnapshotOutcome SnapshotStore::force_snapshot(const OrderBook& book,
                                               uint32_t instrument_id,
-                                              uint64_t wal_seq) noexcept {
+                                              uint64_t wal_seq,
+                                              uint64_t next_trade_id) noexcept {
     std::vector<uint8_t> blob;
     WalBookSnapshotHeader hdr{};
-    if (!serialize_book(book, instrument_id, wal_seq, blob, hdr)) {
+    if (!serialize_book(book, instrument_id, wal_seq, blob, hdr,
+                        next_trade_id)) {
         return SnapshotOutcome::SerializeFailed;
     }
     if (!sink_.store(instrument_id, wal_seq, blob.data(), blob.size())) {

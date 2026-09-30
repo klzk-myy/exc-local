@@ -11,10 +11,18 @@ import { useMutation } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router';
 
 import { apiClient } from '@/app/runtime';
+import { useValidatedField, type FieldRule } from '@/lib/input-helpers';
 import { ErrorBox, Field, btnPrimary, cardCls, inputCls, selectCls } from '@/lib/ui';
 
 import * as api from './api';
 import { passwordStrength } from './password';
+
+const REQUIRED = (name: string, label: string): FieldRule => ({
+  name,
+  label,
+  required: true,
+  kind: 'string',
+});
 
 const COUNTRIES = [
   'US',
@@ -35,18 +43,25 @@ const COUNTRIES = [
 
 export default function RegisterPage() {
   const navigate = useNavigate();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirm, setConfirm] = useState('');
+  const email = useValidatedField(REQUIRED('email', 'Email'));
+  const password = useValidatedField(REQUIRED('password', 'Password'));
+  const confirm = useValidatedField(REQUIRED('confirm', 'Confirm password'));
   const [country, setCountry] = useState('US');
   const [acceptTerms, setAcceptTerms] = useState(false);
   const [verificationSent, setVerificationSent] = useState(false);
 
-  const strength = passwordStrength(password);
-  const mismatch = confirm !== '' && confirm !== password;
+  const strength = passwordStrength(password.value);
+  // Cross-field rule — the shared framework has no equality combinator.
+  const mismatch = confirm.value !== '' && confirm.value !== password.value;
 
   const mut = useMutation({
-    mutationFn: () => api.register(apiClient, { email, password, country, acceptTerms }),
+    mutationFn: () =>
+      api.register(apiClient, {
+        email: email.value,
+        password: password.value,
+        country,
+        acceptTerms,
+      }),
     onSuccess: (r) => {
       if (r.emailVerificationRequired) {
         setVerificationSent(true);
@@ -62,7 +77,7 @@ export default function RegisterPage() {
         <div className={cardCls} role="status">
           <h1 className="mb-2 text-xl font-semibold">Verify your email</h1>
           <p className="mb-4 text-sm text-neutral-300">
-            We sent a verification link to <strong>{email}</strong>. Confirm it to activate your
+            We sent a verification link to <strong>{email.value}</strong>. Confirm it to activate your
             account — the link expires shortly and you can request a new one by registering again.
           </p>
           <button
@@ -100,42 +115,35 @@ export default function RegisterPage() {
             mut.mutate();
           }}
         >
-          <Field label="Email" required>
-            {(id, describedBy, invalid) => (
+          <Field label="Email" required error={email.error}>
+            {(id, describedBy) => (
               <input
                 id={id}
                 aria-describedby={describedBy}
-                aria-invalid={invalid}
                 className={inputCls}
                 type="email"
                 autoComplete="email"
-                value={email}
-                onChange={(e) => {
-                  setEmail(e.target.value);
-                }}
+                {...email.inputProps}
               />
             )}
           </Field>
           <Field
             label="Password"
             required
+            error={password.error}
             hint="At least 12 characters with mixed case, a digit and a symbol recommended."
           >
-            {(id, describedBy, invalid) => (
+            {(id, describedBy) => (
               <>
                 <input
                   id={id}
                   aria-describedby={describedBy}
-                  aria-invalid={invalid}
                   className={inputCls}
                   type="password"
                   autoComplete="new-password"
-                  value={password}
-                  onChange={(e) => {
-                    setPassword(e.target.value);
-                  }}
+                  {...password.inputProps}
                 />
-                {password !== '' && (
+                {password.value !== '' && (
                   <div className="mt-1" role="status" aria-label="Password strength">
                     <div className="h-1.5 w-full rounded bg-neutral-800">
                       <div
@@ -158,20 +166,17 @@ export default function RegisterPage() {
           <Field
             label="Confirm password"
             required
-            error={mismatch ? 'Passwords do not match' : null}
+            error={mismatch ? 'Passwords do not match' : confirm.error}
           >
-            {(id, describedBy, invalid) => (
+            {(id, describedBy) => (
               <input
                 id={id}
                 aria-describedby={describedBy}
-                aria-invalid={invalid || mismatch}
                 className={inputCls}
                 type="password"
                 autoComplete="new-password"
-                value={confirm}
-                onChange={(e) => {
-                  setConfirm(e.target.value);
-                }}
+                {...confirm.inputProps}
+                aria-invalid={mismatch || confirm.inputProps['aria-invalid']}
               />
             )}
           </Field>
@@ -222,8 +227,8 @@ export default function RegisterPage() {
             className={`${btnPrimary} w-full`}
             disabled={
               mut.isPending ||
-              email === '' ||
-              password === '' ||
+              !email.valid ||
+              !password.valid ||
               mismatch ||
               !acceptTerms ||
               strength.score < 2

@@ -23,6 +23,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"exchange/internal/tracing"
 	"exchange/internal/ipc"
 	"exchange/internal/ipc/aeron"
 	"exchange/internal/ipc/wire"
@@ -265,7 +266,9 @@ func (c *FillConsumer) decodeFragment(payload []byte) (fill EngineFill, ok bool)
 		c.malformed.Add(1)
 		return EngineFill{}, false
 	}
-	ev := ipc.DecodeEvent(payload)
+	// Task 9.3.11 — strip the echoed EXCTRACE block before decode.
+	body, _, _ := tracing.StripAeronTrace(payload)
+	ev := ipc.DecodeEvent(body)
 	if ev.TypeType() != wire.EventTypeTradeFill {
 		c.nonFill.Add(1)
 		return EngineFill{}, false

@@ -807,12 +807,17 @@ func (p *LPBookProducer) Snapshot(_ context.Context, channel string) (uint64, an
 // JSON quote ingress — provisional wire contract for the LP feed
 // ---------------------------------------------------------------------------
 
-// lpQuoteJSON is the JSON wire shape LP ingress adapters (REST/WS
-// bridges, Phase-18 FIX mass-quote translation) publish on the
-// lp_quotes transport. Prices/quantities are decimal strings; ts is
-// RFC3339Nano (or ts_ms epoch millis); symbol may ride the NATS subject
-// instead (lp_quotes.{lpID}.{symbol-token}).
+// lpQuoteJSON is the JSON wire shape LP ingress adapters publish on the
+// quotes transport — the production producer is the FIX mass-quote path
+// (internal/fix JetStreamQuoteSink) on the dedicated "quotes" JetStream
+// stream, subject quotes.lp.{lpID}.{symbol-token}. Prices/quantities
+// are decimal strings; ts is RFC3339Nano (or ts_ms epoch millis);
+// lp_id/symbol may ride the NATS subject instead.
 type lpQuoteJSON struct {
+	// Kind discriminates updates from explicit withdrawals:
+	// "WITHDRAW" pins the decoded book empty regardless of carried
+	// levels; "" or "UPDATE" is an ordinary level update.
+	Kind         string      `json:"kind"`
 	LPID         int64       `json:"lp_id"`
 	InstrumentID int64       `json:"instrument_id"`
 	Symbol       string      `json:"symbol"`
@@ -862,6 +867,11 @@ func DecodeLPQuoteJSON(data []byte, subject string,
 		q.Ts = ts
 	case w.TsMs != 0:
 		q.Ts = time.UnixMilli(w.TsMs)
+	}
+	// kind=WITHDRAW pins the book empty — the withdrawal semantic must
+	// survive a producer that still carries stale levels in the payload.
+	if strings.EqualFold(w.Kind, "WITHDRAW") {
+		return q, nil
 	}
 	parseSide := func(rows [][2]string) ([]LPQuoteLevel, error) {
 		out := make([]LPQuoteLevel, 0, len(rows))

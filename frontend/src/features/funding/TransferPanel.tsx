@@ -10,6 +10,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiClient } from '@/app/runtime';
+import { cmpDecimal, useValidatedField, type FieldRule } from '@/lib/input-helpers';
 import {
   ErrorBox,
   Field,
@@ -24,6 +25,20 @@ import {
 } from '@/lib/ui';
 
 import * as api from './api';
+
+const RULE_ACCOUNT = (name: string, label: string): FieldRule => ({
+  name,
+  label,
+  required: true,
+  kind: 'string',
+});
+const RULE_AMOUNT: FieldRule = {
+  name: 'amount',
+  label: 'Amount',
+  required: true,
+  kind: 'decimal',
+  positive: true,
+};
 
 interface FamilyAccount {
   id: number;
@@ -68,31 +83,33 @@ export default function TransferPanel() {
   });
   const { accounts } = useFamilyAccounts(masterIdQ.data);
 
-  const [from, setFrom] = useState<number | ''>('');
-  const [to, setTo] = useState<number | ''>('');
+  const from = useValidatedField(RULE_ACCOUNT('from_account_id', 'From account'));
+  const to = useValidatedField(RULE_ACCOUNT('to_account_id', 'To account'));
   const [currency, setCurrency] = useState('USD');
-  const [amount, setAmount] = useState('');
+  const amount = useValidatedField(RULE_AMOUNT);
   const [done, setDone] = useState<api.TransferResult | null>(null);
 
   const balance = (bals.data ?? []).find((b) => b.currency === currency);
+  // Business rule, not structural: amount vs available balance stays
+  // local (server authoritative); cmpDecimal is null-safe on garbage.
   const exceeds =
     balance !== undefined &&
-    amount !== '' &&
-    Number.parseFloat(amount) > Number.parseFloat(balance.available);
-  const sameAccount = from !== '' && to !== '' && from === to;
+    amount.value !== '' &&
+    cmpDecimal(amount.value, balance.available) === 1;
+  const sameAccount = from.value !== '' && to.value !== '' && from.value === to.value;
 
   const create = useMutation({
     mutationFn: () =>
       api.createTransfer(apiClient, {
-        fromAccountId: Number(from),
-        toAccountId: Number(to),
+        fromAccountId: Number(from.value),
+        toAccountId: Number(to.value),
         currency,
-        amount,
+        amount: amount.value,
         idempotencyKey: api.newIdempotencyKey(),
       }),
     onSuccess: async (r) => {
       setDone(r);
-      setAmount('');
+      amount.reset();
       await qc.invalidateQueries({ queryKey: ['transfers'] });
       await qc.invalidateQueries({ queryKey: ['account', 'balances'] });
     },
@@ -124,17 +141,13 @@ export default function TransferPanel() {
           }}
         >
           <div className="grid grid-cols-2 gap-3">
-            <Field label="From account" required>
-              {(id, describedBy, invalid) => (
+            <Field label="From account" required error={from.error}>
+              {(id, describedBy) => (
                 <select
                   id={id}
                   aria-describedby={describedBy}
-                  aria-invalid={invalid}
                   className={selectCls}
-                  value={from}
-                  onChange={(e) => {
-                    setFrom(e.target.value === '' ? '' : Number(e.target.value));
-                  }}
+                  {...from.inputProps}
                 >
                   <option value="">Select…</option>
                   {accounts.map((a) => (
@@ -148,18 +161,15 @@ export default function TransferPanel() {
             <Field
               label="To account"
               required
-              error={sameAccount ? 'Source and destination must differ' : null}
+              error={to.error ?? (sameAccount ? 'Source and destination must differ' : null)}
             >
-              {(id, describedBy, invalid) => (
+              {(id, describedBy) => (
                 <select
                   id={id}
                   aria-describedby={describedBy}
-                  aria-invalid={invalid || sameAccount}
                   className={selectCls}
-                  value={to}
-                  onChange={(e) => {
-                    setTo(e.target.value === '' ? '' : Number(e.target.value));
-                  }}
+                  {...to.inputProps}
+                  aria-invalid={sameAccount || to.inputProps['aria-invalid']}
                 >
                   <option value="">Select…</option>
                   {accounts.map((a) => (
@@ -194,19 +204,20 @@ export default function TransferPanel() {
               </select>
             )}
           </Field>
-          <Field label="Amount" required error={exceeds ? 'Exceeds available balance' : null}>
-            {(id, describedBy, invalid) => (
+          <Field
+            label="Amount"
+            required
+            error={amount.error ?? (exceeds ? 'Exceeds available balance' : null)}
+          >
+            {(id, describedBy) => (
               <input
                 id={id}
                 aria-describedby={describedBy}
-                aria-invalid={invalid || exceeds}
                 className={inputCls}
                 inputMode="decimal"
                 placeholder="0.00"
-                value={amount}
-                onChange={(e) => {
-                  setAmount(e.target.value);
-                }}
+                {...amount.inputProps}
+                aria-invalid={exceeds || amount.inputProps['aria-invalid']}
               />
             )}
           </Field>
@@ -215,10 +226,10 @@ export default function TransferPanel() {
             className={btnPrimary}
             disabled={
               create.isPending ||
-              from === '' ||
-              to === '' ||
+              !from.valid ||
+              !to.valid ||
               sameAccount ||
-              amount === '' ||
+              !amount.valid ||
               exceeds
             }
           >

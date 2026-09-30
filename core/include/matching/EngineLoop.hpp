@@ -80,6 +80,7 @@ class Watchdog {
     void stop() noexcept;
     [[nodiscard]] bool running() const noexcept { return th_.joinable(); }
 
+    [[nodiscard]] const Thresholds& thresholds() const noexcept { return t_; }
     [[nodiscard]] uint64_t warn_samples() const noexcept { return warn_samples_; }
     [[nodiscard]] uint64_t stall_samples() const noexcept { return stall_samples_; }
     [[nodiscard]] uint64_t stall_reports() const noexcept { return stall_reports_; }

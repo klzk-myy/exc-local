@@ -37,21 +37,23 @@ describe('validateDraft', () => {
     expect(validateDraft(draft(), INST)).toEqual({});
   });
   it('rejects empty/non-positive quantity', () => {
-    expect(validateDraft(draft({ quantity: '' }), INST).quantity).toMatch(/required/);
-    expect(validateDraft(draft({ quantity: '0' }), INST).quantity).toMatch(/greater than 0/);
-    expect(validateDraft(draft({ quantity: 'abc' }), INST).quantity).toMatch(/required/);
+    // quantity is conditionally required (MARKET accepts quote_quantity
+    // instead), so empty lands on the relational rule, not "required".
+    expect(validateDraft(draft({ quantity: '' }), INST).quantity).toMatch(/positive/);
+    expect(validateDraft(draft({ quantity: '0' }), INST).quantity).toMatch(/positive/);
+    expect(validateDraft(draft({ quantity: 'abc' }), INST).quantity).toMatch(/decimal/);
   });
   it('enforces min/max/lot from the instrument', () => {
-    expect(validateDraft(draft({ quantity: '50' }), INST).quantity).toMatch(/Minimum/);
-    expect(validateDraft(draft({ quantity: '2000000' }), INST).quantity).toMatch(/Maximum/);
-    expect(validateDraft(draft({ quantity: '150' }), INST).quantity).toMatch(/lot size/);
+    expect(validateDraft(draft({ quantity: '50' }), INST).quantity).toMatch(/min_order_qty/);
+    expect(validateDraft(draft({ quantity: '2000000' }), INST).quantity).toMatch(/max_order_qty/);
+    expect(validateDraft(draft({ quantity: '150' }), INST).quantity).toMatch(/lot_size/);
   });
   it('limit price: required, positive, tick-aligned, in band', () => {
     expect(validateDraft(draft({ price: '' }), INST).price).toMatch(/required/);
-    expect(validateDraft(draft({ price: '-1' }), INST).price).toMatch(/greater than 0/);
-    expect(validateDraft(draft({ price: '1.085001' }), INST).price).toMatch(/tick size/);
-    expect(validateDraft(draft({ price: '0.4' }), INST).price).toMatch(/minimum/);
-    expect(validateDraft(draft({ price: '3.0' }), INST).price).toMatch(/maximum/);
+    expect(validateDraft(draft({ price: '-1' }), INST).price).toMatch(/positive/);
+    expect(validateDraft(draft({ price: '1.085001' }), INST).price).toMatch(/tick_size/);
+    expect(validateDraft(draft({ price: '0.4' }), INST).price).toMatch(/min_price/);
+    expect(validateDraft(draft({ price: '3.0' }), INST).price).toMatch(/max_price/);
   });
   it('enforces minimum notional on limit orders', () => {
     // 100 × 0.5 = 50 ≥ 10 ok; 100 × ... need <10 → qty 100 @ 0.05 (min price 0.5 blocks); use minNotional-aware pair:

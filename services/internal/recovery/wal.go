@@ -353,9 +353,13 @@ type SnapshotOrderExt struct {
 
 const (
 	SnapExtMagic     uint32 = 0x31455853 // 'SXE1'
-	SnapExtVersion   uint16 = 1
+	SnapExtVersion   uint16 = 1          // v1: ext orders only
+	SnapExtVersionV2 uint16 = 2          // v2: + WalSnapshotCounters trailer
+	SnapCtrMagic     uint32 = 0x32544353 // 'SCT2'
+	snapCtrVersion   uint16 = 1
 	snapExtHdrSize          = 16
 	snapExtOrderSize        = 60
+	snapCtrSize             = 16
 )
 
 type BookSnapshotPayload struct {
@@ -364,6 +368,7 @@ type BookSnapshotPayload struct {
 	Orders       []SnapshotOrder
 	OrderExt     []SnapshotOrderExt // nil when the ext trailer is absent
 	BookSeq      uint64
+	NextTradeID  uint64 // v2 counters trailer; 0 on v1 blobs
 	ExtOK        bool
 }
 
@@ -410,8 +415,15 @@ func DecodeBookSnapshot(p []byte) (BookSnapshotPayload, error) {
 		xmagic := binary.LittleEndian.Uint32(rest[0:4])
 		xver := binary.LittleEndian.Uint16(rest[4:6])
 		xcount := binary.LittleEndian.Uint64(rest[8:16])
-		if xmagic == SnapExtMagic && xver == SnapExtVersion &&
-			uint64(len(rest)) == snapExtHdrSize+xcount*snapExtOrderSize &&
+		// v2 appends a 16B WalSnapshotCounters trailer after the order-ext
+		// records (trade-id allocator high-water — see SnapshotStore.hpp).
+		ctrBytes := uint64(0)
+		if xver == SnapExtVersionV2 {
+			ctrBytes = snapCtrSize
+		}
+		if xmagic == SnapExtMagic &&
+			(xver == SnapExtVersion || xver == SnapExtVersionV2) &&
+			uint64(len(rest)) == snapExtHdrSize+xcount*snapExtOrderSize+ctrBytes &&
 			xcount == orderCount {
 			xo := snapExtHdrSize
 			for i := uint64(0); i < xcount; i++ {
@@ -428,6 +440,15 @@ func DecodeBookSnapshot(p []byte) (BookSnapshotPayload, error) {
 					Flags:       rest[xo+54],
 				})
 				xo += snapExtOrderSize
+			}
+			if ctrBytes != 0 {
+				ctr := rest[xo : xo+snapCtrSize]
+				if binary.LittleEndian.Uint32(ctr[0:4]) != SnapCtrMagic ||
+					binary.LittleEndian.Uint16(ctr[4:6]) != snapCtrVersion {
+					s.OrderExt = nil
+					return s, nil
+				}
+				s.NextTradeID = binary.LittleEndian.Uint64(ctr[8:16])
 			}
 			s.ExtOK = true
 		}

@@ -89,6 +89,8 @@ export const BATCH_CANCEL_MAX = 20;
 export const CLIENT_ORDER_ID_MAX = 64;
 /** Symbol form — canonical FX pair "EUR/USD" (spec §10.5 charset). */
 export const SYMBOL_RE = /^[A-Z]{3}\/[A-Z]{3}$/;
+/** ISO-4217 fiat currency code (fiat-only domain, spec §6 preamble). */
+export const CURRENCY_CODE_RE = /^[A-Z]{3}$/;
 
 // ---------------------------------------------------------------------------
 // Field rules
@@ -269,6 +271,14 @@ export const RULE_GTD_EXPIRY: FieldRule = {
   name: 'gtd_expiry',
   label: 'GTD expiry',
   kind: 'rfc3339',
+};
+/** Generic fiat currency input (funding/fee-estimate surfaces). */
+export const RULE_CURRENCY: FieldRule = {
+  name: 'currency',
+  label: 'Currency',
+  required: true,
+  kind: 'string',
+  pattern: CURRENCY_CODE_RE,
 };
 /** countdown_ms 1000–300000 (accounts/countdown.go). */
 export const RULE_COUNTDOWN_MS: FieldRule = {

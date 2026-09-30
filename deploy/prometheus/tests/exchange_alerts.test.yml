@@ -1,0 +1,167 @@
+# exchange_alerts.test.yml — promtool chaos-test for the multi-window
+# burn-rate and golden-signal rules (Phase-09 Task 9.3.14 DoD row:
+# "Multiwindow burn-rate alerts (P1/P2/P3) fire correctly in a chaos test").
+#
+# This is the rules-level chaos leg: fabricated input series drive the
+# real rule file through `promtool test rules`; live-alertmanager
+# delivery remains the env-bound leg (documented on the checklist row).
+#
+# Run:  docker run --rm --entrypoint promtool \
+#         -v "$PWD/deploy/prometheus:/rules" prom/prometheus:v2.53.0 \
+#         test rules /rules/tests/exchange_alerts.test.yml
+#
+# Series design: exchange_errors_total and http_requests_total are
+# counters — 'a+bxN' appends a at t0 then +b per interval.
+#   Burn bounds: fast = ratio > 14.4×1e-4 = 0.00144 on BOTH 5m and 1h;
+#                slow = ratio > 6×1e-4    = 0.00060 on BOTH 30m and 6h.
+#   At 15s interval: requests +150000/interval = 10k/s;
+#                    fast-burn errors +300/interval = 20/s  → ratio .002;
+#                    slow-burn errors +120/interval =  8/s  → ratio .0008.
+rule_files:
+  - ../rules/exchange-alerts.yml
+  - ../alerts.yml
+
+evaluation_interval: 15s
+
+tests:
+  # ── Scenario 1: healthy traffic — no burn alert at any horizon ──
+  - interval: 15s
+    input_series:
+      - series: 'exchange_errors_total{service="gateway", tier="L1"}'
+        values: '0+10x480'     # 0.67/s errors vs 10k/s requests → ratio .000067
+      - series: 'http_requests_total{service="gateway"}'
+        values: '0+150000x480'
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: AvailabilityBurnFast
+        exp_alerts: []
+      - eval_time: 90m
+        alertname: AvailabilityBurnSlow
+        exp_alerts: []
+
+  # ── Scenario 2: error flood → fast burn pages P0, slow burn tickets P2 ──
+  - interval: 15s
+    input_series:
+      - series: 'exchange_errors_total{service="gateway", tier="L1"}'
+        values: '0+300x480'    # 20/s → ratio .002 > .00144 AND > .0006
+      - series: 'http_requests_total{service="gateway"}'
+        values: '0+150000x480'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: AvailabilityBurnFast
+        exp_alerts:
+          - exp_labels:
+              alertname: AvailabilityBurnFast
+              severity: p0
+              team: ops
+            exp_annotations:
+              summary: "Availability SLO fast burn"
+              description: "Error ratio burning the 99.99% budget at >14.4× on both 5m and 1h windows."
+              runbook: docs/runbooks/availability-slo-burn.md
+      - eval_time: 35m
+        alertname: AvailabilityBurnSlow
+        exp_alerts:
+          - exp_labels:
+              alertname: AvailabilityBurnSlow
+              severity: p2
+              team: ops
+            exp_annotations:
+              summary: "Availability SLO slow burn"
+              description: "Error ratio burning the 99.99% budget at >6× on 30m/6h composite windows."
+              runbook: docs/runbooks/availability-slo-burn.md
+
+  # ── Scenario 3: slow-only burn — below the 14.4× bound, above 6× ──
+  - interval: 15s
+    input_series:
+      - series: 'exchange_errors_total{service="gateway", tier="L1"}'
+        values: '0+120x480'    # 8/s → ratio .0008: fires slow, not fast
+      - series: 'http_requests_total{service="gateway"}'
+        values: '0+150000x480'
+    alert_rule_test:
+      - eval_time: 35m
+        alertname: AvailabilityBurnFast
+        exp_alerts: []
+      - eval_time: 35m
+        alertname: AvailabilityBurnSlow
+        exp_alerts:
+          - exp_labels:
+              alertname: AvailabilityBurnSlow
+              severity: p2
+              team: ops
+            exp_annotations:
+              summary: "Availability SLO slow burn"
+              description: "Error ratio burning the 99.99% budget at >6× on 30m/6h composite windows."
+              runbook: docs/runbooks/availability-slo-burn.md
+
+  # ── Scenario 4: degradation/breaker/recon chaos — ReadOnly pages,
+  #    Maintenance excluded, breaker opens at 2m, recon increase>0 fires P1 ──
+  - interval: 15s
+    input_series:
+      - series: 'exchange_degradation_mode{service="gateway", mode="ReadOnly"}'
+        values: '0x20 1x240'
+      - series: 'exchange_degradation_mode{service="gateway", mode="Maintenance"}'
+        values: '1x480'        # Maintenance must NEVER page
+      - series: 'exchange_circuit_breaker_open{service="gateway", name="pg"}'
+        values: '0x20 1x240'
+      - series: 'reconciliation_mismatches_total{service="settlement", kind="balance"}'
+        values: '0+5x480'      # monotonic counter — increase>0 at every 15m window
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: DegradationModeActive
+        exp_alerts:
+          - exp_labels:
+              alertname: DegradationModeActive
+              severity: p2
+              team: ops
+              service: gateway
+              mode: ReadOnly
+            exp_annotations:
+              summary: "Degradation mode ReadOnly on gateway"
+              description: "Service entered ReadOnly — spec §2.7.3 requires 30s healthy telemetry before Normal returns."
+              runbook: docs/runbooks/degradation-mode-active.md
+      - eval_time: 8m
+        alertname: CircuitBreakerOpen
+        exp_alerts:
+          - exp_labels:
+              alertname: CircuitBreakerOpen
+              severity: p2
+              team: ops
+              service: gateway
+              name: pg
+            exp_annotations:
+              summary: "Circuit breaker pg open on gateway"
+              description: "Five-tier breaker tripped — dependency fault or overload (Phase-13)."
+              runbook: docs/runbooks/circuit-breaker-open.md
+      - eval_time: 10m
+        alertname: ReconciliationMismatch
+        exp_alerts:
+          - exp_labels:
+              alertname: ReconciliationMismatch
+              severity: p1
+              team: ops
+              service: settlement
+              kind: balance
+            exp_annotations:
+              summary: "Reconciliation mismatch on settlement (balance)"
+              description: "200 mismatches in 15m — ledger/position divergence; fail-closed review required."
+              runbook: docs/runbooks/reconciliation-mismatch.md
+
+  # ── Scenario 5: L0 page — single fatal delta fires immediately ──
+  - interval: 15s
+    input_series:
+      - series: 'exchange_errors_total{service="matching-engine", tier="L0"}'
+        values: '0x30 0+1x10'
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: L0ErrorObserved
+        exp_alerts:
+          - exp_labels:
+              alertname: L0ErrorObserved
+              severity: p0
+              team: ops
+              service: matching-engine
+              tier: L0
+            exp_annotations:
+              summary: "L0 critical/fatal error on matching-engine"
+              description: "L0 (halt-domain) errors incremented by 1 on matching-engine in the last minute. Strict fail-closed zero-loss: verify core state before anything else."
+              runbook: docs/runbooks/l0-error-observed.md

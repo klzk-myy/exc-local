@@ -750,18 +750,18 @@ Implement the API versioning strategy (spec §8.6, §24 #208):
 9. **(amended 2026-09-25 — governance remediation #17, claims the previously unassigned API-gateway CORS/CSP emission):** the gateway is the authoritative emitter of `Access-Control-Allow-Origin`/`-Methods`/`-Headers`/`-Max-Age` (allowlist from config, never `*` on authenticated paths), `Content-Security-Policy` for any gateway-served asset, and `Strict-Transport-Security`/`X-Content-Type-Options`/`X-Frame-Options`/`Referrer-Policy`/`Permissions-Policy` on every response. The SPA-served header set is Phase-10 Task 10.3.1's responsibility; this is the gateway layer. CI asserts every route registered in Task 5.3.7 returns a complete hardening-header set — a route that omits one fails the build.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] HAProxy routes traffic to Go services with health-check failover — *configured: `/health/ready` L7 checks gate be_gateway/be_ws backends with fall/inter retries; live failover unverified — no `haproxy` binary on this host (deploy-time check)*
+* [x] HAProxy routes traffic to Go services with health-check failover — *closed 2026-09-30: real `haproxy:2.9` drill (`deploy/haproxy/test/run_drill.sh` + VALIDATION.md) — primary kill → DOWN at +6.66s (matches `inter 2s fall 3`), 10/10 200s via `backup` server, `rise 2` recovery at +3.51s; cfg itself fixed to parse clean (4 fatal defects: sc1_http_req_rate form, map match syntax, is_ws ACL, tcp-request ordering)*
 * [x] TLS termination with certificate rotation support
 * [x] Authentication middleware validates JWT/HMAC before routing
 * [x] Health endpoints return correct status per dependency checks
-* [ ] Blue-green deploy switches traffic with zero dropped requests — *configured: active_color.map + stats-socket `set map` flip; zero-drop live flip unverified — no `haproxy` binary on this host (deploy-time check)*
+* [x] Blue-green deploy switches traffic with zero dropped requests — *closed 2026-09-30: 500 sequential requests through https_in with TWO live `set map active_color.map gateway` flips via the admin socket (blue→green@req250, green→blue@req400): **500/500 HTTP 200, 0 dropped**, flips effective next-request*
 * [x] Circuit breaker trips on sustained backend errors
 * [x] Gateway emits the full hardening-header set (CORS allowlist, CSP, HSTS, X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy) on every response — owned by this task; the SPA-served set is Phase-10 Task 10.3.1
 
 **SDD Checklist:**
 - [x] Spec checkpoint: API gateway architecture — defined first, validated against spec
 - [x] All spec checkpoints pass after implementation
-- [ ] Edge cases: all backends down, TLS cert expiry, WebSocket upgrade through proxy — *config-covered: all-backends-down → L7 check fail → 503; TLS expiry is operational (crt dir + `-sf` reload); WS upgrade through proxy configured (timeout tunnel + Upgrade ACL); live paths unverified — env-blocked*
+- [x] Edge cases: all backends down, TLS cert expiry, WebSocket upgrade through proxy — *closed 2026-09-30 same drill: both-blue maint → honest 503 → instant ready-recovery; `/ws` upgrade → 101 via be_ws (path-gated); off-path Upgrade denied; TRACE→405, dup-CL→400, 2MiB→413; TLS cert lifecycle is provision-time (crt path config-only, documented)*
 
 ---
 

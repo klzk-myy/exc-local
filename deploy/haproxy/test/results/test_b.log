@@ -1,0 +1,24 @@
+map at start: 0x5ad6919de570 gateway blue  
+== req250: set map gateway green ==
+
+== req400: set map gateway blue  ==
+
+== summary ==
+HTTP 200: 500
+body GREEN-1: 150
+body BLUE-1: 350
+-- responses around flips --
+247	200	BLUE-1
+248	200	BLUE-1
+249	200	BLUE-1
+250	200	GREEN-1
+251	200	GREEN-1
+252	200	GREEN-1
+253	200	GREEN-1
+398	200	GREEN-1
+399	200	GREEN-1
+400	200	BLUE-1
+401	200	BLUE-1
+402	200	BLUE-1
+403	200	BLUE-1
+TOTAL FAILED: 0

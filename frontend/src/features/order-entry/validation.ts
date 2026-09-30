@@ -1,23 +1,35 @@
 /**
- * Order-entry draft validation (Task 10.3.3 item 2) — pure functions.
+ * Order-entry draft validation (Task 10.3.3 item 2) — pure functions
+ * composed on the Task 10.3.29 shared framework (`@/lib/input-helpers`):
  *
- * Client-side checks mirror the server filters (spec §22.1) so obvious
- * rejects never reach the wire; the server remains authoritative:
- *   qty    > 0, ≥ min_order_qty, ≤ max_order_qty, multiple of lot_size
- *   price  required for LIMIT, > 0, multiple of tick_size,
- *          within min/max_price when the instrument declares them
- *   notional = qty × price ≥ min_notional (LIMIT only — MARKET has no
- *          price to multiply)
- *   GTD    requires a future expiry (§22.2 gtd_expiry, RFC3339)
- *   IOC/FOK are incompatible with GTD/DAY semantics server-side; the
- *          TIF selector itself constrains this (GTD expiry only shows
- *          for GTD).
+ *   - per-field rules come from the canonical route binding
+ *     `ROUTE_FIELD_BINDINGS['POST /api/v1/orders']` (validateRecord —
+ *     kind/required/positive mirroring orders/validate.go);
+ *   - relational rules come from `validateOrderSubmit` (§22.1: MARKET
+ *     qty XOR quote_quantity, price required for LIMIT, GTD expiry);
+ *   - instrument filters (tick/lot multiples, min/max qty, min/max
+ *     price) come from `validateAgainstInstrument`;
+ *   - two checks stay local because the framework doesn't compose them:
+ *     min_notional (cross-field qty × price) and "GTD expiry must be in
+ *     the future" (RULE_GTD_EXPIRY is format-only).
  *
- * NOTE: Task 10.3.29 plans a shared `useInputHelper(route)` framework —
- * this module is the local implementation until that task lands; keep
- * rules pure so the swap is mechanical.
+ * Raw input is canonicalized through `parseInputDecimal` first so the
+ * validator sees the same value `buildRequest` puts on the wire (commas
+ * and stray whitespace are accepted input, never a validation failure).
+ * The server remains authoritative — client checks only keep obvious
+ * rejects off the wire.
  */
-import { Dec, decOrZero } from '@/lib/market/decimal';
+import {
+  ROUTE_FIELD_BINDINGS,
+  cmpDecimal,
+  isPositive,
+  mulDecimal,
+  validateAgainstInstrument,
+  validateOrderSubmit,
+  validateRecord,
+  type FieldError,
+} from '@/lib/input-helpers';
+import { Dec } from '@/lib/market/decimal';
 import { parseInputDecimal } from '@/lib/market/format';
 import type { Instrument, SubmitOrderRequest } from '@/lib/market/wire';
 import type { OrderSide, TimeInForce } from '@/lib/market/wire';
@@ -45,63 +57,87 @@ export const TIME_IN_FORCE_OPTIONS: readonly { value: TimeInForce; label: string
   { value: 'FOK', label: 'FOK — fill-or-kill' },
 ];
 
+/** Canonical rule set for the ticket's submit route (Task 10.3.29). */
+const ORDER_FIELD_RULES = ROUTE_FIELD_BINDINGS['POST /api/v1/orders'] ?? [];
+
+/** Framework field names → DraftErrors keys. Other bound fields (symbol,
+ * side, type, tif) are control-driven and can't fail here. */
+const FIELD_MAP: Readonly<Record<string, DraftField>> = {
+  quantity: 'quantity',
+  price: 'price',
+  gtd_expiry: 'gtdExpiry',
+};
+
 export function validateDraft(d: OrderDraft, inst?: Instrument): DraftErrors {
   const errors: DraftErrors = {};
 
+  // Canonicalize before validating — the wire form (commas/whitespace
+  // stripped) is what the framework rules should judge.
   const qty = parseInputDecimal(d.quantity);
-  if (qty === null) {
-    errors.quantity = 'Quantity is required';
-  } else if (!qty.isPositive()) {
-    errors.quantity = 'Quantity must be greater than 0';
-  } else if (inst) {
-    const minQty = decOrZero(inst.minOrderQty);
-    const maxQty = decOrZero(inst.maxOrderQty);
-    const lot = decOrZero(inst.lotSize);
-    if (minQty.isPositive() && qty.lt(minQty)) {
-      errors.quantity = `Minimum quantity is ${inst.minOrderQty}`;
-    } else if (maxQty.isPositive() && qty.gt(maxQty)) {
-      errors.quantity = `Maximum quantity is ${inst.maxOrderQty}`;
-    } else if (lot.isPositive() && !qty.isMultipleOf(lot)) {
-      errors.quantity = `Quantity must be a multiple of lot size ${inst.lotSize}`;
+  const price = d.type === 'LIMIT' ? parseInputDecimal(d.price) : null;
+  const values = {
+    symbol: d.symbol,
+    side: d.side,
+    type: d.type,
+    quantity: qty !== null ? qty.toString() : d.quantity,
+    price: d.type === 'LIMIT' ? (price !== null ? price.toString() : d.price) : '',
+    time_in_force: d.timeInForce,
+    gtd_expiry: d.timeInForce === 'GTD' ? d.gtdExpiry : '',
+  };
+
+  const collected: FieldError[] = [
+    ...validateRecord(ORDER_FIELD_RULES, values),
+    ...validateOrderSubmit(values),
+  ];
+  if (inst !== undefined) {
+    collected.push(
+      ...validateAgainstInstrument(
+        {
+          tickSize: inst.tickSize,
+          lotSize: inst.lotSize,
+          minOrderQty: inst.minOrderQty,
+          maxOrderQty: inst.maxOrderQty,
+          minNotional: inst.minNotional,
+          minPrice: inst.minPrice ?? null,
+          maxPrice: inst.maxPrice ?? null,
+        },
+        values,
+      ),
+    );
+  }
+  for (const err of collected) {
+    const key = FIELD_MAP[err.field];
+    if (key !== undefined && errors[key] === undefined) errors[key] = err.message;
+  }
+
+  // Local cross-field check the framework doesn't compose: notional =
+  // qty × price ≥ min_notional (LIMIT only — MARKET has no price leg).
+  if (
+    inst !== undefined &&
+    d.type === 'LIMIT' &&
+    qty !== null &&
+    qty.isPositive() &&
+    price !== null &&
+    price.isPositive() &&
+    errors.quantity === undefined &&
+    errors.price === undefined
+  ) {
+    const notional = mulDecimal(qty.toString(), price.toString());
+    if (
+      notional !== null &&
+      isPositive(inst.minNotional) &&
+      cmpDecimal(notional, inst.minNotional) === -1
+    ) {
+      errors.notional = `Order value below minimum notional ${inst.minNotional} ${inst.quoteCurrency}`;
     }
   }
 
-  if (d.type === 'LIMIT') {
-    const price = parseInputDecimal(d.price);
-    if (price === null) {
-      errors.price = 'Price is required for limit orders';
-    } else if (!price.isPositive()) {
-      errors.price = 'Price must be greater than 0';
-    } else if (inst) {
-      const tick = decOrZero(inst.tickSize);
-      const minP = decOrZero(inst.minPrice);
-      const maxP = decOrZero(inst.maxPrice);
-      if (tick.isPositive() && !price.isMultipleOf(tick)) {
-        errors.price = `Price must be a multiple of tick size ${inst.tickSize}`;
-      } else if (minP.isPositive() && price.lt(minP)) {
-        errors.price = `Price below instrument minimum ${inst.minPrice}`;
-      } else if (maxP.isPositive() && price.gt(maxP)) {
-        errors.price = `Price above instrument maximum ${inst.maxPrice}`;
-      }
-      if (qty !== null && qty.isPositive() && errors.quantity === undefined) {
-        const minNotional = decOrZero(inst.minNotional);
-        if (minNotional.isPositive() && qty.mul(price).lt(minNotional)) {
-          errors.notional = `Order value below minimum notional ${inst.minNotional} ${inst.quoteCurrency}`;
-        }
-      }
-    }
-  }
-
-  if (d.timeInForce === 'GTD') {
-    if (d.gtdExpiry.trim() === '') {
-      errors.gtdExpiry = 'GTD orders require an expiry';
-    } else {
-      const t = new Date(d.gtdExpiry);
-      if (Number.isNaN(t.getTime())) {
-        errors.gtdExpiry = 'Expiry is not a valid date/time';
-      } else if (t.getTime() <= Date.now()) {
-        errors.gtdExpiry = 'Expiry must be in the future';
-      }
+  // Local temporal check — RULE_GTD_EXPIRY is format-only (rfc3339); the
+  // "must be in the future" rule is relational to now.
+  if (d.timeInForce === 'GTD' && errors.gtdExpiry === undefined) {
+    const t = new Date(d.gtdExpiry);
+    if (!Number.isNaN(t.getTime()) && t.getTime() <= Date.now()) {
+      errors.gtdExpiry = 'Expiry must be in the future';
     }
   }
 

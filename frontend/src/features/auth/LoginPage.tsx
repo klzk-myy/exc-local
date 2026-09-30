@@ -12,35 +12,52 @@ import { useMutation } from '@tanstack/react-query';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 
 import { apiClient } from '@/app/runtime';
+import { useValidatedField, type FieldRule } from '@/lib/input-helpers';
 import { ErrorBox, Field, btnPrimary, cardCls, inputCls } from '@/lib/ui';
 
 import * as api from './api';
 import { safeRedirectTarget } from './redirect';
+
+const REQUIRED = (name: string, label: string): FieldRule => ({
+  name,
+  label,
+  required: true,
+  kind: 'string',
+});
+/** TOTP code — the input strips non-digits; the rule enforces the
+ * 6-digit contract (§12.3.2). */
+const RULE_TOTP: FieldRule = {
+  name: 'totp_code',
+  label: 'Authenticator code',
+  required: true,
+  kind: 'string',
+  pattern: /^\d{6}$/,
+};
 
 export default function LoginPage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const redirect = safeRedirectTarget(params.get('redirect'));
 
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const email = useValidatedField(REQUIRED('email', 'Email'));
+  const password = useValidatedField(REQUIRED('password', 'Password'));
+  const totp = useValidatedField(RULE_TOTP);
   const [rememberMe, setRememberMe] = useState(true);
-  const [totpCode, setTotpCode] = useState('');
   const [challenge, setChallenge] = useState<string | null>(null);
 
   const mut = useMutation({
     mutationFn: () =>
       api.login(apiClient, {
-        email,
-        password,
+        email: email.value,
+        password: password.value,
         rememberMe,
-        ...(totpCode !== '' ? { totpCode } : {}),
+        ...(totp.value !== '' ? { totpCode: totp.value } : {}),
         ...(challenge !== null ? { challenge } : {}),
       }),
     onSuccess: (r) => {
       if (r.kind === 'totp') {
         setChallenge(r.challenge);
-        setTotpCode('');
+        totp.reset();
       } else {
         void navigate(redirect);
       }
@@ -75,20 +92,19 @@ export default function LoginPage() {
                 Two-factor authentication is enabled on this account. Enter the 6-digit code from
                 your authenticator app.
               </p>
-              <Field label="Authenticator code" required>
-                {(id, describedBy, invalid) => (
+              <Field label="Authenticator code" required error={totp.error}>
+                {(id, describedBy) => (
                   <input
                     id={id}
                     aria-describedby={describedBy}
-                    aria-invalid={invalid}
                     className={inputCls}
                     inputMode="numeric"
                     autoComplete="one-time-code"
                     pattern="[0-9]{6}"
                     maxLength={6}
-                    value={totpCode}
+                    {...totp.inputProps}
                     onChange={(e) => {
-                      setTotpCode(e.target.value.replaceAll(/\D/g, '').slice(0, 6));
+                      totp.setValue(e.target.value.replaceAll(/\D/g, '').slice(0, 6));
                     }}
                     autoFocus
                   />
@@ -97,36 +113,28 @@ export default function LoginPage() {
             </>
           ) : (
             <>
-              <Field label="Email" required>
-                {(id, describedBy, invalid) => (
+              <Field label="Email" required error={email.error}>
+                {(id, describedBy) => (
                   <input
                     id={id}
                     aria-describedby={describedBy}
-                    aria-invalid={invalid}
                     className={inputCls}
                     type="email"
                     autoComplete="email"
-                    value={email}
-                    onChange={(e) => {
-                      setEmail(e.target.value);
-                    }}
+                    {...email.inputProps}
                     autoFocus
                   />
                 )}
               </Field>
-              <Field label="Password" required>
-                {(id, describedBy, invalid) => (
+              <Field label="Password" required error={password.error}>
+                {(id, describedBy) => (
                   <input
                     id={id}
                     aria-describedby={describedBy}
-                    aria-invalid={invalid}
                     className={inputCls}
                     type="password"
                     autoComplete="current-password"
-                    value={password}
-                    onChange={(e) => {
-                      setPassword(e.target.value);
-                    }}
+                    {...password.inputProps}
                   />
                 )}
               </Field>
@@ -146,7 +154,7 @@ export default function LoginPage() {
             type="submit"
             className={`${btnPrimary} w-full`}
             disabled={
-              mut.isPending || (totpStep ? totpCode.length !== 6 : email === '' || password === '')
+              mut.isPending || (totpStep ? !totp.valid : !email.valid || !password.valid)
             }
           >
             {mut.isPending ? 'Signing in…' : totpStep ? 'Verify code' : 'Sign in'}

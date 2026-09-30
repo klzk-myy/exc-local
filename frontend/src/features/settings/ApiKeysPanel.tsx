@@ -10,12 +10,11 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiClient } from '@/app/runtime';
+import { ConfirmModal, useValidatedField, type FieldRule } from '@/lib/input-helpers';
 import {
   CopyButton,
   ErrorBox,
   Field,
-  Modal,
-  ConfirmAction,
   StatusBadge,
   btnGhost,
   btnPrimary,
@@ -30,6 +29,12 @@ import {
 import * as api from './api';
 
 const RATE_TIERS = ['basic', 'standard', 'professional', 'institutional'] as const;
+const RULE_LABEL: FieldRule = {
+  name: 'label',
+  label: 'Key label',
+  required: true,
+  kind: 'string',
+};
 
 function ScopeChecklist({
   allowed,
@@ -86,21 +91,22 @@ export default function ApiKeysPanel() {
     queryFn: () => api.listSubAccounts(apiClient),
   });
 
-  const [label, setLabel] = useState('');
+  const label = useValidatedField(RULE_LABEL);
   const [scopes, setScopes] = useState<string[]>(['read']);
   const [tier, setTier] = useState<string>('basic');
   const [revoking, setRevoking] = useState<api.ApiKeyView | null>(null);
   const [issued, setIssued] = useState<api.IssuedDeveloperKey | null>(null);
   const [issuedSub, setIssuedSub] = useState<api.IssuedSubAccountKey | null>(null);
   const [subTarget, setSubTarget] = useState<number | null>(null);
-  const [subLabel, setSubLabel] = useState('');
+  const subLabel = useValidatedField(RULE_LABEL);
   const [subScopes, setSubScopes] = useState<string[]>(['read']);
 
   const create = useMutation({
-    mutationFn: () => api.createApiKey(apiClient, { label, scopes, rateLimitTier: tier }),
+    mutationFn: () =>
+      api.createApiKey(apiClient, { label: label.value, scopes, rateLimitTier: tier }),
     onSuccess: async (r) => {
       setIssued(r);
-      setLabel('');
+      label.reset();
       await qc.invalidateQueries({ queryKey: ['developer', 'api-keys'] });
     },
   });
@@ -113,10 +119,13 @@ export default function ApiKeysPanel() {
   });
   const createSubKey = useMutation({
     mutationFn: () =>
-      api.createSubAccountApiKey(apiClient, subTarget ?? 0, { label: subLabel, scopes: subScopes }),
+      api.createSubAccountApiKey(apiClient, subTarget ?? 0, {
+        label: subLabel.value,
+        scopes: subScopes,
+      }),
     onSuccess: (r) => {
       setIssuedSub(r);
-      setSubLabel('');
+      subLabel.reset();
     },
   });
   const createSub = useMutation({
@@ -196,17 +205,13 @@ export default function ApiKeysPanel() {
             create.mutate();
           }}
         >
-          <Field label="Key label" required>
-            {(id, describedBy, invalid) => (
+          <Field label="Key label" required error={label.error}>
+            {(id, describedBy) => (
               <input
                 id={id}
                 aria-describedby={describedBy}
-                aria-invalid={invalid}
                 className={inputCls}
-                value={label}
-                onChange={(e) => {
-                  setLabel(e.target.value);
-                }}
+                {...label.inputProps}
               />
             )}
           </Field>
@@ -234,7 +239,7 @@ export default function ApiKeysPanel() {
           <button
             type="submit"
             className={btnPrimary}
-            disabled={create.isPending || label === '' || scopes.length === 0}
+            disabled={create.isPending || !label.valid || scopes.length === 0}
           >
             {create.isPending ? 'Creating…' : 'Create API key'}
           </button>
@@ -298,17 +303,13 @@ export default function ApiKeysPanel() {
             }}
           >
             <p className="mb-2 text-sm font-medium">New key for sub-account #{subTarget}</p>
-            <Field label="Key label" required>
-              {(id, describedBy, invalid) => (
+            <Field label="Key label" required error={subLabel.error}>
+              {(id, describedBy) => (
                 <input
                   id={id}
                   aria-describedby={describedBy}
-                  aria-invalid={invalid}
                   className={inputCls}
-                  value={subLabel}
-                  onChange={(e) => {
-                    setSubLabel(e.target.value);
-                  }}
+                  {...subLabel.inputProps}
                 />
               )}
             </Field>
@@ -320,7 +321,7 @@ export default function ApiKeysPanel() {
             <button
               type="submit"
               className={btnPrimary}
-              disabled={createSubKey.isPending || subLabel === '' || subScopes.length === 0}
+              disabled={createSubKey.isPending || !subLabel.valid || subScopes.length === 0}
             >
               {createSubKey.isPending ? 'Issuing…' : 'Issue key'}
             </button>
@@ -337,30 +338,24 @@ export default function ApiKeysPanel() {
         )}
       </div>
 
-      <Modal
+      <ConfirmModal
         open={revoking !== null}
+        severity="MEDIUM"
         title="Revoke API key"
-        onClose={() => {
+        confirmLabel="Revoke key"
+        busy={revoke.isPending}
+        onConfirm={() => {
+          if (revoking !== null) revoke.mutate(revoking.key_id);
+        }}
+        onCancel={() => {
           setRevoking(null);
         }}
       >
-        <ConfirmAction
-          message={
-            <>
-              Revoke key <strong>{revoking?.label}</strong> ({revoking?.key_id})? Connected
-              applications lose access immediately. This cannot be undone.
-            </>
-          }
-          confirmLabel="Revoke key"
-          busy={revoke.isPending}
-          onConfirm={() => {
-            if (revoking !== null) revoke.mutate(revoking.key_id);
-          }}
-          onCancel={() => {
-            setRevoking(null);
-          }}
-        />
-      </Modal>
+        <p className="text-sm text-neutral-300">
+          Revoke key <strong>{revoking?.label}</strong> ({revoking?.key_id})? Connected applications
+          lose access immediately. This cannot be undone.
+        </p>
+      </ConfirmModal>
     </div>
   );
 }

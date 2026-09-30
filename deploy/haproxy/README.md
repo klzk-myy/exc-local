@@ -10,6 +10,7 @@ and provides blue/green deployment and drain support.
 |------|---------|
 | `haproxy.cfg` | frontends, backends, checks, timeouts, logging |
 | `active_color.map` | blue/green selector (runtime-editable) |
+| `VALIDATION.md` + `test/` | Task 5.3.29 DoD drill: real haproxy:2.9 run, measured failover/flip evidence |
 
 ## Ops cheatsheet (all via the admin socket `/run/haproxy/admin.sock`)
 

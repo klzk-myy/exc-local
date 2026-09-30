@@ -8,16 +8,8 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiClient } from '@/app/runtime';
-import {
-  ConfirmAction,
-  ErrorBox,
-  Modal,
-  btnGhost,
-  cardCls,
-  tableCls,
-  tdCls,
-  thCls,
-} from '@/lib/ui';
+import { ConfirmModal } from '@/lib/input-helpers';
+import { ErrorBox, btnGhost, cardCls, tableCls, tdCls, thCls } from '@/lib/ui';
 
 import * as api from './api';
 import { RequireAuth } from './guards';
@@ -121,49 +113,41 @@ export function SessionList() {
         </table>
       )}
 
-      <Modal
+      <ConfirmModal
         open={revoking !== null}
+        severity="LOW"
         title="Revoke session"
-        onClose={() => {
+        confirmLabel="Revoke session"
+        busy={revoke.isPending}
+        onConfirm={() => {
+          if (revoking !== null) revoke.mutate(revoking.id);
+        }}
+        onCancel={() => {
           setRevoking(null);
         }}
       >
-        <ConfirmAction
-          message={
-            <>
-              Sign out <strong>{revoking !== null ? deviceLabel(revoking) : ''}</strong>? The device
-              loses access immediately.
-            </>
-          }
-          confirmLabel="Revoke session"
-          busy={revoke.isPending}
-          onConfirm={() => {
-            if (revoking !== null) revoke.mutate(revoking.id);
-          }}
-          onCancel={() => {
-            setRevoking(null);
-          }}
-        />
-      </Modal>
-      <Modal
+        <p className="text-sm text-neutral-300">
+          Sign out <strong>{revoking !== null ? deviceLabel(revoking) : ''}</strong>? The device
+          loses access immediately.
+        </p>
+      </ConfirmModal>
+      <ConfirmModal
         open={confirmAll}
+        severity="MEDIUM"
         title="Sign out all other sessions"
-        onClose={() => {
+        confirmLabel="Sign out all"
+        busy={revokeAll.isPending}
+        onConfirm={() => {
+          revokeAll.mutate();
+        }}
+        onCancel={() => {
           setConfirmAll(false);
         }}
       >
-        <ConfirmAction
-          message="Every session except this one will be terminated. Devices will need to sign in again."
-          confirmLabel="Sign out all"
-          busy={revokeAll.isPending}
-          onConfirm={() => {
-            revokeAll.mutate();
-          }}
-          onCancel={() => {
-            setConfirmAll(false);
-          }}
-        />
-      </Modal>
+        <p className="text-sm text-neutral-300">
+          Every session except this one will be terminated. Devices will need to sign in again.
+        </p>
+      </ConfirmModal>
     </section>
   );
 }

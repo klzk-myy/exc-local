@@ -184,6 +184,74 @@ export async function fetchSolvencyProof(
 ): Promise<unknown> {
   return api.get('/solvency/proof');
 }
+
+/** One sibling step on the leaf→root verification path. */
+export interface ProofStep {
+  position: 'left' | 'right';
+  hash: string;
+}
+
+/** Narrowed account inclusion proof — the caller's own leaf plus the
+ * sibling digests needed to recompute the published root offline. */
+export interface AccountProof {
+  snapshotId: number | null;
+  generatedAt: string | null;
+  merkleRoot: string;
+  currency: string;
+  balance: string;
+  salt: string;
+  leafIndex: number | null;
+  leafHash: string;
+  path: ProofStep[];
+}
+
+function narrowProofStep(v: unknown): ProofStep | null {
+  if (!isRecord(v)) return null;
+  const pos = s(v['position']);
+  const hash = s(v['hash']);
+  if ((pos !== 'left' && pos !== 'right') || hash == null) return null;
+  return { position: pos, hash };
+}
+
+function narrowAccountProof(v: unknown): AccountProof | null {
+  if (!isRecord(v)) return null;
+  const merkleRoot = s(v['merkle_root']);
+  const currency = s(v['currency']);
+  if (merkleRoot == null || currency == null) return null;
+  const rawPath = Array.isArray(v['path']) ? v['path'] : [];
+  const path: ProofStep[] = [];
+  for (const step of rawPath) {
+    const p = narrowProofStep(step);
+    if (p === null) return null;
+    path.push(p);
+  }
+  return {
+    snapshotId: n(v['snapshot_id']),
+    generatedAt: s(v['generated_at']),
+    merkleRoot,
+    currency,
+    balance: s(v['balance']) ?? tryDec(v['balance'])?.toString() ?? '0',
+    salt: s(v['salt']) ?? '',
+    leafIndex: n(v['leaf_index']),
+    leafHash: s(v['leaf_hash']) ?? '',
+    path,
+  };
+}
+
+/** Every currency leaf the caller holds in the latest published
+ * snapshot — GET /api/v1/account/solvency-proof. */
+export async function fetchAccountProofs(
+  api: Pick<ApiClient, 'get'> = apiClient,
+): Promise<AccountProof[]> {
+  const res: unknown = await api.get('/account/solvency-proof');
+  if (!isRecord(res) || !Array.isArray(res['proofs'])) return [];
+  const out: AccountProof[] = [];
+  for (const p of res['proofs']) {
+    const narrowed = narrowAccountProof(p);
+    if (narrowed !== null) out.push(narrowed);
+  }
+  return out;
+}
 export async function fetchLatestSolvency(
   api: Pick<ApiClient, 'get'> = apiClient,
 ): Promise<unknown> {

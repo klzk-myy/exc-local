@@ -16,6 +16,7 @@
  * first, server re-validates authoritatively).
  */
 import { type Dec, tryDec } from '@/lib/decimal/decimal';
+import { cmpDecimal, validateField } from '@/lib/input-helpers';
 import { parseInput, splitPair } from '@/lib/trading/fx';
 import type {
   BracketOrderBody,
@@ -115,17 +116,18 @@ export function gtdToRfc3339(local: string): string | undefined {
   return new Date(ms).toISOString();
 }
 
+/** Task 10.3.29 — required positive-decimal fields run through the
+ * shared rule engine (canonical required/decimal/positive vocabulary). */
 function positive(field: string, raw: string, label: string, errors: FieldErrors): Dec | undefined {
-  const d = parseInput(raw);
-  if (d === undefined) {
-    errors[field] = `${label} is required`;
+  const err = validateField(
+    { name: field, label, required: true, kind: 'decimal', positive: true },
+    raw,
+  );
+  if (err !== null) {
+    errors[field] = err.message;
     return undefined;
   }
-  if (!d.isPositive()) {
-    errors[field] = `${label} must be greater than zero`;
-    return undefined;
-  }
-  return d;
+  return parseInput(raw);
 }
 
 /**
@@ -147,8 +149,9 @@ export function buildOrderPayload(form: OrderFormState): {
   const gtd = gtdToRfc3339(form.gtdExpiry);
   if (form.tif === 'GTD') {
     if (!gtd) {
-      errors['gtdExpiry'] = 'GTD requires an expiry';
+      errors['gtdExpiry'] = 'GTD requires gtd_expiry'; // canonical §22.1 message
     } else if (Date.parse(gtd) <= Date.now()) {
+      // Local temporal check — RULE_GTD_EXPIRY is format-only.
       errors['gtdExpiry'] = 'GTD expiry must be in the future';
     }
   }
@@ -184,7 +187,8 @@ export function buildOrderPayload(form: OrderFormState): {
       if (form.kind === 'ICEBERG') {
         const v = positive('visibleQty', form.visibleQty, 'Visible quantity', errors);
         if (v) {
-          if (qty && v.gte(qty)) {
+          // Cross-field: visible slice must be strictly below total.
+          if (qty && cmpDecimal(v.toString(), qty.toString()) !== -1) {
             errors['visibleQty'] = 'Visible quantity must be below total quantity';
           }
           body.iceberg_visible_qty = v.toString();
@@ -216,17 +220,22 @@ export function buildOrderPayload(form: OrderFormState): {
       const tp = positive('bracketTarget', form.bracketTarget, 'Take-profit price', errors);
       // Entry absent ⇒ market parent; present ⇒ limit parent.
       const entry = parseInput(form.price);
-      if (form.price.trim() !== '' && entry === undefined) {
-        errors['price'] = 'Entry price is not a valid decimal';
+      const entryErr = validateField(
+        { name: 'price', label: 'Entry price', kind: 'decimal' },
+        form.price,
+      );
+      if (entryErr !== null) {
+        errors['price'] = entryErr.message;
       }
-      if (sl && tp && sl.eq(tp)) {
+      if (sl && tp && cmpDecimal(sl.toString(), tp.toString()) === 0) {
         errors['bracketTarget'] = 'Take-profit must differ from stop-loss';
       }
       // Sanity: for a BUY, SL below TP; for a SELL, reversed.
       if (sl && tp) {
-        if (form.side === 'BUY' && sl.gt(tp))
+        const slVsTp = cmpDecimal(sl.toString(), tp.toString());
+        if (form.side === 'BUY' && slVsTp === 1)
           errors['bracketStop'] = 'Buy bracket: stop must sit below take-profit';
-        if (form.side === 'SELL' && sl.lt(tp))
+        if (form.side === 'SELL' && slVsTp === -1)
           errors['bracketStop'] = 'Sell bracket: stop must sit above take-profit';
       }
       const body: BracketOrderBody = {

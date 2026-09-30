@@ -876,6 +876,12 @@ func SeedRoutes() []Route {
 			"Grid-bot detail + fills", authRead),
 		v1live(http.MethodDelete, "/api/v1/bots/grid/{id}", TierBasic, "Phase-16 Task 16.3.19",
 			"Stop grid bot + cancel child orders", authTrade),
+		v1live(http.MethodPost, "/api/v1/bots/grid/{id}/pause", TierBasic,
+			"Phase-16 Task 16.3.19 / Phase-10 Task 10.3.26",
+			"Pause grid bot (children keep working; no new legs)", authTrade),
+		v1live(http.MethodPost, "/api/v1/bots/grid/{id}/resume", TierBasic,
+			"Phase-16 Task 16.3.19 / Phase-10 Task 10.3.26",
+			"Resume paused grid bot + re-arm suspended legs", authTrade),
 		// Phase-16 Task 16.3.21 — recurring conversion / rebalancing /
 		// approved strategy marketplace (migration 077, §24 #296, R14:
 		// firm CLOB executions only — no RFQ path exists).
@@ -1674,6 +1680,19 @@ func SeedRoutes() []Route {
 			"Triage: severity + CVSS 3.1 + fix-ETA assignment (Critical 7d/High 30d/Medium 90d/Low 180d)", adminAuth(RoleAnyAdmin)),
 		v1live(http.MethodPut, "/api/v1/admin/security/disclosures/{id}", TierBasic, "Phase-13.5 Task 13.5.3.8",
 			"Transition/metadata update (status, assignee, bulletin, patch_ref, attribution, re-grade)", adminAuth(RoleAnyAdmin)),
+		// ---- Phase-09 Task 9.3.29 item 4 — secrets inventory (spec
+		// §19.14, §24 #340; migration 089). Metadata-only register;
+		// Super Admin is the doc §5 "Security + SRE leads" gate in the
+		// §8.2 canon. The GET emits 503 SECRET_ROTATION_OVERDUE while any
+		// row is past its rotation SLA — the spec-pinned emission
+		// surface. mark-rotated is the doc §3 step-5 "mark" leg for
+		// scheduled and leak-triggered emergency rotations.
+		v1live(http.MethodGet, "/api/v1/admin/security/secrets-inventory", TierBasic, "Phase-09 Task 9.3.29",
+			"Secrets inventory register + rotation states (503 SECRET_ROTATION_OVERDUE on SLA breach)", adminAuth(RoleSuperAdmin)),
+		v1live(http.MethodPut, "/api/v1/admin/security/secrets-inventory", TierBasic, "Phase-09 Task 9.3.29",
+			"Upsert one inventory row (owner/TTL/procedure/last_rotated_at backfill; audited)", adminAuth(RoleSuperAdmin)),
+		v1live(http.MethodPost, "/api/v1/admin/security/secrets-inventory/{name}/mark-rotated", TierBasic, "Phase-09 Task 9.3.29",
+			"Record a completed rotation (emergency + break-glass markers; audited)", adminAuth(RoleSuperAdmin)),
 	}
 	return r
 }

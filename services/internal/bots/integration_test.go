@@ -16,6 +16,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -96,6 +97,29 @@ func itSchema(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 	}
 	if _, err := pool.Exec(ctx, string(body)); err != nil {
 		t.Fatalf("exec 071: %v", err)
+	}
+	// Task 10.3.26: PAUSED status + widened live-bot indexes. The file's
+	// top-level ALTER TYPE ... ADD VALUE must commit before 'PAUSED' is
+	// referenced — a multi-statement simple-Query Exec wraps the whole
+	// file in one implicit transaction (55P04), so split at the BEGIN
+	// boundary exactly as psql -f's per-statement apply would.
+	body, err = os.ReadFile(filepath.Join("..", "db", "migrations",
+		"275_grid_bot_pause.up.sql"))
+	if err != nil {
+		t.Fatalf("read migration: %v", err)
+	}
+	parts := strings.SplitN(string(body), "BEGIN;", 2)
+	if len(parts) != 2 {
+		t.Fatal("275 migration missing BEGIN boundary")
+	}
+	for i, part := range parts {
+		stmt := part
+		if i == 1 {
+			stmt = "BEGIN;" + stmt
+		}
+		if _, err := pool.Exec(ctx, stmt); err != nil {
+			t.Fatalf("exec 275 part %d: %v", i, err)
+		}
 	}
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO accounts (id, user_id, status) VALUES (10,1,'ACTIVE');
@@ -313,6 +337,152 @@ func TestITGridLifecycleFillCounterPnL(t *testing.T) {
 	open, _ := NewPgStore(pool).OpenChildren(ctx, det.Bot.BotID)
 	if len(open) != 0 {
 		t.Fatalf("open children %d", len(open))
+	}
+}
+
+// IT: pause freezes placement while fills keep booking; resume re-arms
+// the suspended flips eagerly (Phase-10 Task 10.3.26 semantics).
+func TestITGridBotPauseFreezeResume(t *testing.T) {
+	ctx, pool := itPool(t)
+	itSchema(t, ctx, pool)
+	eng, pipe := itEngine(t, pool)
+
+	det, err := eng.Create(ctx, 10, gridReq())
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	var buy *GridChild
+	for i := range det.Children {
+		if det.Children[i].Side == "BUY" && det.Children[i].LevelIndex == 4 {
+			c := det.Children[i]
+			buy = &c
+		}
+	}
+	if buy == nil {
+		t.Fatal("no level-4 BUY child")
+	}
+
+	// Pause — PAUSED without stopped_at (a pause is not a stop).
+	paused, err := eng.Pause(ctx, pipe.acct, det.Bot.BotID)
+	if err != nil {
+		t.Fatalf("pause: %v", err)
+	}
+	if paused.Bot.Status != StatusPaused {
+		t.Fatalf("status %s", paused.Bot.Status)
+	}
+	if paused.Bot.StoppedAt != nil || paused.Bot.StopReason != "" {
+		t.Fatalf("pause stamped stop fields: %+v", paused.Bot)
+	}
+	// Idempotent retry.
+	if _, err := eng.Pause(ctx, pipe.acct, det.Bot.BotID); err != nil {
+		t.Fatalf("pause retry: %v", err)
+	}
+
+	// Fill during pause: the child books FILLED but no counter leg is
+	// claimed or submitted — the bot is frozen.
+	submittedBefore := len(pipe.submitted)
+	if err := eng.OnFill(ctx, *buy.OrderID, buy.Price, buy.Qty); err != nil {
+		t.Fatalf("paused onfill: %v", err)
+	}
+	if len(pipe.submitted) != submittedBefore {
+		t.Fatalf("paused bot submitted %d new legs",
+			len(pipe.submitted)-submittedBefore)
+	}
+	det2, err := eng.Detail(ctx, 10, det.Bot.BotID)
+	if err != nil {
+		t.Fatalf("detail: %v", err)
+	}
+	for i := range det2.Children {
+		c := &det2.Children[i]
+		if c.ID == buy.ID && c.Status != ChildFilled {
+			t.Fatalf("source child status %s", c.Status)
+		}
+		if c.SourceChildID != nil && *c.SourceChildID == buy.ID {
+			t.Fatalf("frozen bot claimed counter %+v", c)
+		}
+	}
+	if det2.Bot.FillsCount != 1 {
+		t.Fatalf("fills_count %d", det2.Bot.FillsCount)
+	}
+
+	// Resume — RUNNING again and the suspended flip re-arms eagerly:
+	// a SELL counter appears at level 5 bound to a real order.
+	resumed, err := eng.Resume(ctx, pipe.acct, det.Bot.BotID)
+	if err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	if resumed.Bot.Status != StatusRunning {
+		t.Fatalf("status %s", resumed.Bot.Status)
+	}
+	var counter *GridChild
+	for i := range resumed.Children {
+		c := &resumed.Children[i]
+		if c.SourceChildID != nil && *c.SourceChildID == buy.ID {
+			counter = c
+		}
+	}
+	if counter == nil {
+		t.Fatal("resume did not re-arm the frozen flip")
+	}
+	if counter.Side != "SELL" || counter.LevelIndex != 5 ||
+		counter.Status != ChildWorking || counter.OrderID == nil {
+		t.Fatalf("rearmed counter %+v", counter)
+	}
+
+	// Post-resume fills behave normally — counter fill books the
+	// round-trip and spawns the next flip.
+	if err := eng.OnFill(ctx, *counter.OrderID, counter.Price, counter.Qty); err != nil {
+		t.Fatalf("resumed onfill: %v", err)
+	}
+	det3, _ := eng.Detail(ctx, 10, det.Bot.BotID)
+	wantPnL := d(t, "1.0500").Sub(d(t, "1.0400")).Mul(buy.Qty)
+	if !det3.Bot.RealizedPnL.Equal(wantPnL) {
+		t.Fatalf("realized_pnl %s want %s", det3.Bot.RealizedPnL, wantPnL)
+	}
+
+	// Stop works from PAUSED too — children still unwind.
+	if _, err := eng.Pause(ctx, pipe.acct, det.Bot.BotID); err != nil {
+		t.Fatalf("re-pause: %v", err)
+	}
+	stopped, err := eng.Stop(ctx, pipe.acct, det.Bot.BotID)
+	if err != nil {
+		t.Fatalf("stop from paused: %v", err)
+	}
+	if stopped.Bot.Status != StatusStopped {
+		t.Fatalf("status %s", stopped.Bot.Status)
+	}
+	open, _ := NewPgStore(pool).OpenChildren(ctx, det.Bot.BotID)
+	if len(open) != 0 {
+		t.Fatalf("open children %d", len(open))
+	}
+	// Terminal bots cannot pause/resume.
+	if _, err := eng.Pause(ctx, pipe.acct, det.Bot.BotID); err == nil {
+		t.Fatal("pause on stopped bot succeeded")
+	}
+	if _, err := eng.Resume(ctx, pipe.acct, det.Bot.BotID); err == nil {
+		t.Fatal("resume on stopped bot succeeded")
+	}
+}
+
+// IT: a PAUSED bot still occupies an R13 concurrency slot — pausing
+// must never free a slot for a sixth bot.
+func TestITGridBotPausedHoldsCapSlot(t *testing.T) {
+	ctx, pool := itPool(t)
+	itSchema(t, ctx, pool)
+	eng, pipe := itEngine(t, pool)
+
+	for i := 0; i < MaxConcurrentBots; i++ {
+		if _, err := eng.Create(ctx, 10, gridReq()); err != nil {
+			t.Fatalf("create %d: %v", i, err)
+		}
+	}
+	if _, err := eng.Pause(ctx, pipe.acct, 1); err != nil {
+		t.Fatalf("pause: %v", err)
+	}
+	_, err := eng.Create(ctx, 10, gridReq())
+	var e *excerrors.Error
+	if err == nil || !errors.As(err, &e) || e.Code != CodeMaxGridBotsExceeded {
+		t.Fatalf("create over paused slot: %v", err)
 	}
 }
 

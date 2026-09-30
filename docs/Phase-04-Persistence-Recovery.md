@@ -181,8 +181,8 @@ Implement full persistence and recovery: WAL snapshotting to PostgreSQL, WAL S3 
 
 **Definition of Done (Acceptance Criteria):**
 * [x] Daily full + hourly incremental ClickHouse backup to S3
-* [ ] Restore drill: scratch-cluster restore succeeds; sampled partition row counts match — **env-blocked 2026-09-28:** mechanism implemented (`deploy/clickhouse/backup.sh` + `clickhouse-backup/config.yml` + `verify_counts_test.sh`) but no ClickHouse server or `clickhouse-backup` binary on the dev host; drill runs per RUNBOOK.md once a scratch cluster is provisioned
-* [ ] DR targets met: RPO ≤ 60s (via replication), RTO ≤ 30 min (restore + verify) — **env-blocked:** same as above; RTO clock requires a live restore drill
+* [x] Restore drill: scratch-cluster restore succeeds; sampled partition row counts match — **closed 2026-09-30:** `deploy/scripts/ch_restore_drill.sh` executed end-to-end twice — provisions versitygw S3 gateway (`exc-ch-s3gw`) + scratch CH container (`exc-ch-scratch`, same image tag); `backup.sh full` → `daily-20260930` (18.56MiB, zstd) → `restore_remote` into scratch → `verify` **7/7 partition-202609 tables match** (ticks 1,100,120 / income_ledger 9,732 / ohlcv_1m 21 / tca_results 47 / trades 26 / volume_stats 102 / account_pnl 1); repeatable via the same script (`cleanup` for teardown)
+* [ ] DR targets met: RPO ≤ 60s (via replication), RTO ≤ 30 min (restore + verify) — **partial 2026-09-30:** RTO leg MEASURED at **356ms** restore + instant verify (≪30min bound; small dev dataset — the mechanism+clock are proven); RPO leg needs a ReplicatedMergeTree replica topology — dev CH is single-node, stays env-bound
 * [x] Runbook + quarterly drill scheduled (§24 #159)
 
 **SDD Checklist:**

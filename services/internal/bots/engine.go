@@ -8,6 +8,9 @@
 //	        PnL booked when the counter leg fills.
 //	Stop:   status flip → engine cancel for every live child (no orphan
 //	        slices — §24 #275 / §6.10 contract).
+//	Pause:  RUNNING⇄PAUSED without touching stopped_at — live children
+//	        keep working and fills book, but no new legs or TP/SL fire
+//	        while frozen; Resume eagerly re-arms the suspended flips.
 //	TP/SL:  a fill beyond take_profit_price completes the bot; beyond
 //	        stop_loss_price stops it (kill switch on excursions).
 package bots
@@ -365,11 +368,13 @@ func (e *Engine) OnFill(ctx context.Context, orderID int64,
 	if err != nil || fresh == nil {
 		return err
 	}
-	if !full || bot.Status != StatusRunning {
+	if !full || (bot.Status != StatusRunning && bot.Status != StatusPaused) {
 		return nil
 	}
 	// Round-trip credit: this child is itself a counter order — book the
-	// spread between it and its source leg.
+	// spread between it and its source leg. Runs for PAUSED too: a fill
+	// landing while the bot is frozen is still real money — only counter
+	// placement and excursion exits are suspended.
 	if fresh.SourceChildID != nil && fresh.AvgFillPrice != nil {
 		src, err := e.st.ChildByID(ctx, *fresh.SourceChildID)
 		if err != nil {
@@ -382,6 +387,12 @@ func (e *Engine) OnFill(ctx context.Context, orderID int64,
 				return err
 			}
 		}
+	}
+	// A PAUSED bot is frozen: working children keep booking fills (above)
+	// but no TP/SL excursion fires and no counter leg is placed — the
+	// suspended flips re-arm through Resume's rearm pass.
+	if bot.Status == StatusPaused {
+		return nil
 	}
 	// Excursion exits (kill switch): a fill print beyond the bot's TP or
 	// SL terminates the strategy and unwinds every live child.
@@ -480,9 +491,10 @@ func (e *Engine) Stop(ctx context.Context, acct *orders.Account,
 	if bot == nil {
 		return nil, errorf(CodeNotFound, "grid bot %d not found", botID)
 	}
-	if bot.Status == StatusRunning {
+	if bot.Status == StatusRunning || bot.Status == StatusPaused {
 		if _, err := e.st.Transition(ctx, bot.BotID,
-			[]string{StatusRunning}, StatusStopped, StopReasonUser); err != nil {
+			[]string{StatusRunning, StatusPaused},
+			StatusStopped, StopReasonUser); err != nil {
 			return nil, err
 		}
 	}
@@ -490,6 +502,109 @@ func (e *Engine) Stop(ctx context.Context, acct *orders.Account,
 		return nil, err
 	}
 	return e.Detail(ctx, acct.ID, botID)
+}
+
+// ---- pause / resume (Phase-10 Task 10.3.26) ---------------------------
+
+// Pause freezes a RUNNING bot: RUNNING→PAUSED via TransitionStatus so
+// stopped_at/stop_reason stay untouched (a pause is not a stop). Working
+// children remain on the book — real fills keep booking — but OnFill
+// suspends counter placement and TP/SL excursions while paused. PAUSED
+// still holds one of the MaxConcurrentBots slots: pausing must never
+// free a slot for a sixth bot. Idempotent on repeat calls.
+func (e *Engine) Pause(ctx context.Context, acct *orders.Account,
+	botID int64) (*Detail, error) {
+
+	bot, err := e.st.GetBot(ctx, acct.ID, botID)
+	if err != nil {
+		return nil, err
+	}
+	if bot == nil {
+		return nil, errorf(CodeNotFound, "grid bot %d not found", botID)
+	}
+	switch bot.Status {
+	case StatusPaused:
+		// idempotent retry — already frozen
+	case StatusRunning:
+		if _, err := e.st.TransitionStatus(ctx, bot.BotID,
+			[]string{StatusRunning}, StatusPaused); err != nil {
+			return nil, err
+		}
+	default:
+		return nil, errorf(CodeInvalidRequest,
+			"grid bot %d is %s — only a RUNNING bot can pause",
+			botID, bot.Status)
+	}
+	return e.Detail(ctx, acct.ID, botID)
+}
+
+// Resume returns a PAUSED bot to RUNNING and re-arms legs frozen while
+// paused through rearm (see below). Chosen semantic: eager re-arm at
+// resume — the engine has no tick loop (it only acts on fills), so
+// suspended flips would otherwise wait for the next fill forever when
+// the book went quiet during the pause. Idempotent on repeat calls.
+func (e *Engine) Resume(ctx context.Context, acct *orders.Account,
+	botID int64) (*Detail, error) {
+
+	bot, err := e.st.GetBot(ctx, acct.ID, botID)
+	if err != nil {
+		return nil, err
+	}
+	if bot == nil {
+		return nil, errorf(CodeNotFound, "grid bot %d not found", botID)
+	}
+	switch bot.Status {
+	case StatusRunning:
+		return e.Detail(ctx, acct.ID, botID) // idempotent
+	case StatusPaused:
+		if _, err := e.st.TransitionStatus(ctx, bot.BotID,
+			[]string{StatusPaused}, StatusRunning); err != nil {
+			return nil, err
+		}
+	default:
+		return nil, errorf(CodeInvalidRequest,
+			"grid bot %d is %s — only a PAUSED bot can resume",
+			botID, bot.Status)
+	}
+	if err := e.rearm(ctx, acct, bot); err != nil {
+		return nil, err
+	}
+	return e.Detail(ctx, acct.ID, botID)
+}
+
+// rearm dispatches legs suspended while the bot was PAUSED. Claimed-but-
+// never-bound PENDING children submit through the same submitChild path
+// Create uses; FILLED legs with no claimed counter flip through the
+// identical placeCounter path OnFill uses — level-occupancy +
+// source_child_id guards keep both idempotent (boundaries close
+// silently, occupied levels record SKIPPED).
+func (e *Engine) rearm(ctx context.Context, acct *orders.Account,
+	bot *GridBot) error {
+
+	children, err := e.st.Children(ctx, bot.BotID)
+	if err != nil {
+		return err
+	}
+	claimed := make(map[int64]bool, len(children))
+	for i := range children {
+		if children[i].SourceChildID != nil {
+			claimed[*children[i].SourceChildID] = true
+		}
+	}
+	for i := range children {
+		c := &children[i]
+		switch {
+		case c.Status == ChildPending && c.OrderID == nil:
+			if err := e.submitChild(ctx, acct, bot, c); err != nil {
+				return err
+			}
+		case c.Status == ChildFilled && !claimed[c.ID]:
+			if err := e.placeCounter(ctx, bot, c); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // terminate is the engine-side kill (TP/SL excursion).

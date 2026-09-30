@@ -1,0 +1,3 @@
+# blue/green selector for haproxy.test.cfg — runtime-editable via the admin
+# socket: `set map /etc/haproxy/active_color.map gateway green`
+gateway blue

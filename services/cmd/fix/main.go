@@ -13,6 +13,7 @@ package main
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -316,6 +317,25 @@ func run() error {
 	}
 	qs.WithLPGate(mmStore, killResolver).
 		WithLogger(func(f string, a ...any) { log.Warn(fmt.Sprintf(f, a...)) })
+	// Task 7.3.9 feed seam: accepted mass quotes + 35=Z withdrawals
+	// publish onto the "quotes" JetStream stream
+	// (quotes.lp.{lp_id}.{symbol-token}) for the marketdata
+	// LPBookProducer → lpBook@{lpID}/{symbol} distribution. The sink is
+	// buffered/async so a broker stall never sits on quote admission; a
+	// missing NATS leaves the seam unbound and quoting fully
+	// functional (distribution is best-effort, spec §2.7).
+	if fixNats != nil {
+		quoteSink := fix.NewJetStreamQuoteSink(fixNats, fix.QuoteSinkConfig{
+			Logger: mdLogf,
+		})
+		qs.WithQuoteEventSink(quoteSink)
+		go func() {
+			if err := quoteSink.Run(ctx); err != nil &&
+				!errors.Is(err, context.Canceled) {
+				log.Warn("fix: lp quote sink exited", "err", err)
+			}
+		}()
+	}
 
 	app := fix.NewApp(fix.Options{
 		Store:       fixStore,

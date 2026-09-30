@@ -1,11 +1,10 @@
 /**
  * Active grid-bot management (Task 10.3.26 item 4) —
  * GET /api/v1/bots/grid list with live P&L + filled levels when the
- * backend supplies them, stop/delete behind a typed-phrase confirmation
- * with an explicit close-all-positions choice.
- *
- * Pause/resume routes are not in the route table yet — the controls
- * render disabled with an honest note (Phase-16 Task 16.3.19).
+ * backend supplies them, pause/resume controls (RUNNING→PAUSED freezes
+ * new legs while children keep working; PAUSED→RUNNING re-arms), and
+ * stop/delete behind a typed-phrase confirmation with an explicit
+ * close-all-positions choice.
  */
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -20,7 +19,14 @@ import {
   isNotImplemented,
 } from '@/lib/input-helpers';
 
-import { deleteGridBot, gridBotControlRegistered, listGridBots, type GridBot } from './api';
+import {
+  deleteGridBot,
+  gridBotControlRegistered,
+  listGridBots,
+  pauseGridBot,
+  resumeGridBot,
+  type GridBot,
+} from './api';
 
 export function ActiveBotsPanel({ onCount }: { onCount?: (n: number) => void }) {
   const queryClient = useQueryClient();
@@ -36,6 +42,19 @@ export function ActiveBotsPanel({ onCount }: { onCount?: (n: number) => void }) 
   const [stopping, setStopping] = useState<GridBot | null>(null);
   const [closePositions, setClosePositions] = useState(true);
   const [serverErr, setServerErr] = useState<unknown>(null);
+  const [controlErr, setControlErr] = useState<unknown>(null);
+
+  const control = useMutation({
+    mutationFn: async (bot: GridBot) =>
+      bot.status === 'PAUSED'
+        ? resumeGridBot(apiClient, bot.id)
+        : pauseGridBot(apiClient, bot.id),
+    onError: setControlErr,
+    onSuccess: async () => {
+      setControlErr(null);
+      await queryClient.invalidateQueries({ queryKey: ['copy-grid', 'bots'] });
+    },
+  });
 
   const stop = useMutation({
     mutationFn: async (bot: GridBot) => deleteGridBot(apiClient, bot.id, closePositions),
@@ -100,10 +119,24 @@ export function ActiveBotsPanel({ onCount }: { onCount?: (n: number) => void }) 
                       <button
                         type="button"
                         className={btnGhost}
-                        disabled={!controlsLive}
-                        title={controlsLive ? 'Pause bot' : 'Pause arrives with Phase-16'}
+                        disabled={
+                          !controlsLive ||
+                          control.isPending ||
+                          (b.status !== 'RUNNING' && b.status !== 'PAUSED')
+                        }
+                        title={
+                          !controlsLive
+                            ? 'Pause/resume arrives with Phase-16'
+                            : b.status === 'PAUSED'
+                              ? 'Resume bot'
+                              : 'Pause bot'
+                        }
+                        onClick={() => {
+                          setControlErr(null);
+                          control.mutate(b);
+                        }}
                       >
-                        Pause
+                        {b.status === 'PAUSED' ? 'Resume' : 'Pause'}
                       </button>
                       <button
                         type="button"
@@ -125,8 +158,19 @@ export function ActiveBotsPanel({ onCount }: { onCount?: (n: number) => void }) 
       )}
       {!controlsLive ? (
         <p className="text-xs text-neutral-500">
-          Pause/resume controls arrive with Phase-16 — those endpoints are not yet registered.
+          Pause/resume controls are not yet registered on this deployment.
         </p>
+      ) : null}
+      {controlErr !== null ? (
+        <div className="mt-1">
+          {isNotImplemented(controlErr) ? (
+            <p className="text-xs text-amber-400">
+              Bot pause/resume is registered but not yet live (501). Nothing changed.
+            </p>
+          ) : (
+            <ErrorBox error={controlErr} />
+          )}
+        </div>
       ) : null}
 
       <ConfirmModal

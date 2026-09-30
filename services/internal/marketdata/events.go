@@ -38,6 +38,7 @@ import (
 	"sync"
 	"time"
 
+	"exchange/internal/tracing"
 	"exchange/internal/ipc"
 	"exchange/internal/ipc/wire"
 	excnats "exchange/internal/nats"
@@ -274,7 +275,10 @@ func (s *WireTradeSource) decode(buf []byte) (TradeEvent, bool) {
 		}
 		return TradeEvent{}, false
 	}
-	ev := ipc.DecodeEvent(buf)
+	// Task 9.3.11 — engine echoes EXCTRACE on frames answering traced
+	// commands; strip before decode (the block never reaches FlatBuffers).
+	body, _, _ := tracing.StripAeronTrace(buf)
+	ev := ipc.DecodeEvent(body)
 	switch ev.TypeType() {
 	case wire.EventTypeOrderNew:
 		on := ipc.EventOrderNew(ev)
@@ -555,7 +559,9 @@ func (s *JetStreamTradeSource) indexOrder(buf []byte) {
 	if len(buf) < 8 {
 		return
 	}
-	ev := ipc.DecodeEvent(buf)
+	// Task 9.3.11 — strip the echoed EXCTRACE block before decode.
+	body, _, _ := tracing.StripAeronTrace(buf)
+	ev := ipc.DecodeEvent(body)
 	if ev.TypeType() != wire.EventTypeOrderNew {
 		return
 	}

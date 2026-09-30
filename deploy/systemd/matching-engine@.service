@@ -2,11 +2,13 @@
 # (§19.13.1 row 1, Task 9.3.28). One instance per shard; %i is the shard id.
 #
 # WATCHDOG CONTRACT: WatchdogSec=1s is the canonical Tier-1 supervision value
-# (spec §19.13.3). It requires the sd_notify-enabled engine build — the
-# in-process WatchdogThread pets systemd with sd_notify("WATCHDOG=1") on each
-# healthy cycle. On a binary built without sd_notify (current dev builds)
-# systemd will SIGABRT the unit every second — either ship the sd_notify
-# build or set WatchdogSec=0 in a drop-in for dev hosts.
+# (spec §19.13.3). The engine build is sd_notify-enabled
+# (core/include/ipc/SdNotify.hpp): it sends READY=1 after rings+WAL are
+# armed, pets WATCHDOG=1 every 400ms (within the 1s half-window) while the
+# loop's heartbeat stays fresh, and signals STATUS=engine draining /
+# STOPPING=1 on the graceful-shutdown path. A binary built without the
+# watchdog loop is unsafe under WatchdogSec=1s — set WatchdogSec=0 in a
+# drop-in if running an instrumented build without it.
 [Unit]
 Description=exchange matching engine shard %i
 Documentation=file:/opt/exchange/share/doc/daemon-supervision.md

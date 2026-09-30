@@ -12,6 +12,7 @@ import { ErrorBox, cardCls, tableCls, tdCls, thCls } from '@/lib/ui';
 import { UnavailablePanel, isNotImplemented } from '@/lib/input-helpers';
 
 import {
+  fetchAccountProofs,
   fetchAnnouncements,
   fetchFees,
   fetchProofRoot,
@@ -110,9 +111,80 @@ export function SolvencyPanel() {
             <dt className="text-neutral-500">Total liabilities</dt>
             <dd className="font-mono text-neutral-200">{p.totalLiabilities ?? '—'}</dd>
           </div>
+          {p.treeHeight !== null ? (
+            <div className="flex justify-between">
+              <dt className="text-neutral-500">Tree height</dt>
+              <dd className="font-mono text-neutral-200">{p.treeHeight}</dd>
+            </div>
+          ) : null}
         </dl>
       )}
+      <AccountProofSection />
     </section>
+  );
+}
+
+/** Per-account Merkle inclusion proof — the caller's own salted leaf
+ * plus the sibling digests that recompute the published root. Renders
+ * honest-unavailable on 501, honest-empty when no snapshot covers the
+ * account yet. */
+function AccountProofSection() {
+  const q = useQuery({
+    queryKey: ['reports', 'account-solvency-proof'],
+    queryFn: () => fetchAccountProofs(apiClient),
+    retry: (n_, e) => !(e instanceof ApiError && e.status === 501) && n_ < 2,
+  });
+  if (q.isPending) {
+    return <p className="mt-3 text-sm text-neutral-500">Loading your inclusion proof…</p>;
+  }
+  if (q.isError) {
+    if (isNotImplemented(q.error)) return null;
+    return <ErrorBox error={q.error} />;
+  }
+  const proofs = q.data;
+  if (proofs.length === 0) {
+    return (
+      <p className="mt-3 text-sm text-neutral-500">
+        No inclusion proofs yet — your account is not covered by the latest published snapshot.
+      </p>
+    );
+  }
+  return (
+    <div className="mt-4 space-y-3">
+      <h3 className="text-sm font-semibold text-neutral-200">My inclusion proof</h3>
+      {proofs.map((pr) => (
+        <article key={pr.currency} className="rounded-md border border-neutral-800 p-3">
+          <div className="flex items-baseline justify-between text-sm">
+            <span className="font-medium text-neutral-100">{pr.currency}</span>
+            <span className="font-mono text-neutral-300">{pr.balance}</span>
+          </div>
+          <dl className="mt-2 space-y-1 text-xs">
+            <div className="flex justify-between gap-2">
+              <dt className="text-neutral-500">Leaf</dt>
+              <dd className="break-all font-mono text-neutral-400">#{pr.leafIndex ?? '—'} · {pr.leafHash || '—'}</dd>
+            </div>
+            <div className="flex justify-between gap-2">
+              <dt className="text-neutral-500">Salt</dt>
+              <dd className="break-all font-mono text-neutral-400">{pr.salt || '—'}</dd>
+            </div>
+          </dl>
+          <ol className="mt-2 space-y-0.5" aria-label={`${pr.currency} Merkle path`}>
+            {pr.path.map((step, i) => (
+              <li key={i} className="flex gap-2 font-mono text-[11px] text-neutral-500">
+                <span className="w-10 shrink-0 text-neutral-600">{step.position}</span>
+                <span className="break-all">{step.hash}</span>
+              </li>
+            ))}
+          </ol>
+          <p className="mt-2 text-[11px] leading-snug text-neutral-500">
+            Verify offline: hash(leaf ‖ salt), then fold each sibling —
+            sibling on <em>left</em>: hash(sibling ‖ node), on <em>right</em>: hash(node ‖ sibling).
+            The result must equal snapshot #{pr.snapshotId ?? '—'} root{' '}
+            <span className="break-all font-mono">{pr.merkleRoot}</span>.
+          </p>
+        </article>
+      ))}
+    </div>
   );
 }
 

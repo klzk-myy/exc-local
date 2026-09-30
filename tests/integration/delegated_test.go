@@ -7,6 +7,7 @@ package integration
 import (
 	"context"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"testing"
@@ -36,12 +37,12 @@ func gateFor(ctx context.Context, needs string) string {
 	case "docker":
 		return env.GateDockerCompose()
 	case "sentinel":
-		if r := env.GateRedis(ctx); r != "" {
-			return r
-		}
-		return "sentinel quorum topology not provisioned on this host (EXC_SENTINEL_ADDRS unset)"
+		return env.GateSentinel(ctx)
 	case "aeron":
-		return "aeron media driver (aeronmd) not provisioned on this host"
+		if _, err := os.Stat(env.Root + "/core/third_party/aeron/bin/aeronmd"); err != nil {
+			return "aeron media driver (aeronmd) not vendored: " + err.Error()
+		}
+		return ""
 	default:
 		return "unknown gate " + needs
 	}
@@ -81,7 +82,34 @@ func runDelegated(ctx context.Context, b itest.Binding) (string, string) {
 	case itest.BindBin:
 		return runBinLeg(ctx, b)
 	case itest.BindCompose:
-		return "BLOCKED", "compose leg unrun (docker gate passed but no compose scenario runner bound)"
+		// Compose/topology legs dispatch to the repo drill scripts the
+		// owning phase authored — a leg is BLOCKED only when no runner
+		// has been bound to its Run name yet.
+		switch b.Run {
+		case "redis-dr":
+			out, err := env.RunBin(ctx, env.Root,
+				"bash", "deploy/scripts/redis_failover_drill.sh", "--no-go-client")
+			if err != nil {
+				return "FAIL", "redis failover drill: " + err.Error() + "\n" + trunc(out, 400)
+			}
+			return "PASS", trunc(out, 400)
+		case "ch-backup":
+			out, err := env.RunBin(ctx, env.Root,
+				"bash", "deploy/scripts/ch_restore_drill.sh")
+			if err != nil {
+				return "FAIL", "ch restore drill: " + err.Error() + "\n" + trunc(out, 400)
+			}
+			return "PASS", trunc(out, 400)
+		case "haproxy-topology":
+			out, err := env.RunBin(ctx, env.Root,
+				"bash", "deploy/haproxy/test/run_drill.sh")
+			if err != nil {
+				return "FAIL", "haproxy topology: " + err.Error() + "\n" + trunc(out, 400)
+			}
+			return "PASS", trunc(out, 400)
+		default:
+			return "BLOCKED", "compose leg unrun (no scenario runner bound for " + b.Run + ")"
+		}
 	default:
 		return "BLOCKED", "unknown binding kind " + string(b.Kind)
 	}

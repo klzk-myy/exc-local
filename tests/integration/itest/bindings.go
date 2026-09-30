@@ -31,7 +31,7 @@ var CriterionBindings = map[int][]Binding{
 	},
 	185: { // Aeron driver config
 		{Kind: BindGoTest, Pkg: "./internal/ipc", Run: "TestAeronRoundTripCpp", Needs: "aeron",
-			Note: "requires aeronmd media driver; absent here → BLOCKED"},
+			Note: "vendored aeronmd (core/third_party/aeron/bin) — runs when present"},
 	},
 	209: { // NATS JetStream backbone ordering/at-least-once
 		{Kind: BindGoTest, Pkg: "./internal/nats", Run: "TestIntegration(PublishFetchAck|Redelivery|EnsureStreams|Health)", Needs: "nats"},

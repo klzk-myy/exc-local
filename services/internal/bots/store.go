@@ -1,9 +1,10 @@
 // Persistence for grid_bots / grid_bot_orders (migration 071).
 //
 // Invariants enforced here, not just in the engine:
-//   - the R13 five-bot cap is checked inside the create transaction under
-//     the account row's FOR UPDATE lock — concurrent creates serialize on
-//     the account and cannot both pass the count check;
+//   - the R13 five-bot cap counts RUNNING + PAUSED and is checked inside
+//     the create transaction under the account row's FOR UPDATE lock —
+//     concurrent creates serialize on the account and cannot both pass
+//     the count check, and pausing never frees a slot;
 //   - fills accumulate idempotently (filled_qty CAS against qty);
 //   - counter-order claiming rides the source_child_id unique index.
 package bots
@@ -127,7 +128,8 @@ func (s *PgStore) CreateBot(ctx context.Context, b *GridBot,
 	}
 	var running int
 	if err := tx.QueryRow(ctx,
-		`SELECT count(*) FROM grid_bots WHERE account_id=$1 AND status='RUNNING'`,
+		`SELECT count(*) FROM grid_bots WHERE account_id=$1
+		 AND status IN ('RUNNING','PAUSED')`,
 		b.AccountID).Scan(&running); err != nil {
 		return nil, fmt.Errorf("grid bot count: %w", err)
 	}
@@ -437,7 +439,8 @@ func (s *PgStore) CreditRoundTrip(ctx context.Context, botID, counterChildID int
 }
 
 // Transition flips bot status atomically; returns false when the bot was
-// already terminal (stop/delete idempotency).
+// already terminal (stop/delete idempotency). It stamps stopped_at and
+// stop_reason — terminal exits only; pausing uses TransitionStatus.
 func (s *PgStore) Transition(ctx context.Context, botID int64,
 	from []string, to, reason string) (bool, error) {
 
@@ -446,6 +449,22 @@ func (s *PgStore) Transition(ctx context.Context, botID int64,
 		    stopped_at=now(), updated_at=now()
 		WHERE bot_id=$1 AND status = ANY($2::grid_bot_status_enum[])`,
 		botID, from, to, nilStr(reason))
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
+// TransitionStatus flips between non-terminal states (RUNNING⇄PAUSED)
+// without stamping stopped_at/stop_reason — a pause is not a stop, so
+// the bot's lifecycle timestamps stay honest.
+func (s *PgStore) TransitionStatus(ctx context.Context, botID int64,
+	from []string, to string) (bool, error) {
+
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE grid_bots SET status=$3::grid_bot_status_enum, updated_at=now()
+		WHERE bot_id=$1 AND status = ANY($2::grid_bot_status_enum[])`,
+		botID, from, to)
 	if err != nil {
 		return false, err
 	}

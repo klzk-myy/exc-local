@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"time"
 
+	"exchange/internal/tracing"
 	"exchange/internal/ipc"
 )
 
@@ -102,7 +103,10 @@ func (b *Bridge) HandleFragment(buf []byte) {
 		b.m.incMalformed()
 		return
 	}
-	ev := ipc.DecodeEvent(buf)
+	// Task 9.3.11 — strip the echoed EXCTRACE block for decode; the
+	// republished payload keeps it so the trace survives the NATS hop.
+	body, _, _ := tracing.StripAeronTrace(buf)
+	ev := ipc.DecodeEvent(body)
 	subjects := b.route(ev)
 	if len(subjects) == 0 {
 		return // TimeTick / NONE / undecodable union member — not republished

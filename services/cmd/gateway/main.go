@@ -2310,7 +2310,7 @@ func run() error {
 				log.Warn("bilateral credit release", "order_id", orderID, "err", err)
 			}
 		}
-	}).Run(sweepCtx, shardIDs(shardMap))
+	}).WithTracer(tracer).Run(sweepCtx, shardIDs(shardMap))
 
 	// accounts.OrderDispatcher ← orders.Service (dead-man sweeper,
 	// Task 5.3.33, and close-all, Task 5.3.36, share it). The dispatcher
@@ -4165,6 +4165,33 @@ func run() error {
 	}()
 	// --- end VDP wiring ---
 
+	// ---- Phase-09 Task 9.3.29 item 4 — secrets inventory (spec
+	//      §19.14, §24 #340; migration 089) ----
+	// The metadata register behind docs/ops/secrets-inventory.md: Super
+	// Admin gated (doc §5 "Security + SRE leads"), every mutation
+	// audited through admin_audit_log inside the row transaction. The
+	// evaluator runs hourly — the 14-day P2 lead makes that plenty —
+	// paging SECRET_ROTATION_OVERDUE once per overdue row until a
+	// mark-rotated clears it.
+	secretsInvSvc := security.NewInventoryService(security.NewPgInventoryStore(pool),
+		security.RoleResolver(adminRoleResolver),
+		secretsAlerter{nc: natsClient}, nil)
+	go func() {
+		tick := time.NewTicker(time.Hour)
+		defer tick.Stop()
+		for {
+			select {
+			case <-sweepCtx.Done():
+				return
+			case <-tick.C:
+				if _, err := secretsInvSvc.EvaluateRotation(sweepCtx); err != nil {
+					log.Warn("secrets inventory eval", "err", err)
+				}
+			}
+		}
+	}()
+	// --- end secrets-inventory wiring ---
+
 	// Cache warming (9.3.8): boot-time "deploy" pass plus the warm:trigger
 	// pub/sub funnel the watchdog/DR coordinator publish on recovery and
 	// failover.
@@ -5634,6 +5661,11 @@ func run() error {
 		"GET /api/v1/admin/security/disclosures/{id}":         http.HandlerFunc(api.AdminVDPGet(vdpSvc)),
 		"POST /api/v1/admin/security/disclosures/{id}/triage": api.AdminVDPTriage(vdpSvc, true),
 		"PUT /api/v1/admin/security/disclosures/{id}":         api.AdminVDPUpdate(vdpSvc, true),
+		// --- Phase-09 Task 9.3.29 item 4: secrets inventory ---
+		"GET /api/v1/admin/security/secrets-inventory": http.HandlerFunc(
+			api.AdminSecretsInventoryList(secretsInvSvc)),
+		"PUT /api/v1/admin/security/secrets-inventory": api.AdminSecretsInventoryUpsert(secretsInvSvc, true),
+		"POST /api/v1/admin/security/secrets-inventory/{name}/mark-rotated": api.AdminSecretsInventoryMarkRotated(secretsInvSvc, true),
 		// --- Phase-07 Task 7.3.9: LP management ---
 		"GET /api/v1/admin/liquidity-providers":                http.HandlerFunc(api.AdminLPList(lpSvc, true)),
 		"POST /api/v1/admin/liquidity-providers":               http.HandlerFunc(api.AdminLPCreate(lpSvc, true)),
@@ -6042,6 +6074,10 @@ func run() error {
 		"GET /api/v1/bots/grid":         http.HandlerFunc(api.GridBotList(gridDeps)),
 		"GET /api/v1/bots/grid/{id}":    http.HandlerFunc(api.GridBotGet(gridDeps)),
 		"DELETE /api/v1/bots/grid/{id}": http.HandlerFunc(api.GridBotStop(gridDeps)),
+		// Phase-10 Task 10.3.26 — pause/resume (children keep working;
+		// fills book, no new legs while PAUSED; resume re-arms).
+		"POST /api/v1/bots/grid/{id}/pause":  http.HandlerFunc(api.GridBotPause(gridDeps)),
+		"POST /api/v1/bots/grid/{id}/resume": http.HandlerFunc(api.GridBotResume(gridDeps)),
 		// --- Phase-16 Task 16.3.21 — strategies + marketplace ---
 		"POST /api/v1/strategies":             http.HandlerFunc(api.StrategyCreate(stratDeps)),
 		"GET /api/v1/strategies":              http.HandlerFunc(api.StrategyList(stratDeps)),

@@ -6,6 +6,7 @@ import { installFetchMock, renderApp, signInForTests } from '@/test/accountMocks
 import { parseGridBot, parseStrategy } from './api';
 import { StrategyBrowser } from './StrategyBrowser';
 import { GridBotWizard } from './GridBotWizard';
+import { ActiveBotsPanel } from './ActiveBotsPanel';
 
 vi.mock('@/app/runtime', () => import('@/test/accountMocks').then((m) => m.runtimeModule()));
 
@@ -137,5 +138,65 @@ describe('GridBotWizard', () => {
     renderApp(<GridBotWizard activeBots={5} feeBps={null} />);
     expect(screen.getByText(/Maximum of 5 concurrent grid bots/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Create bot' })).toBeDisabled();
+  });
+});
+
+describe('ActiveBotsPanel pause/resume', () => {
+  const botList = (status: string) => ({
+    'GET /api/v1/bots/grid': {
+      status: 200,
+      body: {
+        data: [
+          { bot_id: 'b1', symbol: 'EUR/USD', status, grid_count: 11, realized_pnl: '3.5' },
+        ],
+      },
+    },
+  });
+
+  it('posts pause for a RUNNING bot', async () => {
+    const calls = installFetchMock({
+      ...botList('RUNNING'),
+      'POST /api/v1/bots/grid/b1/pause': { status: 200, body: {} },
+    });
+    renderApp(<ActiveBotsPanel />);
+    await waitFor(() => {
+      expect(screen.getByText('EUR/USD')).toBeInTheDocument();
+    });
+    const pauseBtn = screen.getByRole('button', { name: 'Pause' });
+    expect(pauseBtn).toBeEnabled();
+    fireEvent.click(pauseBtn);
+    await waitFor(() => {
+      expect(
+        calls.some((c) => c.method === 'POST' && c.url.includes('/bots/grid/b1/pause')),
+      ).toBe(true);
+    });
+  });
+
+  it('labels the control Resume for a PAUSED bot and posts resume', async () => {
+    const calls = installFetchMock({
+      ...botList('PAUSED'),
+      'POST /api/v1/bots/grid/b1/resume': { status: 200, body: {} },
+    });
+    renderApp(<ActiveBotsPanel />);
+    await waitFor(() => {
+      expect(screen.getByText('PAUSED')).toBeInTheDocument();
+    });
+    const resumeBtn = screen.getByRole('button', { name: 'Resume' });
+    expect(resumeBtn).toBeEnabled();
+    fireEvent.click(resumeBtn);
+    await waitFor(() => {
+      expect(
+        calls.some((c) => c.method === 'POST' && c.url.includes('/bots/grid/b1/resume')),
+      ).toBe(true);
+    });
+  });
+
+  it('disables the control for terminal bots', async () => {
+    installFetchMock(botList('STOPPED'));
+    renderApp(<ActiveBotsPanel />);
+    await waitFor(() => {
+      expect(screen.getByText('STOPPED')).toBeInTheDocument();
+    });
+    expect(screen.getByRole('button', { name: 'Pause' })).toBeDisabled();
   });
 });

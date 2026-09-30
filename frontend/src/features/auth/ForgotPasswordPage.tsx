@@ -9,15 +9,23 @@ import { useMutation } from '@tanstack/react-query';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 
 import { apiClient } from '@/app/runtime';
+import { useValidatedField, type FieldRule } from '@/lib/input-helpers';
 import { ErrorBox, Field, btnPrimary, cardCls, inputCls } from '@/lib/ui';
 
 import * as api from './api';
 
+const REQUIRED = (name: string, label: string): FieldRule => ({
+  name,
+  label,
+  required: true,
+  kind: 'string',
+});
+
 export function ForgotPasswordPage() {
-  const [email, setEmail] = useState('');
+  const email = useValidatedField(REQUIRED('email', 'Email'));
   const [sent, setSent] = useState(false);
   const mut = useMutation({
-    mutationFn: () => api.forgotPassword(apiClient, email),
+    mutationFn: () => api.forgotPassword(apiClient, email.value),
     onSuccess: () => {
       setSent(true);
     },
@@ -29,7 +37,7 @@ export function ForgotPasswordPage() {
         <h1 className="mb-4 text-xl font-semibold">Reset your password</h1>
         {sent ? (
           <p className="text-sm text-neutral-300" role="status">
-            If an account exists for <strong>{email}</strong>, a reset link is on its way — it
+            If an account exists for <strong>{email.value}</strong>, a reset link is on its way — it
             expires in 1 hour.
           </p>
         ) : (
@@ -46,26 +54,22 @@ export function ForgotPasswordPage() {
                 mut.mutate();
               }}
             >
-              <Field label="Email" required>
-                {(id, describedBy, invalid) => (
+              <Field label="Email" required error={email.error}>
+                {(id, describedBy) => (
                   <input
                     id={id}
                     aria-describedby={describedBy}
-                    aria-invalid={invalid}
                     className={inputCls}
                     type="email"
                     autoComplete="email"
-                    value={email}
-                    onChange={(e) => {
-                      setEmail(e.target.value);
-                    }}
+                    {...email.inputProps}
                   />
                 )}
               </Field>
               <button
                 type="submit"
                 className={`${btnPrimary} w-full`}
-                disabled={mut.isPending || email === ''}
+                disabled={mut.isPending || !email.valid}
               >
                 {mut.isPending ? 'Sending…' : 'Send reset link'}
               </button>
@@ -86,12 +90,13 @@ export function ResetPasswordPage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const token = params.get('token') ?? '';
-  const [password, setPassword] = useState('');
-  const [confirm, setConfirm] = useState('');
-  const mismatch = confirm !== '' && confirm !== password;
+  const password = useValidatedField(REQUIRED('password', 'New password'));
+  const confirm = useValidatedField(REQUIRED('confirm', 'Confirm new password'));
+  // Cross-field rule — the shared framework has no equality combinator.
+  const mismatch = confirm.value !== '' && confirm.value !== password.value;
 
   const mut = useMutation({
-    mutationFn: () => api.resetPassword(apiClient, { token, password }),
+    mutationFn: () => api.resetPassword(apiClient, { token, password: password.value }),
     onSuccess: () => {
       void navigate('/login?reset=1');
     },
@@ -119,46 +124,39 @@ export function ResetPasswordPage() {
                 mut.mutate();
               }}
             >
-              <Field label="New password" required>
-                {(id, describedBy, invalid) => (
+              <Field label="New password" required error={password.error}>
+                {(id, describedBy) => (
                   <input
                     id={id}
                     aria-describedby={describedBy}
-                    aria-invalid={invalid}
                     className={inputCls}
                     type="password"
                     autoComplete="new-password"
-                    value={password}
-                    onChange={(e) => {
-                      setPassword(e.target.value);
-                    }}
+                    {...password.inputProps}
                   />
                 )}
               </Field>
               <Field
                 label="Confirm new password"
                 required
-                error={mismatch ? 'Passwords do not match' : null}
+                error={mismatch ? 'Passwords do not match' : confirm.error}
               >
-                {(id, describedBy, invalid) => (
+                {(id, describedBy) => (
                   <input
                     id={id}
                     aria-describedby={describedBy}
-                    aria-invalid={invalid || mismatch}
                     className={inputCls}
                     type="password"
                     autoComplete="new-password"
-                    value={confirm}
-                    onChange={(e) => {
-                      setConfirm(e.target.value);
-                    }}
+                    {...confirm.inputProps}
+                    aria-invalid={mismatch || confirm.inputProps['aria-invalid']}
                   />
                 )}
               </Field>
               <button
                 type="submit"
                 className={`${btnPrimary} w-full`}
-                disabled={mut.isPending || password === '' || mismatch}
+                disabled={mut.isPending || !password.valid || mismatch}
               >
                 {mut.isPending ? 'Updating…' : 'Update password'}
               </button>

@@ -43,6 +43,11 @@ func (e *Env) RunGoTest(ctx context.Context, pkg, runRegex string, extra ...stri
 		"EXC_PG_DSN="+e.PostgresDSN,
 		"EXC_REDIS_TEST_ADDR="+e.RedisAddr,
 		"EXC_NATS_URLS="+strings.Join(e.NatsURLs, ","),
+		// Sentinel-quorum legs: gated suites self-skip without these;
+		// host_probe resolves container-announced IPs back to loopback.
+		"EXC_SENTINEL_TEST="+os.Getenv("EXC_SENTINEL_TEST"),
+		"EXC_SENTINEL_ADDRS="+os.Getenv("EXC_SENTINEL_ADDRS"),
+		"EXC_SENTINEL_RESOLVE_MODE="+os.Getenv("EXC_SENTINEL_RESOLVE_MODE"),
 	)
 	out, err := c.CombinedOutput()
 	s := string(out)

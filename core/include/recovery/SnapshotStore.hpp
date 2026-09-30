@@ -12,7 +12,9 @@
 //   [WalSnapshotOrder  × order_count]            48 B — FIFO per level, in the
 //                                                       same order as levels
 //   [WalSnapshotExtHeader]                       16 B — magic/version/count
-//   [WalSnapshotOrderExt × order_count]          48 B — restore extension
+//   [WalSnapshotOrderExt × order_count]          60 B — restore extension
+//   [WalSnapshotCounters]                        16 B — ext v2+ only: engine
+//                                                       allocator counters
 //
 // The pinned records alone cannot rebuild a book: WalSnapshotLevel has no
 // order_count and WalSnapshotOrder has no price/filled/timestamp — so the
@@ -71,10 +73,27 @@ struct WalSnapshotOrderExt {
 };
 #pragma pack(pop)
 
+// Counters trailer (ext version >= 2, appended after the order-ext records):
+// engine-owned allocator high-water marks the OrderBook blob cannot carry —
+// the trade-id stream lives on the engine, not the book. A v1 snapshot loses
+// the mark, so a fully snapshot-covered boot would restart the allocator at
+// 1 and re-issue journaled trade ids (Phase-09 swap-drill finding).
+#pragma pack(push, 1)
+struct WalSnapshotCounters {
+    uint32_t magic;          // kSnapCtrMagic
+    uint16_t version;        // kSnapCtrVersion
+    uint16_t _pad;
+    uint64_t next_trade_id;  // engine trade-id allocator counter at capture
+};
+#pragma pack(pop)
+
 inline constexpr uint32_t kSnapExtMagic = 0x31455853u;   // 'SXE1'
-inline constexpr uint16_t kSnapExtVersion = 1;
+inline constexpr uint16_t kSnapExtVersion = 2;
+inline constexpr uint32_t kSnapCtrMagic = 0x32544353u;   // 'SCT2'
+inline constexpr uint16_t kSnapCtrVersion = 1;
 static_assert(sizeof(WalSnapshotExtHeader) == 16);
 static_assert(sizeof(WalSnapshotOrderExt) == 60);
+static_assert(sizeof(WalSnapshotCounters) == 16);
 
 // --- Pluggable sink ----------------------------------------------------------
 //
@@ -217,6 +236,7 @@ struct ParsedSnapshot {
     WalBookSnapshotHeader header{};              // seq cursor in .book_seq
     std::vector<WalSnapshotLevel> levels;        // bids desc, then asks asc
     std::vector<ParsedSnapshotOrder> orders;     // level-major FIFO order
+    uint64_t next_trade_id = 0;                  // v2 counters; 0 = v1/absent
 };
 
 // --- SnapshotStore: serializer + cadence hook ---------------------------------
@@ -249,12 +269,14 @@ public:
                                                  uint32_t instrument_id,
                                                  uint64_t wal_seq,
                                                  uint64_t now_ns,
-                                                 uint64_t trades_delta) noexcept;
+                                                 uint64_t trades_delta,
+                                                 uint64_t next_trade_id = 0) noexcept;
 
     // Unconditional snapshot (drain/shutdown paths, tests).
     [[nodiscard]] SnapshotOutcome force_snapshot(const OrderBook& book,
                                                  uint32_t instrument_id,
-                                                 uint64_t wal_seq) noexcept;
+                                                 uint64_t wal_seq,
+                                                 uint64_t next_trade_id = 0) noexcept;
 
     // Serialize the book into the pinned+extension blob. `out` is replaced.
     // header_out.book_seq = wal_seq (the covered WAL cursor). Cold path —
@@ -263,7 +285,8 @@ public:
                                              uint32_t instrument_id,
                                              uint64_t wal_seq,
                                              std::vector<uint8_t>& out,
-                                             WalBookSnapshotHeader& header_out) noexcept;
+                                             WalBookSnapshotHeader& header_out,
+                                             uint64_t next_trade_id = 0) noexcept;
 
     // Parse + structurally validate a blob. Fails (returns false) on size
     // mismatch, bad ext magic/version, count divergence, out-of-range level

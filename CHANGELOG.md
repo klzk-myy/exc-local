@@ -2000,3 +2000,67 @@ against builds, tests, and live measurements. **24 checklist rows ticked.**
 watchdog/ops packages + PG/Redis-gated runs); ctest 37/37; vitest axe 41/41;
 spec corpus 4-shard: 571 rows — 568 pass / 2 env-skip / 1 env-pending / 0 fail.
 Unchecked census: 119 → **95** rows, all annotated.
+
+## [2026-09-30 19:37 UTC] — Gap-closure round 2 (cont.): shard binary-swap drill PASS; real restart-dup defects fixed
+
+### Task 9.3.16 — C++ bare-metal shard binary swap — VERIFIED (was failing)
+
+**First live drill surfaced a REAL engine defect** (verdict FAIL, 6 checks):
+post-restart fills re-issued `trade_id` values already journaled by the prior
+generation — 2,310 duplicate trade_ids, 491 dup fill seqs. Root causes found
+and fixed:
+
+1. **trade_id allocator not restored on snapshot-covered boots.** WAL replay
+   only accumulates `res.max_trade_id` over *unconsumed* tail entries; a boot
+   whose snapshot covers the entire journal (`applied=0`) saw max=0, skipped
+   `seed_trade_id`, and restarted `next_trade_id_=1`.
+   **Fix:** snapshot blob v2 — appended `WalSnapshotCounters` trailer after
+   the order-ext records (`kSnapExtVersion` 1→2, `kSnapCtrMagic 'SCT2'`),
+   carrying `next_trade_id` captured from `engine.tid_stream()` at serialize
+   time (`SnapshotStore::{serialize_book,maybe_snapshot,force_snapshot}`
+   gained the param; `SnapshotCtx.tid_stream` live-pointer plumbed in main.cpp
+   incl. curve-slot shared stream). `RecoveryManager::read_snapshot` merges
+   `next-1` into `res.max_trade_id`. `OrderBook` gained `set_book_seq` /
+   `bump_book_seq` (recovery-only API). Parse accepts v1 (no trailer) and v2
+   (trailer required, magic+version checked). Go mirror parser in
+   `services/internal/recovery/wal.go` accepts both and exposes `NextTradeID`.
+   Fingerprint callers keep `next_trade_id=0` (same convention as wal_seq=0).
+2. **`book_seq_` mutation counter restarted at restored order count** —
+   post-restart `TradeFill.seq` collided with prior-generation values.
+   **Fix:** restore now calls `book->set_book_seq(snapshot_book_seq)`; the WAL
+   cursor strictly dominates the pre-snapshot mutation count (TIME_TICK and
+   non-mutation rows inflate it), guaranteeing cross-generation monotonicity.
+3. **`gslo_fill` published a fill without bumping `book_seq_`** (manual
+   `filled_qty_units` mutation bypasses `apply_fill`'s bump) — same collision
+   class in live operation. Now bumps explicitly.
+4. Harness fixes (not criterion changes): `preflight_symbols` checked for a
+   symbol table (production-stripped binaries are normal) — now validates ELF
+   headers; `ring_buffered` single-shot status read raced the burst — now
+   polls; `burst_while_engine_dead` keyed off a 200ms-cached flag — now probes
+   `kill(pid,0)` synchronously at write time; `burst_accepted` added to the
+   periodic status snapshot.
+
+**Final drill** (`deploy/scripts/shard_swap_drill.sh`, real release binary,
+real shm rings + WAL + snapshot, versioned-symlink flip):
+- **30/30 checks PASS** — verdict PASS
+- swap window **886ms** (< 3s bound); gen-2 on the swapped binary
+- 20,244 ring-accepted == 20,244 journaled ORDER_NEW — **0 missing**
+- WAL: 0 gaps / 0 overlaps / 0 corrupt (wal_audit + swapdrill agree)
+- **0 duplicate executions** (trade_ids, fill seqs, L3 legs all unique)
+- **1,500 orders buffered in `_in` shm ring while producer dead**, all
+  journaled post-restart; 0 in-ring drops
+- graceful SIGTERM drain + snapshot at seq 27937; recovery level-1, no
+  WAL_RECOVERY_HALT; fills==WAL TRADE parity (6,644)
+- evidence: /tmp/exc_swap_drill.XeOrgH (checks.tsv, verdict.json, events.jsonl,
+  wal scans, engine logs)
+
+**Rows ticked:** Phase-09 9.3.16 DoD 3/4 (rollback probe-failure leg stays
+open — authored but not failure-injected) + blue-green task's "C++ core
+rolling restart per shard" row.
+
+**Verification:** ctest 37/37 (release) + debug build clean; `go test`
+recovery + marketdata green; `go build ./...` clean.
+
+**Decision:** snapshot format v2 records engine allocator counters in the blob
+trailer — the journal-owned id space must survive snapshot-covered restarts;
+a counters trailer (not a new WAL event kind) keeps the hot path untouched.

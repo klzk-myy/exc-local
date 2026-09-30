@@ -32,6 +32,7 @@
 #include "election/LeaderElection.hpp"
 #include "health/HealthChecker.hpp"
 #include "ipc/EnginePump.hpp"
+#include "ipc/SdNotify.hpp"
 #include "ipc/L3Publisher.hpp"
 #include "ipc/SharedMemChannel.hpp"
 #include "matching/EngineLoop.hpp"
@@ -124,6 +125,10 @@ struct SnapshotCtx {
     uint64_t last_trades = 0;
     bool store_failed = false;
     bool serialize_failed = false;
+    // Live pointer into the engine's trade-id stream (bound shared counter on
+    // curve shards) — the v2 snapshot counters trailer captures it so the
+    // next generation reseeds next_trade_id even when replay is empty.
+    const uint64_t* tid_stream = nullptr;
 };
 
 void on_snapshot_tick(void* raw, uint64_t now_ns,
@@ -132,7 +137,8 @@ void on_snapshot_tick(void* raw, uint64_t now_ns,
     const uint64_t delta = trades_emitted - c->last_trades;
     c->last_trades = trades_emitted;
     const exch::SnapshotOutcome oc = c->store->maybe_snapshot(
-        *c->book, c->instrument_id, c->wal->tail_seq(), now_ns, delta);
+        *c->book, c->instrument_id, c->wal->tail_seq(), now_ns, delta,
+        c->tid_stream != nullptr ? *c->tid_stream : 0);
     // Task 4.3.1: a stored snapshot is handed to the Go recovery service
     // (compact SnapReadyMsg on the shm ring — the file is the transport),
     // and confirmed snapshots trim sealed WAL segments. Both are cold-path,
@@ -965,14 +971,16 @@ int main(int argc, char** argv) {
                      snap_mgr.notify_open() ? 1 : 0,
                      snap_mgr.ack_open() ? 1 : 0);
     }
-    SnapshotCtx snap_ctx{&snap_store, &book, &wal, &snap_mgr, instrument_id, 0};
+    SnapshotCtx snap_ctx{&snap_store, &book, &wal, &snap_mgr, instrument_id, 0,
+                         false, false, &engine.tid_stream()};
     engine.set_snapshot_hook(&on_snapshot_tick, &snap_ctx);
     // Curve slots share the shard's store/mgr — each book snapshots under
     // its own instrument_id (Task 22.3.12).
     for (std::size_t ci = 0; ci < curve_slots.size(); ++ci) {
         CurveSlot* sp = curve_slots[ci].get();
         sp->snap_ctx = SnapshotCtx{&snap_store, sp->book.get(), &wal,
-                                   &snap_mgr, curve_ids[ci + 1], 0};
+                                   &snap_mgr, curve_ids[ci + 1], 0, false,
+                                   false, &sp->engine->tid_stream()};
         sp->engine->set_snapshot_hook(&on_snapshot_tick, &sp->snap_ctx);
     }
 
@@ -1185,6 +1193,24 @@ int main(int argc, char** argv) {
                 exch::now_ns(), ipc_base.c_str(), wal_path.c_str());
     std::fflush(stdout);  // readiness line must land even when piped
 
+    // Task 9.3.28 — systemd Tier-1 supervision (spec §19.13.3): READY=1,
+    // then pet WATCHDOG=1 every 400ms while the loop beat stays fresh
+    // (WatchdogSec=1s -> 2.5x margin). A stalled loop stops being petted
+    // and systemd kills the unit; NOTIFY_SOCKET absent (dev) -> inert.
+    exch::SdNotify sdnotify;
+    sdnotify.ready();
+    std::atomic<bool> sd_pet_stop{false};
+    std::jthread sd_pet([&, warn_ns = loop.watchdog().thresholds().warn_ns] {
+        while (!sd_pet_stop.load(std::memory_order_acquire)) {
+            const int64_t stale = static_cast<int64_t>(exch::steady_ns()) -
+                                  loop.last_beat_mono_ns().load(std::memory_order_acquire);
+            if (stale < warn_ns) {
+                sdnotify.watchdog();
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(400));
+        }
+    });
+
     loop.run(&g_stop);  // matching thread = main thread; SIGTERM exits cleanly.
 
     // Stop the control-path poll threads before their targets leave scope.
@@ -1209,10 +1235,14 @@ int main(int argc, char** argv) {
         if (sp->oracle_thread.joinable()) sp->oracle_thread.join();
     }
 
+    sd_pet_stop.store(true, std::memory_order_release);
+    sd_pet.join();
+    sdnotify.stopping();
     loop.stop_watchdog();
     // Drain snapshot: a graceful stop leaves a fresh base so the next boot
     // replays only the post-snapshot tail instead of the whole journal.
-    if (snap_store.force_snapshot(book, instrument_id, wal.tail_seq()) ==
+    if (snap_store.force_snapshot(book, instrument_id, wal.tail_seq(),
+                                  engine.tid_stream()) ==
         exch::SnapshotOutcome::Taken) {
         std::fprintf(stderr, "snapshot stored at seq=%llu\n",
                      (unsigned long long)wal.tail_seq());
@@ -1223,7 +1253,8 @@ int main(int argc, char** argv) {
     for (auto& sp : curve_slots) {
         const uint32_t sid =
             static_cast<uint32_t>(sp->ins.instrument_id);
-        if (snap_store.force_snapshot(*sp->book, sid, wal.tail_seq()) ==
+        if (snap_store.force_snapshot(*sp->book, sid, wal.tail_seq(),
+                                      sp->engine->tid_stream()) ==
             exch::SnapshotOutcome::Taken) {
             (void)snap_mgr.notify_stored(sid,
                                          snap_store.last_snapshot_seq());

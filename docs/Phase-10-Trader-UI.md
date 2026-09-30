@@ -163,7 +163,7 @@ Implement the React 18 + TypeScript trading UI: order entry, order book (virtual
 
 **Definition of Done (Acceptance Criteria):**
 * [x] Admin dashboard RBAC-gated
-* [ ] Instrument management UI *(open — partial: admin instruments panel renders honest-unavailable (Phase-15 backend stubs))*
+* [x] Instrument management UI *(closed 2026-09-30: `InstrumentsPanel` consumes the live Phase-15 surface — list table (symbol/type/status+grace/tick/lot/qty bounds/settlement/leverage), lifecycle actions filtered by state edge-set AND caller role (mirror of route registry + `lifecycleOps`), create modal (SA+dual-control), edit modal (RM, DRAFT/ACTIVE), confirm+reason capture, resume auction opts, 202→"submitted for approval" ack; 12/12 vitest green)*
 * [x] User management UI
 * [x] Audit log viewer
 * [x] System health dashboard
@@ -503,7 +503,7 @@ Invariant: the client may never hold optimistic order state across a full re-aut
 **Definition of Done (Acceptance Criteria):**
 * [x] Strategy browser renders with sort/filter and follow/unfollow flow
 * [x] Grid bot wizard with live preview and max-5-concurrent enforcement functional
-* [ ] Active bot panel shows live P&L and pause/resume/cancel *(open — partial: ActiveBotsPanel exists; live P&L needs backend endpoints (Phase-14/16) — renders honest unavailable)*
+* [x] Active bot panel shows live P&L and pause/resume/cancel *(closed 2026-09-30: backend live — GET /api/v1/bots/grid serves live PnL + filled levels; pause/resume landed end-to-end (migration 275 PAUSED state, engine Pause/Resume/rearm, POST /bots/grid/{id}/pause|resume routes, panel Pause/Resume mutations wired); cancel via DELETE already live; 9/9 panel tests + 4/4 PG-gated engine ITs green)*
 * [x] Risk disclosures displayed on both surfaces
 * [x] All strategy/bot screens pass axe-core audit — strategy browser + grid-bots tab + follow modal audited green
 
@@ -566,7 +566,7 @@ Invariant: the client may never hold optimistic order state across a full re-aut
 **Definition of Done (Acceptance Criteria):**
 * [x] Tax report with year/method selectors and CSV/PDF download functional
 * [x] Account statements, trade confirmations, TCA report downloadable/viewable
-* [ ] Solvency proof viewer renders Merkle summary and per-account verification path *(open — open: solvency-proof viewer renders honest-unavailable (501 stub — Phase-13 backend absent); no fabricated roots)*
+* [x] Solvency proof viewer renders Merkle summary and per-account verification path *(closed 2026-09-30: SolvencyPanel consumes live `/public/proof-of-reserves/daily-root` (root/totals/tree-height) + `AccountProofSection` consumes `/account/solvency-proof` — per-currency leaf hash, salt, and the leaf→root sibling path with offline-verification instructions; backend live via `reconciliation.SolvencyPgStore` + api.SolvencyLatest/Proof/AccountSolvencyProof; vitest+axe 47/47 green)*
 * [x] Fee schedule, account snapshots, income history tables functional
 * [x] System-info panel shows exchange-info, time, status, announcements, maintenance, execution-policy
 * [x] Announcement banners render globally in SPA shell
@@ -684,7 +684,7 @@ Invariant: the client may never hold optimistic order state across a full re-aut
 * [x] `<ConfirmModal>` with LOW/MEDIUM/HIGH severity used across all destructive actions; HIGH requires typed phrase or 2FA
 * [x] CSV order import and beneficiary paste with per-row validation and pre-submit summary
 * [x] Unit converters (pip↔price, lots↔units, base↔quote, pct↔absolute) consumed by calculators, sliders, and preview
-* [ ] All existing inline validation in Tasks 10.3.3/10.3.7/10.3.21–10.3.28 refactored to use the shared framework *(open — partial: framework consumed by copy-grid/history/reports only; retrofit into order-entry/auth/funding/settings not done)*
+* [x] All existing inline validation in Tasks 10.3.3/10.3.7/10.3.21–10.3.28 refactored to use the shared framework *(verified: order-entry `validateDraft`, auth (Login/Register/ForgotPassword/SessionList), funding (FeeEstimator/Transfer/Withdrawal), settings (ApiKeys/Security/TotpEnrollment) all delegate to ROUTE_FIELD_BINDINGS + generated contracts; 173/173 scoped vitest pass, tsc+eslint clean)*
 * [x] Input-helper framework passes axe-core audit (WCAG 2.1 AA per Task 10.3.14) — field/autocomplete/preset/help/preview/unavailable fixtures + ConfirmModal HIGH + ShortcutHelpOverlay + GlossaryList audited green
 
 **SDD Checklist:**

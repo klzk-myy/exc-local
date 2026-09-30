@@ -18,6 +18,18 @@ export function useAdminRole(): VenueAdminRole | null {
   return (found as VenueAdminRole | undefined) ?? null;
 }
 
+/** Client-side mirror of services internal/admin.Permits: `held`
+ * satisfies `allowed` directly, or via Super Admin's all-permissions
+ * grant (spec §8.2). UX gating only — the server re-authorizes every
+ * call, so a stale claim can at worst expose a button that 403s. */
+export function permitsAdminRole(
+  held: VenueAdminRole | null,
+  allowed: readonly VenueAdminRole[],
+): boolean {
+  if (held === null) return false;
+  return held === 'Super Admin' || allowed.includes(held);
+}
+
 /** True when an error is the server's authorization denial — the admin
  * surface renders the denial card instead of the panel. */
 export function isAccessDenied(err: unknown): boolean {

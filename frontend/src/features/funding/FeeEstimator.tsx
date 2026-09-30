@@ -8,59 +8,71 @@ import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 
 import { apiClient } from '@/app/runtime';
-import { ApiError } from '@/lib/api';
+import {
+  RULE_CURRENCY,
+  isNotImplemented,
+  useValidatedField,
+  type FieldRule,
+} from '@/lib/input-helpers';
 import { ErrorBox, Field, btnPrimary, inputCls, selectCls } from '@/lib/ui';
 
 import * as api from './api';
+
+const RULE_AMOUNT: FieldRule = {
+  name: 'amount',
+  label: 'Amount',
+  required: true,
+  kind: 'decimal',
+  positive: true,
+};
 
 const PRESETS = ['1000', '10000', '50000'] as const;
 const DIRECTIONS = ['DEPOSIT', 'WITHDRAWAL', 'TRANSFER'] as const;
 
 export default function FeeEstimator() {
-  const [currency, setCurrency] = useState('USD');
-  const [amount, setAmount] = useState('');
+  const currency = useValidatedField(RULE_CURRENCY, 'USD');
+  const amount = useValidatedField(RULE_AMOUNT);
   const [rail, setRail] = useState<string>('SWIFT');
   const [direction, setDirection] = useState<string>('WITHDRAWAL');
 
   const mut = useMutation({
-    mutationFn: () => api.feeEstimate(apiClient, { amount, currency, rail, direction }),
+    mutationFn: () =>
+      api.feeEstimate(apiClient, {
+        amount: amount.value,
+        currency: currency.value,
+        rail,
+        direction,
+      }),
   });
 
-  const unavailable =
-    mut.error instanceof ApiError &&
-    (mut.error.status === 501 || mut.error.code === 'NOT_IMPLEMENTED');
+  const unavailable = isNotImplemented(mut.error);
   const est = mut.data;
 
   return (
     <div className="rounded border border-neutral-800 p-3">
       <h4 className="mb-2 text-sm font-semibold">Fee &amp; arrival estimate</h4>
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Amount">
-          {(id, describedBy, invalid) => (
+        <Field label="Amount" error={amount.error}>
+          {(id, describedBy) => (
             <input
               id={id}
               aria-describedby={describedBy}
-              aria-invalid={invalid}
               className={inputCls}
               inputMode="decimal"
-              value={amount}
-              onChange={(e) => {
-                setAmount(e.target.value);
-              }}
+              {...amount.inputProps}
             />
           )}
         </Field>
-        <Field label="Currency">
-          {(id, describedBy, invalid) => (
+        <Field label="Currency" error={currency.error}>
+          {(id, describedBy) => (
             <input
               id={id}
               aria-describedby={describedBy}
-              aria-invalid={invalid}
               className={inputCls}
               maxLength={3}
-              value={currency}
+              {...currency.inputProps}
               onChange={(e) => {
-                setCurrency(e.target.value.toUpperCase());
+                currency.setValue(e.target.value.toUpperCase());
               }}
             />
           )}
@@ -113,7 +125,7 @@ export default function FeeEstimator() {
             type="button"
             className="rounded border border-neutral-700 px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-800"
             onClick={() => {
-              setAmount(p);
+              amount.setValue(p);
             }}
           >
             {Number(p).toLocaleString()}
@@ -123,7 +135,7 @@ export default function FeeEstimator() {
       <button
         type="button"
         className={btnPrimary}
-        disabled={mut.isPending || amount === '' || currency.length !== 3}
+        disabled={mut.isPending || !amount.valid || !currency.valid}
         onClick={() => {
           mut.mutate();
         }}

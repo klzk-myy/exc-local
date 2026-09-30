@@ -213,6 +213,12 @@ public:
     [[nodiscard]] bool validate(const char** violation = nullptr) const noexcept;
 
     [[nodiscard]] uint64_t book_seq() const noexcept { return book_seq_; }
+    // Recovery-only rebase: snapshot restore installs the covered WAL cursor
+    // so post-restart mutations never re-issue a prior generation's seqs
+    // (TradeFill.seq consumers dedup on it). Also bumps once for off-book
+    // mutations that still publish a fill (gslo_fill).
+    void set_book_seq(uint64_t seq) noexcept { book_seq_ = seq; }
+    void bump_book_seq() noexcept { ++book_seq_; }
     [[nodiscard]] uint32_t bid_count() const noexcept { return bid_count_; }
     [[nodiscard]] uint32_t ask_count() const noexcept { return ask_count_; }
     [[nodiscard]] std::size_t live_orders() const noexcept { return live_orders_; }

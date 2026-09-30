@@ -350,11 +350,33 @@ TEST_F(LiveMode, MissingKeysAreNormal) {
 }
 
 TEST_F(LiveMode, UnreachableStoreOverridesToMaintenance) {
-    exch::RedisModeStore store(client_.get());
-    exch::ModeManager m(&store);
-    ASSERT_TRUE(m.refresh());
+    // Baseline: live store reads Normal first.
+    {
+        exch::RedisModeStore store(client_.get());
+        exch::ModeManager m(&store);
+        ASSERT_TRUE(m.refresh());
+        EXPECT_EQ(m.mode(), exch::DegradationMode::Normal);
+    }
 
-    client_->disconnect();  // simulate Redis loss
+    // Simulate Redis loss deterministically: a client configured at a
+    // dead address — disconnect() alone is not a simulation here because
+    // RespClient transparently reconnects to a still-healthy server on
+    // the next command (bounded max_attempts), which is correct product
+    // behavior but leaves the store reachable. EXC_DEAD_REDIS_ADDR
+    // overrides the dead endpoint (default port 1 is universally closed).
+    const char* deadEnv = std::getenv("EXC_DEAD_REDIS_ADDR");
+    const std::string deadAddr = deadEnv != nullptr ? deadEnv : "127.0.0.1:1";
+    const auto dcolon = deadAddr.rfind(':');
+    exch::RespClientConfig deadCfg;
+    deadCfg.host = deadAddr.substr(0, dcolon);
+    deadCfg.port = static_cast<uint16_t>(
+        std::atoi(deadAddr.substr(dcolon + 1).c_str()));
+    deadCfg.connect_timeout_ms = 200;
+    deadCfg.io_timeout_ms = 200;
+    exch::RespClient deadClient(deadCfg);
+    exch::RedisModeStore deadStore(&deadClient);
+    exch::ModeManager m(&deadStore);
+
     EXPECT_FALSE(m.refresh());
     EXPECT_FALSE(m.refresh());
     EXPECT_EQ(m.mode(), exch::DegradationMode::Maintenance);  // fail-closed

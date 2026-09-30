@@ -2,9 +2,13 @@
 #
 # Used by deploy/clickhouse/backup.sh for the daily full / hourly incremental
 # S3 backups of all MergeTree tables. Deploy-time env substitution:
-# clickhouse-backup expands ${ENV_VAR} references below at startup — export
-# AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_ENDPOINT_URL / CH_PASSWORD
-# from the secrets store (Vault/KMS per Phase-13.5), never commit values.
+# ${VAR:-default} placeholders below are rendered at DEPLOY TIME (the
+# clickhouse-backup binary does NOT expand env vars — an unrendered
+# template fails YAML parse, verified 2026-09-30). Renderers:
+# deploy/scripts/ch_restore_drill.sh handles `${VAR:-default}` via its
+# stdlib-python render_tpl; deploy pipelines may use any equivalent
+# templating step. Values come from the secrets store (Vault/KMS per
+# Phase-13.5), never commit them.
 
 general:
   remote_storage: s3

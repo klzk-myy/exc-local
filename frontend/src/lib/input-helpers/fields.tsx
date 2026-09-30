@@ -6,6 +6,10 @@
  */
 import { useId, useMemo, useState, type ChangeEvent, type InputHTMLAttributes } from 'react';
 
+/** Controls the field state can bind to — inputs, selects and textareas
+ * share the same ChangeEvent shape. */
+type FieldControl = HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
+
 import { validateField, type FieldRule } from './validation';
 
 export interface ValidatedField {
@@ -13,10 +17,10 @@ export interface ValidatedField {
   readonly error: string | null;
   readonly touched: boolean;
   readonly valid: boolean;
-  /** Props to spread on the <input>/<select>. */
+  /** Props to spread on the <input>/<select>/<textarea>. */
   readonly inputProps: {
     value: string;
-    onChange: (e: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void;
+    onChange: (e: ChangeEvent<FieldControl>) => void;
     onBlur: () => void;
     'aria-invalid': boolean | undefined;
   };

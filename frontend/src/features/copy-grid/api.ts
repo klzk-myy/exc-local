@@ -166,12 +166,23 @@ export function deleteGridBot(
   });
 }
 
-/** Pause/resume routes are NOT registered for grid bots — surfaces gate
- * on this flag and render an honest "not available" instead of 404s. */
+/** Pause/resume routes are registered and live (Phase-10 Task 10.3.26
+ * over the Phase-16 Task 16.3.19 engine): pause freezes the bot while
+ * its working children stay on the book; resume re-arms suspended legs. */
 export const GRID_BOT_CONTROL_ROUTES = {
   pause: 'POST /api/v1/bots/grid/{id}/pause',
   resume: 'POST /api/v1/bots/grid/{id}/resume',
 } as const;
 export function gridBotControlRegistered(): boolean {
-  return false; // not in the route table — update when Phase-16 lands them
+  return true;
+}
+
+/** POST /api/v1/bots/grid/{id}/pause — freeze a RUNNING bot. */
+export function pauseGridBot(api: ApiClient, id: string): Promise<unknown> {
+  return api.post(`/bots/grid/${encodeURIComponent(id)}/pause`, {});
+}
+
+/** POST /api/v1/bots/grid/{id}/resume — re-arm a PAUSED bot. */
+export function resumeGridBot(api: ApiClient, id: string): Promise<unknown> {
+  return api.post(`/bots/grid/${encodeURIComponent(id)}/resume`, {});
 }
