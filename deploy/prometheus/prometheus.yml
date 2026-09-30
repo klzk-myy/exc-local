@@ -90,3 +90,13 @@ scrape_configs:
     static_configs:
       - targets: ["nats-exporter:7777"]
         labels: {service: nats}
+
+  # Phase-09 Task 9.3.20: sentinel_exporter produces the sentinel_*/redis_*
+  # series evaluated by monitoring/redis-sentinel-alerts.yml (quorum, node
+  # count, master reachability, replication lag vs the 5s RPO budget,
+  # failover-in-progress). Bare-metal deploy: supervisord
+  # [program:sentinel-exporter].
+  - job_name: sentinel-exporter
+    static_configs:
+      - targets: ["sentinel-exporter:9109"]
+        labels: {service: redis-sentinel}

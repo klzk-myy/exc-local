@@ -9,6 +9,13 @@
 #                               and scale the bad color to 0
 #   rollback.sh --image <dep>     `kubectl rollout undo` a specific deployment
 #
+# Flags:
+#   --lb-only    skip the Kubernetes legs (replica check, scale-to-0
+#                quarantine): flip the HAProxy map and verify. Used on
+#                bare-metal LBs and whenever the K8s API is itself the
+#                failure — the map flip is the traffic-safety step and
+#                must not be gated on kubectl.
+#
 # Env: same as bluegreen.sh (EXC_NS, HAPROXY_SOCKET, ACTIVE_COLOR_MAP).
 # Exit: 0 = traffic restored to the prior color; 1 = could not confirm.
 # =============================================================================
@@ -23,12 +30,13 @@ SOCK="${HAPROXY_SOCKET:-/run/haproxy/admin.sock}"
 log() { printf '[rollback %s] %s\n' "$(date -u +%H:%M:%S)" "$*"; }
 die() { log "ERROR: $*" >&2; exit 1; }
 
-BAD=""; DEP=""
+BAD=""; DEP=""; LB_ONLY=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --color) BAD="$2"; shift ;;
         --image) DEP="$2"; shift ;;
-        -h|--help) sed -n '2,21p' "$0"; exit 0 ;;
+        --lb-only) LB_ONLY=1 ;;
+        -h|--help) sed -n '2,28p' "$0"; exit 0 ;;
         *) die "unknown flag: $1" ;;
     esac
     shift
@@ -44,14 +52,19 @@ fi
 [ "$BAD" = "blue" ] || [ "$BAD" = "green" ] || die "--color blue|green required"
 GOOD="blue"; [ "$BAD" = "blue" ] && GOOD="green"
 
-# 1. Make sure the surviving color can actually serve before we flip.
-ready="$(kubectl -n "$NS" get deployment "order-gateway-$GOOD" \
-    -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)"
-if [ "${ready:-0}" -lt 1 ]; then
-    log "$GOOD has no ready replicas — scaling to 2 and waiting"
-    kubectl -n "$NS" scale deployment "order-gateway-$GOOD" --replicas=2
-    kubectl -n "$NS" rollout status "deployment/$GOOD" --timeout=120s \
-        || kubectl -n "$NS" rollout status "deployment/order-gateway-$GOOD" --timeout=120s
+# 1. Make sure the surviving color can actually serve before we flip
+#    (K8s leg — skipped in --lb-only mode).
+if [ "$LB_ONLY" -eq 0 ]; then
+    ready="$(kubectl -n "$NS" get deployment "order-gateway-$GOOD" \
+        -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)"
+    if [ "${ready:-0}" -lt 1 ]; then
+        log "$GOOD has no ready replicas — scaling to 2 and waiting"
+        kubectl -n "$NS" scale deployment "order-gateway-$GOOD" --replicas=2
+        kubectl -n "$NS" rollout status "deployment/$GOOD" --timeout=120s \
+            || kubectl -n "$NS" rollout status "deployment/order-gateway-$GOOD" --timeout=120s
+    fi
+else
+    log "lb-only: skipping K8s replica check for $GOOD"
 fi
 
 # 2. Flip the HAProxy map back.
@@ -63,7 +76,11 @@ else
 fi
 [ -w "$MAP_FILE" ] && sed -i "s/^gateway .*/gateway $GOOD/" "$MAP_FILE"
 
-# 3. Verify the surviving color answers readiness, then quarantine the bad one.
-sleep 2
-kubectl -n "$NS" scale deployment "order-gateway-$BAD" --replicas=0
-log "rollback complete: traffic on $GOOD, $BAD scaled to 0"
+# 3. Quarantine the bad color (K8s leg — skipped in --lb-only mode).
+if [ "$LB_ONLY" -eq 0 ]; then
+    sleep 2
+    kubectl -n "$NS" scale deployment "order-gateway-$BAD" --replicas=0
+    log "rollback complete: traffic on $GOOD, $BAD scaled to 0"
+else
+    log "rollback complete: traffic on $GOOD (lb-only — quarantine $BAD manually)"
+fi

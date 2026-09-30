@@ -12,7 +12,7 @@ echo "== baseline =="
 $SOCK "show stat" | awk -F, '$1=="be_gateway_blue" && NR>1{printf "%-10s status=%-10s check=%s\n",$2,$18,$37}'
 curl -sk https://localhost:8443/ | sed 's|^|GET / -> |'
 
-PID=$(pgrep -f "stub_server.py BLUE-1 18081")
+PID=$(pgrep -f "stub_server.py BLUE-1 18081"; pgrep -f "stub_go BLUE-1 18081")
 T0=$(date +%s.%N)
 echo "== kill BLUE-1 (pid $PID) @ $(date +%H:%M:%S.%N) =="
 kill "$PID"

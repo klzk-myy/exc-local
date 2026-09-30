@@ -42,6 +42,10 @@ tests/soak/*report*.json
 services/wal-recovery
 services/risk
 services/oracle
+services/secretdrill
+services/sentinel_exporter
+deploy/haproxy/test/stub_go
+deploy/haproxy/test/run/
 
 # Phase-08 load-test artifacts (harness + report are tracked; bulk output is not)
 tests/load/results/

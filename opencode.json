@@ -4,7 +4,7 @@
   "mcp": {
     "gitnexus": {
       "type": "local",
-      "command": ["/usr/bin/gitnexus", "mcp"],
+      "command": ["/home/luzenkock/.npm-global/bin/gitnexus", "mcp"],
       "enabled": true
     },
     "filesystem": {

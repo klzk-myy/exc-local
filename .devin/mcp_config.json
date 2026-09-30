@@ -1,7 +1,7 @@
 {
   "mcpServers": {
     "gitnexus": {
-      "command": "/usr/bin/gitnexus",
+      "command": "/home/luzenkock/.npm-global/bin/gitnexus",
       "args": ["mcp"]
     },
     "filesystem": {

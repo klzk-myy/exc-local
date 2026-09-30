@@ -2064,3 +2064,51 @@ recovery + marketdata green; `go build ./...` clean.
 **Decision:** snapshot format v2 records engine allocator counters in the blob
 trailer — the journal-owned id space must survive snapshot-covered restarts;
 a counters trailer (not a new WAL event kind) keeps the hot path untouched.
+
+### [2026-09-30 20:28 UTC] — Gap-closure round 3: operational drill evidence
+
+Scope: the remaining locally-executable Phase-09 rows — secret rotation lifecycle,
+swap rollback-on-probe-failure, Sentinel metrics production, HAProxy on Go
+backends, LB-only rollback, and the PostgreSQL semi-sync RPO/RTO drill.
+
+**Files:**
+- `services/cmd/secretdrill/main.go`, `deploy/scripts/secret_rotation_drill.sh`
+- `deploy/scripts/shard_swap_rollback_drill.sh`
+- `services/cmd/sentinel_exporter/main.go`, `deploy/monitoring/redis-sentinel-alerts.yml`, `deploy/prometheus/prometheus.yml`
+- `deploy/haproxy/test/{stub_server.go,run_drill.sh,test_a_failover.sh}` (Python stubs → Go)
+- `deploy/scripts/rollback.sh` (`--lb-only`)
+- `deploy/scripts/pg_failover_drill.sh`, `deploy/dr/postgres-standby.conf.sample`
+- `docs/Phase-09-Deployment-Operations.md` (7 rows ticked), AGENTS.md, CLAUDE.md, MEMORY.md
+
+**Verification (all live):**
+- secretdrill: upsert→backdate→overdue→P2 `SECRET_ROTATION_OVERDUE`→admin 503 view
+  →emergency mark→clear→2 audit rows on dev PG. Vault revoke/reissue leg
+  env-bound (no `vault` CLI/credentials) — documented, not ticked.
+- shard_swap_rollback_drill: gen-2 never-ready → probe timeout detected →
+  symlink revert → prior binary ready from checkpoint in 91ms; tail monotonic;
+  800 buffered orders journaled; 0 loss/dup; fill parity exact. 20/20 checks.
+- sentinel_exporter: 6 series emitted; tracked a real kill→promote —
+  `redis_master_up` 0→1 on replica-1 promotion; promtool validates all 7 rules.
+- HAProxy Go-backend drill: 500/500 zero-drop flips; failover 6.67s → backup
+  10/10 → recovery 3.9s.
+- rollback.sh --lb-only: failure-injected (green killed → 503) → map flip back
+  to blue, traffic restored instantly.
+- pg_failover_drill: `pg_stat_replication` sync_state=`sync`; 200/200
+  flush-acked txns on standby (gap 0s ≪ 15s RPO); `docker kill`→`pg_ctl
+  promote`→read-write 416ms ≪ 5min RTO; zero committed loss.
+
+**Real defect fixed:** `postgres-standby.conf.sample` cited
+`synchronous_commit=remote_flush` — not a valid value; `on` is the
+standby-flush-ack level. Also: a primary booted with a non-empty
+`synchronous_standby_names` deadlocks initdb's `CREATE DATABASE` — the drill
+now brings the pair up async and enables the sync set post-stream.
+
+**Checklist:** 8 rows ticked (Phase-09 :87/:89/:114/:117/:118/:425/:533/:762 —
+partial annotations on :762 vault leg and :119 full-failover leg).
+
+**Decision:** `rollback.sh --lb-only` is an explicit flag, not silent
+degradation — the HAProxy map flip is the traffic-safety step that must work
+when the K8s API is unreachable; quarantine remains operator-owned in that
+mode.
+
+**Census:** 75 → 67 annotated-open rows, all env-bound.

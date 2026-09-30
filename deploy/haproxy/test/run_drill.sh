@@ -12,18 +12,38 @@ NAME=haproxy-5329-test
 stop_all() {
     docker rm -f "$NAME" 2>/dev/null
     pkill -f "stub_server.py" 2>/dev/null
+    pkill -f "stub_go" 2>/dev/null
     rm -f run/*.pid run/admin.sock
     echo "stopped"
 }
 
+mkdir -p run results
+# admin.sock lands here from inside the container (haproxy uid 99) —
+# the bind-mounted dir must be writable by it.
+chmod 0777 run
+
 [ "${1:-}" = "stop" ] && { stop_all; exit 0; }
 
 # --- stubs: blue primary/backup, green primary/backup -------------------
+# Backends run the Go stub when it builds (same runtime class as the order
+# gateway it stands in for — proves blue/green for Go services); fall back
+# to the Python stub when no Go toolchain is present.
 pkill -f "stub_server.py" 2>/dev/null
-python3 stub_server.py BLUE-1 18081 2>run/blue1.log  & echo $! > run/blue1.pid
-python3 stub_server.py BLUE-2 18082 2>run/blue2.log  & echo $! > run/blue2.pid
-python3 stub_server.py GREEN-1 18083 2>run/green1.log & echo $! > run/green1.pid
-python3 stub_server.py GREEN-2 18084 2>run/green2.log & echo $! > run/green2.pid
+pkill -f "stub_go" 2>/dev/null
+STUB="./stub_go"
+if command -v go >/dev/null 2>&1; then
+    go build -o ./stub_go ./stub_server.go 2>/dev/null || STUB=""
+else
+    STUB=""
+fi
+if [ -z "$STUB" ]; then
+    STUB="python3 stub_server.py"
+fi
+echo "stub backend: $STUB"
+$STUB BLUE-1 18081 2>run/blue1.log  & echo $! > run/blue1.pid
+$STUB BLUE-2 18082 2>run/blue2.log  & echo $! > run/blue2.pid
+$STUB GREEN-1 18083 2>run/green1.log & echo $! > run/green1.pid
+$STUB GREEN-2 18084 2>run/green2.log & echo $! > run/green2.pid
 sleep 0.5
 
 # --- config check --------------------------------------------------------

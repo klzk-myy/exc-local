@@ -5,7 +5,8 @@
 # Semi-sync: the primary commits only after the standby flushes WAL —
 # synchronous_standby_names makes the commit wait bounded by the 15s RPO.
 # synchronous_commit = remote_apply is too strong for the order path;
-# remote_flush is the §18.3-compatible choice (durability, not visibility).
+# `on` (wait for standby WAL flush — the "remote flush" level) is the
+# §18.3-compatible choice (durability, not visibility).
 
 # --- standby identity --------------------------------------------------------
 primary_conninfo = 'host=pg-primary.dc1.exc.local port=5432 user=replicator application_name=pg-dr-secondary sslmode=verify-full'
@@ -21,7 +22,7 @@ recovery_target_timeline = 'latest'
 
 # --- on the PRIMARY (applied there, kept here for topology docs) -------------
 # synchronous_standby_names = 'FIRST 1 (pg-dr-secondary)'   # semi-sync quorum
-# synchronous_commit        = 'remote_flush'              # flush-ack = RPO bound
+# synchronous_commit        = 'on'                        # standby-flush ack = RPO bound
 # archive_mode / archive_command already set by deploy/postgres/postgresql.conf
 #   → wal_archive.sh streams segments to the cross-region S3 WORM bucket.
 
