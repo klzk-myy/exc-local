@@ -13,22 +13,22 @@ import "encoding/binary"
 // Schema identifiers — 1 is the market-data schema (internal/sbe);
 // the order-entry schema is ID 2.
 const (
-	SchemaIDOrderEntry     uint16 = 2
-	SchemaVersionCurrent   uint16 = 1
+	SchemaIDOrderEntry   uint16 = 2
+	SchemaVersionCurrent uint16 = 1
 )
 
 // Template identifiers within SchemaIDOrderEntry. IDs are never reused
 // or renumbered; retired templates stay reserved.
 const (
-	TemplateNewOrder      uint16 = 1 // client → venue
-	TemplateCancelOrder   uint16 = 2
-	TemplateReplaceOrder  uint16 = 3
-	TemplateNegotiate     uint16 = 5 // session handshake (Task 18.3.17)
+	TemplateNewOrder     uint16 = 1 // client → venue
+	TemplateCancelOrder  uint16 = 2
+	TemplateReplaceOrder uint16 = 3
+	TemplateNegotiate    uint16 = 5 // session handshake (Task 18.3.17)
 
-	TemplateExecutionReport      uint16 = 101 // venue → client
-	TemplateBusinessReject       uint16 = 102
-	TemplateNews                 uint16 = 103
-	TemplateNegotiationResponse  uint16 = 104
+	TemplateExecutionReport     uint16 = 101 // venue → client
+	TemplateBusinessReject      uint16 = 102
+	TemplateNews                uint16 = 103
+	TemplateNegotiationResponse uint16 = 104
 )
 
 // Wire enums (fix SBE-style numeric vocabulary).
@@ -279,12 +279,12 @@ func (NegotiationResponse) TemplateID() uint16 { return TemplateNegotiationRespo
 
 // Block lengths for schema version 1.
 const (
-	blockLenNewOrder             = 96
-	blockLenCancelOrder          = 96
-	blockLenReplaceOrder         = 136
-	blockLenNegotiate            = 120
-	blockLenExecutionReport      = 112
-	blockLenBusinessReject       = 48
-	blockLenNews                 = 272
-	blockLenNegotiationResponse  = 40
+	blockLenNewOrder            = 96
+	blockLenCancelOrder         = 96
+	blockLenReplaceOrder        = 136
+	blockLenNegotiate           = 120
+	blockLenExecutionReport     = 112
+	blockLenBusinessReject      = 48
+	blockLenNews                = 272
+	blockLenNegotiationResponse = 40
 )

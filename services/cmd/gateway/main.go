@@ -34,7 +34,10 @@ import (
 	"exchange/internal/bots"
 	"exchange/internal/cache"
 	"exchange/internal/compliance"
+	regreport "exchange/internal/compliance/reporting"
+	"exchange/internal/compliance/venue"
 	"exchange/internal/config"
+	"exchange/internal/content"
 	"exchange/internal/copy"
 	"exchange/internal/db"
 	"exchange/internal/delegation"
@@ -58,6 +61,7 @@ import (
 	"exchange/internal/observability"
 	"exchange/internal/ops"
 	"exchange/internal/oracle"
+	"exchange/internal/oracle/rates"
 	"exchange/internal/orders"
 	"exchange/internal/pamm"
 	"exchange/internal/position"
@@ -302,6 +306,50 @@ func run() error {
 		return opsAlerter.Raise(ctx, settlement.OpsAlert{
 			Severity: severity, Code: code, Summary: summary})
 	})
+	// Phase-21 sanctions/screening components share the same ops-alert
+	// adapter (compliance.Alerter has the identical signature).
+	compAlerter := compliance.Alerter(func(ctx context.Context,
+		severity, code, summary string) error {
+		if opsAlerter == nil {
+			return nil
+		}
+		return opsAlerter.Raise(ctx, settlement.OpsAlert{
+			Severity: severity, Code: code, Summary: summary})
+	})
+	// Sweep-loop context — created early so the Phase-21 sanctions
+	// cluster (heartbeat/refresher/replay) can bind its goroutines
+	// alongside the funding/KYC sweeps below.
+	sweepCtx, sweepStop := context.WithCancel(context.Background())
+	defer sweepStop()
+	// Phase-21 Task 21.3.11 — ongoing transaction monitoring. Reads the
+	// funding/transfer flow tables (PgActivitySource, read-only) and
+	// routes findings to audit-backed cases; the funding Notifier seam
+	// taps terminal events below (post-commit, best-effort).
+	monSvc, err := compliance.NewMonitoringService(compliance.MonitoringOptions{
+		Src:     compliance.NewPgActivitySource(pool),
+		Cases:   compliance.AuditCaseSink{Auditor: compliance.AdminAuditSink{Pool: pool}},
+		Alerter: compAlerter,
+	})
+	if err != nil {
+		return fmt.Errorf("monitoring service: %w", err)
+	}
+	// Hourly dormant-reactivation sweep.
+	go func() {
+		t := time.NewTicker(time.Hour)
+		defer t.Stop()
+		for {
+			select {
+			case <-sweepCtx.Done():
+				return
+			case <-t.C:
+				if n, derr := monSvc.SweepDormant(sweepCtx, 500); derr != nil {
+					log.Warn("dormant-reactivation sweep failed", "err", derr)
+				} else if n > 0 {
+					log.Warn("dormant accounts reactivated", "count", n)
+				}
+			}
+		}
+	}()
 	// Phase-13 Task 13.3.6 — MiFID II RTS 9 order-to-trade ratio monitor:
 	// order events (new/modify/cancel) and fills slide through Redis
 	// zset windows (otr:events|otr:trades:{account}:{symbol}); a breach
@@ -374,17 +422,85 @@ func run() error {
 	// withdrawals escalate to PENDING_REVIEW (SANCTIONS_UNAVAILABLE)
 	// instead of screening.
 	var screener *compliance.ListScreener
-	if dir := strings.TrimSpace(os.Getenv("EXC_SANCTIONS_LIST_DIR")); dir != "" {
-		screener, err = compliance.NewListScreener(dir)
+	sanctionsDir := strings.TrimSpace(os.Getenv("EXC_SANCTIONS_LIST_DIR"))
+	if sanctionsDir != "" {
+		screener, err = compliance.NewListScreener(sanctionsDir)
 		if err != nil {
 			return fmt.Errorf("sanctions screener: %w", err)
 		}
 		lists, n, _ := screener.Stats()
 		log.Info("sanctions screener loaded",
-			"dir", dir, "lists", lists, "entries", n)
+			"dir", sanctionsDir, "lists", lists, "entries", n)
 	} else {
 		log.Warn("EXC_SANCTIONS_LIST_DIR unset — sanctions seam unwired; " +
 			"STANDARD-tier funding reviews fail closed to PENDING_REVIEW")
+	}
+	// Phase-21 Tasks 21.3.1/21.3.11/21.3.23 — provider-outage
+	// quarantine, pending-screen queue, C++-hook flag publisher and the
+	// scheduled vendor refresh. Funding binds the QUARANTINED wrapper —
+	// an outage parks must-screen flows in the queue instead of passing.
+	var (
+		sanctionsGate  *compliance.ProviderGate
+		sanctionsQueue compliance.ScreenQueue
+		sanctionsFlags = compliance.NewFlagPublisher(rdb).
+				WithLogger(func(f string, a ...any) {
+				log.Info(fmt.Sprintf(f, a...))
+			})
+		gatedScreener      *compliance.QuarantinedScreener
+		sanctionsRefresher *compliance.VendorRefresher
+		sanctionsReplayer  *compliance.QueueReplayer
+		screeningStore     = compliance.NewPgScreeningStore(pool)
+		screeningSvc       *compliance.ScreeningService // bound after holdSvc
+	)
+	if screener != nil {
+		// Vendor feeds are env-declared (EXC_SANCTIONS_FEEDS, JSON array
+		// of ListFeed) — the same names feed the provider gate's health
+		// registry so a required feed's outage quarantines the scope.
+		var feeds []compliance.ListFeed
+		var providers []string
+		if raw := strings.TrimSpace(os.Getenv("EXC_SANCTIONS_FEEDS")); raw != "" {
+			if uerr := json.Unmarshal([]byte(raw), &feeds); uerr != nil {
+				return fmt.Errorf("EXC_SANCTIONS_FEEDS parse: %w", uerr)
+			}
+			for _, f := range feeds {
+				providers = append(providers, "feed:"+f.Name)
+			}
+		}
+		sanctionsQueue = compliance.NewRedisScreenQueue(rdb)
+		sanctionsGate = compliance.NewProviderGate(providers).
+			WithAlerter(compAlerter).
+			WithAuditor(compliance.AdminAuditSink{Pool: pool})
+		screener.WithProviderGate(sanctionsGate)
+		gatedScreener = compliance.NewQuarantinedScreener(
+			screener, sanctionsGate, sanctionsQueue)
+		sanctionsReplayer = compliance.NewQueueReplayer(sanctionsQueue, screener).
+			WithFlags(sanctionsFlags).
+			WithAlerter(compAlerter).
+			WithAuditor(compliance.AdminAuditSink{Pool: pool})
+		sanctionsGate.OnRecover(func(ctx context.Context) {
+			if rep, rerr := sanctionsReplayer.Replay(ctx); rerr != nil {
+				log.Error("sanctions queue replay failed", "err", rerr)
+			} else if rep.Claimed > 0 {
+				log.Info("sanctions queue replayed",
+					"claimed", rep.Claimed, "hits", rep.HitCount,
+					"backlog", rep.Backlog)
+			}
+		})
+		if len(feeds) > 0 {
+			sanctionsRefresher, err = compliance.NewVendorRefresher(
+				screener, sanctionsDir, feeds, nil)
+			if err != nil {
+				return fmt.Errorf("sanctions refresher: %w", err)
+			}
+			sanctionsRefresher.WithGate(sanctionsGate).
+				WithAlerter(compAlerter).
+				WithAuditor(compliance.AdminAuditSink{Pool: pool})
+			go sanctionsRefresher.Run(sweepCtx)
+		} else {
+			log.Warn("EXC_SANCTIONS_FEEDS unset — vendor refresh unbound; " +
+				"list reloads remain operator-driven")
+		}
+		go sanctionsFlags.HeartbeatLoop(sweepCtx)
 	}
 	withdrawalSvc, err := funding.NewWithdrawalService(fundStore, ledgerSvc, fundChecker)
 	if err != nil {
@@ -405,8 +521,8 @@ func run() error {
 		WithBeneficiaries(bankAcctSvc).WithRailController(killResolver).
 		WithBeneficiaryResolver(fundStore).
 		WithLogger(func(f string, a ...any) { log.Error(fmt.Sprintf(f, a...)) })
-	if screener != nil {
-		withdrawalSvc.WithSanctions(screener)
+	if gatedScreener != nil {
+		withdrawalSvc.WithSanctions(gatedScreener)
 	}
 	transferSvc, err := funding.NewTransferService(fundStore, ledgerSvc, fundChecker)
 	if err != nil {
@@ -464,8 +580,8 @@ func run() error {
 	}
 	// Expiry sweeper: lapses pending withdrawal confirmations past the
 	// canonical 15-minute window → AUTO_CANCELLED + ledger hold release.
-	sweepCtx, sweepStop := context.WithCancel(context.Background())
-	defer sweepStop()
+	// (sweepCtx/sweepStop are created above — Phase-21 sanctions
+	// cluster goroutines share them.)
 	go func() {
 		t := time.NewTicker(30 * time.Second)
 		defer t.Stop()
@@ -654,8 +770,8 @@ func run() error {
 	}
 	depositSvc.WithUSDConverter(usdConv).WithAlerter(opsAlerter).
 		WithLogger(func(f string, a ...any) { log.Error(fmt.Sprintf(f, a...)) })
-	if screener != nil {
-		depositSvc.WithSanctions(screener)
+	if gatedScreener != nil {
+		depositSvc.WithSanctions(gatedScreener)
 	}
 	flowSvc, err := funding.NewFlowService(withdrawalSvc, fundStore)
 	if err != nil {
@@ -664,6 +780,321 @@ func run() error {
 	flowSvc.WithTOTP(accounts.NewPgxTOTPSecrets(pool, secretBox), auth.VerifyTOTP).
 		WithDispatcher(dispatchSvc).
 		WithLogger(func(f string, a ...any) { log.Error(fmt.Sprintf(f, a...)) })
+
+	// ---- Phase-21 Tasks 21.3.2/21.3.3/21.3.6 — AML core ----
+	// Constructed before the flows sweep starts so no CONFIRMED
+	// withdrawal or dual-source deposit resolves without the FATF
+	// travel-rule gate: outbound wires >= $1,000 carry the
+	// originator/beneficiary record into MT103 50K/59 or hold in the
+	// dispatch queue; inbound wires missing the data park in
+	// PENDING_REVIEW. sarSvc also feeds hold escalation, signal ingest
+	// and the AML scoring pipeline below.
+	travelSvc, err := compliance.NewTravelRuleService(pool)
+	if err != nil {
+		return fmt.Errorf("travel rule service: %w", err)
+	}
+	sarSvc, err := compliance.NewSARService(pool,
+		compliance.HoldRoleResolver(adminRoleResolver))
+	if err != nil {
+		return fmt.Errorf("sar service: %w", err)
+	}
+	amlSvc, err := compliance.NewAMLService(pool, sarSvc)
+	if err != nil {
+		return fmt.Errorf("aml service: %w", err)
+	}
+	amlSvc.WithAlerter(holdOpsAlerter{inner: freezeOpsAlerter{pool: pool, page: opsAlerter}})
+	dispatchSvc.WithTravelRule(travelSvc)
+	depositSvc.WithTravelRule(travelSvc)
+	// ---- end Phase-21 AML core ----
+
+	// ---- Phase-21 Tasks 21.3.4/.5/.9/.14/.16 — regulatory transaction/
+	// trade reporting cluster ----
+	// Canonical event store + version-pinned schema registry (migration
+	// 054, spec §5.32/§14.1a), transport ledger (059, §5.36), the MiFID
+	// II RTS 22 / EMIR REFIT / CFTC Parts 43-45 regime adapters and the
+	// APA/ARM/TR/SDR dispatch pump. Reportable events arrive from the
+	// `trades` and `settlements` JetStream streams via the independent
+	// durable consumers provisioned below (LimitsPolicy fan-out,
+	// explicit-ack at-least-once — never WorkQueue).
+	regStore, err := regreport.NewPgStore(pool)
+	if err != nil {
+		return fmt.Errorf("regulatory reporting store: %w", err)
+	}
+	regCfg := regreport.ConfigFromEnv()
+	regCfg.Alerter = regreport.AlertFunc(func(ctx context.Context, sev, code, summary string) error {
+		if opsAlerter == nil {
+			return nil
+		}
+		return opsAlerter.Raise(ctx, settlement.OpsAlert{
+			Severity: sev, Code: code, Summary: summary})
+	})
+	regSvc, err := regreport.NewService(regStore, regCfg)
+	if err != nil {
+		return fmt.Errorf("regulatory reporting service: %w", err)
+	}
+	mifidRep, err := compliance.NewMiFIDReporter(regSvc)
+	if err != nil {
+		return fmt.Errorf("mifid reporter: %w", err)
+	}
+	emirRep, err := compliance.NewEMIRReporter(regSvc,
+		compliance.ForwardPointsOracle(rates.NewStore(rdb.Client).SwapPointFor))
+	if err != nil {
+		return fmt.Errorf("emir reporter: %w", err)
+	}
+	// EMIR REFIT NEWTs carry required valuation/margin/notional — the
+	// enrich hook prices them off the Phase-19.5 forward-points oracle.
+	// A stale/missing quote fails closed (consumer NAK → redelivery);
+	// nothing is fabricated.
+	regSvc.Cfg.DerivativeEnrich = emirRep.EnrichNEWT
+	dfRep, err := compliance.NewDoddFrankReporter(regSvc)
+	if err != nil {
+		return fmt.Errorf("dodd-frank reporter: %w", err)
+	}
+	regLedger, err := compliance.NewSubmissionsLedger(pool)
+	if err != nil {
+		return fmt.Errorf("regulatory submissions ledger: %w", err)
+	}
+	// Vendor endpoints come from env (EXC_APA_URL / EXC_ARM_URL /
+	// EXC_TR_URL / EXC_SDR_URL). An absent client is fail-closed: the
+	// dispatcher ledger-marks ENDPOINT_UNCONFIGURED and pages P1 — a
+	// report is never silently dropped or claimed sent.
+	regClients := map[regreport.Destination]compliance.VendorClient{}
+	if c, cerr := compliance.APAClientFromEnv(); cerr == nil {
+		regClients[regreport.DestinationAPA] = c
+	} else {
+		log.Warn("APA endpoint unconfigured — transparency submissions park", "err", cerr)
+	}
+	if c, cerr := compliance.ARMClientFromEnv(); cerr == nil {
+		regClients[regreport.DestinationARM] = c
+	} else {
+		log.Warn("ARM endpoint unconfigured — RTS 22 submissions park", "err", cerr)
+	}
+	if c, cerr := compliance.TRClientFromEnv(); cerr == nil {
+		regClients[regreport.DestinationTR] = c
+	} else {
+		log.Warn("TR endpoint unconfigured — EMIR submissions park", "err", cerr)
+	}
+	if c, cerr := compliance.SDRClientFromEnv(); cerr == nil {
+		regClients[regreport.DestinationSDR] = c
+	} else {
+		log.Warn("SDR endpoint unconfigured — CFTC submissions park", "err", cerr)
+	}
+	regDispatch := &compliance.SubmissionDispatcher{
+		Svc: regSvc, Ledger: regLedger, Clients: regClients,
+		Alert: regCfg.Alerter,
+	}
+	// Dispatch sweep every 5s + daily reconciliation passes for the
+	// derivative regimes (spec §14.1a — zero unexplained divergence is
+	// the acceptance state; breaks surface in the repair queue).
+	go func() {
+		t := time.NewTicker(5 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-sweepCtx.Done():
+				return
+			case <-t.C:
+				if n, derr := regDispatch.DispatchOnce(sweepCtx, 100); derr != nil {
+					log.Warn("regulatory dispatch sweep failed", "err", derr)
+				} else if n > 0 {
+					log.Info("regulatory artifacts dispatched", "count", n)
+				}
+			}
+		}
+	}()
+	go func() {
+		t := time.NewTicker(24 * time.Hour)
+		defer t.Stop()
+		for {
+			select {
+			case <-sweepCtx.Done():
+				return
+			case <-t.C:
+				for _, regime := range []regreport.Regime{
+					regreport.RegimeEMIRREFIT, regreport.RegimeCFTCP45} {
+					if rep, rerr := regSvc.Reconcile(sweepCtx, regime); rerr != nil {
+						log.Warn("regulatory reconcile failed", "regime", regime, "err", rerr)
+					} else {
+						log.Info("regulatory reconcile pass", "regime", rep.Regime,
+							"checked", rep.CheckedEvents, "open", rep.OpenInternal,
+							"breaks_opened", len(rep.BreaksOpened))
+					}
+				}
+			}
+		}
+	}()
+	// Durable consumers — independent cursors on `trades` and
+	// `settlements` (at-least-once; replay is absorbed by UTI
+	// idempotency + the (uti, regime, report_seq) collision key).
+	if natsClient != nil {
+		execCons, errc := regreport.NewExecutionConsumer(regSvc)
+		if errc == nil {
+			if cons, cerr := natsClient.EnsureConsumer(context.Background(), "trades",
+				regreport.DurableTrades, nats.WithFilterSubject("trades.>")); cerr != nil {
+				log.Warn("regulatory trades consumer unavailable", "err", cerr)
+			} else {
+				go func() {
+					if cerr := execCons.Consume(sweepCtx, cons); cerr != nil {
+						log.Error("regulatory trades consumer stopped", "err", cerr)
+					}
+				}()
+				log.Info("regulatory reporting consuming", "stream", "trades",
+					"durable", regreport.DurableTrades)
+			}
+		}
+		settleCons, errs := regreport.NewSettlementConsumer(regSvc)
+		if errs == nil {
+			if cons, cerr := natsClient.EnsureConsumer(context.Background(), "settlements",
+				regreport.DurableSettlements, nats.WithFilterSubject("settlements.>")); cerr != nil {
+				log.Warn("regulatory settlements consumer unavailable", "err", cerr)
+			} else {
+				go func() {
+					if cerr := settleCons.Consume(sweepCtx, cons); cerr != nil {
+						log.Error("regulatory settlements consumer stopped", "err", cerr)
+					}
+				}()
+				log.Info("regulatory reporting consuming", "stream", "settlements",
+					"durable", regreport.DurableSettlements)
+			}
+		}
+	} else {
+		log.Warn("NATS unavailable — regulatory reporting consumers deferred")
+	}
+	regDeps := api.RegReportingDeps{
+		Svc: regSvc, Ledger: regLedger,
+		MiFID: mifidRep, EMIR: emirRep, DoddFrank: dfRep,
+		TrustProxy: true,
+	}
+	// ---- end Phase-21 regulatory reporting ----
+
+	// ---- Phase-21 wave-2 governance cluster: Basel III capital pack
+	// (21.3.13), FX Global Code 55-principle review (21.3.17),
+	// regulatory-change watch register (21.3.25), execution-policy
+	// lifecycle + order-entry consent gate (21.3.28) ----
+	baselSvc, err := compliance.NewBaselService(pool)
+	if err != nil {
+		return fmt.Errorf("basel service: %w", err)
+	}
+	baselSvc.WithAlerter(holdOpsAlerter{inner: freezeOpsAlerter{pool: pool, page: opsAlerter}}).
+		WithRateConverter(func(ctx context.Context, ccy string) (decimal.Decimal, error) {
+			return usdConv.ToUSD(ctx, ccy, decimal.NewFromInt(1))
+		})
+
+	fxgcSvc, err := compliance.NewFXGCService(pool,
+		compliance.HoldRoleResolver(adminRoleResolver))
+	if err != nil {
+		return fmt.Errorf("fx global code service: %w", err)
+	}
+	fxgcSvc.WithAlerter(holdOpsAlerter{inner: freezeOpsAlerter{pool: pool, page: opsAlerter}}).
+		WithClockEvidence(func(ctx context.Context) (int64, bool, error) {
+			// P10 probe reads the deploy-role PTP status file —
+			// grandmaster-synced AND |offset| ≤ 1µs is adherence.
+			rd, err := timesync.StatsFileReader{
+				Path: timesync.DefaultPTPStatusPath}.Read(ctx)
+			if err != nil {
+				return 0, false, err
+			}
+			off := rd.OffsetNs
+			if off < 0 {
+				off = -off
+			}
+			return off, rd.Synced, nil
+		})
+
+	regChangeSvc, err := compliance.NewRegChangeService(pool,
+		compliance.HoldRoleResolver(adminRoleResolver))
+	if err != nil {
+		return fmt.Errorf("regulatory change service: %w", err)
+	}
+	regChangeSvc.WithAlerter(holdOpsAlerter{inner: freezeOpsAlerter{pool: pool, page: opsAlerter}})
+	// The 10-business-day triage SLA counts on the venue's core
+	// regulatory calendar — the Fed / TARGET2 / BoE settlement holiday
+	// union already maintained for Task 3.3.8.
+	if hrows, herr := pool.Query(context.Background(), `
+		SELECT DISTINCT holiday_date FROM currency_holidays
+		WHERE currency IN ('USD','EUR','GBP')`); herr == nil {
+		var hols []time.Time
+		for hrows.Next() {
+			var d time.Time
+			if hrows.Scan(&d) == nil {
+				hols = append(hols, d)
+			}
+		}
+		hrows.Close()
+		regChangeSvc.WithHolidays(hols)
+	} else {
+		log.Warn("regulatory holiday calendar unavailable — weekday-only SLA", "err", herr)
+	}
+
+	execPolicySvc, err := compliance.NewExecutionPolicyService(pool,
+		compliance.HoldRoleResolver(adminRoleResolver))
+	if err != nil {
+		return fmt.Errorf("execution policy service: %w", err)
+	}
+	execPolicySvc.WithAlerter(holdOpsAlerter{inner: freezeOpsAlerter{pool: pool, page: opsAlerter}})
+
+	// Task 21.3.28 — the consent gate composes behind the profile /
+	// target-market gate: every non-reduce-only admission also needs a
+	// consent row for the ACTIVE policy version (PRODUCT_NOT_PERMITTED
+	// refusal; probe failure fails closed).
+	consentGate := &compliance.PolicyConsentGate{
+		Inner: productGate, Policy: execPolicySvc}
+
+	// Basel III EOD snapshot — daily 03:00 UTC (after the Phase-20
+	// 02:00 RTS28 slot), idempotent on 'eod:{period}'; breach pages
+	// fire inside Snapshot → raiseBreaches.
+	runDailyUTC(sweepCtx, log, "basel-eod", 180, func(ctx context.Context) {
+		if rep, created, err := baselSvc.RunEOD(ctx); err != nil {
+			log.Warn("basel EOD snapshot failed", "err", err)
+		} else if created {
+			log.Info("basel EOD snapshot stored",
+				"period", rep.Period.Format("2006-01-02"),
+				"car", rep.CAR.String(), "leverage", rep.LeverageRatio.String(),
+				"car_breach", rep.CARBreach, "lev_breach", rep.LeverageBreach,
+				"inputs_complete", rep.InputsComplete)
+		}
+	})
+	// Regulatory-change SLA + execution-policy review: hourly — the
+	// 10-business-day triage breach (RULEBOOK_VERSION_STALE P1), the
+	// 90-day effective-date window (REGULATORY_DEADLINE_APPROACHING)
+	// and the overdue annual-review freeze each dedup on WORM audit
+	// markers, so rerunning is safe.
+	go func() {
+		t := time.NewTicker(time.Hour)
+		defer t.Stop()
+		for {
+			select {
+			case <-sweepCtx.Done():
+				return
+			case <-t.C:
+				if sla, dl, err := regChangeSvc.Sweep(sweepCtx); err != nil {
+					log.Warn("regulatory change sweep failed", "err", err)
+				} else if sla+dl > 0 {
+					log.Info("regulatory change alerts raised",
+						"triage_sla", sla, "deadline", dl)
+				}
+				if n, err := execPolicySvc.SweepOverdueReview(sweepCtx); err != nil {
+					log.Warn("execution-policy review sweep failed", "err", err)
+				} else if n > 0 {
+					log.Info("execution-policy overdue review paged", "flagged", n)
+				}
+			}
+		}
+	}()
+	// Task 21.3.15 — regulated-venue governance: member/DEA register +
+	// admission gate, rulebook/product versioning, market-control record,
+	// cases/conflicts, self-assessment/CCO report, launch prerequisites.
+	// The admission gate wraps the product/consent chain — a member's
+	// trading access fails closed on absent due diligence, agreements,
+	// admission, review currency or jurisdiction licensing.
+	venueSvc, err := venue.NewService(pool,
+		compliance.HoldRoleResolver(adminRoleResolver))
+	if err != nil {
+		return fmt.Errorf("venue governance service: %w", err)
+	}
+	venueSvc.WithAlerter(holdOpsAlerter{inner: freezeOpsAlerter{pool: pool, page: opsAlerter}})
+	venueGate := &venue.AdmissionGate{Inner: consentGate, Members: venueSvc}
+	// ---- end Phase-21 wave-2 governance cluster ----
 
 	// Flows sweep: every 30s retries CONFIRMED withdrawals held for
 	// nostro headroom or destination holds (SweepDue), and escalates
@@ -794,8 +1225,8 @@ func run() error {
 		Otr:        otrMon,       // Task 13.3.6 — RTS 9 OTR event counting + breach gate
 		Breakers:   breakerSvc,   // Tasks 13.3.1/13.3.9 — §2.6 five-tier breaker gate
 		BatchRL:    orders.NewRedisBatchLimiter(rdb.Client, 0),
-		Products:   productGate, // Tasks 14.3.13/14.3.16 — profile scope + retail target market
-		Product:    catSvc,      // Task 14.3.7 — MiFID II appropriateness gate
+		Products:   venueGate, // Tasks 14.3.13/14.3.16 + 21.3.28 + 21.3.15 — venue member admission wraps the product/consent chain
+		Product:    catSvc,    // Task 14.3.7 — MiFID II appropriateness gate
 	})
 	if err != nil {
 		return fmt.Errorf("order service: %w", err)
@@ -1091,6 +1522,9 @@ func run() error {
 	// post-commit, best-effort (the funding services never see an
 	// error from this adapter).
 	fundNotifier := notifyAdapter{fn: func(ctx context.Context, accountID int64, event string, payload map[string]any) {
+		// Phase-21 Task 21.3.11 — the terminal funding events also feed
+		// ongoing monitoring (post-commit, best-effort, never blocks).
+		monSvc.ObserveFundingNotification(ctx, accountID, event, payload)
 		var userID int64
 		if err := pool.QueryRow(ctx,
 			`SELECT user_id FROM accounts WHERE id = $1`, accountID).Scan(&userID); err != nil {
@@ -1122,6 +1556,26 @@ func run() error {
 			}
 			return opsAlerter.Raise(ctx, settlement.OpsAlert{
 				Severity: severity, Code: code, Summary: summary})
+		},
+		// Task 21.3.11 — post-commit screening seam: runs AFTER the
+		// approval transaction lands, so a screen failure never rolls
+		// back a committed approval; it routes to holds/alerts instead.
+		PostApproveHook: func(ctx context.Context, accountID int64) {
+			if screeningSvc == nil {
+				log.Warn("kyc post-approve screen skipped — screening unbound",
+					"account_id", accountID)
+				return
+			}
+			sub, serr := screeningStore.SubjectFor(ctx, accountID)
+			if serr != nil {
+				log.Error("kyc post-approve subject materialize failed",
+					"account_id", accountID, "err", serr)
+				return
+			}
+			if _, serr := screeningSvc.ScreenOnboarding(ctx, sub); serr != nil {
+				log.Error("kyc post-approve screen failed",
+					"account_id", accountID, "err", serr)
+			}
 		},
 	})
 	if err != nil {
@@ -1281,6 +1735,47 @@ func run() error {
 		tcaReports = analytics.NewCHReportStore(chConn)
 		tcaRep = tcaReports
 	}
+	// Phase-21 Task 21.3.19 — public RTS 27/28 best-execution reporting.
+	// The services read ClickHouse through analytics.Conn and persist
+	// artifacts in PG (rts27_daily_stats / rts27_reports / rts28_reports,
+	// migration 251). Nil-able while chConn is down — handlers + the
+	// materialization job fail closed SERVICE_DEGRADED.
+	var rts27Svc *compliance.RTS27Service
+	var rts28Svc *compliance.RTS28Service
+	if chConn != nil {
+		var rerr error
+		rts27Svc, rerr = compliance.NewRTS27Service(pool, chConn,
+			compliance.HoldRoleResolver(adminRoleResolver))
+		if rerr != nil {
+			return fmt.Errorf("rts27 service: %w", rerr)
+		}
+		rts28Svc, rerr = compliance.NewRTS28Service(pool, chConn,
+			compliance.HoldRoleResolver(adminRoleResolver))
+		if rerr != nil {
+			return fmt.Errorf("rts28 service: %w", rerr)
+		}
+	}
+	// Phase-21 Task 21.3.15/19 daily jobs — 05:00 UTC, after the
+	// Phase-20 02:00 RTS28 and Phase-21 03:00 Basel slots: materialize
+	// yesterday's RTS 27 daily stats from ClickHouse and sweep the
+	// member-governance overdue set (ANNUAL_ATTESTATION_OVERDUE P1).
+	runDailyUTC(sweepCtx, log, "venue-governance", 300, func(ctx context.Context) {
+		if rts27Svc != nil {
+			day := time.Now().UTC().Add(-24 * time.Hour)
+			if n, err := rts27Svc.MaterializeDay(ctx, day); err != nil {
+				log.Warn("rts27 daily materialization failed",
+					"day", day.Format("2006-01-02"), "err", err)
+			} else if n > 0 {
+				log.Info("rts27 daily stats materialized",
+					"day", day.Format("2006-01-02"), "rows", n)
+			}
+		}
+		if n, err := venueSvc.SweepOverdue(ctx); err != nil {
+			log.Warn("venue governance sweep failed", "err", err)
+		} else if n > 0 {
+			log.Info("venue members overdue review paged", "flagged", n)
+		}
+	})
 
 	// Document store for statements / confirmations / invoices / RTS28
 	// (5–7y retention targets — Tasks 20.3.6–20.3.9). S3 is the durable
@@ -2673,6 +3168,370 @@ func run() error {
 		closureEscalation{dual: dualSvc},
 		compliance.HoldRoleResolver(adminRoleResolver),
 		compliance.HoldUserNotifier(acctNotify), nil)
+	// Phase-21 Task 21.3.3 — escalate-to-SAR now drafts the report
+	// against the hold row (dedup anchor 'hold:{id}').
+	holdSvc.WithSARDraft(sarSvc)
+
+	// ---- Phase-21 wave-2 cluster: Tasks 21.3.8/21.3.12/21.3.21/
+	//      21.3.24/21.3.27 — market-abuse enforcement, surveillance
+	//      case management, RTS 6 algo/DEA controls, employee dealing,
+	//      signal tuning + audit-trail query (migrations 079/239-242).
+	//      All reuse the seams above — holdSvc (freeze + resting-order
+	//      cancel), killSvc (SCOPE_ACCOUNT restrict), sarSvc
+	//      (escalation drafts), the shared role resolver and the
+	//      ScanAccountsResolver hash→account probe. ----
+	accountResolver := compliance.ScanAccountsResolver(pool)
+	enforceSvc := compliance.NewEnforcementService(pool, rdb.Client,
+		holdSvc, killSvc, accountResolver,
+		compliance.HoldRoleResolver(adminRoleResolver),
+		compliance.EnforcementNotifier(acctNotify))
+	orderSvc.WithEnforcementGate(enforceSvc)
+
+	rts6Svc := compliance.NewRTS6Service(pool,
+		compliance.HoldRoleResolver(adminRoleResolver),
+		holdOpsAlerter{inner: freezeOpsAlerter{pool: pool, page: opsAlerter}})
+	orderSvc.WithAlgoCertGate(rts6Svc)
+
+	caseSvc := compliance.NewCaseService(pool,
+		compliance.HoldRoleResolver(adminRoleResolver),
+		accountResolver, sarSvc, enforceSvc,
+		holdOpsAlerter{inner: freezeOpsAlerter{pool: pool, page: opsAlerter}})
+	// Task 21.3.21 — AML monitoring findings now open real
+	// surveillance cases (the AuditCaseSink was the pre-case fallback).
+	monSvc.WithCaseSink(caseSvc)
+
+	dealingSvc := compliance.NewEmployeeDealingService(pool,
+		compliance.HoldRoleResolver(adminRoleResolver),
+		holdOpsAlerter{inner: freezeOpsAlerter{pool: pool, page: opsAlerter}})
+	orderSvc.WithDealingGate(dealingSvc)
+
+	restrictedSvc := admin.NewRestrictedListService(pool,
+		adminRoleResolver)
+	tuningSvc := compliance.NewTuningService(pool,
+		compliance.HoldRoleResolver(adminRoleResolver))
+	reportingVals := compliance.NewReportingValues(pool,
+		compliance.HoldRoleResolver(adminRoleResolver))
+	auditTrail := compliance.NewAuditTrailQuery(pool)
+
+	// ---- Phase-21 wave-3: GDPR & geo-block (21.3.7), data residency
+	//      (21.3.18), MiFID II comms recording (21.3.20), CRS/FATCA tax
+	//      reporting (21.3.22), financial promotions (21.3.26).
+	//      Migrations 062/243-246. ----
+	// GDPR exports persist through the reports object store when one is
+	// configured (SHA-256'd artifact + request row); without a sink the
+	// manifest stays inline (dev only) — the service degrades
+	// gracefully rather than refusing exports.
+	gdprSvc, err := compliance.NewGDPRService(pool, sessMgr, reportObjects)
+	if err != nil {
+		return fmt.Errorf("gdpr service: %w", err)
+	}
+
+	// Geo-block resolver — EXC_GEO_CIDR_MAP points at a JSON
+	// {"CIDR": "ISO-alpha-2", ...} map (a GeoIP2 adapter slots behind
+	// the same GeoResolver interface). Unset → nil resolver →
+	// unattributed traffic passes but every resolver ERROR fails
+	// closed; a configured-but-broken map aborts boot rather than
+	// running the gate blind.
+	var geoResolver compliance.GeoResolver
+	if p := strings.TrimSpace(os.Getenv("EXC_GEO_CIDR_MAP")); p != "" {
+		b, rerr := os.ReadFile(p)
+		if rerr != nil {
+			return fmt.Errorf("geo cidr map: %w", rerr)
+		}
+		var m map[string]string
+		if jerr := json.Unmarshal(b, &m); jerr != nil {
+			return fmt.Errorf("geo cidr map: %w", jerr)
+		}
+		geoResolver, err = compliance.NewCIDRResolver(m)
+		if err != nil {
+			return fmt.Errorf("geo cidr map: %w", err)
+		}
+	}
+	geoGate, err := compliance.NewGeoGate(pool, geoResolver,
+		os.Getenv("EXC_TRUST_PROXY") == "1")
+	if err != nil {
+		return fmt.Errorf("geo gate: %w", err)
+	}
+
+	residencySvc, err := compliance.NewResidencyService(pool)
+	if err != nil {
+		return fmt.Errorf("residency service: %w", err)
+	}
+
+	// Comms recording requires WORM-capable object storage — a dedicated
+	// bucket via EXC_COMMS_S3_BUCKET (object-lock enforced by the
+	// bucket policy), falling back to the reports bucket. With no
+	// object store at all the service is absent and the live registry
+	// rows mount the fail-closed 503 shim.
+	var commsObjects objectstore.Client
+	if bucket := strings.TrimSpace(os.Getenv("EXC_COMMS_S3_BUCKET")); bucket != "" {
+		ocfg := objectstore.ConfigFromEnv(bucket, os.Getenv)
+		var oerr error
+		if cfg.Environment != "production" && ocfg.Endpoint != "" {
+			commsObjects, oerr = objectstore.NewDev(context.Background(), ocfg)
+		} else {
+			commsObjects, oerr = objectstore.NewAWS(context.Background(), ocfg)
+		}
+		if oerr != nil {
+			return fmt.Errorf("comms object store: %w", oerr)
+		}
+	} else {
+		commsObjects = reportObjects
+	}
+	var commsSvc *compliance.CommsRecordingService
+	if commsObjects != nil {
+		commsSvc, err = compliance.NewCommsRecordingService(pool, commsObjects,
+			os.Getenv("EXC_S3_KMS_KEY_ID"),
+			compliance.HoldRoleResolver(adminRoleResolver))
+		if err != nil {
+			return fmt.Errorf("comms recording service: %w", err)
+		}
+	} else {
+		log.Warn("no object store — comms recording routes serve fail-closed 503")
+	}
+
+	// CRS/FATCA reporting stamps the reporting-FI identity on every
+	// artifact — EXC_TAX_VENUE_NAME / _IN / _COUNTRY configure it.
+	// Unset in dev leaves the routes live-but-degraded (503 shim).
+	var taxReportSvc *compliance.TaxReportService
+	if v := os.Getenv("EXC_TAX_VENUE_NAME"); strings.TrimSpace(v) != "" {
+		taxReportSvc, err = compliance.NewTaxReportService(pool, kycStore,
+			compliance.HoldRoleResolver(adminRoleResolver),
+			compliance.TaxVenue{
+				Name:    v,
+				IN:      os.Getenv("EXC_TAX_VENUE_IN"),
+				Country: os.Getenv("EXC_TAX_VENUE_COUNTRY"),
+			})
+		if err != nil {
+			return fmt.Errorf("tax report service: %w", err)
+		}
+	} else {
+		log.Warn("EXC_TAX_VENUE_* unset — tax-reporting routes serve fail-closed 503")
+	}
+
+	promoSvc, err := compliance.NewPromotionService(pool,
+		compliance.HoldRoleResolver(adminRoleResolver))
+	if err != nil {
+		return fmt.Errorf("promotion service: %w", err)
+	}
+	promoGate, err := content.NewGate(content.NewPgPromotionStore(pool))
+	if err != nil {
+		return fmt.Errorf("promotion render gate: %w", err)
+	}
+
+	// Sweeps: case SLA breach pages (60s — same cadence as hold SLA),
+	// unassigned-case round-robin + enforcement auto-ladder + RTS 6
+	// cert/assessment expiry + pre-clearance expiry + restricted-list
+	// widening (hourly — the same idioms as the AML sweep above).
+	go func() {
+		t := time.NewTicker(60 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-sweepCtx.Done():
+				return
+			case <-t.C:
+				if n, err := caseSvc.SweepSLA(sweepCtx); err != nil {
+					log.Warn("surveillance case SLA sweep", "err", err)
+				} else if n > 0 {
+					log.Warn("surveillance cases breached SLA", "count", n)
+				}
+			}
+		}
+	}()
+	go func() {
+		t := time.NewTicker(time.Hour)
+		defer t.Stop()
+		for {
+			select {
+			case <-sweepCtx.Done():
+				return
+			case <-t.C:
+				if n, err := caseSvc.SweepUnassigned(sweepCtx, 50); err != nil {
+					log.Warn("case auto-assign sweep", "err", err)
+				} else if n > 0 {
+					log.Info("surveillance cases auto-assigned", "count", n)
+				}
+				if n, err := enforceSvc.AutoEnforce(sweepCtx, 200); err != nil {
+					log.Warn("enforcement auto sweep", "err", err)
+				} else if n > 0 {
+					log.Info("enforcement auto-actions taken", "count", n)
+				}
+				if n, err := rts6Svc.SweepCertExpiry(sweepCtx); err != nil {
+					log.Warn("rts6 cert expiry sweep", "err", err)
+				} else if n > 0 {
+					log.Info("algo certifications expired", "count", n)
+				}
+				if _, err := rts6Svc.SweepAssessmentDue(sweepCtx); err != nil {
+					log.Warn("rts6 assessment sweep", "err", err)
+				}
+				if n, err := dealingSvc.SweepClearanceExpiry(sweepCtx); err != nil {
+					log.Warn("pre-clearance expiry sweep", "err", err)
+				} else if n > 0 {
+					log.Info("pre-clearances expired", "count", n)
+				}
+				if n, err := restrictedSvc.SyncScheduledEvents(sweepCtx); err != nil {
+					log.Warn("restricted-list widening sweep", "err", err)
+				} else if n > 0 {
+					log.Info("restricted windows widened for scheduled events", "count", n)
+				}
+				// Task 21.3.26 — approved-until expiry; a lapsed
+				// promotion leaves the render gate immediately.
+				if n, err := promoSvc.ExpireSweep(sweepCtx); err != nil {
+					log.Warn("promotion expiry sweep", "err", err)
+				} else if n > 0 {
+					log.Info("financial promotions expired", "count", n)
+				}
+			}
+		}
+	}()
+	// Task 21.3.20 — comms-recording drain: pending register rows get
+	// their WORM object write + chain link on a 30s cadence (the row
+	// is durable before the object lands; a stopped sweep stalls
+	// uploads, never loses them).
+	if commsSvc != nil {
+		go func() {
+			t := time.NewTicker(30 * time.Second)
+			defer t.Stop()
+			for {
+				select {
+				case <-sweepCtx.Done():
+					return
+				case <-t.C:
+					if n, err := commsSvc.Drain(sweepCtx, 100); err != nil {
+						log.Warn("comms recording drain", "err", err)
+					} else if n > 0 {
+						log.Debug("comms recordings uploaded", "count", n)
+					}
+				}
+			}
+		}()
+	}
+	// ---- end Phase-21 wave-2 cluster ----
+
+	// Phase-21 Tasks 21.3.11/21.3.23 — the screening service binds the
+	// screener + quarantine wrapper + hold workflow + C++-hook flag
+	// publisher. It serves the KYC post-approve hook (bound above at
+	// the lifecycle service), the delta-rescreen hook, the replay-hit
+	// routing and the admin screening endpoints. Unbound screener →
+	// unbound service (the documented unwired residual).
+	if screener != nil {
+		screeningSvc, err = compliance.NewScreeningService(
+			compliance.ScreeningOptions{
+				Screener: screener,
+				Gated:    gatedScreener,
+				Store:    screeningStore,
+				Holds:    holdSvc,
+				Flags:    sanctionsFlags,
+				Alerter:  compAlerter,
+				Auditor:  compliance.AdminAuditSink{Pool: pool},
+			})
+		if err != nil {
+			return fmt.Errorf("screening service: %w", err)
+		}
+		sanctionsReplayer.WithOnHit(screeningSvc.HandleReplayHit)
+		// List-update deltas re-screen the roster off the reload path —
+		// the hook spawns so a large account base never blocks Reload.
+		screener.WithDeltaHook(func(d compliance.ListDelta) {
+			go func() {
+				if n, derr := screeningSvc.DeltaRescreen(sweepCtx, d); derr != nil {
+					log.Error("sanctions delta rescreen failed", "err", derr)
+				} else if n > 0 {
+					log.Warn("sanctions delta produced new hits",
+						"accounts", n)
+				}
+			}()
+		})
+		// Daily rescreen sweep — the 30-day PEP/ongoing-monitoring
+		// cadence (screening stamps ride the audit trail until the
+		// sibling screening-table migration lands).
+		go func() {
+			t := time.NewTicker(24 * time.Hour)
+			defer t.Stop()
+			for {
+				select {
+				case <-sweepCtx.Done():
+					return
+				case <-t.C:
+					if n, rerr := screeningSvc.RescreenDue(sweepCtx, 500); rerr != nil {
+						log.Warn("pep rescreen sweep failed", "err", rerr)
+					} else if n > 0 {
+						log.Info("pep rescreen sweep completed", "screened", n)
+					}
+				}
+			}
+		}()
+	} else {
+		log.Warn("screening service unbound — EXC_SANCTIONS_LIST_DIR required")
+	}
+
+	// Phase-21 Task 21.3.23 — ARM/APA submission repair + resubmission:
+	// sweeps the migration-059 transport ledger for PENDING/NACK rows,
+	// retransmits via the same vendor clients the dispatcher uses, and
+	// dead-letters to FAILED + P1 past the 2h post-recovery deadline.
+	resubmitSvc := compliance.NewResubmissionService(
+		compliance.NewPgSubmissionRepairStore(pool),
+		repairResubmitter{clients: regClients}).
+		WithAlerter(compAlerter).
+		WithAuditor(compliance.AdminAuditSink{Pool: pool})
+	go resubmitSvc.Run(sweepCtx, 30*time.Second)
+
+	// Screening admin dep bundle — nil members surface 503 at their
+	// endpoints (unwired screener → every route still mounts live).
+	screeningDeps := api.ScreeningAdminDeps{
+		Gate: sanctionsGate, Screener: screener,
+		Refresher: sanctionsRefresher, Replayer: sanctionsReplayer,
+		Queue: sanctionsQueue, Screening: screeningSvc,
+		SubjectFor: screeningStore.SubjectFor,
+	}
+
+	// Phase-21 Tasks 21.3.3/21.3.6 — surveillance-signal SAR ingest +
+	// AML business-day sweep. Two JetStream bindings cover both event
+	// spellings (§14.1c 'surveillance.signals.>' and the task's
+	// 'compliance' stream); sar_reports.source_ref dedup makes the
+	// overlap harmless. DraftFromOpenSignals is the PG backstop —
+	// Phase-17 detectors write surveillance_signals directly, so the
+	// pipeline never depends on a NATS publisher existing.
+	if natsClient != nil {
+		sarIngA := compliance.NewSARSignalIngest(natsClient, sarSvc, log)
+		go func() {
+			if err := sarIngA.Run(sweepCtx); err != nil && sweepCtx.Err() == nil {
+				log.Warn("sar signal ingest (surveillance) stopped", "err", err)
+			}
+		}()
+		sarIngB := sarIngA.WithBinding(compliance.SARSignalStreamC,
+			compliance.SARSignalSubjectC, compliance.SARSignalDurableC)
+		go func() {
+			if err := sarIngB.Run(sweepCtx); err != nil && sweepCtx.Err() == nil {
+				log.Warn("sar signal ingest (compliance) stopped", "err", err)
+			}
+		}()
+	}
+	go func() {
+		t := time.NewTicker(time.Hour)
+		defer t.Stop()
+		for {
+			select {
+			case <-sweepCtx.Done():
+				return
+			case <-t.C:
+				day := time.Now().UTC()
+				if n, err := amlSvc.ScanBusinessDay(sweepCtx, day); err != nil {
+					log.Warn("aml ctr/structuring scan failed", "err", err)
+				} else if n > 0 {
+					log.Info("aml ctr triggers evaluated", "accounts", n)
+				}
+				if n, err := sarSvc.DraftFromOpenSignals(sweepCtx, 200); err != nil {
+					log.Warn("sar open-signal poll failed", "err", err)
+				} else if n > 0 {
+					log.Info("sar drafts opened from signals", "count", n)
+				}
+				if n, err := sarSvc.Overdue(sweepCtx, 100); err == nil && len(n) > 0 {
+					log.Warn("SAR reports past 30-day FinCEN deadline", "count", len(n))
+				}
+			}
+		}
+	}()
 
 	// Hold SLA sweeper (60s): mark sla_breached on overdue OPEN holds
 	// and page P1 — the officer dashboard surfaces breaches until
@@ -4182,6 +5041,229 @@ func run() error {
 			api.AdminHoldRelease(holdSvc, true)),
 		"POST /api/v1/admin/compliance/holds/{id}/escalate": http.HandlerFunc(
 			api.AdminHoldEscalate(holdSvc, true)),
+		// ---- Phase-21 Tasks 21.3.1/21.3.11/21.3.23 — sanctions
+		//      screening admin surface (status / forced refresh /
+		//      queue replay / per-account screen / adverse-media intake).
+		//      Nil deps fail closed to 503 inside the handlers.
+		"GET /api/v1/admin/sanctions/status": http.HandlerFunc(
+			api.AdminSanctionsStatus(screeningDeps)),
+		"POST /api/v1/admin/sanctions/refresh": http.HandlerFunc(
+			api.AdminSanctionsRefresh(screeningDeps, true)),
+		"POST /api/v1/admin/sanctions/queue/replay": http.HandlerFunc(
+			api.AdminSanctionsQueueReplay(screeningDeps, true)),
+		"POST /api/v1/admin/compliance/screening/accounts/{id}": http.HandlerFunc(
+			api.AdminScreenAccount(screeningDeps, true)),
+		"POST /api/v1/admin/compliance/screening/adverse-media": http.HandlerFunc(
+			api.AdminAdverseMediaIntake(screeningDeps, true)),
+		// ---- Phase-21 Tasks 21.3.2/21.3.3/21.3.6 — travel rule, SAR
+		//      lifecycle, FinCEN MSB/AML register ----
+		"POST /api/v1/admin/sar":     http.HandlerFunc(api.AdminSARCreate(sarSvc, true)),
+		"GET /api/v1/admin/sar":      http.HandlerFunc(api.AdminSARList(sarSvc)),
+		"GET /api/v1/admin/sar/{id}": http.HandlerFunc(api.AdminSARGet(sarSvc)),
+		"POST /api/v1/admin/sar/{id}/review": http.HandlerFunc(
+			api.AdminSARReview(sarSvc, true)),
+		"POST /api/v1/admin/sar/{id}/approve": http.HandlerFunc(
+			api.AdminSARApprove(sarSvc, true)),
+		"POST /api/v1/admin/sar/{id}/file": http.HandlerFunc(
+			api.AdminSARFile(sarSvc, true)),
+		"POST /api/v1/admin/sar/{id}/reject": http.HandlerFunc(
+			api.AdminSARReject(sarSvc, true)),
+		"GET /api/v1/admin/travel-rule": http.HandlerFunc(
+			api.AdminTravelRuleList(travelSvc)),
+		"GET /api/v1/admin/travel-rule/{id}": http.HandlerFunc(
+			api.AdminTravelRuleGet(travelSvc)),
+		"POST /api/v1/admin/travel-rule/{id}/supply": http.HandlerFunc(
+			api.AdminTravelRuleSupply(travelSvc, true)),
+		"GET /api/v1/admin/ctr": http.HandlerFunc(api.AdminCTRList(amlSvc)),
+		"GET /api/v1/admin/aml/monitoring": http.HandlerFunc(
+			api.AdminAMLMonitoring(amlSvc)),
+		"GET /api/v1/admin/aml/artifacts": http.HandlerFunc(
+			api.AdminAMLArtifactList(amlSvc)),
+		"POST /api/v1/admin/aml/artifacts": http.HandlerFunc(
+			api.AdminAMLArtifactRegister(amlSvc,
+				compliance.HoldRoleResolver(adminRoleResolver), true)),
+		"GET /api/v1/admin/aml/program": http.HandlerFunc(
+			api.AdminAMLProgramStatus(amlSvc)),
+		// ---- Phase-21 Tasks 21.3.4/.5/.9/.14/.16 — regulatory reporting ----
+		"GET /api/v1/admin/emir-report": http.HandlerFunc(
+			api.AdminRegEvents(api.RegReportingDeps{
+				Svc: regDeps.Svc, Ledger: regDeps.Ledger, TrustProxy: true,
+				ForceRegime: regreport.RegimeEMIRREFIT})),
+		"GET /api/v1/admin/regreporting/events": http.HandlerFunc(
+			api.AdminRegEvents(regDeps)),
+		"GET /api/v1/admin/regreporting/events/{id}": http.HandlerFunc(
+			api.AdminRegEventDetail(regDeps)),
+		"GET /api/v1/admin/regreporting/submissions": http.HandlerFunc(
+			api.AdminRegSubmissions(regDeps)),
+		"GET /api/v1/admin/regreporting/queue": http.HandlerFunc(
+			api.AdminRegQueue(regDeps)),
+		"POST /api/v1/admin/regreporting/submissions/{id}/resubmit": http.HandlerFunc(
+			api.AdminRegResubmit(regDeps)),
+		"POST /api/v1/admin/regreporting/breaks/{id}/resolve": http.HandlerFunc(
+			api.AdminRegBreakResolve(regDeps)),
+		"POST /api/v1/admin/regreporting/party-identifiers": http.HandlerFunc(
+			api.AdminRegPartyUpsert(regDeps)),
+		"POST /api/v1/admin/regreporting/acks": http.HandlerFunc(
+			api.AdminRegAckIngest(regDeps)),
+		"POST /api/v1/admin/regreporting/reconcile": http.HandlerFunc(
+			api.AdminRegReconcile(regDeps)),
+		// ---- Phase-21 wave-2 governance mounts ----
+		// Task 21.3.13 — Basel III capital & leverage pack.
+		"GET /api/v1/admin/basel-report": http.HandlerFunc(
+			api.AdminBaselReport(baselSvc)),
+		// Task 21.3.17 — FX Global Code 55-principle review.
+		"GET /api/v1/admin/fx-global-code/assessments": http.HandlerFunc(
+			api.AdminFXGCList(fxgcSvc)),
+		"POST /api/v1/admin/fx-global-code/assessments": http.HandlerFunc(
+			api.AdminFXGCStart(fxgcSvc, true)),
+		"GET /api/v1/admin/fx-global-code/assessments/{id}": http.HandlerFunc(
+			api.AdminFXGCGet(fxgcSvc)),
+		"POST /api/v1/admin/fx-global-code/assessments/{id}/verdicts": http.HandlerFunc(
+			api.AdminFXGCVerdict(fxgcSvc, true)),
+		"POST /api/v1/admin/fx-global-code/assessments/{id}/complete": http.HandlerFunc(
+			api.AdminFXGCComplete(fxgcSvc, true)),
+		"POST /api/v1/admin/fx-global-code/assessments/{id}/sign": http.HandlerFunc(
+			api.AdminFXGCSign(fxgcSvc, true)),
+		"POST /api/v1/admin/fx-global-code/assessments/{id}/publish": http.HandlerFunc(
+			api.AdminFXGCPublish(fxgcSvc, true)),
+		// Task 21.3.25 — regulatory change watch register (reads pass
+		// the role resolver so the auditor scope is enforced in-service).
+		"GET /api/v1/admin/regulatory-changes": http.HandlerFunc(
+			api.AdminRegChangeList(regChangeSvc,
+				compliance.HoldRoleResolver(adminRoleResolver), true)),
+		"POST /api/v1/admin/regulatory-changes": http.HandlerFunc(
+			api.AdminRegChangeCreate(regChangeSvc, true)),
+		"GET /api/v1/admin/regulatory-changes/{id}/impact": http.HandlerFunc(
+			api.AdminRegChangeImpactGet(regChangeSvc,
+				compliance.HoldRoleResolver(adminRoleResolver), true)),
+		"PUT /api/v1/admin/regulatory-changes/{id}/impact": http.HandlerFunc(
+			api.AdminRegChangeImpactPut(regChangeSvc, true)),
+		"POST /api/v1/admin/regulatory-changes/{id}/transition": http.HandlerFunc(
+			api.AdminRegChangeTransition(regChangeSvc, true)),
+		"POST /api/v1/admin/regulatory-changes/{id}/correspondence": http.HandlerFunc(
+			api.AdminRegChangeCorrespondence(regChangeSvc, true)),
+		"POST /api/v1/admin/regulatory-changes/impacts/{id}/done": http.HandlerFunc(
+			api.AdminRegChangeImpactDone(regChangeSvc, true)),
+		// Task 21.3.28 — execution policy lifecycle + consent.
+		"GET /api/v1/execution-policy": http.HandlerFunc(
+			api.PublicExecutionPolicy(execPolicySvc)),
+		"PUT /api/v1/account/consent": http.HandlerFunc(
+			api.AccountConsent(execPolicySvc, true)),
+		"GET /api/v1/admin/execution-policies": http.HandlerFunc(
+			api.AdminPolicyList(execPolicySvc)),
+		"POST /api/v1/admin/execution-policies": http.HandlerFunc(
+			api.AdminPolicyDraft(execPolicySvc, true)),
+		"POST /api/v1/admin/execution-policies/{id}/activate": http.HandlerFunc(
+			api.AdminPolicyActivate(execPolicySvc, true)),
+		"POST /api/v1/admin/execution-policies/{id}/review": http.HandlerFunc(
+			api.AdminPolicyReview(execPolicySvc, true)),
+
+		// ---- Phase-21 wave-2 mounts: enforcement (21.3.8), cases
+		//      (21.3.21), RTS 6/DEA (21.3.12), employee dealing +
+		//      restricted lists (21.3.24), tuning/audit-trail/reporting
+		//      values (21.3.27).
+		"POST /api/v1/admin/enforcement/{signal_id}": http.HandlerFunc(
+			api.AdminEnforce(enforceSvc, true)),
+		"GET /api/v1/admin/enforcement": http.HandlerFunc(
+			api.AdminEnforcementList(enforceSvc)),
+		"GET /api/v1/admin/surveillance/cases": http.HandlerFunc(
+			api.AdminSurveillanceCases(caseSvc)),
+		"GET /api/v1/admin/surveillance/cases/{id}": http.HandlerFunc(
+			api.AdminSurveillanceCaseGet(caseSvc)),
+		"POST /api/v1/admin/surveillance/cases/{id}/assign": http.HandlerFunc(
+			api.AdminSurveillanceCaseAssign(caseSvc, true)),
+		"POST /api/v1/admin/surveillance/cases/{id}/evidence": http.HandlerFunc(
+			api.AdminSurveillanceCaseEvidence(caseSvc, true)),
+		"POST /api/v1/admin/surveillance/cases/{id}/disposition": http.HandlerFunc(
+			api.AdminSurveillanceCaseDisposition(caseSvc, true)),
+		"GET /api/v1/admin/surveillance/summary": http.HandlerFunc(
+			api.AdminSurveillanceSummary(caseSvc)),
+		"GET /api/v1/admin/algo-certifications": http.HandlerFunc(
+			api.AdminAlgoCertList(rts6Svc)),
+		"POST /api/v1/admin/algo-certifications": http.HandlerFunc(
+			api.AdminAlgoCertify(rts6Svc, true)),
+		"POST /api/v1/admin/algo-certifications/{id}/transition": http.HandlerFunc(
+			api.AdminAlgoCertTransition(rts6Svc, true)),
+		"GET /api/v1/admin/dea/controls": http.HandlerFunc(
+			api.AdminDEAGet(rts6Svc)),
+		"POST /api/v1/admin/dea/controls": http.HandlerFunc(
+			api.AdminDEASet(rts6Svc, true)),
+		"POST /api/v1/admin/dea/controls/{session_id}/suspend": http.HandlerFunc(
+			api.AdminDEASuspend(rts6Svc, true)),
+		"GET /api/v1/admin/rts6/self-assessments": http.HandlerFunc(
+			api.AdminRTS6Assessments(rts6Svc)),
+		"POST /api/v1/admin/rts6/self-assessments": http.HandlerFunc(
+			api.AdminRTS6FileAssessment(rts6Svc, true)),
+		"GET /api/v1/admin/order-records/{order_id}/export": http.HandlerFunc(
+			api.AdminOrderLifecycleExport(rts6Svc)),
+		"GET /api/v1/admin/restricted-lists": http.HandlerFunc(
+			api.AdminRestrictedList(restrictedSvc)),
+		"POST /api/v1/admin/restricted-lists": http.HandlerFunc(
+			api.AdminRestrictedListCreate(restrictedSvc, true)),
+		"DELETE /api/v1/admin/restricted-lists": http.HandlerFunc(
+			api.AdminRestrictedListRetire(restrictedSvc, true)),
+		"POST /api/v1/admin/pre-clearance": http.HandlerFunc(
+			api.AdminPreClearance(dealingSvc, true)),
+		"GET /api/v1/admin/pre-clearance": http.HandlerFunc(
+			api.AdminPreClearanceList(dealingSvc)),
+		"GET /api/v1/admin/employee-dealing/audit": http.HandlerFunc(
+			api.AdminEmployeeDealingAudit(dealingSvc)),
+		"GET /api/v1/admin/surveillance/tuning": http.HandlerFunc(
+			api.AdminTuningList(tuningSvc)),
+		"POST /api/v1/admin/surveillance/tuning": http.HandlerFunc(
+			api.AdminTuningPropose(tuningSvc, true)),
+		"POST /api/v1/admin/surveillance/tuning/{signal}/activate": http.HandlerFunc(
+			api.AdminTuningActivate(tuningSvc, true)),
+		"GET /api/v1/admin/surveillance/tuning/{signal}/backtest": http.HandlerFunc(
+			api.AdminTuningBacktest(tuningSvc)),
+		"GET /api/v1/admin/audit/trail": http.HandlerFunc(
+			api.AdminAuditTrail(auditTrail, adminRoleResolver)),
+		"GET /api/v1/admin/audit/chain": http.HandlerFunc(
+			api.AdminAuditChain(auditTrail, adminRoleResolver)),
+		"GET /api/v1/admin/reporting-values": http.HandlerFunc(
+			api.AdminReportingValuesList(reportingVals)),
+		"POST /api/v1/admin/reporting-values": http.HandlerFunc(
+			api.AdminReportingValuesSet(reportingVals, true)),
+
+		// ---- Phase-21 wave-3 mounts: GDPR & geo (21.3.7), data
+		//      residency (21.3.18), comms recording (21.3.20),
+		//      CRS/FATCA tax reporting (21.3.22), financial promotions
+		//      (21.3.26). ----
+		"POST /api/v1/account/gdpr/export": http.HandlerFunc(
+			api.GDPRExport(gdprSvc)),
+		"POST /api/v1/account/gdpr/erase": http.HandlerFunc(
+			api.GDPRErase(gdprSvc)),
+		"GET /api/v1/account/gdpr": http.HandlerFunc(
+			api.GDPRRequests(gdprSvc)),
+		"GET /api/v1/account/gdpr/consent": http.HandlerFunc(
+			api.ConsentList(gdprSvc)),
+		"PUT /api/v1/account/gdpr/consent": http.HandlerFunc(
+			api.ConsentPut(gdprSvc)),
+		"GET /api/v1/admin/data-residency/policies": http.HandlerFunc(
+			api.AdminResidencyPolicies(residencySvc)),
+		"GET /api/v1/admin/data-residency/access-log": http.HandlerFunc(
+			api.AdminResidencyAccessLog(residencySvc)),
+		"POST /api/v1/admin/accounts/{id}/jurisdiction": http.HandlerFunc(
+			api.AdminAccountJurisdictionPin(residencySvc)),
+		"GET /api/v1/admin/promotions": http.HandlerFunc(
+			api.AdminPromotionsList(promoSvc)),
+		"POST /api/v1/admin/promotions": http.HandlerFunc(
+			api.AdminPromotionsCreate(promoSvc)),
+		"PUT /api/v1/admin/promotions": http.HandlerFunc(
+			api.AdminPromotionsRevise(promoSvc)),
+		"POST /api/v1/admin/promotions/{id}/submit": http.HandlerFunc(
+			api.AdminPromotionSubmit(promoSvc)),
+		"POST /api/v1/admin/promotions/{id}/approve": http.HandlerFunc(
+			api.AdminPromotionApprove(promoSvc)),
+		"POST /api/v1/admin/promotions/{id}/reject": http.HandlerFunc(
+			api.AdminPromotionReject(promoSvc)),
+		"POST /api/v1/admin/promotions/{id}/withdraw": http.HandlerFunc(
+			api.AdminPromotionWithdraw(promoSvc)),
+		"GET /api/v1/promotions/{id}": http.HandlerFunc(
+			api.PromotionPublicRender(promoGate)),
+		// ---- end Phase-21 wave-3 mounts ----
+		// ---- end Phase-21 wave-2 mounts ----
+		// ---- end Phase-21 AML mounts ----
 		"GET /api/v1/admin/webhooks/dead-letters": http.HandlerFunc(
 			api.AdminWebhookDeadLetters(webhookStore)),
 		"POST /api/v1/admin/webhooks/dead-letters/{id}/retransmit": http.HandlerFunc(
@@ -4247,6 +5329,163 @@ func run() error {
 		"POST /api/v1/admin/strategy-templates/{id}/reject": http.HandlerFunc(
 			api.AdminStrategyTemplateDecide(stratDeps, false)),
 	}
+	// Phase-21 wave-3 conditional mounts — object-store- and config-
+	// dependent services stay absent (fail-closed 503 shim) when their
+	// backend cannot be constructed; mounting a handler over a nil
+	// service would panic instead of degrading.
+	if commsSvc != nil {
+		live["GET /api/v1/admin/comms-recordings"] = http.HandlerFunc(
+			api.AdminCommsList(commsSvc))
+		live["GET /api/v1/admin/comms-recordings/{id}"] = http.HandlerFunc(
+			api.AdminCommsGet(commsSvc))
+		live["POST /api/v1/admin/comms-recordings/{id}/retrieve"] = http.HandlerFunc(
+			api.AdminCommsRetrieve(commsSvc))
+		live["POST /api/v1/admin/comms-recordings/verify-day"] = http.HandlerFunc(
+			api.AdminCommsVerifyDay(commsSvc))
+	}
+	if taxReportSvc != nil {
+		live["GET /api/v1/admin/tax-reporting/runs"] = http.HandlerFunc(
+			api.AdminTaxRunList(taxReportSvc))
+		live["POST /api/v1/admin/tax-reporting/runs"] = http.HandlerFunc(
+			api.AdminTaxRunGenerate(taxReportSvc))
+		live["GET /api/v1/admin/tax-reporting/runs/{id}"] = http.HandlerFunc(
+			api.AdminTaxRunGet(taxReportSvc))
+		live["GET /api/v1/admin/tax-reporting/runs/{id}/xml"] = http.HandlerFunc(
+			api.AdminTaxRunXML(taxReportSvc))
+		live["POST /api/v1/admin/tax-reporting/runs/{id}/review"] = http.HandlerFunc(
+			api.AdminTaxRunReview(taxReportSvc))
+		live["POST /api/v1/admin/tax-reporting/runs/{id}/approve"] = http.HandlerFunc(
+			api.AdminTaxRunApprove(taxReportSvc))
+		live["POST /api/v1/admin/tax-reporting/runs/{id}/reject"] = http.HandlerFunc(
+			api.AdminTaxRunReject(taxReportSvc))
+		live["POST /api/v1/admin/tax-reporting/runs/{id}/submit"] = http.HandlerFunc(
+			api.AdminTaxRunSubmit(taxReportSvc))
+	}
+	// Phase-21 Tasks 21.3.15/21.3.19 — regulated-venue governance +
+	// public RTS 27/28 best-execution surface. The deps carry nil-able
+	// services (RTS 27/28 absent while ClickHouse is down) — handlers
+	// fail closed SERVICE_DEGRADED rather than 501/panic.
+	vgDeps := api.VenueGovDeps{Venue: venueSvc, RTS27: rts27Svc, RTS28: rts28Svc}
+	live["GET /api/v1/admin/venue/members"] = http.HandlerFunc(
+		api.AdminVenueMemberList(vgDeps))
+	live["POST /api/v1/admin/venue/members"] = http.HandlerFunc(
+		api.AdminVenueMemberRegister(vgDeps, true))
+	live["GET /api/v1/admin/venue/members/{id}"] = http.HandlerFunc(
+		api.AdminVenueMemberGet(vgDeps))
+	live["POST /api/v1/admin/venue/members/{id}/due-diligence"] = http.HandlerFunc(
+		api.AdminVenueMemberDueDiligence(vgDeps, true))
+	live["POST /api/v1/admin/venue/members/{id}/agreements"] = http.HandlerFunc(
+		api.AdminVenueMemberAgreement(vgDeps, true))
+	live["POST /api/v1/admin/venue/members/{id}/products"] = http.HandlerFunc(
+		api.AdminVenueMemberProducts(vgDeps, true))
+	live["POST /api/v1/admin/venue/members/{id}/decision"] = http.HandlerFunc(
+		api.AdminVenueMemberDecision(vgDeps, true))
+	live["POST /api/v1/admin/venue/members/{id}/suspend"] = http.HandlerFunc(
+		api.AdminVenueMemberSuspend(vgDeps, true))
+	live["POST /api/v1/admin/venue/members/{id}/reinstate"] = http.HandlerFunc(
+		api.AdminVenueMemberReinstate(vgDeps, true))
+	live["POST /api/v1/admin/venue/members/{id}/terminate"] = http.HandlerFunc(
+		api.AdminVenueMemberTerminate(vgDeps, true))
+	live["POST /api/v1/admin/venue/members/{id}/appeals"] = http.HandlerFunc(
+		api.AdminVenueMemberAppeal(vgDeps, true))
+	live["POST /api/v1/admin/venue/members/{id}/appeal-decision"] = http.HandlerFunc(
+		api.AdminVenueMemberAppealDecision(vgDeps, true))
+	live["POST /api/v1/admin/venue/members/{id}/reviews"] = http.HandlerFunc(
+		api.AdminVenueMemberReview(vgDeps, true))
+	live["GET /api/v1/admin/venue/rulebooks"] = http.HandlerFunc(
+		api.AdminVenueRulebookList(vgDeps))
+	live["POST /api/v1/admin/venue/rulebooks"] = http.HandlerFunc(
+		api.AdminVenueRulebookDraft(vgDeps, true))
+	live["GET /api/v1/admin/venue/rulebooks/{id}"] = http.HandlerFunc(
+		api.AdminVenueRulebookGet(vgDeps))
+	live["POST /api/v1/admin/venue/rulebooks/{id}/file"] = http.HandlerFunc(
+		api.AdminVenueRulebookFile(vgDeps, true))
+	live["POST /api/v1/admin/venue/rulebooks/{id}/regulator-decision"] = http.HandlerFunc(
+		api.AdminVenueRulebookRegDecision(vgDeps, true))
+	live["POST /api/v1/admin/venue/rulebooks/{id}/approve"] = http.HandlerFunc(
+		api.AdminVenueRulebookApprove(vgDeps, true))
+	live["POST /api/v1/admin/venue/rulebooks/{id}/activate"] = http.HandlerFunc(
+		api.AdminVenueRulebookActivate(vgDeps, true))
+	live["POST /api/v1/admin/venue/rulebooks/{id}/notices"] = http.HandlerFunc(
+		api.AdminVenueNoticeIssue(vgDeps, true))
+	live["POST /api/v1/admin/venue/rulebooks/{id}/acks"] = http.HandlerFunc(
+		api.AdminVenueAck(vgDeps, true))
+	live["GET /api/v1/admin/venue/interventions"] = http.HandlerFunc(
+		api.AdminVenueInterventionList(vgDeps))
+	live["POST /api/v1/admin/venue/interventions"] = http.HandlerFunc(
+		api.AdminVenueInterventionRecord(vgDeps, true))
+	live["POST /api/v1/admin/venue/interventions/{id}/lift"] = http.HandlerFunc(
+		api.AdminVenueInterventionLift(vgDeps, true))
+	live["GET /api/v1/admin/venue/cases"] = http.HandlerFunc(
+		api.AdminVenueCaseList(vgDeps))
+	live["POST /api/v1/admin/venue/cases"] = http.HandlerFunc(
+		api.AdminVenueCaseOpen(vgDeps, true))
+	live["GET /api/v1/admin/venue/cases/{id}"] = http.HandlerFunc(
+		api.AdminVenueCaseGet(vgDeps))
+	live["POST /api/v1/admin/venue/cases/{id}/evidence"] = http.HandlerFunc(
+		api.AdminVenueCaseEvidence(vgDeps, true))
+	live["POST /api/v1/admin/venue/cases/{id}/transition"] = http.HandlerFunc(
+		api.AdminVenueCaseTransition(vgDeps, true))
+	live["GET /api/v1/admin/venue/conflicts"] = http.HandlerFunc(
+		api.AdminVenueConflictList(vgDeps))
+	live["POST /api/v1/admin/venue/conflicts"] = http.HandlerFunc(
+		api.AdminVenueConflictDeclare(vgDeps, true))
+	live["POST /api/v1/admin/venue/conflicts/{id}/resolve"] = http.HandlerFunc(
+		api.AdminVenueConflictResolve(vgDeps, true))
+	live["GET /api/v1/admin/venue/self-assessments"] = http.HandlerFunc(
+		api.AdminVenueAssessmentList(vgDeps))
+	live["POST /api/v1/admin/venue/self-assessments"] = http.HandlerFunc(
+		api.AdminVenueAssessmentFile(vgDeps, true))
+	live["POST /api/v1/admin/venue/self-assessments/{id}/complete"] = http.HandlerFunc(
+		api.AdminVenueAssessmentComplete(vgDeps, true))
+	live["GET /api/v1/admin/venue/cco-reports"] = http.HandlerFunc(
+		api.AdminVenueCCOList(vgDeps))
+	live["POST /api/v1/admin/venue/cco-reports"] = http.HandlerFunc(
+		api.AdminVenueCCOGenerate(vgDeps, true))
+	live["POST /api/v1/admin/venue/cco-reports/{id}/sign"] = http.HandlerFunc(
+		api.AdminVenueCCOSign(vgDeps, true))
+	live["POST /api/v1/admin/venue/cco-reports/{id}/file"] = http.HandlerFunc(
+		api.AdminVenueCCOFile(vgDeps, true))
+	live["GET /api/v1/admin/venue/launch-prerequisites"] = http.HandlerFunc(
+		api.AdminVenuePrereqList(vgDeps))
+	live["POST /api/v1/admin/venue/launch-prerequisites"] = http.HandlerFunc(
+		api.AdminVenuePrereqEvidence(vgDeps, true))
+	live["POST /api/v1/admin/venue/launch-prerequisites/{id}/expire"] = http.HandlerFunc(
+		api.AdminVenuePrereqExpire(vgDeps, true))
+	live["GET /api/v1/admin/venue/launch-gate"] = http.HandlerFunc(
+		api.AdminVenueLaunchGate(vgDeps))
+	live["GET /api/v1/admin/mifid-report"] = http.HandlerFunc(
+		api.AdminMiFIDReport(vgDeps))
+	live["POST /api/v1/admin/bestexec/rts27/materialize"] = http.HandlerFunc(
+		api.AdminRTS27Materialize(vgDeps, true))
+	live["POST /api/v1/admin/bestexec/rts27/generate"] = http.HandlerFunc(
+		api.AdminRTS27Generate(vgDeps, true))
+	live["GET /api/v1/admin/bestexec/rts27"] = http.HandlerFunc(
+		api.AdminRTS27List(vgDeps))
+	live["GET /api/v1/admin/bestexec/rts27/{id}"] = http.HandlerFunc(
+		api.AdminRTS27Get(vgDeps))
+	live["POST /api/v1/admin/bestexec/rts27/{id}/publish"] = http.HandlerFunc(
+		api.AdminRTS27Publish(vgDeps, true))
+	live["POST /api/v1/admin/bestexec/rts28/generate"] = http.HandlerFunc(
+		api.AdminRTS28Generate(vgDeps, true))
+	live["GET /api/v1/admin/bestexec/rts28"] = http.HandlerFunc(
+		api.AdminRTS28List(vgDeps))
+	live["GET /api/v1/admin/bestexec/rts28/{id}"] = http.HandlerFunc(
+		api.AdminRTS28Get(vgDeps))
+	live["POST /api/v1/admin/bestexec/rts28/{id}/publish"] = http.HandlerFunc(
+		api.AdminRTS28Publish(vgDeps, true))
+	live["GET /api/v1/venue/best-execution/rts27"] = http.HandlerFunc(
+		api.PublicRTS27List(vgDeps))
+	live["GET /api/v1/venue/best-execution/rts27/{id}"] = http.HandlerFunc(
+		api.PublicRTS27Get(vgDeps))
+	live["GET /api/v1/venue/best-execution/rts27/{id}/csv"] = http.HandlerFunc(
+		api.PublicRTS27CSV(vgDeps))
+	live["GET /api/v1/venue/best-execution/rts28"] = http.HandlerFunc(
+		api.PublicRTS28List(vgDeps))
+	live["GET /api/v1/venue/best-execution/rts28/{id}"] = http.HandlerFunc(
+		api.PublicRTS28Get(vgDeps))
+	live["GET /api/v1/venue/best-execution/rts28/{id}/csv"] = http.HandlerFunc(
+		api.PublicRTS28CSV(vgDeps))
 	if err := router.MountSeedLive(live); err != nil {
 		return fmt.Errorf("route registry: %w", err)
 	}
@@ -4277,31 +5516,36 @@ func run() error {
 		// TRADING_HALTED; cancels/reads/WS pass (CANCEL_EXEMPT precedent).
 		middleware.KillSwitchGate(killResolver, router.WriteError)(
 			auth.OptionalAuthMiddleware(jwtIssuer, sessMgr)(
-				// Task 9.3.10: staged tiered shedding inside OptionalAuth so the
-				// tier resolver sees claims; cancels bypass entirely.
-				middleware.Shedding(shedder, middleware.ShedOptions{
-					ResolveTier: func(r *http.Request) ratelimit.Tier {
-						return tierResolver(r.Context(), auth.ClaimsFrom(r.Context()))
-					},
-					Emit: router.WriteError,
-				})(
-					// Task 9.3.23: during drain new non-cancel work rejects
-					// 503; in-flight requests finish inside srv.Shutdown.
-					middleware.RejectWhenDraining(drainFlag, router.WriteError)(
-						middleware.Idempotency(
-							middleware.NewRedisIdemStore(rdb.Client),
-							nil, idemResolver(keyStore), router.WriteError)(
-							middleware.APIVersion(middleware.VersionConfig{
-								Versions: map[int]string{1: apiVersion},
-								Emit:     router.WriteError,
-							})(
-								// Task 9.3.6: headers/410 unchanged; the Redis
-								// sink records per-key usage telemetry.
-								deprecation.MiddlewareWithTelemetry(depRules,
-									func(w http.ResponseWriter, req *http.Request, _ int, code, msg string) {
-										router.WriteError(w, req, code, msg, nil)
-									}, nil,
-									deprecation.RedisHitSink(rdb.Client))(mux))))))))
+				// Task 21.3.7: geo-block gate sits inside OptionalAuth —
+				// claims are attached when present (RETAIL_BLOCK category
+				// resolution needs the account id) while anonymous
+				// mutating requests (registration) are still fenced.
+				geoGate.Middleware()(
+					// Task 9.3.10: staged tiered shedding inside OptionalAuth so the
+					// tier resolver sees claims; cancels bypass entirely.
+					middleware.Shedding(shedder, middleware.ShedOptions{
+						ResolveTier: func(r *http.Request) ratelimit.Tier {
+							return tierResolver(r.Context(), auth.ClaimsFrom(r.Context()))
+						},
+						Emit: router.WriteError,
+					})(
+						// Task 9.3.23: during drain new non-cancel work rejects
+						// 503; in-flight requests finish inside srv.Shutdown.
+						middleware.RejectWhenDraining(drainFlag, router.WriteError)(
+							middleware.Idempotency(
+								middleware.NewRedisIdemStore(rdb.Client),
+								nil, idemResolver(keyStore), router.WriteError)(
+								middleware.APIVersion(middleware.VersionConfig{
+									Versions: map[int]string{1: apiVersion},
+									Emit:     router.WriteError,
+								})(
+									// Task 9.3.6: headers/410 unchanged; the Redis
+									// sink records per-key usage telemetry.
+									deprecation.MiddlewareWithTelemetry(depRules,
+										func(w http.ResponseWriter, req *http.Request, _ int, code, msg string) {
+											router.WriteError(w, req, code, msg, nil)
+										}, nil,
+										deprecation.RedisHitSink(rdb.Client))(mux)))))))))
 
 	srv := &http.Server{
 		Addr: cfg.Gateway.Addr(),

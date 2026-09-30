@@ -66,9 +66,9 @@ func newGateway() (*Gateway, *fakeOrderAPI) {
 		ack:  &orders.Ack{OrderID: 555, Status: "ACTIVE"},
 	}
 	g := &Gateway{
-		Orders:     api,
+		Orders:      api,
 		Instruments: fakeInstruments{inst: &orders.Instrument{ID: 12, Symbol: "EURUSD"}},
-		ClientIDs:  fakeDedup{},
+		ClientIDs:   fakeDedup{},
 	}
 	return g, api
 }

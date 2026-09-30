@@ -44,6 +44,7 @@
 #include "risk/InstrumentFeedRefresher.hpp"
 #include "risk/PriceOracleFeed.hpp"
 #include "risk/PreTradeChecker.hpp"
+#include "risk/SanctionsCache.hpp"
 #include "risk/SuspensionFlags.hpp"
 #include "risk/SuspensionRefresher.hpp"
 #include "utils/MemoryPool.hpp"
@@ -527,6 +528,47 @@ int main(int argc, char** argv) {
         });
     }
 
+    // --- Sanctions account flags (Phase-21 Task 21.3.10) ---------------
+    // With -redis the engine binds check 0c: a dedicated RespClient +
+    // control thread polls `exc:sanctions:*` at 1s cadence into the
+    // SanctionsCache snapshot the matching thread reads per order.
+    // Bound-but-unverifiable rejects SANCTIONS_SERVICE_UNAVAILABLE;
+    // flagged accounts reject SANCTIONS_HIT. A second client is opened
+    // (RespClient owns one socket — control threads never share it).
+    exch::SanctionsCache sanctions_cache;
+    std::unique_ptr<exch::RespClient> sanc_redis;
+    std::unique_ptr<exch::SanctionsRefresher> sanc_refresh;
+    std::atomic<bool> sanc_stop{false};
+    std::thread sanc_thread;
+    if (!redis_addr.empty()) {
+        exch::RespClientConfig rcfg{};
+        const std::size_t colon = redis_addr.rfind(':');
+        rcfg.host = redis_addr.substr(0, colon);
+        rcfg.port = static_cast<uint16_t>(
+            std::strtoul(redis_addr.c_str() + colon + 1, nullptr, 10));
+        sanc_redis = std::make_unique<exch::RespClient>(rcfg);
+        sanc_refresh =
+            std::make_unique<exch::SanctionsRefresher>(sanc_redis.get());
+        risk.bind_sanctions(&sanctions_cache);
+        if (!sanc_redis->connect() ||
+            !sanc_refresh->refresh(&sanctions_cache)) {
+            std::fprintf(stderr,
+                         "WARN: exc:sanctions:* poll unreachable at boot — "
+                         "check 0c fails closed (SANCTIONS_SERVICE_"
+                         "UNAVAILABLE) until the poll thread lands a "
+                         "clean read\n");
+        }
+        exch::SanctionsRefresher* refresher = sanc_refresh.get();
+        exch::SanctionsCache* cache = &sanctions_cache;
+        std::atomic<bool>* stop = &sanc_stop;
+        sanc_thread = std::thread([refresher, cache, stop]() {
+            while (!stop->load(std::memory_order_acquire)) {
+                refresher->refresh(cache);
+                std::this_thread::sleep_for(std::chrono::seconds(1));
+            }
+        });
+    }
+
     // --- Phase-15 instrument feed (Tasks 15.3.3/15.3.4/15.3.6/15.3.10) ----
     // With -redis + -symbol the engine binds a dedicated control poll of
     // instrument:status/auction:{symbol} + market:hours. The matching
@@ -818,9 +860,11 @@ int main(int argc, char** argv) {
 
     // Stop the control-path poll threads before their targets leave scope.
     susp_stop.store(true, std::memory_order_release);
+    sanc_stop.store(true, std::memory_order_release);
     feed_stop.store(true, std::memory_order_release);
     oracle_stop.store(true, std::memory_order_release);
     if (susp_thread.joinable()) susp_thread.join();
+    if (sanc_thread.joinable()) sanc_thread.join();
     if (feed_thread.joinable()) feed_thread.join();
     if (oracle_thread.joinable()) oracle_thread.join();
 

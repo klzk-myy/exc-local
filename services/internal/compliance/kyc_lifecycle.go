@@ -146,11 +146,12 @@ type LifecycleStore interface {
 
 // LifecycleService owns the post-intake KYC lifecycle.
 type LifecycleService struct {
-	store    LifecycleStore
-	resolver RoleResolver
-	notifier Notifier
-	alerter  Alerter
-	now      func() time.Time
+	store       LifecycleStore
+	resolver    RoleResolver
+	notifier    Notifier
+	alerter     Alerter
+	postApprove func(ctx context.Context, accountID int64) // Task 21.3.11
+	now         func() time.Time
 }
 
 // LifecycleOptions wires the service. Store is mandatory; a nil
@@ -163,7 +164,14 @@ type LifecycleOptions struct {
 	Resolver RoleResolver
 	Notifier Notifier
 	Alerter  Alerter
-	Now      func() time.Time
+	// PostApproveHook is the Task 21.3.11 screening seam — wiring binds
+	// ScreeningService onboarding (sanctions + PEP) so an approval
+	// screens the account base record immediately post-commit. Nil
+	// skips the hook (dev binding); a bound hook's internal quarantine
+	// path defers to the pending-screen queue, never blocks the
+	// committed decision.
+	PostApproveHook func(ctx context.Context, accountID int64)
+	Now             func() time.Time
 }
 
 // NewLifecycleService validates wiring and builds the service.
@@ -172,11 +180,12 @@ func NewLifecycleService(o LifecycleOptions) (*LifecycleService, error) {
 		return nil, fmt.Errorf("compliance: lifecycle store is nil")
 	}
 	s := &LifecycleService{
-		store:    o.Store,
-		resolver: o.Resolver,
-		notifier: o.Notifier,
-		alerter:  o.Alerter,
-		now:      o.Now,
+		store:       o.Store,
+		resolver:    o.Resolver,
+		notifier:    o.Notifier,
+		alerter:     o.Alerter,
+		postApprove: o.PostApproveHook,
+		now:         o.Now,
 	}
 	if s.now == nil {
 		s.now = time.Now
@@ -241,6 +250,14 @@ func (s *LifecycleService) Approve(ctx context.Context, actor ReviewActor, submi
 		"client_category": res.ClientCategory,
 		"reverify_due_at": res.ReverifyDueAt,
 	})
+	// Task 21.3.11 — post-approval screening (sanctions + PEP on the
+	// verified identity). Post-commit like notify: the hook's own
+	// quarantine path queues the obligation; a screening error is
+	// alerted inside the screening service, never a rollback of the
+	// committed approval.
+	if s.postApprove != nil {
+		s.postApprove(ctx, res.AccountID)
+	}
 	return res, nil
 }
 

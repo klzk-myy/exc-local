@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<crs:OECD_CRS xmlns:crs="urn:oecd:ties:crs:v2" xmlns:stf="urn:oecd:ties:crsstf:v1" xmlns:iso="urn:oecd:ties:isocrstypes:v1" xmlns:cba="urn:oecd:ties:commontypesfatcacrs:v2">
+  <stf:MessageSpec>
+    <stf:SendingCompanyIN>ABCDEF.00000.LE.826</stf:SendingCompanyIN>
+    <stf:TransmittingCountry>GB</stf:TransmittingCountry>
+    <stf:ReceivingCountry>DE</stf:ReceivingCountry>
+    <stf:MessageType>CRS</stf:MessageType>
+    <stf:ReportingPeriod>2029-12-31</stf:ReportingPeriod>
+    <stf:Timestamp>2030-03-01T09:30:00Z</stf:Timestamp>
+    <stf:MessageRefId>CRS-DE-2029-v1-4e36a218e8501198</stf:MessageRefId>
+  </stf:MessageSpec>
+  <crs:CRSBody>
+    <crs:ReportingFI>
+      <crs:ResCountryCode>GB</crs:ResCountryCode>
+      <crs:IN>ABCDEF.00000.LE.826
+        <crs:INType>GIIN</crs:INType>
+      </crs:IN>
+      <crs:Name>Exc Global Markets Ltd</crs:Name>
+      <crs:Address>
+        <crs:CountryCode>GB</crs:CountryCode>
+        <crs:AddressFree>Exc Global Markets Ltd registered office</crs:AddressFree>
+      </crs:Address>
+      <crs:DocSpec>
+        <stf:DocTypeIndic>OECD1</stf:DocTypeIndic>
+        <stf:DocRefId>CRS-2029-DE-v1</stf:DocRefId>
+      </crs:DocSpec>
+    </crs:ReportingFI>
+    <crs:ReportableAccount>
+      <crs:AccountNumber>ACC-1001
+        <crs:AcctNumberType>OECD605</crs:AcctNumberType>
+      </crs:AccountNumber>
+      <crs:AccountHolder>
+        <crs:Individual>
+          <crs:ResCountryCode>GB</crs:ResCountryCode>
+          <crs:TIN issuedBy="GB">QQ123456C</crs:TIN>
+          <crs:Name>Ada Lovelace</crs:Name>
+          <crs:Address>
+            <crs:CountryCode>GB</crs:CountryCode>
+            <crs:AddressFree>12 Example Street</crs:AddressFree>
+            <crs:AddressFree>London</crs:AddressFree>
+            <crs:AddressFree>NW1 1AA</crs:AddressFree>
+          </crs:Address>
+        </crs:Individual>
+      </crs:AccountHolder>
+      <crs:AccountBalance currCode="EUR">8000.55</crs:AccountBalance>
+      <crs:AccountBalance currCode="USD">12500.00</crs:AccountBalance>
+      <crs:Payment>
+        <crs:Type>CRS504</crs:Type>
+        <crs:PaymentAmount currCode="USD">412.10</crs:PaymentAmount>
+      </crs:Payment>
+    </crs:ReportableAccount>
+    <crs:ReportableAccount>
+      <crs:AccountNumber>ACC-2002
+        <crs:AcctNumberType>OECD605</crs:AcctNumberType>
+      </crs:AccountNumber>
+      <crs:AccountHolder>
+        <crs:Organisation>
+          <crs:ResCountryCode>CH</crs:ResCountryCode>
+          <crs:TIN issuedBy="CH">CHE-123.456.789</crs:TIN>
+          <crs:Name>Acme Trading Ltd</crs:Name>
+          <crs:Address>
+            <crs:CountryCode>CH</crs:CountryCode>
+            <crs:AddressFree>Bahnhofstrasse 1</crs:AddressFree>
+            <crs:AddressFree>8001 Zürich</crs:AddressFree>
+          </crs:Address>
+        </crs:Organisation>
+      </crs:AccountHolder>
+      <crs:AccountBalance currCode="CHF">98000.00</crs:AccountBalance>
+    </crs:ReportableAccount>
+  </crs:CRSBody>
+</crs:OECD_CRS>

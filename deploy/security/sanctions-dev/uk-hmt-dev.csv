@@ -1,0 +1,6 @@
+Group ID,Name1,Name2,Name3,Name4,Name5,Name6,Title,Alias1,Alias2,Regime
+# DEV FIXTURE ONLY — not a real UK OFSI consolidated list. Header
+# drives the parser: Name1..Name6 + Title compose the primary party,
+# Alias* columns contribute alias rows bound to the Group ID.
+HMT9001,Embargo,Markets,,,,,,"Embargo Markets LLP","EM Trading",TESTPROGRAM
+HMT9002,,,,,,Sanctioned Shipping SA,,"SS Lines, SanShip","SanShip",TESTPROGRAM

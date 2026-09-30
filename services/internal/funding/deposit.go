@@ -106,8 +106,9 @@ type DepositService struct {
 	store     DepositStore
 	poster    JournalPoster // nil → holds/credits fail closed
 	checker   MutableChecker
-	usd       UsdConverter      // nil → every deposit tiers PENDING_REVIEW
-	sanctions SanctionsScreener // nil → STANDARD tier escalates to review
+	usd       UsdConverter             // nil → every deposit tiers PENDING_REVIEW
+	sanctions SanctionsScreener        // nil → STANDARD tier escalates to review
+	travel    InboundTravelRuleChecker // optional — Phase-21 Task 21.3.2 FATF R.16 inbound check
 	alerter   OpsAlerter
 	notifier  Notifier // optional Phase-12 client-notification seam
 	clock     func() time.Time
@@ -133,6 +134,14 @@ func (s *DepositService) WithUSDConverter(c UsdConverter) *DepositService {
 // WithSanctions wires the sanctions screen.
 func (s *DepositService) WithSanctions(sc SanctionsScreener) *DepositService {
 	s.sanctions = sc
+	return s
+}
+
+// WithTravelRule binds the Phase-21 Task 21.3.2 inbound travel-rule
+// check (compliance.TravelRuleService). nil → no evaluation — a
+// fail-open gap the gateway wiring must not ship for regulated rails.
+func (s *DepositService) WithTravelRule(c InboundTravelRuleChecker) *DepositService {
+	s.travel = c
 	return s
 }
 
@@ -512,6 +521,20 @@ func (s *DepositService) IngestDetected(ctx context.Context,
 func (s *DepositService) applyDualSource(ctx context.Context, tx pgx.Tx,
 	row *FundingTxRow, rows []DepositConfirmationRow) (string, []string, *time.Time, error) {
 	flags := s.sourceOfFundsFlags(rows)
+	// Phase-21 Task 21.3.2 — inbound FATF R.16 validation: a wire
+	// >= $1,000 missing required originator/beneficiary fields parks in
+	// PENDING_REVIEW (the travel_rule_records row is written inside this
+	// tx so the officer supply-info flow can cure it). A checker error
+	// fails the whole resolution — never credit an unverified wire.
+	if s.travel != nil {
+		missing, terr := s.travel.CheckInbound(ctx, tx, row, rows)
+		if terr != nil {
+			return "", nil, nil, terr
+		}
+		if len(missing) > 0 {
+			flags = append(flags, "TRAVEL_RULE_MISSING_INFO")
+		}
+	}
 	tier := ReviewTierPendingReview
 	if row.ReviewTier != nil {
 		tier = *row.ReviewTier

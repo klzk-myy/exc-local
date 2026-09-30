@@ -6,16 +6,16 @@ import (
 	flatbuffers "github.com/google/flatbuffers/go"
 )
 
-/// Outbound: auction phase transition / indicative update — Phase-15
-/// (spec §7.3 reopening call auction). Emitted on every committed phase
-/// transition and when the indicative clearing pair (price,qty) changes
-/// during CALL accumulation.
-///   phase:  0=CALL 1=EXTEND 2=UNCROSS 3=CANCEL 4=QUARANTINE
-///           5=STRIKE_FAILED (deadline struck, no clearing price formed)
-///   signal: 0=indicative update, 1=uncross committed, 2=deadline extended,
-///           3=clearing failed/quarantined, 4=crossed-book quarantine
-///   auction_id: opaque id of the armed CALL (the armed deadline ns value).
-///   imbalance: signed buy-minus-sell eligible qty at the indicative price.
+// / Outbound: auction phase transition / indicative update — Phase-15
+// / (spec §7.3 reopening call auction). Emitted on every committed phase
+// / transition and when the indicative clearing pair (price,qty) changes
+// / during CALL accumulation.
+// /   phase:  0=CALL 1=EXTEND 2=UNCROSS 3=CANCEL 4=QUARANTINE
+// /           5=STRIKE_FAILED (deadline struck, no clearing price formed)
+// /   signal: 0=indicative update, 1=uncross committed, 2=deadline extended,
+// /           3=clearing failed/quarantined, 4=crossed-book quarantine
+// /   auction_id: opaque id of the armed CALL (the armed deadline ns value).
+// /   imbalance: signed buy-minus-sell eligible qty at the indicative price.
 type AuctionEvent struct {
 	_tab flatbuffers.Table
 }

@@ -53,30 +53,30 @@ import (
 
 // Signal types — CHECK-constrained in migration 029.
 const (
-	SignalSpoofing        = "SPOOFING"
-	SignalLayering        = "LAYERING"
-	SignalWashTrading     = "WASH_TRADING"
-	SignalMarkingTheClose = "MARKING_THE_CLOSE"
+	SignalSpoofing         = "SPOOFING"
+	SignalLayering         = "LAYERING"
+	SignalWashTrading      = "WASH_TRADING"
+	SignalMarkingTheClose  = "MARKING_THE_CLOSE"
 	SignalMomentumIgnition = "MOMENTUM_IGNITION"
-	SignalFrontRunning    = "FRONT_RUNNING"
-	SignalInsiderDealing  = "INSIDER_DEALING"
+	SignalFrontRunning     = "FRONT_RUNNING"
+	SignalInsiderDealing   = "INSIDER_DEALING"
 )
 
 // Signal is one persisted detection.
 type Signal struct {
-	Type          string         `json:"signal_type"`
-	Symbol        string         `json:"symbol"`
-	AccountHash   uint64         `json:"account_hash"`
-	OrderID       uint64         `json:"order_id,omitempty"`
-	CounterOrder  uint64         `json:"counter_order_id,omitempty"`
-	FirstL3Seq    uint64         `json:"first_l3_seq"`
-	LastL3Seq     uint64         `json:"last_l3_seq"`
-	FirstWalSeq   uint64         `json:"first_wal_seq,omitempty"`
-	LastWalSeq    uint64         `json:"last_wal_seq,omitempty"`
-	WindowStart   time.Time      `json:"window_start"`
-	WindowEnd     time.Time      `json:"window_end"`
-	Evidence      map[string]any `json:"evidence"`
-	DedupKey      string         `json:"dedup_key"`
+	Type         string         `json:"signal_type"`
+	Symbol       string         `json:"symbol"`
+	AccountHash  uint64         `json:"account_hash"`
+	OrderID      uint64         `json:"order_id,omitempty"`
+	CounterOrder uint64         `json:"counter_order_id,omitempty"`
+	FirstL3Seq   uint64         `json:"first_l3_seq"`
+	LastL3Seq    uint64         `json:"last_l3_seq"`
+	FirstWalSeq  uint64         `json:"first_wal_seq,omitempty"`
+	LastWalSeq   uint64         `json:"last_wal_seq,omitempty"`
+	WindowStart  time.Time      `json:"window_start"`
+	WindowEnd    time.Time      `json:"window_end"`
+	Evidence     map[string]any `json:"evidence"`
+	DedupKey     string         `json:"dedup_key"`
 }
 
 // key derives the deterministic dedup fingerprint. salt discriminates
@@ -95,22 +95,22 @@ type Config struct {
 	Logger *slog.Logger
 	Now    func() time.Time
 
-	WindowSeconds    int // rolling detector window (default 10s)
-	SpoofCount       int // cancels inside CancelWindow to flag (default 3)
-	CancelWindowMs   int // ADD→CANCEL latency considered non-bona-fide (default 800ms)
-	MinSpoofQty      int64 // qty floor (scaled units) — noise filter (default 0 = off)
+	WindowSeconds  int   // rolling detector window (default 10s)
+	SpoofCount     int   // cancels inside CancelWindow to flag (default 3)
+	CancelWindowMs int   // ADD→CANCEL latency considered non-bona-fide (default 800ms)
+	MinSpoofQty    int64 // qty floor (scaled units) — noise filter (default 0 = off)
 
-	LayerCount       int // same-side distinct-price ADDs to flag (default 3)
+	LayerCount int // same-side distinct-price ADDs to flag (default 3)
 
-	WashSeqSpan      uint64 // EXECUTE pairing span (default 2 l3_seqs)
+	WashSeqSpan uint64 // EXECUTE pairing span (default 2 l3_seqs)
 
-	IgnitionCount    int // same-direction EXECUTEs to flag (default 4)
-	IgnitionWindowMs int // (default 2_000)
+	IgnitionCount    int   // same-direction EXECUTEs to flag (default 4)
+	IgnitionWindowMs int   // (default 2_000)
 	IgnitionMoveBps  int64 // price move over the burst (default 25 bps)
 
-	CloseUTCStart    string // "HH:MM" close-window begin (default "21:45")
-	CloseUTCEnd      string // "HH:MM" close-window end (default "22:05")
-	CloseMoveBps     int64 // (default 15 bps)
+	CloseUTCStart string // "HH:MM" close-window begin (default "21:45")
+	CloseUTCEnd   string // "HH:MM" close-window end (default "22:05")
+	CloseMoveBps  int64  // (default 15 bps)
 
 	FrontRunWindowMs int   // (default 1_000)
 	FrontRunMoveBps  int64 // (default 10 bps)
@@ -265,21 +265,21 @@ type lastExec struct {
 
 // cancelEvt feeds the spoofing/layering counters.
 type cancelEvt struct {
-	at           time.Time
-	orderID      uint64
-	price        decimal.Decimal
-	restedMs     int64
-	seq          uint64
-	wal          uint64
+	at       time.Time
+	orderID  uint64
+	price    decimal.Decimal
+	restedMs int64
+	seq      uint64
+	wal      uint64
 }
 
 // symState is the detector state for one symbol.
 type symState struct {
-	orders  map[uint64]*openOrder
-	cancels map[uint64][]cancelEvt // account_hash → recent suspicious cancels
-	adds    map[uint64][]openOrder // account_hash → recent same-side adds
-	lastPx  decimal.Decimal        // last execution price (move baseline)
-	lastEx  *lastExec
+	orders   map[uint64]*openOrder
+	cancels  map[uint64][]cancelEvt // account_hash → recent suspicious cancels
+	adds     map[uint64][]openOrder // account_hash → recent same-side adds
+	lastPx   decimal.Decimal        // last execution price (move baseline)
+	lastEx   *lastExec
 	closeRef decimal.Decimal // price at close-window open (0 = unset)
 	closeDay int             // yday the closeRef was captured for
 }
@@ -443,7 +443,7 @@ func (e *Engine) onAdd(ctx context.Context, st *symState, ev marketdata.L3Event)
 		sig := Signal{
 			Type: SignalLayering, Symbol: ev.Symbol,
 			AccountHash: ev.AccountHash, OrderID: ev.OrderID,
-			FirstL3Seq:  list[0].addSeq, LastL3Seq: ev.Seq,
+			FirstL3Seq: list[0].addSeq, LastL3Seq: ev.Seq,
 			FirstWalSeq: list[0].addWal, LastWalSeq: ev.WalSeq,
 			WindowStart: list[0].added, WindowEnd: ev.Ts,
 			Evidence: map[string]any{
@@ -484,7 +484,7 @@ func (e *Engine) onCancel(ctx context.Context, st *symState, ev marketdata.L3Eve
 		sig := Signal{
 			Type: SignalSpoofing, Symbol: ev.Symbol,
 			AccountHash: ev.AccountHash, OrderID: ev.OrderID,
-			FirstL3Seq:  list[0].seq, LastL3Seq: ev.Seq,
+			FirstL3Seq: list[0].seq, LastL3Seq: ev.Seq,
 			FirstWalSeq: list[0].wal, LastWalSeq: ev.WalSeq,
 			WindowStart: list[0].at, WindowEnd: ev.Ts,
 			Evidence: map[string]any{
@@ -521,11 +521,11 @@ func (e *Engine) onExecute(ctx context.Context, st *symState, ev marketdata.L3Ev
 		ev.Seq-le.seq <= e.cfg.WashSeqSpan {
 		sig := Signal{
 			Type: SignalWashTrading, Symbol: ev.Symbol,
-			AccountHash:  ev.AccountHash,
-			OrderID:      le.orderID, CounterOrder: ev.OrderID,
-			FirstL3Seq:   le.seq, LastL3Seq: ev.Seq,
-			FirstWalSeq:  le.wal, LastWalSeq: ev.WalSeq,
-			WindowStart:  le.ts, WindowEnd: ev.Ts,
+			AccountHash: ev.AccountHash,
+			OrderID:     le.orderID, CounterOrder: ev.OrderID,
+			FirstL3Seq: le.seq, LastL3Seq: ev.Seq,
+			FirstWalSeq: le.wal, LastWalSeq: ev.WalSeq,
+			WindowStart: le.ts, WindowEnd: ev.Ts,
 			Evidence: map[string]any{
 				"buy_order": legFor(le, ev, "BUY"), "sell_order": legFor(le, ev, "SELL"),
 				"price": ev.Price.String(), "qty": fillQty(ev).String(),
@@ -549,7 +549,7 @@ func (e *Engine) onExecute(ctx context.Context, st *symState, ev marketdata.L3Ev
 				sig := Signal{
 					Type: SignalMarkingTheClose, Symbol: ev.Symbol,
 					AccountHash: ev.AccountHash, OrderID: ev.OrderID,
-					FirstL3Seq:  ev.Seq, LastL3Seq: ev.Seq,
+					FirstL3Seq: ev.Seq, LastL3Seq: ev.Seq,
 					FirstWalSeq: ev.WalSeq, LastWalSeq: ev.WalSeq,
 					WindowStart: ev.Ts, WindowEnd: ev.Ts,
 					Evidence: map[string]any{
@@ -575,7 +575,7 @@ func (e *Engine) onExecute(ctx context.Context, st *symState, ev marketdata.L3Ev
 			sig := Signal{
 				Type: SignalMomentumIgnition, Symbol: ev.Symbol,
 				AccountHash: ev.AccountHash, OrderID: ev.OrderID,
-				FirstL3Seq:  le.seq, LastL3Seq: ev.Seq,
+				FirstL3Seq: le.seq, LastL3Seq: ev.Seq,
 				FirstWalSeq: le.wal, LastWalSeq: ev.WalSeq,
 				WindowStart: le.ts, WindowEnd: ev.Ts,
 				Evidence: map[string]any{
@@ -597,7 +597,7 @@ func (e *Engine) onExecute(ctx context.Context, st *symState, ev marketdata.L3Ev
 				sig := Signal{
 					Type: SignalFrontRunning, Symbol: ev.Symbol,
 					AccountHash: ev.AccountHash, OrderID: ev.OrderID,
-					FirstL3Seq:  le.seq, LastL3Seq: ev.Seq,
+					FirstL3Seq: le.seq, LastL3Seq: ev.Seq,
 					FirstWalSeq: le.wal, LastWalSeq: ev.WalSeq,
 					WindowStart: le.ts, WindowEnd: ev.Ts,
 					Evidence: map[string]any{
@@ -617,7 +617,7 @@ func (e *Engine) onExecute(ctx context.Context, st *symState, ev marketdata.L3Ev
 			sig := Signal{
 				Type: SignalInsiderDealing, Symbol: ev.Symbol,
 				AccountHash: ev.AccountHash, OrderID: ev.OrderID,
-				FirstL3Seq:  ev.Seq, LastL3Seq: ev.Seq,
+				FirstL3Seq: ev.Seq, LastL3Seq: ev.Seq,
 				FirstWalSeq: ev.WalSeq, LastWalSeq: ev.WalSeq,
 				WindowStart: ev.Ts, WindowEnd: ev.Ts,
 				Evidence: map[string]any{

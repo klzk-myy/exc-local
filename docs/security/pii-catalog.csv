@@ -41,6 +41,10 @@ api_keys,last_used_ip,INET,PSEUDONYMOUS,plaintext,usage telemetry,key lifetime
 notification_deliveries,user_id,BIGINT,LINKAGE,n/a (FK),delivery tracking,operational
 notification_deliveries,payload,JSONB,FREE_TEXT,plaintext JSONB — event data (amounts/refs); recipient address NOT persisted,dispatch record,operational
 notification_dead_letters,payload,JSONB,FREE_TEXT,plaintext JSONB — as deliveries,DLQ review,operational
+travel_rule_records,originator,JSONB,DIRECT_ID,"plaintext JSONB {name, account_number, address, country}",FATF R.16 counterparty exchange — outbound 50K / inbound hold,statutory recordkeeping (≥5y)
+travel_rule_records,beneficiary,JSONB,DIRECT_ID,"plaintext JSONB {name, account_number}",FATF R.16 field 59 — outbound/inbound matching,statutory recordkeeping (≥5y)
+sar_reports,review_note,TEXT,FREE_TEXT,plaintext,second-signer review rationale,SAR confidentiality floor
+sar_reports,approval_note,TEXT,FREE_TEXT,plaintext,approver note,SAR confidentiality floor
 bank_accounts,account_id,BIGINT,LINKAGE,n/a (FK),beneficiary registry,financial record floor
 bank_accounts,iban,VARCHAR(34),FINANCIAL,plaintext — FINDING PII-F2 (justified for rails; audit gap PII-F3),"withdrawal allowlist gate, SWIFT/SEPA dispatch",financial record floor
 bank_accounts,account_number,VARCHAR(64),FINANCIAL,plaintext — FINDING PII-F2,"withdrawal allowlist gate, ACH/FedNow dispatch",financial record floor
@@ -54,6 +58,18 @@ support_tickets,body,TEXT,FREE_TEXT,plaintext — may embed PII,client-authored,
 support_tickets,adr_reference,VARCHAR(128),LINKAGE,plaintext,ADR routing,complaints floor
 ticket_notes,body,TEXT,FREE_TEXT,plaintext — may embed PII,admin/client notes,complaints floor
 trade_busts,reason,VARCHAR(255),FREE_TEXT,plaintext,obvious-error rationale — officer-entered,audit floor
+regulatory_report_events,payload,JSONB,FREE_TEXT,plaintext JSONB — report artifact may embed client fields,MiFID/EMIR/CFTC event record,statutory regulatory retention
+regulatory_report_submissions,payload,JSONB,FREE_TEXT,plaintext JSONB — serialized report (client fields),APA/ARM/NCA/SDR submission artifact,statutory regulatory retention
+regulatory_report_submissions,payload_xml,TEXT,FREE_TEXT,plaintext XML — ISO 20022 envelope (client fields),submission artifact,statutory regulatory retention
+regulatory_report_acks,payload,JSONB,FREE_TEXT,plaintext JSONB — regulator ACK/NACK may echo report fields,ack/repair chain,statutory regulatory retention
+regulatory_report_breaks,notes,VARCHAR(1024),FREE_TEXT,plaintext,officer break-resolution note,statutory regulatory retention
+venue_members,suspension_reason,VARCHAR(512),FREE_TEXT,plaintext,CCO action rationale,venue-governance floor
+venue_members,termination_reason,VARCHAR(512),FREE_TEXT,plaintext,CCO action rationale,venue-governance floor
+regulatory_submissions,payload,JSONB,FREE_TEXT,plaintext JSONB — report artifact (client fields),NCA/ARM submission,statutory regulatory retention
+regulatory_submissions,payload_xml,TEXT,FREE_TEXT,plaintext XML — submission artifact,submission record,statutory regulatory retention
+regulatory_submission_log,body,JSONB,FREE_TEXT,plaintext — transmission log may echo report fields,wire-level submission log,statutory regulatory retention
+fx_gc_statements,body,TEXT,FREE_TEXT,plaintext — self-assessment narrative may name officers,FX Global Code 55-principle assessment,assessment history floor
+comms_capture_outbox,payload,JSONB,FREE_TEXT,plaintext JSONB — outbound comm envelope (recipient fields),WORM comms recording capture,comms retention floor (≥5y)
 account_closures,reason,TEXT,FREE_TEXT,plaintext,closure record — client/officer-entered,financial record floor
 margin_model_param_changes,reject_reason,VARCHAR(255),FREE_TEXT,plaintext,validator-entered rejection note,audit floor
 webauthn_credentials,user_id,BIGINT,LINKAGE,n/a (FK),passkey ceremonies,credential lifetime; revoked≠deleted (forensic)
@@ -81,6 +97,11 @@ order_lists,fail_reason,VARCHAR(64),FREE_TEXT,plaintext,list-leg validation text
 strategy_templates,name,VARCHAR(128),FREE_TEXT,plaintext,manager-chosen public label,template lifetime
 strategy_templates,reject_reason,VARCHAR(255),FREE_TEXT,plaintext,approver-entered review note,template lifetime
 strategy_runs,skip_reason,VARCHAR(64),FREE_TEXT,plaintext,machine/officer skip note,run record
+restricted_lists,reason,TEXT,FREE_TEXT,plaintext,restricted-list rationale,employee-dealing audit floor
+pre_clearance_requests,reason,TEXT,FREE_TEXT,plaintext,employee request justification,employee-dealing audit floor
+pre_clearance_requests,decision_note,TEXT,FREE_TEXT,plaintext,officer decision note,employee-dealing audit floor
+employee_trade_reviews,review_note,TEXT,FREE_TEXT,plaintext,reviewer note,employee-dealing audit floor
+regulatory_changes,notes,TEXT,FREE_TEXT,plaintext,officer impact-assessment note,regulatory floor
 vulnerability_disclosures,reproduction,TEXT,FREE_TEXT,plaintext — PoC may embed user data,triage,disclosure lifetime
 vulnerability_disclosures,reporter_handle,VARCHAR(128),CONTACT,plaintext (pseudonymous ok),VDP correspondence,disclosure lifetime
 vulnerability_disclosures,contact_email,VARCHAR(320),CONTACT,plaintext,VDP correspondence,disclosure lifetime
@@ -98,6 +119,7 @@ listing_proposals,reason,TEXT,FREE_TEXT,plaintext — reviewer-entered text,list
 swapfree_verifications,decision_note,TEXT,FREE_TEXT,plaintext,verifier note,account close +5y
 strategy_profiles,display_name,VARCHAR(128),FREE_TEXT,plaintext,manager-chosen public label,strategy lifetime
 strategy_profiles,suspend_reason,VARCHAR(255),FREE_TEXT,plaintext,compliance note,strategy lifetime
+execution_policies,review_notes,TEXT,FREE_TEXT,plaintext,annual-review note,RTS 28 evidential floor
 suspense_account_mappings,originator_name,VARCHAR(255),DIRECT_ID,plaintext,quarantine routing screen,financial record floor
 suspense_account_mappings,originator_account,VARCHAR(64),FINANCIAL,plaintext,quarantine routing screen,financial record floor
 suspense_account_mappings,resolution_notes,TEXT,FREE_TEXT,plaintext,ops resolution note,financial record floor
@@ -148,3 +170,18 @@ instrument_change_log,reason,TEXT,FREE_TEXT,plaintext,parameter-change rationale
 market_schedule_overrides,reason,TEXT,FREE_TEXT,plaintext,ops note — holiday/early-close justification,audit floor
 benchmark_fixings,skip_reason,TEXT,FREE_TEXT,plaintext,machine/officer skip note,audit floor
 insurance_fund_adjustments,reason,VARCHAR(255),FREE_TEXT,plaintext,officer-entered adjustment justification,audit floor
+rts6_self_assessments,review_note,TEXT,FREE_TEXT,plaintext,certification review note,RTS 6 evidential floor
+gdpr_requests,failure_reason,TEXT,FREE_TEXT,plaintext,erasure/export blocker detail,privacy-request audit floor
+geo_jurisdiction_policies,reason,TEXT,FREE_TEXT,plaintext,geo-policy rationale,policy floor
+tax_report_runs,rejection_reason,TEXT,FREE_TEXT,plaintext,officer rejection note,tax-filing floor
+financial_promotions,rejection_reason,TEXT,FREE_TEXT,plaintext,officer rejection note,promotions evidential floor
+financial_promotion_versions,note,TEXT,FREE_TEXT,plaintext,version note,promotions evidential floor
+enforcement_actions,note,TEXT,FREE_TEXT,plaintext — enforcement rationale may name account/actor,market-abuse enforcement,statutory audit floor
+surveillance_cases,sla_note,TEXT,FREE_TEXT,plaintext,analyst SLA note,case-file floor
+surveillance_cases,disposition_reason,TEXT,FREE_TEXT,plaintext,disposition rationale,case-file floor
+surveillance_case_evidence,body,TEXT,FREE_TEXT,plaintext JSONB — evidence may embed account/trade data,immutable case evidence,case-file floor
+venue_rule_notices,subject,VARCHAR(256),FREE_TEXT,plaintext,notice subject line,venue-governance floor
+venue_interventions,reason,VARCHAR(1024),FREE_TEXT,plaintext,intervention rationale,venue-governance floor
+venue_cases,subject,VARCHAR(256),FREE_TEXT,plaintext,case subject line,venue-governance floor
+venue_case_evidence,note,VARCHAR(512),FREE_TEXT,plaintext,evidence annotation,venue-governance floor
+venue_conflicts,subject,VARCHAR(256),FREE_TEXT,plaintext — conflict declaration may name persons/accounts,conflict-of-interest register,venue-governance floor

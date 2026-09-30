@@ -4,17 +4,17 @@
 // ============================= ABI CONTRACT =============================
 // /dev/shm/exchange_credit_matrix, 8,388,864 bytes, little-endian:
 //
-//   offset  0  u64 magic        "EXCRDIT1" (bytes, not host-order int)
-//   offset  8  u32 version      1
-//   offset 12  u32 max_parties  1024
-//   offset 16  u64 update_seq   release-stored AFTER every cell write
-//   offset 24  u64 writer_pid   single-writer advisory (Go stamps os.Getpid)
-//   offset 32  224B reserved    MUST stay zero
-//   offset 256 matrix           row-major u64 cell[a][b] at
-//                               256 + (a*1024 + b)*8 — directed remaining
-//                               credit of grantor a toward grantee b,
-//                               1e8 notional ticks. 0 = no credit → the
-//                               engine fails closed.
+//	offset  0  u64 magic        "EXCRDIT1" (bytes, not host-order int)
+//	offset  8  u32 version      1
+//	offset 12  u32 max_parties  1024
+//	offset 16  u64 update_seq   release-stored AFTER every cell write
+//	offset 24  u64 writer_pid   single-writer advisory (Go stamps os.Getpid)
+//	offset 32  224B reserved    MUST stay zero
+//	offset 256 matrix           row-major u64 cell[a][b] at
+//	                            256 + (a*1024 + b)*8 — directed remaining
+//	                            credit of grantor a toward grantee b,
+//	                            1e8 notional ticks. 0 = no credit → the
+//	                            engine fails closed.
 //
 // Concurrency contract (mirrored verbatim from the C++ header): Go is the
 // single writer of cells; every cell write is a release-store and bumps
@@ -24,10 +24,11 @@
 // rollback CAS on the first when the second lacks headroom.
 //
 // CREDIT_UPDATE control frame (credit_ctl_decode parity), 56 bytes:
-//   +0  u32 magic "CRDU"   +4  u8 type=1   +5  u8 flags
-//   +6  u16 version        +8  u64 seq     +16 u64 ts_ns
-//   +24 u32 len (payload)  +28 u32 rsvd
-//   +32 u32 party_a        +36 u32 party_b +40 u64 new_limit_ticks
+//
+//	+0  u32 magic "CRDU"   +4  u8 type=1   +5  u8 flags
+//	+6  u16 version        +8  u64 seq     +16 u64 ts_ns
+//	+24 u32 len (payload)  +28 u32 rsvd
+//	+32 u32 party_a        +36 u32 party_b +40 u64 new_limit_ticks
 package ipc
 
 import (
@@ -73,14 +74,14 @@ const (
 
 // CREDIT_UPDATE frame constants — offsets inside the 56-byte frame.
 const (
-	CreditCtlMagic   uint32 = 0x55445243 // 'C' 'R' 'D' 'U' little-endian
-	CreditCtlType    uint8  = 1
-	CreditCtlVersion uint16 = 1
-	CreditCtlLen     uint32 = 24
-	CreditCtlBytes           = 56
-	creditOffCtlA            = 32
-	creditOffCtlB            = 36
-	creditOffCtlNewLimit     = 40
+	CreditCtlMagic       uint32 = 0x55445243 // 'C' 'R' 'D' 'U' little-endian
+	CreditCtlType        uint8  = 1
+	CreditCtlVersion     uint16 = 1
+	CreditCtlLen         uint32 = 24
+	CreditCtlBytes              = 56
+	creditOffCtlA               = 32
+	creditOffCtlB               = 36
+	creditOffCtlNewLimit        = 40
 )
 
 // CreditCtlResult mirrors the C++ credit_ctl_decode return enum — the
@@ -164,8 +165,8 @@ func DecodeCreditUpdate(buf []byte) (*CreditUpdateMsg, CreditCtlResult) {
 		return nil, CreditCtlPartyOutOfRange
 	}
 	return &CreditUpdateMsg{
-		Seq:      binary.LittleEndian.Uint64(buf[8:]),
-		PartyA:   a, PartyB: b,
+		Seq:    binary.LittleEndian.Uint64(buf[8:]),
+		PartyA: a, PartyB: b,
 		NewLimit: binary.LittleEndian.Uint64(buf[creditOffCtlNewLimit:]),
 	}, CreditCtlOK
 }

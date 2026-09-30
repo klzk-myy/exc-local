@@ -162,7 +162,7 @@ func TestDegradationGate_ReadOnlyRejectsWritesKeepsReads(t *testing.T) {
 		t.Fatalf("POST /orders under ReadOnly = %d %q, want 503 DEGRADED_MODE", st, code)
 	}
 	for _, p := range []string{
-		"/api/v1/orders",          // reads stay open
+		"/api/v1/orders", // reads stay open
 		"/api/v1/book/EUR/USD",
 		"/api/v1/ticker/EUR/USD",
 		"/api/v1/account/balances", // non-market reads also stay open

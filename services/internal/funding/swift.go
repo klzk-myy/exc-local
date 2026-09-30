@@ -19,6 +19,10 @@ type MT103 struct {
 	ValueDateCcyAmount   string `json:"f32a"` // YYMMDD + CCY + amount
 	OrderingCustomerName string `json:"f50k_name"`
 	OrderingCustomerAcct string `json:"f50k_account"`
+	// OrderingCustomerAddr is the field 50K address line(s) — FATF R.16
+	// originator data populated by the Phase-21 Task 21.3.2 travel-rule
+	// gate when the ordering customer differs from the debtor.
+	OrderingCustomerAddr string `json:"f50k_address,omitempty"`
 	OrderingInstitution  string `json:"f52a_bic,omitempty"`
 	AccountWithInst      string `json:"f57a_bic,omitempty"`
 	BeneficiaryAcct      string `json:"f59_account"`
@@ -80,6 +84,17 @@ func (SwiftAdapter) BuildOutbound(p OutboundPayment) (*WireEnvelope, error) {
 		}
 		return env, nil
 	}
+	// Field 50K ordering customer: the FATF originator when the Phase-21
+	// travel-rule gate populated Originator*; otherwise the debtor
+	// (exchange nostro holder) — unchanged legacy behaviour.
+	ordName, ordAcct, ordAddr := p.OriginatorName, p.OriginatorAccount,
+		p.OriginatorAddress
+	if ordName == "" {
+		ordName = p.DebtorName
+	}
+	if ordAcct == "" {
+		ordAcct = p.DebtorAccount
+	}
 	env := &WireEnvelope{
 		Rail: string(RailSWIFT), MessageType: MsgMT103,
 		EndToEndID: e2e, UETR: uetr,
@@ -90,8 +105,9 @@ func (SwiftAdapter) BuildOutbound(p OutboundPayment) (*WireEnvelope, error) {
 			SenderReference:      e2e,
 			BankOperationCode:    "CRED",
 			ValueDateCcyAmount:   f32a,
-			OrderingCustomerName: p.DebtorName,
-			OrderingCustomerAcct: p.DebtorAccount,
+			OrderingCustomerName: ordName,
+			OrderingCustomerAcct: ordAcct,
+			OrderingCustomerAddr: ordAddr,
 			OrderingInstitution:  p.DebtorBIC,
 			AccountWithInst:      p.CreditorBIC,
 			BeneficiaryAcct:      p.CreditorIBAN,

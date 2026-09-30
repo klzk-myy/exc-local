@@ -57,7 +57,7 @@ func TestCreditMatrixLayout(t *testing.T) {
 	}
 	raw, _ = os.ReadFile("/dev/shm/" + name)
 	off := CreditCellOffset(7, 42)
-	if off != 256+ (uint64(7)*1024+42)*8 {
+	if off != 256+(uint64(7)*1024+42)*8 {
 		t.Fatalf("cell offset %d", off)
 	}
 	if got := binary.LittleEndian.Uint64(raw[off:]); got != ticks5M {

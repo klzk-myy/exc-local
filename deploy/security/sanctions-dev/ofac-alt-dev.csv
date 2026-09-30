@@ -1,0 +1,8 @@
+# DEV FIXTURE ONLY — not a real OFAC list. Alternate-identity rows
+# for the Phase-21 sanctions-screening validation. OFAC alt.csv
+# convention: field 1 = alt_num, field 2 = parent ent_num (matches
+# ofac-sdn-dev.csv), field 3 = alternate name, field 4 = alt type.
+80001,9001,"SANCTIONOVICH, S.",aka,"DEV"
+80002,9001,"SANCTIONED SANCTIONOVICH",fka,"DEV"
+80003,9002,"BLOCKED HOLDINGS GROUP",aka,"DEV"
+80004,9002,"BHG LIMITED",aka,"DEV"

@@ -107,16 +107,22 @@ const (
 	QueueReasonNostroInsufficient = "NOSTRO_INSUFFICIENT"
 	QueueReasonDestinationHold    = "DESTINATION_HOLD"
 	QueueReasonDispatchError      = "DISPATCH_ERROR"
+	// QueueReasonTravelRuleMissing — Phase-21 Task 21.3.2: the FATF R.16
+	// gate found required originator/beneficiary fields absent; the wire
+	// stays queued until an officer supplies them.
+	QueueReasonTravelRuleMissing = "TRAVEL_RULE_MISSING_INFO"
 )
 
 // DispatchableWithdrawal is the CONFIRMED-withdrawal projection the
 // nostro dispatcher locks and releases (adds hold_until over
-// WithdrawalRow — that type predates migration 199).
+// WithdrawalRow — that type predates migration 199). USDAmount is the
+// converted figure the Phase-21 travel-rule gate thresholds on.
 type DispatchableWithdrawal struct {
 	ID               int64
 	AccountID        int64
 	Currency         string
 	Amount           decimal.Decimal
+	USDAmount        *decimal.Decimal
 	Status           string
 	ReferenceAccount *string
 	BankMethod       *string
@@ -423,13 +429,13 @@ func (s *PgStore) LastCompletedWithdrawalAt(ctx context.Context,
 func (s *PgStore) WithdrawalForDispatch(ctx context.Context, tx pgx.Tx,
 	id int64) (*DispatchableWithdrawal, error) {
 	var w DispatchableWithdrawal
-	var amt *string
+	var amt, usd *string
 	err := tx.QueryRow(ctx, `
-		SELECT id, account_id, currency, amount::text, status::text,
-		       reference_account, bank_method::text, hold_until
+		SELECT id, account_id, currency, amount::text, usd_amount::text,
+		       status::text, reference_account, bank_method::text, hold_until
 		FROM funding_transactions
 		WHERE id = $1 AND type = 'WITHDRAWAL' FOR UPDATE`, id).
-		Scan(&w.ID, &w.AccountID, &w.Currency, &amt, &w.Status,
+		Scan(&w.ID, &w.AccountID, &w.Currency, &amt, &usd, &w.Status,
 			&w.ReferenceAccount, &w.BankMethod, &w.HoldUntil)
 	if err == pgx.ErrNoRows {
 		return nil, errf("NOT_FOUND", "withdrawal %d not found", id)
@@ -440,6 +446,10 @@ func (s *PgStore) WithdrawalForDispatch(ctx context.Context, tx pgx.Tx,
 	if amt != nil {
 		w.Amount = decimal.RequireFromString(*amt)
 	}
+	if usd != nil {
+		v := decimal.RequireFromString(*usd)
+		w.USDAmount = &v
+	}
 	return &w, nil
 }
 
@@ -447,8 +457,8 @@ func (s *PgStore) WithdrawalForDispatch(ctx context.Context, tx pgx.Tx,
 // hold has lapsed (or was never set) — the dispatcher work queue scan.
 func (s *PgStore) ConfirmedForDispatch(ctx context.Context, limit int) ([]DispatchableWithdrawal, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, account_id, currency, amount::text, status::text,
-		       reference_account, bank_method::text, hold_until
+		SELECT id, account_id, currency, amount::text, usd_amount::text,
+		       status::text, reference_account, bank_method::text, hold_until
 		FROM funding_transactions
 		WHERE type = 'WITHDRAWAL' AND status = 'CONFIRMED'
 		  AND (hold_until IS NULL OR hold_until <= now())
@@ -460,14 +470,18 @@ func (s *PgStore) ConfirmedForDispatch(ctx context.Context, limit int) ([]Dispat
 	var out []DispatchableWithdrawal
 	for rows.Next() {
 		var w DispatchableWithdrawal
-		var amt *string
-		if err := rows.Scan(&w.ID, &w.AccountID, &w.Currency, &amt,
+		var amt, usd *string
+		if err := rows.Scan(&w.ID, &w.AccountID, &w.Currency, &amt, &usd,
 			&w.Status, &w.ReferenceAccount, &w.BankMethod,
 			&w.HoldUntil); err != nil {
 			return nil, wrapCode("INTERNAL_ERROR", "dispatch scan row", err)
 		}
 		if amt != nil {
 			w.Amount = decimal.RequireFromString(*amt)
+		}
+		if usd != nil {
+			v := decimal.RequireFromString(*usd)
+			w.USDAmount = &v
 		}
 		out = append(out, w)
 	}

@@ -16,9 +16,9 @@ import (
 )
 
 var (
-	errTruncated    = errors.New("fixsbe: truncated message")
-	errBodyLength   = errors.New("fixsbe: block length shorter than v1 layout")
-	errWrongSchema  = errors.New("fixsbe: wrong schema id")
+	errTruncated   = errors.New("fixsbe: truncated message")
+	errBodyLength  = errors.New("fixsbe: block length shorter than v1 layout")
+	errWrongSchema = errors.New("fixsbe: wrong schema id")
 )
 
 // EncodeMessage appends header + body of m to buf and returns the
@@ -241,7 +241,7 @@ func decodeBody(h Header, body []byte) (Message, error) {
 		return ExecutionReport{
 			OrderID: u64(0), ExecID: u64(8), ClOrdID: str32(16),
 			InstrumentID: u32(48), OrdStatus: body[52], ExecType: body[53],
-			Side: body[54],
+			Side:  body[54],
 			Price: i64(56), LastPrice: i64(64), LastQty: i64(72),
 			LeavesQty: i64(80), CumQty: i64(88), RejectCode: u32(96),
 			TransactTimeNs: u64(104),

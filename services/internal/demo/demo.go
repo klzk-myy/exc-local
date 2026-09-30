@@ -50,6 +50,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"exchange/internal/admin"
@@ -419,67 +420,17 @@ func (s *Service) expireOne(ctx context.Context, r expiredRow, now time.Time) er
 	if err != nil {
 		return excerrors.Wrap("INTERNAL_ERROR", "demo: closure id", err)
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	// The audit append inside the tx reads the chain tail under an
+	// advisory lock, but a SERIALIZABLE snapshot can still be stale when
+	// a concurrent writer commits between snapshot and lock — the §5.40
+	// remedy is whole-transaction retry (same ladder as admin.LogAuto /
+	// lifecycle_store.inTx).
+	expired, err := s.expireOneTx(ctx, r, now, closureID, cancelled)
 	if err != nil {
-		return excerrors.Wrap("INTERNAL_ERROR", "demo: expire tx begin", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	var status string
-	var curExpiry *time.Time
-	if err := tx.QueryRow(ctx,
-		`SELECT status::text, demo_expires_at FROM accounts WHERE id=$1 FOR UPDATE`,
-		r.AccountID).Scan(&status, &curExpiry); err != nil {
-		return excerrors.Wrap("INTERNAL_ERROR", "demo: expire lock", err)
-	}
-	if status == "CLOSED" {
-		return nil // raced closure — nothing to do (idempotent)
-	}
-	// Re-verify under the row lock: a login/refresh racing between the
-	// feed read and here re-arms the deadline — an active demo user must
-	// never be closed out mid-session.
-	if curExpiry != nil && curExpiry.After(now) {
-		return nil
-	}
-	if _, err := tx.Exec(ctx,
-		`UPDATE accounts SET status='CLOSED', updated_at=$2 WHERE id=$1`,
-		r.AccountID, now); err != nil {
-		return excerrors.Wrap("INTERNAL_ERROR", "demo: expire close", err)
-	}
-	snapshot, _ := json.Marshal(map[string]any{
-		"reason":                ExpiryReason,
-		"demo_expires_at":       r.ExpiresAt.UTC().Format(time.RFC3339Nano),
-		"open_orders_cancelled": cancelled,
-	})
-	if _, err := tx.Exec(ctx,
-		`INSERT INTO account_closures
-		     (closure_id, account_id, user_id, reason, forced,
-		      initiated_by, preconditions_snapshot, sweep_refs,
-		      status, completed_at)
-		 VALUES ($1,$2,$3,$4,true,$5,$6,'[]','COMPLETED',$7)`,
-		closureID, r.AccountID, r.UserID, ExpiryReason, r.UserID,
-		snapshot, now); err != nil {
-		return excerrors.Wrap("INTERNAL_ERROR", "demo: closure record", err)
-	}
-	// Same audit convention as the Task 14.3.9 close path — a system
-	// sweep has no admin actor, so the affected principal carries the
-	// attribution (lifecycle.go convention for sweep actors).
-	if _, _, err := admin.Log(ctx, tx, admin.AuditEntry{
-		AdminUserID: r.UserID,
-		Action:      "account.close",
-		TargetType:  "account",
-		TargetID:    &r.AccountID,
-		BeforeState: map[string]any{"status": status, "account_type": "DEMO"},
-		AfterState: map[string]any{
-			"status":     "CLOSED",
-			"reason":     ExpiryReason,
-			"closure_id": closureID,
-		},
-	}); err != nil {
 		return err
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return excerrors.Wrap("INTERNAL_ERROR", "demo: expire commit", err)
+	if !expired {
+		return nil // raced closure or re-armed deadline — nothing to do
 	}
 
 	// Post-commit: the closed account loses its auth surface (same
@@ -498,6 +449,105 @@ func (s *Service) expireOne(ctx context.Context, r expiredRow, now time.Time) er
 		}
 	}
 	return nil
+}
+
+// expireOneTx carries the SERIALIZABLE body: row-lock the account, close
+// it, write the closure record + hash-chained audit entry. The retry
+// loop retries the WHOLE body so a stale-snapshot 23505 re-reads the
+// tail. expired=false signals the raced-closure / re-armed-deadline
+// no-ops — the caller must still skip post-commit revocation.
+func (s *Service) expireOneTx(ctx context.Context, r expiredRow,
+	now time.Time, closureID string, cancelled int) (bool, error) {
+	var expired bool
+	var lastErr error
+	for attempt := 1; attempt <= 3; attempt++ {
+		expired, lastErr = s.expireOneTxOnce(ctx, r, now, closureID, cancelled)
+		if lastErr == nil || !expireIsRetryable(lastErr) {
+			return expired, lastErr
+		}
+	}
+	return false, excerrors.Wrap("TRANSACTION_CONFLICT_RETRY_EXHAUSTED",
+		"demo: expire tx retries exhausted", lastErr)
+}
+
+func (s *Service) expireOneTxOnce(ctx context.Context, r expiredRow,
+	now time.Time, closureID string, cancelled int) (bool, error) {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return false, excerrors.Wrap("INTERNAL_ERROR", "demo: expire tx begin", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var status string
+	var curExpiry *time.Time
+	if err := tx.QueryRow(ctx,
+		`SELECT status::text, demo_expires_at FROM accounts WHERE id=$1 FOR UPDATE`,
+		r.AccountID).Scan(&status, &curExpiry); err != nil {
+		return false, excerrors.Wrap("INTERNAL_ERROR", "demo: expire lock", err)
+	}
+	if status == "CLOSED" {
+		return false, nil // raced closure — nothing to do (idempotent)
+	}
+	// Re-verify under the row lock: a login/refresh racing between the
+	// feed read and here re-arms the deadline — an active demo user must
+	// never be closed out mid-session.
+	if curExpiry != nil && curExpiry.After(now) {
+		return false, nil
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE accounts SET status='CLOSED', updated_at=$2 WHERE id=$1`,
+		r.AccountID, now); err != nil {
+		return false, excerrors.Wrap("INTERNAL_ERROR", "demo: expire close", err)
+	}
+	snapshot, _ := json.Marshal(map[string]any{
+		"reason":                ExpiryReason,
+		"demo_expires_at":       r.ExpiresAt.UTC().Format(time.RFC3339Nano),
+		"open_orders_cancelled": cancelled,
+	})
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO account_closures
+		     (closure_id, account_id, user_id, reason, forced,
+		      initiated_by, preconditions_snapshot, sweep_refs,
+		      status, completed_at)
+		 VALUES ($1,$2,$3,$4,true,$5,$6,'[]','COMPLETED',$7)`,
+		closureID, r.AccountID, r.UserID, ExpiryReason, r.UserID,
+		snapshot, now); err != nil {
+		return false, excerrors.Wrap("INTERNAL_ERROR", "demo: closure record", err)
+	}
+	// Same audit convention as the Task 14.3.9 close path — a system
+	// sweep has no admin actor, so the affected principal carries the
+	// attribution (lifecycle.go convention for sweep actors).
+	if _, _, err := admin.Log(ctx, tx, admin.AuditEntry{
+		AdminUserID: r.UserID,
+		Action:      "account.close",
+		TargetType:  "account",
+		TargetID:    &r.AccountID,
+		BeforeState: map[string]any{"status": status, "account_type": "DEMO"},
+		AfterState: map[string]any{
+			"status":     "CLOSED",
+			"reason":     ExpiryReason,
+			"closure_id": closureID,
+		},
+	}); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, excerrors.Wrap("INTERNAL_ERROR", "demo: expire commit", err)
+	}
+	return true, nil
+}
+
+// expireIsRetryable mirrors the §5.40 conflict set (unique violation,
+// serialization failure, deadlock) — the audit-chain insert and the
+// account row lock can both trip these under concurrent writers.
+var expireRetryable = map[string]bool{"23505": true, "40001": true, "40P01": true}
+
+func expireIsRetryable(err error) bool {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return expireRetryable[pgErr.Code]
+	}
+	return false
 }
 
 // defaultClosureID mints the "demoexp_<28urlsafe>" public id (the

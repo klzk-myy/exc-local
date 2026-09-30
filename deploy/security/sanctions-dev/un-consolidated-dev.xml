@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- DEV FIXTURE ONLY — not a real UN consolidated sanctions list.
-     Fictitious entries for the Phase-13.5 sanctions-screening
+     Fictitious entries for the Phase-13.5/Phase-21 sanctions-screening
      validation. Structure mimics the UN consolidated XML
-     (INDIVIDUAL with FIRST_NAME/SECOND_NAME/LAST_NAME parts).
-     See README.md. -->
+     (INDIVIDUAL with FIRST_NAME/SECOND_NAME/LAST_NAME parts +
+     INDIVIDUAL_ALIAS/ALIAS_NAME alternate identities bound to the
+     party DATAID). See README.md. -->
 <CONSOLIDATED_LIST dateGenerated="2026-01-01">
   <INDIVIDUALS>
     <INDIVIDUAL>
@@ -12,12 +13,22 @@
       <SECOND_NAME>EVIL</SECOND_NAME>
       <THIRD_NAME>TESTCASE</THIRD_NAME>
       <UN_LIST_TYPE>TESTPROGRAM</UN_LIST_TYPE>
+      <INDIVIDUAL_ALIAS>
+        <ALIAS_NAME>DOCTOR EVIL</ALIAS_NAME>
+        <QUALITY>Good</QUALITY>
+      </INDIVIDUAL_ALIAS>
+      <INDIVIDUAL_ALIAS>
+        <ALIAS_NAME>EVIL, DR</ALIAS_NAME>
+      </INDIVIDUAL_ALIAS>
     </INDIVIDUAL>
     <INDIVIDUAL>
       <DATAID>9990002</DATAID>
       <FIRST_NAME>SUSPICIOUS</FIRST_NAME>
       <LAST_NAME>SENDER</LAST_NAME>
       <UN_LIST_TYPE>TESTPROGRAM</UN_LIST_TYPE>
+      <INDIVIDUAL_ALIAS>
+        <ALIAS_NAME>SUSPICIOUS SENDER REF</ALIAS_NAME>
+      </INDIVIDUAL_ALIAS>
     </INDIVIDUAL>
   </INDIVIDUALS>
 </CONSOLIDATED_LIST>

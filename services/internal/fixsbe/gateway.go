@@ -21,7 +21,7 @@ type SessionInfo struct {
 	ID          string // fixsbe_sessions.session_id
 	AccountID   int64
 	Codec       ResponseCodec
-	Draining    bool  // maintenance drain in progress (Task 18.3.17)
+	Draining    bool            // maintenance drain in progress (Task 18.3.17)
 	Instruments map[uint32]bool // nil = all instruments entitled
 }
 
@@ -200,9 +200,9 @@ func (g *Gateway) dispatch(ctx context.Context, sess *SessionInfo, m Message, ou
 		// Negotiate is handled by the transport handshake before any
 		// order frame; a mid-stream Negotiate is a protocol violation.
 		return EncodeMessage(out, BusinessReject{
-			ClOrdID:       ClOrdID{},
-			RefTemplateID: TemplateNegotiate,
-			RejectCode:    RejMalformed,
+			ClOrdID:        ClOrdID{},
+			RefTemplateID:  TemplateNegotiate,
+			RejectCode:     RejMalformed,
 			TransactTimeNs: uint64(g.now().UnixNano()),
 		})
 	default:
@@ -301,13 +301,13 @@ func (g *Gateway) onNewOrder(ctx context.Context, sess *SessionInfo, m *NewOrder
 			mapRejectCode(err), out, tns)
 	}
 	return EncodeMessage(out, ExecutionReport{
-		OrderID:    uint64(ack.OrderID),
-		ClOrdID:    m.ClOrdID,
-		InstrumentID: m.InstrumentID,
-		OrdStatus:  statusOut(ack.Status),
-		ExecType:   ExecTypeNew,
-		Side:       m.Side,
-		Price:      decToMant(req.Price),
+		OrderID:        uint64(ack.OrderID),
+		ClOrdID:        m.ClOrdID,
+		InstrumentID:   m.InstrumentID,
+		OrdStatus:      statusOut(ack.Status),
+		ExecType:       ExecTypeNew,
+		Side:           m.Side,
+		Price:          decToMant(req.Price),
 		TransactTimeNs: tns,
 	})
 }
@@ -355,12 +355,12 @@ func (g *Gateway) onCancel(ctx context.Context, sess *SessionInfo, m *CancelOrde
 			mapRejectCode(err), out, tns)
 	}
 	return EncodeMessage(out, ExecutionReport{
-		OrderID:    uint64(ack.OrderID),
-		ClOrdID:    m.ClOrdID,
-		InstrumentID: m.InstrumentID,
-		OrdStatus:  statusOut(ack.Status),
-		ExecType:   ExecTypeCancelled,
-		Side:       m.Side,
+		OrderID:        uint64(ack.OrderID),
+		ClOrdID:        m.ClOrdID,
+		InstrumentID:   m.InstrumentID,
+		OrdStatus:      statusOut(ack.Status),
+		ExecType:       ExecTypeCancelled,
+		Side:           m.Side,
 		TransactTimeNs: tns,
 	})
 }
@@ -405,13 +405,13 @@ func (g *Gateway) onReplace(ctx context.Context, sess *SessionInfo, m *ReplaceOr
 			mapRejectCode(err), out, tns)
 	}
 	return EncodeMessage(out, ExecutionReport{
-		OrderID:      uint64(o.ID),
-		ClOrdID:      m.ClOrdID,
-		InstrumentID: m.InstrumentID,
-		OrdStatus:    statusOut(o.Status),
-		ExecType:     ExecTypeReplaced,
-		Side:         sideOut(o.Side),
-		Price:        decToMant(o.Price),
+		OrderID:        uint64(o.ID),
+		ClOrdID:        m.ClOrdID,
+		InstrumentID:   m.InstrumentID,
+		OrdStatus:      statusOut(o.Status),
+		ExecType:       ExecTypeReplaced,
+		Side:           sideOut(o.Side),
+		Price:          decToMant(o.Price),
 		TransactTimeNs: tns,
 	})
 }

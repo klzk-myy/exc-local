@@ -28,6 +28,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -75,6 +76,7 @@ type DispatchService struct {
 	store    NostroStore
 	poster   JournalPoster
 	rails    RailDispatcher // optional
+	travel   TravelRuleGate // optional — Phase-21 Task 21.3.2 FATF R.16 gate
 	alerter  OpsAlerter     // optional page channel
 	notifier Notifier       // optional Phase-12 client-notification seam
 	clock    func() time.Time
@@ -92,6 +94,14 @@ func NewDispatchService(store NostroStore, poster JournalPoster) (*DispatchServi
 // WithRails wires the rail-instruction dispatcher.
 func (s *DispatchService) WithRails(r RailDispatcher) *DispatchService {
 	s.rails = r
+	return s
+}
+
+// WithTravelRule binds the Phase-21 Task 21.3.2 FATF R.16 outbound gate
+// (compliance.TravelRuleService). nil → no travel-rule evaluation —
+// production wiring must bind it for regulated rails.
+func (s *DispatchService) WithTravelRule(g TravelRuleGate) *DispatchService {
+	s.travel = g
 	return s
 }
 
@@ -236,7 +246,52 @@ func (s *DispatchService) dispatch(ctx context.Context, tx pgx.Tx,
 	now time.Time) (*ReleaseResult, error) {
 	var payment *RailPaymentRow
 	if s.rails != nil && debtor != nil {
-		rp, rerr := s.rails.Dispatch(ctx, tx, s.outboundPayment(ctx, w, debtor))
+		p := s.outboundPayment(ctx, w, debtor)
+		// Phase-21 Task 21.3.2 — FATF R.16 gate: the outbound wire for a
+		// >= $1,000 transfer carries no envelope until originator and
+		// beneficiary info is complete. Missing fields → the record row
+		// lands inside this tx and the withdrawal queues HELD (never
+		// dispatched); the gate enriching Originator* feeds MT103 50K.
+		if s.travel != nil {
+			ep, missing, terr := s.travel.EnforceOutbound(ctx, tx, w, p)
+			if terr != nil {
+				return nil, terr // rollback — withdrawal stays CONFIRMED
+			}
+			if len(missing) > 0 {
+				if _, err := s.store.InsertDispatchQueue(ctx, tx, w.ID,
+					QueueReasonTravelRuleMissing); err != nil {
+					return nil, err
+				}
+				summary := fmt.Sprintf(
+					"withdrawal %d held — FATF travel-rule fields missing (%s)",
+					w.ID, strings.Join(missing, ","))
+				detail := fmt.Sprintf(
+					`{"withdrawal_id":%d,"account_id":%d,"missing":%q}`,
+					w.ID, w.AccountID, strings.Join(missing, ","))
+				if _, err := s.store.InsertFundingOpsAlert(ctx, tx, FundingOpsAlertRow{
+					Code:                 QueueReasonTravelRuleMissing,
+					Severity:             "P1",
+					FundingTransactionID: &w.ID,
+					AccountID:            &w.AccountID,
+					Currency:             &w.Currency,
+					Amount:               &w.Amount,
+					Summary:              summary,
+					Detail:               []byte(detail),
+				}); err != nil {
+					return nil, err
+				}
+				if err := tx.Commit(ctx); err != nil {
+					return nil, wrapCode("INTERNAL_ERROR", "travel-rule hold commit", err)
+				}
+				s.raise(ctx, "P1", QueueReasonTravelRuleMissing, summary, nil)
+				res.Disposition = "HELD"
+				res.Reason = QueueReasonTravelRuleMissing
+				res.Queued = true
+				return res, nil
+			}
+			p = ep
+		}
+		rp, rerr := s.rails.Dispatch(ctx, tx, p)
 		if rerr != nil {
 			return nil, rerr
 		}

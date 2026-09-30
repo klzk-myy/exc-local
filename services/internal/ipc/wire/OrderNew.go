@@ -6,9 +6,9 @@ import (
 	flatbuffers "github.com/google/flatbuffers/go"
 )
 
-/// Inbound: order submission from the Go gateway to the matching core.
-/// Phase-02 extension fields are additive (FlatBuffers table append —
-/// old writers still decode, new fields default 0).
+// / Inbound: order submission from the Go gateway to the matching core.
+// / Phase-02 extension fields are additive (FlatBuffers table append —
+// / old writers still decode, new fields default 0).
 type OrderNew struct {
 	_tab flatbuffers.Table
 }

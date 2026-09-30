@@ -3,7 +3,7 @@
 // The rows below transcribe the §23 registry table in
 // docs/Specification - Complete Exchange System Suite.md (192 table rows)
 // plus the §27.1-matrix-resident codes the owner-resolvability rule
-// accepts via the alternate branch — 197 emitted codes total; count
+// accepts via the alternate branch — 198 emitted codes total; count
 // updated with the Phase-18 Tasks 18.3.7/18.3.10/18.3.13 landings —
 // historical remediation counts noted in spec §23's
 // registration-history paragraph). specRow extracts the machine-useful
@@ -85,7 +85,7 @@ func localRow(code string, httpStatus int, owner, desc string) CodeDef {
 		Owner: owner, Spec: false}
 }
 
-// specCodes is the verbatim spec §23 table (206 rows).
+// specCodes is the verbatim spec §23 table (207 rows).
 var specCodes = []CodeDef{
 	specRow("INVALID_REQUEST", 400, "Malformed request body (Phase-05 Task 5.3.29 API Gateway & Load Balancer — centralized OpenAPI-schema request validation; remediation #19)"),
 	specRow("UNAUTHORIZED", 401, "Missing or invalid auth token (Phase-05 Task 5.3.26 WebSocket Authentication Upgrade & In-Flight Token Renewal; REST JWT/OAuth per spec §8.4; remediation #19)"),
@@ -114,6 +114,7 @@ var specCodes = []CodeDef{
 	specRow("WASH_TRADE_DETECTED", 403, "Wash trade detected; same emission surface as `MARKET_ABUSE_DETECTED` (Phase-21 Task 21.3.8; remediation #19, emission point pinned remediation #35)"),
 	specRow("LAYERING_DETECTED", 403, "Layering detected; same emission surface as `MARKET_ABUSE_DETECTED` (Phase-21 Task 21.3.8; remediation #19, emission point pinned remediation #35)"),
 	specRow("SPREAD_ORDER_REJECTED", 400, "Spread order validation failed (Phase-16 Task 16.3.14 bracket/spread validation; remediation #35 — owner citation added)"),
+	specRow("ENFORCEMENT_ACTION_EXISTS", 409, "Duplicate enforcement action on a surveillance signal — the UNIQUE(signal_id, action) ledger dedup refuses the second POST (Phase-21 Task 21.3.8; registered with the task landing)"),
 	specRow("VARIATION_MARGIN_INSUFFICIENT", 400, "Variation margin shortfall (Phase-22 Task 22.3.7 Variation Margin; remediation #19)"),
 	specRow("MAX_EXPOSURE_EXCEEDED", 400, "Exposure limit exceeded (Phase-19 Task 19.3.5 Exposure Limits; remediation #19)"),
 	specRow("OPTION_ASSIGNMENT_FAILED", 409, "Option assignment failed (Phase-22 Task 22.3.10 Option Lifecycle — American intra-day assignment; remediation #19)"),
@@ -318,4 +319,53 @@ var localCodes = []CodeDef{
 		"Internal position transfer rejected: entity/hierarchy mismatch, non-ACTIVE account, structural validation failure, or audit-row conflict (spec §13.9, §27.1 matrix row)"),
 	localRow("TRANSFER_INSUFFICIENT", 400, "Phase-19 Task 19.3.12",
 		"Internal position transfer rejected: source account has no matching open position or the open quantity is below the requested transfer quantity (spec §13.9, §27.1 matrix row)"),
+	// Phase-21 Tasks 21.3.2/21.3.3/21.3.6 — §27.1 Travel Rule / SAR-CTR /
+	// FinCEN MSB matrix codes (named verbatim there; the §23 fix is a
+	// spec-side transcription row). CTR_TRIGGERED is an Audit Event, not
+	// an HTTP code — emitted to the audit trail, never to the wire.
+	localRow("TRAVEL_RULE_MISSING_INFO", 400, "Phase-21 Task 21.3.2",
+		"FATF R.16 travel-rule data incomplete for a >= $1,000 transfer — required originator/beneficiary fields absent; the wire is held until supplied (spec §14.3, §27.1 Travel Rule matrix)"),
+	localRow("TRAVEL_RULE_REJECTED", 403, "Phase-21 Task 21.3.2",
+		"Transfer rejected under the FATF travel rule — the record was dispositioned REJECTED by compliance (spec §14.3, §27.1 Travel Rule matrix)"),
+	localRow("SAR_DUAL_CONTROL_REQUIRED", 400, "Phase-21 Task 21.3.3",
+		"SAR filing approval requires a distinct second Compliance Officer — the approver may not be the drafting or reviewing officer (spec §24 #108, §27.1 SAR/CTR matrix)"),
+	localRow("MSB_COMPLIANCE_BREACH", 500, "Phase-21 Task 21.3.6",
+		"FinCEN MSB program artifact missing or expired — registration (Form 107), designated officer, policy version or annual review is not current (spec §14.1, §27.1 FinCEN MSB matrix)"),
+	// Phase-21 Task 21.3.13 — §27.1 Basel III matrix codes (named
+	// verbatim there with 500): they ride the basel-report payload's
+	// `code` field and the breach alerts; the §23 fix is a spec-side
+	// transcription row.
+	localRow("CAPITAL_ADEQUACY_BREACH", 500, "Phase-21 Task 21.3.13",
+		"Basel III capital adequacy ratio below the 8% floor (or report inputs incomplete — fail-closed flag) for the stored snapshot period (spec §14.1, §27.1 Basel III matrix)"),
+	localRow("LEVERAGE_RATIO_BREACH", 500, "Phase-21 Task 21.3.13",
+		"Basel III leverage ratio below the 3% floor for the stored snapshot period (spec §14.1, §27.1 Basel III matrix)"),
+	// Phase-21 wave-2 — §23 transcription pending; §27.1/spec §14.x
+	// citations inline.
+	localRow("CONSENT_NOT_GRANTED", 403, "Phase-21 Task 21.3.7",
+		"Outbound processing requires an affirmative account consent that is absent or withdrawn — GDPR opt-in semantics for marketing/analytics/data-sharing (spec §14.13)"),
+	localRow("CROSS_BORDER_JUSTIFICATION_REQUIRED", 403, "Phase-21 Task 21.3.18",
+		"Administrative access crosses the resident-data jurisdiction boundary without a recorded justification (spec §14.13 cross-border control)"),
+	localRow("RESIDENCY_VIOLATION", 403, "Phase-21 Task 21.3.18",
+		"Data placement or cross-border transfer conflicts with the jurisdiction's residency policy — unsupported jurisdiction, wrong region/bucket/KMS key, or no legal transfer instrument (spec §14.13)"),
+	localRow("COMMS_INTEGRITY_FAILURE", 500, "Phase-21 Task 21.3.20",
+		"Communications-recording integrity check failed — stored object hash or per-day chain mismatch, tamper-suspect (MiFID II Art. 16(7); fail-closed)"),
+	localRow("COMMS_RETENTION_ACTIVE", 409, "Phase-21 Task 21.3.20",
+		"Recording deletion refused — the five-year retention_until floor has not elapsed (MiFID II Art. 16(7))"),
+	localRow("TAX_REPORT_INVALID_TRANSITION", 409, "Phase-21 Task 21.3.22",
+		"CRS/FATCA report-run status transition not permitted by the DRAFT→UNDER_REVIEW→APPROVED→SUBMITTED lifecycle (spec §14.11)"),
+	localRow("TAX_REPORT_DATA_INCOMPLETE", 422, "Phase-21 Task 21.3.22",
+		"Reportable account is missing required CRS/FATCA data (residency, TIN, balances) — the run fails closed rather than emitting a partial file (spec §14.11)"),
+	// Phase-21 Task 21.3.15 — §27.1 Regulated Venue License Governance
+	// matrix codes (named verbatim there; the §23 fix is a spec-side
+	// transcription row). JURISDICTION_UNLICENSED is emitted by the
+	// member-trading gate (order admission, L2 403) when the
+	// jurisdiction-scoped LICENSE/REGULATOR_AUTH prerequisite is absent
+	// or expired; ANNUAL_ATTESTATION_OVERDUE rides the P1 ops-alert
+	// payload `code` field (venue.SweepOverdue), not HTTP responses.
+	localRow("JURISDICTION_UNLICENSED", 403, "Phase-21 Task 21.3.15",
+		"Venue member trading rejected — the jurisdiction's venue authorization/license prerequisite is absent or expired (spec §14.1b, §27.1 Regulated Venue matrix)"),
+	localRow("ANNUAL_ATTESTATION_OVERDUE", 500, "Phase-21 Task 21.3.15",
+		"Member annual review or required attestation past due — P1 ops alert until the review lands; member trading admission blocks concurrently (spec §14.1b, §27.1 Regulated Venue matrix)"),
+	localRow("VENUE_RULEBOOK_NOT_APPROVED", 409, "Phase-21 Task 21.3.15",
+		"Rulebook/product-terms activation refused — venue approval, required regulator approval, or participant notice outstanding (spec §14.1b no-activation-before-approvals)"),
 }

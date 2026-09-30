@@ -318,12 +318,21 @@ func TestSurveillanceSignalsPgIntegration(t *testing.T) {
 		!strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("migration 029: %v", err)
 	}
-	t.Cleanup(func() {
-		_, _ = pool.Exec(ctx, "DELETE FROM surveillance_signals")
-	})
-	if _, err := pool.Exec(ctx, "DELETE FROM surveillance_signals"); err != nil {
-		t.Fatalf("clean table: %v", err)
+	// Phase-21's surveillance_cases.signal_id FKs here, and case evidence
+	// is append-only — cases (and the signals they cite) are deliberately
+	// undeletable. Remove only signals no case references; rows cited by
+	// prior test runs are inert for this test's assertions. On schemas
+	// pre-dating migration 248, fall back to a plain wipe.
+	clean := func() {
+		_, err := pool.Exec(ctx,
+			`DELETE FROM surveillance_signals s WHERE NOT EXISTS
+			 (SELECT 1 FROM surveillance_cases c WHERE c.signal_id = s.id)`)
+		if err != nil && strings.Contains(err.Error(), "does not exist") {
+			_, _ = pool.Exec(ctx, "DELETE FROM surveillance_signals")
+		}
 	}
+	t.Cleanup(clean)
+	clean()
 
 	sink := NewPgSink(pool)
 	now := time.Unix(1_800_000_000, 0).UTC()

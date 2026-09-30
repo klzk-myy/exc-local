@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ftc:FATCA_OECD xmlns:ftc="urn:fatca:idessenderfile:v2.0" xmlns:tfa="urn:oecd:ties:fatca:v2" xmlns:sfa="urn:oecd:ties:stffatcatypes:v1" xmlns:iso="urn:oecd:ties:isofatcatypes:v1">
+  <ftc:MessageSpec>
+    <sfa:SendingCompanyIN>ABCDEF.00000.LE.826</sfa:SendingCompanyIN>
+    <sfa:TransmittingCountry>GB</sfa:TransmittingCountry>
+    <sfa:ReceivingCountry>US</sfa:ReceivingCountry>
+    <sfa:MessageType>FATCA</sfa:MessageType>
+    <sfa:ReportingPeriod>2029-12-31</sfa:ReportingPeriod>
+    <sfa:Timestamp>2030-03-01T09:30:00Z</sfa:Timestamp>
+    <sfa:MessageRefId>FATCA-US-2029-v1-4ad31e50a011faee</sfa:MessageRefId>
+  </ftc:MessageSpec>
+  <ftc:FATCA>
+    <ftc:ReportingFI>
+      <ftc:ResCountryCode>GB</ftc:ResCountryCode>
+      <ftc:IN>ABCDEF.00000.LE.826</ftc:IN>
+      <ftc:Name>Exc Global Markets Ltd</ftc:Name>
+      <ftc:Address>
+        <ftc:CountryCode>GB</ftc:CountryCode>
+        <ftc:AddressFree>Exc Global Markets Ltd registered office</ftc:AddressFree>
+      </ftc:Address>
+      <ftc:DocSpec>
+        <ftc:DocTypeIndic>FATCA1</ftc:DocTypeIndic>
+        <ftc:DocRefId>FATCA-2029-v1</ftc:DocRefId>
+      </ftc:DocSpec>
+    </ftc:ReportingFI>
+    <ftc:ReportingGroup>
+      <ftc:AccountReport>
+        <ftc:DocSpec>
+          <ftc:DocTypeIndic>FATCA1</ftc:DocTypeIndic>
+          <ftc:DocRefId>FATCA-2029-v1-3003</ftc:DocRefId>
+        </ftc:DocSpec>
+        <ftc:AccountNumber>ACC-3003
+          <ftc:AcctNumberType>FATCA605</ftc:AcctNumberType>
+        </ftc:AccountNumber>
+        <ftc:AccountHolder>
+          <ftc:Individual>
+            <ftc:ResCountryCode>US</ftc:ResCountryCode>
+            <ftc:TIN issuedBy="US">123-45-6789</ftc:TIN>
+            <ftc:Name>John Q Public</ftc:Name>
+            <ftc:Address>
+              <ftc:CountryCode>US</ftc:CountryCode>
+              <ftc:AddressFree>1 Main St</ftc:AddressFree>
+              <ftc:AddressFree>New York, NY 10001</ftc:AddressFree>
+            </ftc:Address>
+          </ftc:Individual>
+        </ftc:AccountHolder>
+        <ftc:AccountBalance currCode="USD">44000.00</ftc:AccountBalance>
+        <ftc:Payment>
+          <ftc:Type>FATCA504</ftc:Type>
+          <ftc:PaymentAmount currCode="USD">900.00</ftc:PaymentAmount>
+        </ftc:Payment>
+      </ftc:AccountReport>
+    </ftc:ReportingGroup>
+  </ftc:FATCA>
+</ftc:FATCA_OECD>

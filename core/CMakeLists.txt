@@ -99,6 +99,7 @@ add_library(exch_core STATIC
     src/risk/InstrumentFeedRefresher.cpp
     src/risk/PreTradeChecker.cpp
     src/risk/PriceOracleFeed.cpp
+    src/risk/SanctionsCache.cpp
     src/risk/SuspensionFlags.cpp
     src/risk/SuspensionRefresher.cpp
     src/utils/ClockSyncGuard.cpp
@@ -189,6 +190,7 @@ if(EXCH_BUILD_TESTS)
             test_recovery
             test_engine_pump
             test_pretrade
+            test_sanctions
             test_expiry
             test_cross_shard
             test_amend

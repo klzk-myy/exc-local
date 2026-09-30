@@ -30,10 +30,13 @@ describe('route contracts (generated from docs/openapi/openapi.json)', () => {
     expect(c?.scopes).toContain('trade');
   });
   it('flags stub routes', () => {
-    expect(routeContract('GET /api/v1/account/confirmations/{trade_id}')?.status).toBe('stub');
+    // Unimplemented routes still stub (sub-accounts owe a later phase).
+    expect(routeContract('GET /api/v1/account/sub-accounts')?.status).toBe('stub');
     expect(routeContract('GET /api/v1/exchange-info')?.status).toBe('live');
     // Phase-14 landed copy trading — the route flipped stub → live.
     expect(routeContract('GET /api/v1/copy/strategies')?.status).toBe('live');
+    // Phase-20 landed trade confirmations — flipped stub → live.
+    expect(routeContract('GET /api/v1/account/confirmations/{trade_id}')?.status).toBe('live');
   });
   it('returns undefined for unknown routes', () => {
     expect(routeContract('GET /api/v1/nope')).toBeUndefined();

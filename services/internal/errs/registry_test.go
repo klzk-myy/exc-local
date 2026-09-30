@@ -20,8 +20,10 @@ func TestSpecTableSizeAndUniqueness(t *testing.T) {
 	// 200; + 5 Phase-19.5 oracle codes (Tasks 19.5.3.2–3.7:
 	// ORACLE_FEED_STALE, ORACLE_DIVERGENCE_EXCEEDED, MARK_PRICE_STALE,
 	// MARK_PRICE_OUT_OF_BOUNDS, STALE_FORWARD_POINTS).
-	if got := len(specCodes); got != 206 {
-		t.Fatalf("spec §23 table must carry 206 codes, got %d", got)
+	// + 1 Phase-21 Task 21.3.8 (ENFORCEMENT_ACTION_EXISTS, registered
+	// with the task landing).
+	if got := len(specCodes); got != 207 {
+		t.Fatalf("spec §23 table must carry 207 codes, got %d", got)
 	}
 	seen := map[string]bool{}
 	for _, d := range specCodes {

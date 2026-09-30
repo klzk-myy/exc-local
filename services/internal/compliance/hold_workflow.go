@@ -114,6 +114,13 @@ type HoldRoleResolver func(ctx context.Context, userID int64) (string, error)
 type HoldUserNotifier func(ctx context.Context, userID int64,
 	event string, payload map[string]any)
 
+// SARDrafter is the Phase-21 Task 21.3.3 seam an EscalateSAR
+// disposition feeds — the hold stays the source record; the drafter
+// opens the sar_reports row (dedup anchor 'hold:{id}').
+type SARDrafter interface {
+	DraftFromHold(ctx context.Context, h *Hold) (*SARReport, bool, error)
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -156,6 +163,7 @@ type HoldService struct {
 	closure   ClosureEscalation
 	resolver  HoldRoleResolver
 	notify    HoldUserNotifier
+	sar       SARDrafter // optional — Phase-21 Task 21.3.3
 	newID     func() (string, error)
 	now       func() time.Time
 }
@@ -170,6 +178,15 @@ func NewHoldService(pool *pgxpool.Pool, canceller RestingCanceller,
 	return &HoldService{pool: pool, canceller: canceller, alerter: alerter,
 		closure: closure, resolver: resolver, notify: notify,
 		newID: newID, now: time.Now}
+}
+
+// WithSARDraft binds the Phase-21 Task 21.3.3 SAR service — an
+// EscalateSAR disposition then opens the DRAFT report against the hold
+// (idempotent on 'hold:{id}'; a nil seam preserves the record-only
+// behaviour).
+func (s *HoldService) WithSARDraft(d SARDrafter) *HoldService {
+	s.sar = d
+	return s
 }
 
 // ---------------------------------------------------------------------------
@@ -470,8 +487,11 @@ func (s *HoldService) Release(ctx context.Context, holdID string,
 	return h, nil
 }
 
-// EscalateSAR records the escalation decision only — the actual
-// SAR/STR filing ships with Phase-21 Task 21.3.3 against this row.
+// EscalateSAR records the escalation decision and — when the Phase-21
+// Task 21.3.3 seam is wired — opens the DRAFT SAR against this hold.
+// The escalation commits first; a draft failure surfaces as
+// SERVICE_DEGRADED (the hold is already ESCALATED_SAR — the report can
+// be drafted by retry).
 func (s *HoldService) EscalateSAR(ctx context.Context, holdID string,
 	actor int64, detail string) (*Hold, error) {
 	if detail == "" {
@@ -481,9 +501,19 @@ func (s *HoldService) EscalateSAR(ctx context.Context, holdID string,
 	if err := s.checkRole(ctx, actor); err != nil {
 		return nil, err
 	}
-	return s.resolveEscalation(ctx, holdID, actor,
+	h, err := s.resolveEscalation(ctx, holdID, actor,
 		HoldStatusEscalatedSAR, "COMPLIANCE_HOLD_ESCALATE_SAR",
 		"escalated to SAR — Phase-21 Task 21.3.3 files the report: "+detail)
+	if err != nil {
+		return nil, err
+	}
+	if s.sar != nil {
+		if _, _, derr := s.sar.DraftFromHold(ctx, h); derr != nil {
+			return h, excerrors.Wrap("SERVICE_DEGRADED",
+				"hold escalated but SAR draft failed: "+derr.Error(), derr)
+		}
+	}
+	return h, nil
 }
 
 // EscalateToClosure records the escalation and submits the forced-

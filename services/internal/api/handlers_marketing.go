@@ -13,7 +13,7 @@
 // task report's deviation note (registry is Phase-05-owned).
 //
 // Source relations are Phase-21-owned (financial_promotions,
-// account_consents): while the tables are absent the stores return
+// account_consent_states): while the tables are absent the stores return
 // ErrMarketingSourceUnavailable and this handler emits a clean 503
 // with a source_unavailable note — never a fabricated empty report.
 package api
@@ -39,7 +39,7 @@ func AdminPromotionsReport(svc *analytics.MarketingReportService) http.HandlerFu
 				gateway.RequestIDFrom(r.Context()),
 				map[string]any{
 					"source_unavailable": "financial_promotions lands Phase-21 Task 21.3.26; " +
-						"account_consents lands Phase-21 Task 21.3.7",
+						"account_consent_states lands Phase-21 Task 21.3.7",
 				})
 		default:
 			writeServiceErr(w, r, err)

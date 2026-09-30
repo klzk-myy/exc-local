@@ -84,6 +84,14 @@ inline constexpr char kCodeStpNoneNotPermitted[] = "STP_NONE_NOT_PERMITTED"; // 
 inline constexpr char kCodeInvalidRequest[] = "INVALID_REQUEST";            // §23: 400
 inline constexpr char kCodeBilateralCreditExhausted[] =
     "BILATERAL_CREDIT_EXHAUSTED";  // §23: 409 (spec §3.3b screened liquidity)
+// Phase-21 Task 21.3.10 — sanctions screen verdicts on the admission
+// path. SANCTIONS_HIT = the account's flag stands in the last verified
+// snapshot (§23 registered, 403); SANCTIONS_SERVICE_UNAVAILABLE = the
+// bound cache cannot attest state (no snapshot / unverifiable / stale
+// heartbeat / strict-mode unscreened) — §23 registered, 503.
+inline constexpr char kCodeSanctionsHit[] = "SANCTIONS_HIT";                 // §23: 403
+inline constexpr char kCodeSanctionsUnavailable[] =
+    "SANCTIONS_SERVICE_UNAVAILABLE";                                          // §23: 503
 
 // --- Account-side state (one record per account; Phase-03/14 own impls) ----
 

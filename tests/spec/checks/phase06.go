@@ -15,10 +15,10 @@ import (
 // liquidations/stats/OI) and lifecycle tasks (private stream, depth
 // params, reference price, seq durability, resync).
 const (
-	p06MD   = "./internal/marketdata"
+	p06MD    = "./internal/marketdata"
 	p06OHLCV = "./internal/marketdata/ohlcv"
-	p06SBE  = "./internal/sbe"
-	p06WS   = "./internal/ws"
+	p06SBE   = "./internal/sbe"
+	p06WS    = "./internal/ws"
 )
 
 func registerPhase06(r *spec.Registry) {

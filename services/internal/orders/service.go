@@ -10,6 +10,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strconv"
@@ -197,6 +198,44 @@ type CoolingOffGate interface {
 	AssertLeverageEntryAllowed(ctx context.Context, accountID int64) error
 }
 
+// DealingGate is the Phase-21 Task 21.3.24 employee-dealing /
+// insider-information admission seam — *compliance.EmployeeDealingService
+// satisfies it in production. Consulted inside checkAdmission for
+// EVERY new-order admission including reduce_only (insider
+// restrictions attach to any dealing, not just opens): employee
+// accounts on restricted instruments or in SENSITIVE_ROLES reject
+// EMPLOYEE_DEALING_PRECLEARANCE_REQUIRED (422) without an approved,
+// unexpired pre-clearance. This is the gateway dispatch seam — the
+// matching engine is never involved. nil → gate skipped (venues
+// without employee accounts deploy nothing).
+type DealingGate interface {
+	AssertOrderEntry(ctx context.Context, accountID int64,
+		symbol string) error
+}
+
+// EnforcementGate is the Phase-21 Task 21.3.8 market-abuse throttle
+// seam — *compliance.EnforcementService satisfies it. Consulted inside
+// checkAdmission for every new-order admission; an ACTIVE THROTTLE
+// action caps messages/sec per account (RATE_LIMIT_TIER_EXCEEDED over
+// the cap). Durable enforcement (freeze/suspend) rides the kill-switch
+// and account-status gates upstream — this gate only carries the
+// cached throttle cap; nil → skipped.
+type EnforcementGate interface {
+	CheckAdmission(ctx context.Context, accountID int64) error
+}
+
+// AlgoCertGate is the Phase-21 Task 21.3.12 RTS 6 Art. 9 certification
+// seam — *compliance.RTS6Service satisfies it in production. Consulted
+// on Submit/BatchSubmit only when the request carries an explicit
+// client algo id (algo_params.algo_id): uncertified algo flow rejects
+// ALGO_NOT_CERTIFIED (422); venue-hosted AlgoType strategies
+// (TWAP/VWAP/…) are internal and never consult it. A nil gate with a
+// present algo_id fails closed (SERVICE_DEGRADED).
+type AlgoCertGate interface {
+	AssertCertified(ctx context.Context, accountID int64,
+		algoID string) error
+}
+
 // Service wires store + transport + sequencing.
 type Service struct {
 	store       Store
@@ -212,6 +251,9 @@ type Service struct {
 	exposure    ExposureGate
 	marginCall  MarginCallGate
 	oracleGate  OracleGate
+	dealing     DealingGate     // Phase-21 Task 21.3.24 employee pre-clearance
+	enforcement EnforcementGate // Phase-21 Task 21.3.8 abuse throttle
+	algoCert    AlgoCertGate    // Phase-21 Task 21.3.12 RTS 6 certification
 	batch       BatchRateLimiter
 	commission  CommissionEstimator
 	admission   AdmissionObserver
@@ -350,6 +392,23 @@ func (s *Service) WithAuction(g AuctionGate) { s.auction = g }
 // the order service.
 func (s *Service) WithNotify(n PrivateNotify) { s.notifyFn = n }
 
+// WithDealingGate binds the Phase-21 Task 21.3.24 employee-dealing
+// admission gate post-construction — cmd/gateway builds
+// compliance.EmployeeDealingService after the order pipeline (it shares
+// the pool + role resolver), so the seam attaches here (same pattern
+// as WithCoolingOff).
+func (s *Service) WithDealingGate(g DealingGate) { s.dealing = g }
+
+// WithEnforcementGate binds the Phase-21 Task 21.3.8 market-abuse
+// throttle seam post-construction (compliance.EnforcementService).
+func (s *Service) WithEnforcementGate(g EnforcementGate) {
+	s.enforcement = g
+}
+
+// WithAlgoCertGate binds the Phase-21 Task 21.3.12 RTS 6 algo
+// certification gate (compliance.RTS6Service).
+func (s *Service) WithAlgoCertGate(g AlgoCertGate) { s.algoCert = g }
+
 // AccountByID / InstrumentBySymbol are thin store delegates exposed so
 // the handler layer can resolve account rows and symbol → instrument
 // without holding the Store interface.
@@ -422,6 +481,38 @@ func decStr(d *decimal.Decimal) string {
 	return d.String()
 }
 
+// algoIDFromParams extracts the client algo identifier from
+// algo_params (RTS 6 boundary: explicit algo_id ⇒ client-side strategy
+// requiring certification; absent ⇒ venue-internal or none).
+func algoIDFromParams(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var p struct {
+		AlgoID string `json:"algo_id"`
+	}
+	if json.Unmarshal(raw, &p) != nil {
+		return ""
+	}
+	return strings.TrimSpace(p.AlgoID)
+}
+
+// checkAlgoCert runs the RTS 6 Art. 9 certification gate — nil error
+// when no client algo id is present; a present algo_id with an unwired
+// gate fails closed SERVICE_DEGRADED.
+func (s *Service) checkAlgoCert(ctx context.Context, acct *Account,
+	req *SubmitRequest) error {
+	algoID := algoIDFromParams(req.AlgoParams)
+	if algoID == "" {
+		return nil
+	}
+	if s.algoCert == nil {
+		return codeErr("SERVICE_DEGRADED",
+			"algo certification gate unavailable — algo orders rejected (fail closed)")
+	}
+	return s.algoCert.AssertCertified(ctx, acct.ID, algoID)
+}
+
 // strPtrOrNil normalizes an optional request string for a NULL-able
 // column — "" ⇒ nil (absent), anything else rides through trimmed.
 func strPtrOrNil(s string) *string {
@@ -488,6 +579,26 @@ func (s *Service) checkAdmission(ctx context.Context, acct *Account,
 	}
 	if err := s.breakers.AdmitOrder(ctx, acct.ID, inst.Symbol); err != nil {
 		return err // gate emits coded errors (CIRCUIT_BREAKER_OPEN / internal)
+	}
+	// Phase-21 Task 21.3.8 — market-abuse enforcement throttle: an
+	// ACTIVE THROTTLE action caps new-order messages/sec for the
+	// account (RATE_LIMIT_TIER_EXCEEDED). Consulted for EVERY admission
+	// incl. reduce_only — a throttled abuser's closes are likewise
+	// rate-bound. nil skips the gate (pre-247 deploys).
+	if s.enforcement != nil {
+		if err := s.enforcement.CheckAdmission(ctx, acct.ID); err != nil {
+			return err // RATE_LIMIT_TIER_EXCEEDED
+		}
+	}
+	// Phase-21 Task 21.3.24 — employee-dealing / insider-information
+	// gate: employee accounts on restricted instruments or in
+	// SENSITIVE_ROLES reject EMPLOYEE_DEALING_PRECLEARANCE_REQUIRED
+	// (422) without an approved pre-clearance. Covers reduce_only too —
+	// insider restrictions attach to any dealing. nil skips the gate.
+	if s.dealing != nil {
+		if err := s.dealing.AssertOrderEntry(ctx, acct.ID, inst.Symbol); err != nil {
+			return err // EMPLOYEE_DEALING_PRECLEARANCE_REQUIRED / fail-closed
+		}
 	}
 	// Phase-14 Task 14.3.12 — cooling-off self-exclusion: leveraged
 	// order entry rejects with COOLING_OFF_ACTIVE while a live window
@@ -579,6 +690,11 @@ func (s *Service) Submit(ctx context.Context, acct *Account, req *SubmitRequest)
 		return nil, codeErr("INVALID_REQUEST", "unknown symbol %q", req.Symbol)
 	}
 	if err := s.checkAdmission(ctx, acct, inst, req.SessionID, req.ReduceOnly); err != nil {
+		return nil, err
+	}
+	// Phase-21 Task 21.3.12 — RTS 6 Art. 9: a client algo_id submits
+	// only under a CERTIFIED, unexpired registration.
+	if err := s.checkAlgoCert(ctx, acct, req); err != nil {
 		return nil, err
 	}
 	ref, err := s.store.ReferencePrice(ctx, inst.ID)
@@ -1576,6 +1692,11 @@ func (s *Service) BatchSubmit(ctx context.Context, acct *Account,
 			// Kill-switch gate per batch entry — per-item verdicts carry
 			// TRADING_HALTED without aborting sibling entries.
 			verr = s.checkAdmission(ctx, acct, inst, req.SessionID, req.ReduceOnly)
+			if verr == nil {
+				// Phase-21 Task 21.3.12 — RTS 6 algo certification per
+				// batch entry carrying a client algo_id.
+				verr = s.checkAlgoCert(ctx, acct, req)
+			}
 		}
 		if verr == nil {
 			ref, rerr := s.store.ReferencePrice(ctx, inst.ID)

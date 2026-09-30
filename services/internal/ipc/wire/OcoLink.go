@@ -6,13 +6,13 @@ import (
 	flatbuffers "github.com/google/flatbuffers/go"
 )
 
-/// Inbound: OCO (one-cancels-other) link command — Phase-14 Task 14.3.1,
-/// spec §6.2/§6.5. The gateway sends this event on the pair's shard BEFORE
-/// either leg's OrderNew, so the engine installs the linkage while both
-/// members are still unplaced: a leg that fills first then cancels the
-/// sibling atomically, and a leg whose sibling already terminated is
-/// rejected OCO_SIBLING_CANCEL_RACE on arrival (deterministic WAL order).
-/// link_id is the OCO group identifier persisted as orders.oco_group_id.
+// / Inbound: OCO (one-cancels-other) link command — Phase-14 Task 14.3.1,
+// / spec §6.2/§6.5. The gateway sends this event on the pair's shard BEFORE
+// / either leg's OrderNew, so the engine installs the linkage while both
+// / members are still unplaced: a leg that fills first then cancels the
+// / sibling atomically, and a leg whose sibling already terminated is
+// / rejected OCO_SIBLING_CANCEL_RACE on arrival (deterministic WAL order).
+// / link_id is the OCO group identifier persisted as orders.oco_group_id.
 type OcoLink struct {
 	_tab flatbuffers.Table
 }

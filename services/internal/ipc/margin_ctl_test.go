@@ -5,8 +5,8 @@
 package ipc
 
 import (
-	"encoding/hex"
 	"encoding/binary"
+	"encoding/hex"
 	"testing"
 )
 
@@ -144,7 +144,7 @@ func TestMarginCtlRoundTripAllTypes(t *testing.T) {
 	}
 	nack := &MarginReserveNackBody{
 		ReservationID: 0x0001_000000000001, AccountID: 9, ShardID: 5,
-		Reason:        uint32(MarginNackInsufficientHeadroom),
+		Reason: uint32(MarginNackInsufficientHeadroom),
 	}
 	if n := MarginCtlEncode(buf, MarginCtlReserveNack, nack); n != 32 {
 		t.Fatalf("nack encoded %d, want 32", n)

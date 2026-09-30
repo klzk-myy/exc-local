@@ -97,13 +97,14 @@ func TestErrorsEndpoint(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	// 206 = 205 (see registry_test.go: baseline + Phase-16/18/19/19.5
+	// 207 = 205 (see registry_test.go: baseline + Phase-16/18/19/19.5
 	// additions) + 1 Phase-20 code (INSUFFICIENT_COHORT, Task 20.3.16 —
-	// registered in the §23 table at the Phase-20 landing).
-	if body.SpecCount != 206 {
-		t.Fatalf("spec_count %d, want 206", body.SpecCount)
+	// registered in the §23 table at the Phase-20 landing) + 1 Phase-21
+	// Task 21.3.8 code (ENFORCEMENT_ACTION_EXISTS).
+	if body.SpecCount != 207 {
+		t.Fatalf("spec_count %d, want 207", body.SpecCount)
 	}
-	if body.Count != len(body.Codes) || body.Count < 206 {
+	if body.Count != len(body.Codes) || body.Count < 207 {
 		t.Fatalf("error dump mismatch: count=%d len=%d", body.Count, len(body.Codes))
 	}
 }

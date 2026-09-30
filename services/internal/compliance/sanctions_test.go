@@ -192,4 +192,36 @@ func TestDevFixtureLoads(t *testing.T) {
 			t.Fatalf("dev fixture name %q not screened positive", want)
 		}
 	}
+	// Phase-21 additions — aliases, UK HMT rows, PEP kind.
+	for _, want := range []string{
+		"Doctor Evil",            // UN INDIVIDUAL_ALIAS → DATAID 9990001
+		"Max Powers Junior",      // EU NAME_ALIAS element
+		"Powers Maximilian",      // EU ALIAS attribute name
+		"BHG Limited",            // OFAC alt.csv → ent_num 9002
+		"Embargo Markets",        // UK HMT Name1+Name2 composite
+		"Sanctioned Shipping SA", // UK HMT Name6 primary
+		"SS Lines",               // UK HMT Alias column
+	} {
+		hit, ok := s.MatchDetail(want)
+		if !ok {
+			t.Fatalf("dev fixture name %q not screened positive", want)
+		}
+		_ = hit
+	}
+	// Alias entries resolve back to their primary listed party.
+	if hit, _ := s.MatchDetail("BHG Limited"); hit.AliasOf == "" {
+		t.Fatal("ofac-alt alias did not resolve to primary (ent_num 9002)")
+	}
+	if hit, _ := s.MatchDetail("Doctor Evil"); hit.AliasOf == "" {
+		t.Fatal("UN alias did not resolve to primary (DATAID 9990001)")
+	}
+	// PEP entries screen only on the PEP kind surface — never the
+	// SANCTIONS funding block.
+	if _, ok := s.MatchKind("Senator Fixture Example", EntryKindPEP); !ok {
+		t.Fatal("pep fixture entry missing")
+	}
+	if _, ok := s.MatchKind("Senator Fixture Example",
+		EntryKindSanctions); ok {
+		t.Fatal("pep fixture entry leaked into sanctions kind")
+	}
 }

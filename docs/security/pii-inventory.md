@@ -1,6 +1,6 @@
 # PII Inventory — GDPR Art. 30 Record + Encryption/Access Map
 
-**Generated:** 2026-09-30 04:31 UTC by `scripts/security/gen-pii-inventory.py` (Task 13.5.3.2) from 154 `*.up.sql` migrations (214 tables, 2448 columns). Do not hand-edit; update the generator's ANNOTATIONS map and re-run. Companion artifacts: `pii-catalog.csv` (same rows, machine-checkable), `pii-audit-report.md` (verification evidence), `gdpr-erasure-runbook.md` (Art. 17 procedure).
+**Generated:** 2026-09-30 08:20 UTC by `scripts/security/gen-pii-inventory.py` (Task 13.5.3.2) from 176 `*.up.sql` migrations (278 tables, 3332 columns). Do not hand-edit; update the generator's ANNOTATIONS map and re-run. Companion artifacts: `pii-catalog.csv` (same rows, machine-checkable), `pii-audit-report.md` (verification evidence), `gdpr-erasure-runbook.md` (Art. 17 procedure).
 
 PII classes: **DIRECT_ID** (name/address/residency) · **CONTACT** (email/phone) · **GOV_ID** (TIN/ID documents) · **FINANCIAL** (bank identifiers) · **AUTH_SECRET** (credentials — hashed/sealed, tracked for erasure) · **PSEUDONYMOUS** (IP/UA/fingerprint/geo/actor ids) · **LINKAGE** (user_id/account_id re-identification joins) · **FREE_TEXT** (may embed incidental PII) · **ORG_CONTACT** (institutional contacts).
 
@@ -110,6 +110,20 @@ Retention classes reference `infrastructure/data-tiering/tiering_policy.yaml` (e
 |---|---|---|---|---|---|
 | `payload` | JSONB | FREE_TEXT | plaintext JSONB — as deliveries | DLQ review | operational |
 
+### `travel_rule_records`
+
+| column | type | class | encryption at rest | access path | retention |
+|---|---|---|---|---|---|
+| `originator` | JSONB | DIRECT_ID | plaintext JSONB {name, account_number, address, country} | FATF R.16 counterparty exchange — outbound 50K / inbound hold | statutory recordkeeping (≥5y) |
+| `beneficiary` | JSONB | DIRECT_ID | plaintext JSONB {name, account_number} | FATF R.16 field 59 — outbound/inbound matching | statutory recordkeeping (≥5y) |
+
+### `sar_reports`
+
+| column | type | class | encryption at rest | access path | retention |
+|---|---|---|---|---|---|
+| `review_note` | TEXT | FREE_TEXT | plaintext | second-signer review rationale | SAR confidentiality floor |
+| `approval_note` | TEXT | FREE_TEXT | plaintext | approver note | SAR confidentiality floor |
+
 ### `bank_accounts`
 
 | column | type | class | encryption at rest | access path | retention |
@@ -142,6 +156,63 @@ Retention classes reference `infrastructure/data-tiering/tiering_policy.yaml` (e
 | column | type | class | encryption at rest | access path | retention |
 |---|---|---|---|---|---|
 | `reason` | VARCHAR(255) | FREE_TEXT | plaintext | obvious-error rationale — officer-entered | audit floor |
+
+### `regulatory_report_events`
+
+| column | type | class | encryption at rest | access path | retention |
+|---|---|---|---|---|---|
+| `payload` | JSONB | FREE_TEXT | plaintext JSONB — report artifact may embed client fields | MiFID/EMIR/CFTC event record | statutory regulatory retention |
+
+### `regulatory_report_submissions`
+
+| column | type | class | encryption at rest | access path | retention |
+|---|---|---|---|---|---|
+| `payload` | JSONB | FREE_TEXT | plaintext JSONB — serialized report (client fields) | APA/ARM/NCA/SDR submission artifact | statutory regulatory retention |
+| `payload_xml` | TEXT | FREE_TEXT | plaintext XML — ISO 20022 envelope (client fields) | submission artifact | statutory regulatory retention |
+
+### `regulatory_report_acks`
+
+| column | type | class | encryption at rest | access path | retention |
+|---|---|---|---|---|---|
+| `payload` | JSONB | FREE_TEXT | plaintext JSONB — regulator ACK/NACK may echo report fields | ack/repair chain | statutory regulatory retention |
+
+### `regulatory_report_breaks`
+
+| column | type | class | encryption at rest | access path | retention |
+|---|---|---|---|---|---|
+| `notes` | VARCHAR(1024) | FREE_TEXT | plaintext | officer break-resolution note | statutory regulatory retention |
+
+### `venue_members`
+
+| column | type | class | encryption at rest | access path | retention |
+|---|---|---|---|---|---|
+| `suspension_reason` | VARCHAR(512) | FREE_TEXT | plaintext | CCO action rationale | venue-governance floor |
+| `termination_reason` | VARCHAR(512) | FREE_TEXT | plaintext | CCO action rationale | venue-governance floor |
+
+### `regulatory_submissions`
+
+| column | type | class | encryption at rest | access path | retention |
+|---|---|---|---|---|---|
+| `payload` | JSONB | FREE_TEXT | plaintext JSONB — report artifact (client fields) | NCA/ARM submission | statutory regulatory retention |
+| `payload_xml` | TEXT | FREE_TEXT | plaintext XML — submission artifact | submission record | statutory regulatory retention |
+
+### `regulatory_submission_log`
+
+| column | type | class | encryption at rest | access path | retention |
+|---|---|---|---|---|---|
+| `body` | JSONB | FREE_TEXT | plaintext — transmission log may echo report fields | wire-level submission log | statutory regulatory retention |
+
+### `fx_gc_statements`
+
+| column | type | class | encryption at rest | access path | retention |
+|---|---|---|---|---|---|
+| `body` | TEXT | FREE_TEXT | plaintext — self-assessment narrative may name officers | FX Global Code 55-principle assessment | assessment history floor |
+
+### `comms_capture_outbox`
+
+| column | type | class | encryption at rest | access path | retention |
+|---|---|---|---|---|---|
+| `payload` | JSONB | FREE_TEXT | plaintext JSONB — outbound comm envelope (recipient fields) | WORM comms recording capture | comms retention floor (≥5y) |
 
 ### `account_closures`
 
@@ -225,6 +296,31 @@ Retention classes reference `infrastructure/data-tiering/tiering_policy.yaml` (e
 |---|---|---|---|---|---|
 | `skip_reason` | VARCHAR(64) | FREE_TEXT | plaintext | machine/officer skip note | run record |
 
+### `restricted_lists`
+
+| column | type | class | encryption at rest | access path | retention |
+|---|---|---|---|---|---|
+| `reason` | TEXT | FREE_TEXT | plaintext | restricted-list rationale | employee-dealing audit floor |
+
+### `pre_clearance_requests`
+
+| column | type | class | encryption at rest | access path | retention |
+|---|---|---|---|---|---|
+| `reason` | TEXT | FREE_TEXT | plaintext | employee request justification | employee-dealing audit floor |
+| `decision_note` | TEXT | FREE_TEXT | plaintext | officer decision note | employee-dealing audit floor |
+
+### `employee_trade_reviews`
+
+| column | type | class | encryption at rest | access path | retention |
+|---|---|---|---|---|---|
+| `review_note` | TEXT | FREE_TEXT | plaintext | reviewer note | employee-dealing audit floor |
+
+### `regulatory_changes`
+
+| column | type | class | encryption at rest | access path | retention |
+|---|---|---|---|---|---|
+| `notes` | TEXT | FREE_TEXT | plaintext | officer impact-assessment note | regulatory floor |
+
 ### `vulnerability_disclosures`
 
 | column | type | class | encryption at rest | access path | retention |
@@ -291,6 +387,12 @@ Retention classes reference `infrastructure/data-tiering/tiering_policy.yaml` (e
 |---|---|---|---|---|---|
 | `display_name` | VARCHAR(128) | FREE_TEXT | plaintext | manager-chosen public label | strategy lifetime |
 | `suspend_reason` | VARCHAR(255) | FREE_TEXT | plaintext | compliance note | strategy lifetime |
+
+### `execution_policies`
+
+| column | type | class | encryption at rest | access path | retention |
+|---|---|---|---|---|---|
+| `review_notes` | TEXT | FREE_TEXT | plaintext | annual-review note | RTS 28 evidential floor |
 
 ### `suspense_account_mappings`
 
@@ -462,6 +564,91 @@ Retention classes reference `infrastructure/data-tiering/tiering_policy.yaml` (e
 |---|---|---|---|---|---|
 | `reason` | VARCHAR(255) | FREE_TEXT | plaintext | officer-entered adjustment justification | audit floor |
 
+### `rts6_self_assessments`
+
+| column | type | class | encryption at rest | access path | retention |
+|---|---|---|---|---|---|
+| `review_note` | TEXT | FREE_TEXT | plaintext | certification review note | RTS 6 evidential floor |
+
+### `gdpr_requests`
+
+| column | type | class | encryption at rest | access path | retention |
+|---|---|---|---|---|---|
+| `failure_reason` | TEXT | FREE_TEXT | plaintext | erasure/export blocker detail | privacy-request audit floor |
+
+### `geo_jurisdiction_policies`
+
+| column | type | class | encryption at rest | access path | retention |
+|---|---|---|---|---|---|
+| `reason` | TEXT | FREE_TEXT | plaintext | geo-policy rationale | policy floor |
+
+### `tax_report_runs`
+
+| column | type | class | encryption at rest | access path | retention |
+|---|---|---|---|---|---|
+| `rejection_reason` | TEXT | FREE_TEXT | plaintext | officer rejection note | tax-filing floor |
+
+### `financial_promotions`
+
+| column | type | class | encryption at rest | access path | retention |
+|---|---|---|---|---|---|
+| `rejection_reason` | TEXT | FREE_TEXT | plaintext | officer rejection note | promotions evidential floor |
+
+### `financial_promotion_versions`
+
+| column | type | class | encryption at rest | access path | retention |
+|---|---|---|---|---|---|
+| `note` | TEXT | FREE_TEXT | plaintext | version note | promotions evidential floor |
+
+### `enforcement_actions`
+
+| column | type | class | encryption at rest | access path | retention |
+|---|---|---|---|---|---|
+| `note` | TEXT | FREE_TEXT | plaintext — enforcement rationale may name account/actor | market-abuse enforcement | statutory audit floor |
+
+### `surveillance_cases`
+
+| column | type | class | encryption at rest | access path | retention |
+|---|---|---|---|---|---|
+| `sla_note` | TEXT | FREE_TEXT | plaintext | analyst SLA note | case-file floor |
+| `disposition_reason` | TEXT | FREE_TEXT | plaintext | disposition rationale | case-file floor |
+
+### `surveillance_case_evidence`
+
+| column | type | class | encryption at rest | access path | retention |
+|---|---|---|---|---|---|
+| `body` | TEXT | FREE_TEXT | plaintext JSONB — evidence may embed account/trade data | immutable case evidence | case-file floor |
+
+### `venue_rule_notices`
+
+| column | type | class | encryption at rest | access path | retention |
+|---|---|---|---|---|---|
+| `subject` | VARCHAR(256) | FREE_TEXT | plaintext | notice subject line | venue-governance floor |
+
+### `venue_interventions`
+
+| column | type | class | encryption at rest | access path | retention |
+|---|---|---|---|---|---|
+| `reason` | VARCHAR(1024) | FREE_TEXT | plaintext | intervention rationale | venue-governance floor |
+
+### `venue_cases`
+
+| column | type | class | encryption at rest | access path | retention |
+|---|---|---|---|---|---|
+| `subject` | VARCHAR(256) | FREE_TEXT | plaintext | case subject line | venue-governance floor |
+
+### `venue_case_evidence`
+
+| column | type | class | encryption at rest | access path | retention |
+|---|---|---|---|---|---|
+| `note` | VARCHAR(512) | FREE_TEXT | plaintext | evidence annotation | venue-governance floor |
+
+### `venue_conflicts`
+
+| column | type | class | encryption at rest | access path | retention |
+|---|---|---|---|---|---|
+| `subject` | VARCHAR(256) | FREE_TEXT | plaintext — conflict declaration may name persons/accounts | conflict-of-interest register | venue-governance floor |
+
 ## 2. Columns pending review
 
 None — every PII-name-pattern column carries a curated classification.
@@ -472,32 +659,40 @@ Schema-verified by the generator (no PII-name-pattern column and no curated anno
 
 `instruments` `balances` `audit_hash_chain` `risk_limits` `fee_tiers` `margin_accounts` `positions` `liquidation_auctions`
 `insurance_fund` `nostro_accounts` `audit_merkle_roots` `processed_trades` `book_snapshots` `surveillance_signals`
-`fix_sessions` `fix_messages` `chart_of_accounts` `journal_entries` `ledger_lines` `prime_brokers` `pb_credit_limits`
-`pb_giveup_trades` `collateral_schedule` `appropriateness_assessments` `mm_programs` `mm_compliance`
-`mm_rebate_accruals` `client_statements` `trade_confirmations` `fee_invoices` `trial_balances` `erp_delivery_log`
-`fix_certifications` `credit_groups` `credit_parties` `credit_relationships` `credit_reservations` `shard_margin_reservations`
-`position_transfers` `margin_model_runs` `recovery_reports` `grid_bots` `grid_bot_orders` `prevented_matches`
-`client_role_bindings` `client_approval_policies` `order_list_legs` `strategies` `withdrawal_whitelist_settings`
+`fix_sessions` `fix_messages` `ctr_reports` `aml_monitoring_events` `aml_program_artifacts` `aml_account_assessments`
+`chart_of_accounts` `journal_entries` `ledger_lines` `prime_brokers` `pb_credit_limits` `pb_giveup_trades`
+`collateral_schedule` `appropriateness_assessments` `mm_programs` `mm_compliance` `mm_rebate_accruals`
+`client_statements` `trade_confirmations` `fee_invoices` `trial_balances` `erp_delivery_log` `fix_certifications`
+`credit_groups` `credit_parties` `credit_relationships` `credit_reservations` `regulatory_schema_versions`
+`party_identifiers` `cftc_position_limits` `shard_margin_reservations` `compliance_assessment_runs` `compliance_assessments`
+`position_transfers` `comms_recordings` `comms_recording_access` `margin_model_runs` `recovery_reports`
+`grid_bots` `grid_bot_orders` `prevented_matches` `client_role_bindings` `client_approval_policies` `order_list_legs`
+`strategies` `withdrawal_whitelist_settings` `regulatory_change_impacts` `regulatory_change_correspondence`
 `vip_tier_schedule` `account_equity_snapshots` `account_vip_history` `instruments_reference` `auction_calendar`
 `currency_day_counts` `swap_markup_policies` `non_trading_fee_schedule` `swap_accrual_records` `principal_role_systems`
 `admin_recert_campaigns` `environments` `fleet_hosts` `release_promotions` `deploy_windows` `recovery_digests`
 `balance_snapshots` `account_product_profiles` `copy_follows` `copy_child_orders` `high_water_marks`
-`profit_share_accruals` `entity_leverage_policy` `product_target_markets` `governance_packs` `ledger_entries`
-`journal_sums` `swap_free_admin_fees` `rail_payments` `risk_daily_usage` `currency_conversions` `position_fills`
-`nostro_movements` `dust_sweeps` `swap_rates` `carry_trade_allocations` `carry_trade_legs` `carry_yield_records`
-`carry_yield_totals` `swap_free_admin_fee_assessments` `rollover_runs` `commission_tiers` `account_monthly_volume`
-`partition_archive_log` `currency_holidays` `client_order_id_dedup` `transfers` `announcements` `maintenance_windows`
-`fx_klines` `fee_promo_windows` `api_deprecations` `manual_liquidations` `lp_instrument_configs` `lp_performance_alerts`
-`feature_flags` `data_retention_holds` `retention_audit_log` `partition_tier_state` `partition_tier_log`
-`api_deprecation_hits` `ops_status_events` `ops_component_state` `ops_incidents` `funding_fee_tiers`
-`funding_fee_free_usage` `funding_currency_conversions` `withdrawal_dispatch_queue` `funding_ops_alerts`
-`nostro_replenishment_requests` `kyc_tier_policies` `kyc_ops_matrix` `circuit_breaker_events` `reconciliation_runs`
-`reconciliation_findings` `solvency_snapshots` `solvency_proofs` `cooling_off_periods` `pamm_allocations`
-`pamm_subledger_entries` `pamm_fill_allocations` `auto_halt_events` `algo_orders` `algo_order_children`
-`bracket_orders` `bracket_children` `fix_allocations` `fix_allocation_legs` `allocation_events` `sor_shadow_orders`
-`sor_fill_dedup` `fixsbe_sessions` `fixsbe_schema_registry` `insurance_fund_transactions` `margin_call_events`
-`liquidation_events` `nbp_events` `adl_directives` `insurance_fund_governance` `pb_credit_reservations`
-`leverage_tiers` `account_leverage` `account_margin_thresholds` `depreciation_episodes`
+`profit_share_accruals` `entity_leverage_policy` `product_target_markets` `execution_policy_consents`
+`governance_packs` `ledger_entries` `journal_sums` `swap_free_admin_fees` `rail_payments` `risk_daily_usage`
+`currency_conversions` `position_fills` `nostro_movements` `dust_sweeps` `swap_rates` `carry_trade_allocations`
+`carry_trade_legs` `carry_yield_records` `carry_yield_totals` `swap_free_admin_fee_assessments` `rollover_runs`
+`commission_tiers` `account_monthly_volume` `partition_archive_log` `currency_holidays` `client_order_id_dedup`
+`transfers` `announcements` `maintenance_windows` `fx_klines` `fee_promo_windows` `api_deprecations`
+`manual_liquidations` `lp_instrument_configs` `lp_performance_alerts` `feature_flags` `data_retention_holds`
+`retention_audit_log` `partition_tier_state` `partition_tier_log` `api_deprecation_hits` `ops_status_events`
+`ops_component_state` `ops_incidents` `funding_fee_tiers` `funding_fee_free_usage` `funding_currency_conversions`
+`withdrawal_dispatch_queue` `funding_ops_alerts` `nostro_replenishment_requests` `kyc_tier_policies`
+`kyc_ops_matrix` `circuit_breaker_events` `reconciliation_runs` `reconciliation_findings` `solvency_snapshots`
+`solvency_proofs` `cooling_off_periods` `pamm_allocations` `pamm_subledger_entries` `pamm_fill_allocations`
+`auto_halt_events` `algo_orders` `algo_order_children` `bracket_orders` `bracket_children` `fix_allocations`
+`fix_allocation_legs` `allocation_events` `sor_shadow_orders` `sor_fill_dedup` `fixsbe_sessions` `fixsbe_schema_registry`
+`insurance_fund_transactions` `margin_call_events` `liquidation_events` `nbp_events` `adl_directives`
+`insurance_fund_governance` `pb_credit_reservations` `leverage_tiers` `account_leverage` `account_margin_thresholds`
+`depreciation_episodes` `account_consents` `algo_certifications` `dea_session_controls` `reporting_values`
+`surveillance_signal_tuning` `account_consent_states` `account_consent_events` `data_residency_policies`
+`data_residency_access_log` `basel_reports` `venue_member_events` `venue_member_reviews` `venue_rulebooks`
+`venue_rule_acks` `venue_self_assessments` `cco_reports` `venue_launch_prerequisites` `rts27_daily_stats`
+`rts27_reports` `rts28_reports`
 
 ## 4. Data-flow summary
 

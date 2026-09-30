@@ -1,0 +1,106 @@
+# residency_policy.yml — Phase-21 Task 21.3.18
+# Jurisdictional data-residency map. The authoritative copy lives in
+# PostgreSQL (data_residency_policies, migration 244); this file is the
+# environment-tunable seed deployed with the storage stack and loaded
+# by `compliance.ResidencyService.LoadPolicyFile` at bootstrap when the
+# table is empty. Keep the two in sync — a drift between them is a
+# residency incident, not a config nuance.
+#
+# Semantics:
+#   jurisdiction_code  logical residency tag pinned on accounts
+#   home_region        regional placement bucket for PG/ClickHouse
+#   kms_key_id         region-scoped KMS key encrypting resident data
+#   s3_bucket          regional object bucket (WORM/sealed artifacts)
+#   pg_partition       regional PG placement tag
+#   applies_to         ISO 3166-1 alpha-2 country codes → this tag
+#   adequate           destination holds an adequacy decision
+#   transfer_instrument NONE | ADEQUACY | SCC | BCR — GDPR Ch. V legality
+#
+# Fail-closed rule: a client country that resolves to NO policy is
+# refused — the service never guesses a placement.
+
+version: 1
+policies:
+  - jurisdiction_code: EU
+    home_region: eu-central
+    kms_key_id: arn:aws:kms:eu-central-1:000000000000:key/exc-eu-resident
+    s3_bucket: exc-eu-resident-data
+    pg_partition: pg_eu_central
+    adequate: false
+    transfer_instrument: NONE
+    applies_to:
+      - AT
+      - BE
+      - BG
+      - HR
+      - CY
+      - CZ
+      - DK
+      - EE
+      - FI
+      - FR
+      - DE
+      - GR
+      - HU
+      - IE
+      - IT
+      - LV
+      - LT
+      - LU
+      - MT
+      - NL
+      - PL
+      - PT
+      - RO
+      - SK
+      - SI
+      - ES
+      - SE
+      - IS
+      - LI
+      - NO
+
+  - jurisdiction_code: GB
+    home_region: uk
+    kms_key_id: arn:aws:kms:eu-west-2:000000000000:key/exc-uk-resident
+    s3_bucket: exc-uk-resident-data
+    pg_partition: pg_uk
+    adequate: true
+    transfer_instrument: ADEQUACY
+    applies_to: [GB]
+
+  - jurisdiction_code: CH
+    home_region: ch
+    kms_key_id: arn:aws:kms:eu-central-1:000000000000:key/exc-ch-resident
+    s3_bucket: exc-ch-resident-data
+    pg_partition: pg_ch
+    adequate: true
+    transfer_instrument: ADEQUACY
+    applies_to: [CH]
+
+  - jurisdiction_code: SG
+    home_region: ap-sg
+    kms_key_id: arn:aws:kms:ap-southeast-1:000000000000:key/exc-sg-resident
+    s3_bucket: exc-sg-resident-data
+    pg_partition: pg_ap_sg
+    adequate: false
+    transfer_instrument: SCC
+    applies_to: [SG]
+
+  - jurisdiction_code: US
+    home_region: us-east
+    kms_key_id: arn:aws:kms:us-east-1:000000000000:key/exc-us-resident
+    s3_bucket: exc-us-resident-data
+    pg_partition: pg_us_east
+    adequate: false
+    transfer_instrument: SCC
+    applies_to: [US]
+
+  - jurisdiction_code: ROW
+    home_region: eu-central
+    kms_key_id: arn:aws:kms:eu-central-1:000000000000:key/exc-eu-resident
+    s3_bucket: exc-eu-resident-data
+    pg_partition: pg_eu_central
+    adequate: false
+    transfer_instrument: NONE
+    applies_to: [] # catch-all: unmapped-but-open countries, EU storage

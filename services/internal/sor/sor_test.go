@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	excerrors "exchange/pkg/errors"
 	"exchange/pkg/decimal"
+	excerrors "exchange/pkg/errors"
 )
 
 func d(s string) decimal.Decimal {
@@ -74,8 +74,8 @@ func TestRouteFillLifecycle(t *testing.T) {
 	v := NewLoopbackConnector("ecna", "EXCH", "ECNA")
 	defer v.Close()
 	v.FillScript = []FillPlan{
-		{Qty: d("400000"), Price: d("1.1005")},                    // partial
-		{Qty: d("600000"), Price: d("1.1010"), Done: true},        // terminal
+		{Qty: d("400000"), Price: d("1.1005")},             // partial
+		{Qty: d("600000"), Price: d("1.1010"), Done: true}, // terminal
 	}
 	v.DelayFills = 5 * time.Millisecond
 	store := NewMemoryShadowStore()

@@ -7,7 +7,7 @@
 // response so audits stop requesting it while they stand).
 //
 // Store ownership boundary: both source tables are Phase-21 schema —
-// financial_promotions (Task 21.3.26) and account_consents (Task
+// financial_promotions (Task 21.3.26) and account_consent_states (Task
 // 21.3.7). This package ships the read surface + Pg implementations;
 // when the table is absent the store returns ErrSourceUnavailable and
 // the handler emits a clean 503 with a source_unavailable note — the
@@ -78,7 +78,7 @@ type ConsentCohort struct {
 const CohortFloor = 100
 
 // ConsentCohortStore aggregates consent state. Jurisdiction axis is
-// deferred: the prescribed Task 21.3.7 shape (account_consents:
+// deferred: the prescribed Task 21.3.7 shape (account_consent_states:
 // account_id, purpose, channel, state, updated_at) carries no
 // jurisdiction column — cohorts group by (purpose, channel, state) and
 // the report notes the deferral honestly.
@@ -275,8 +275,10 @@ func (s *PgPromoInventoryStore) Promotions(ctx context.Context) ([]PromotionRow,
 	return out, rows.Err()
 }
 
-// PgConsentCohortStore reads account_consents (Phase-21 Task 21.3.7
-// prescribed shape).
+// PgConsentCohortStore reads account_consent_states (Phase-21 Task
+// 21.3.7 prescribed consent shape — account_id, purpose, channel,
+// state; the account_consents name was taken by the Task 21.3.28
+// document-acknowledgement ledger, a different surface).
 type PgConsentCohortStore struct{ Pool *pgxpool.Pool }
 
 // NewPgConsentCohortStore binds the pool.
@@ -297,7 +299,7 @@ func (s *PgConsentCohortStore) ConsentCohorts(ctx context.Context, purpose strin
 	rows, err := s.Pool.Query(ctx, `
 		SELECT purpose, COALESCE(NULLIF(channel,''),'UNSPECIFIED'),
 		       state, COUNT(*)
-		  FROM account_consents `+where+`
+		  FROM account_consent_states `+where+`
 		 GROUP BY purpose, COALESCE(NULLIF(channel,''),'UNSPECIFIED'), state
 		 ORDER BY 1, 2, 3`, args...)
 	if err != nil {

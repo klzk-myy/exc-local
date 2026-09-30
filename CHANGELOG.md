@@ -1606,3 +1606,33 @@ snapshots, costs disclosure, depreciation notices, marketing-ops.
 - Checkpoints: `P08.5-T8.5.3.2-C1`, `P08.5-T8.5.3.3-C1` bound in
   `tests/spec/checks/phase085.go` and both PASS (PG/Redis-gated legs
   exercised live).
+
+## [2026-09-30 09:30 UTC] — Phase 21 COMPLETE (Compliance & AML, all 28 tasks)
+
+- 7 parallel implementation clusters landed every Phase-21 task:
+  sanctions screening + provider-gate quarantine + Redis replay queue +
+  C++ `SanctionsCache`/`bind_sanctions` pre-trade hook (21.3.1/10/11/23);
+  FATF travel-rule ≥$1k gate + SAR four-eyes lifecycle + FinCEN CTR/
+  structuring/EDD/program register (21.3.2/3/6); regulatory-reporting
+  lifecycle — MiFID II RTS 22, EMIR (+REFIT), Dodd-Frank/CFTC, submission
+  ACK/NACK/repair, APA/ARM adapters (21.3.4/5/9/14/16); enforcement +
+  surveillance cases + RTS 6 + employee dealing + reporting values +
+  audit-trail API (21.3.8/12/21/24/27); Basel III + FX Global Code +
+  reg-change monitor + execution policy/consent (21.3.13/17/25/28);
+  GDPR+geo-block + data residency + comms recording + CRS/FATCA XML +
+  promotions (21.3.7/18/20/22/26); venue membership + RTS 27/28
+  (21.3.15/19).
+- Migrations: 21 new (032/033/054/059 verbatim per plan-reserved;
+  060/062/079/080/100 same; fresh 239/241-251 after collision cleanup —
+  plan's 081 citation was stale). Total on disk: 176.
+- Error registry: +1 specRow (`ENFORCEMENT_ACTION_EXISTS` → §23 row,
+  207 total spec) +16 localCodes pending §23 transcription (226 emitted).
+- 28/28 spec checkpoints bound in `phase21.go` and green (PG/Redis/CH-
+  gated legs exercised live on dev infra).
+- Orchestrator verification fixes: `rts27_reports` param-type conflict;
+  demo `expireOne` §5.40 whole-tx retry ladder (audit-chain 23505 under
+  snapshot skew); dev-DB migration drift repaired (051/053 backfilled).
+- Honest seams recorded in phase addendum + spec §27: DEA session-level
+  enforcement awaits a session registry; consent→marketing-dispatch seam
+  awaits a dispatcher; SIPREC voice capture prerequisite-only (R6);
+  GDPR consent route is `/api/v1/account/gdpr/consent` (plan text stale).

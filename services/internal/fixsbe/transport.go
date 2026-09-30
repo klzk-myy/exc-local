@@ -40,9 +40,9 @@ import (
 type Transport int
 
 const (
-	TransportUnknown Transport = iota
-	TransportTagValue          // "8=FIX…" tag-value frame stream
-	TransportSBE               // schema-2 binary frame stream
+	TransportUnknown  Transport = iota
+	TransportTagValue           // "8=FIX…" tag-value frame stream
+	TransportSBE                // schema-2 binary frame stream
 )
 
 // tagValueMagic is the BeginString prefix of any FIX tag-value frame
@@ -140,7 +140,7 @@ type ProvisionedSession struct {
 	PubKey      [32]byte
 	SNIHostname string // bound hostname — "" = any SNI the listener serves
 	Environment string
-	Status      string // ACTIVE | DISABLED | DRAINING
+	Status      string          // ACTIVE | DISABLED | DRAINING
 	Instruments map[uint32]bool // nil = all
 }
 

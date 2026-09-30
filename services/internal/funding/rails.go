@@ -274,6 +274,35 @@ type RailAdapter interface {
 	BuildReturn(r ReturnInstruction) (*WireEnvelope, error)
 }
 
+// TravelRuleGate is the Phase-21 Task 21.3.2 FATF Recommendation-16
+// outbound gate — implemented by compliance.TravelRuleService and bound
+// to DispatchService via WithTravelRule (compliance imports funding for
+// these types; funding never imports compliance).
+//
+// EnforceOutbound persists/updates the travel_rule_records row for the
+// withdrawal inside the caller's tx and returns:
+//   - the (possibly originator-enriched) payment to hand to the rail
+//     adapter,
+//   - missing — the absent required R.16 fields; non-empty means the
+//     wire MUST NOT dispatch (caller queues HELD,
+//     reason QueueReasonTravelRuleMissing),
+//   - a non-nil error aborts dispatch outright — tx rolls back and the
+//     withdrawal stays CONFIRMED for the next sweep (fail-closed).
+type TravelRuleGate interface {
+	EnforceOutbound(ctx context.Context, tx pgx.Tx,
+		w *DispatchableWithdrawal, p OutboundPayment) (OutboundPayment, []string, error)
+}
+
+// InboundTravelRuleChecker is the Phase-21 Task 21.3.2 inbound leg —
+// DepositService calls it at dual-source resolution inside the ingest
+// tx. The returned slice lists absent required fields; non-empty parks
+// the deposit in PENDING_REVIEW (the record row lands inside the same
+// tx for the officer supply-info flow).
+type InboundTravelRuleChecker interface {
+	CheckInbound(ctx context.Context, tx pgx.Tx, row *FundingTxRow,
+		confs []DepositConfirmationRow) (missing []string, err error)
+}
+
 // WireEnvelope is the serialisable wire instruction. Payload is a typed
 // per-rail struct persisted verbatim to rail_payments.envelope (JSONB).
 type WireEnvelope struct {
@@ -286,22 +315,31 @@ type WireEnvelope struct {
 
 // OutboundPayment is the rail-agnostic withdrawal/settlement instruction.
 type OutboundPayment struct {
-	FundingTxID    int64
-	SuspenseID     *int64
-	AccountID      int64
-	Rail           RailID
-	Currency       string
-	Amount         decimal.Decimal
-	DebtorName     string // exchange nostro holder name
-	DebtorAccount  string // nostro IBAN / account number
-	DebtorBIC      string
-	CreditorName   string // beneficiary legal name
-	CreditorIBAN   string
-	CreditorBIC    string
-	RemittanceInfo string
-	EndToEndID     string // caller-supplied or generated
-	Charges        string // OUR|SHA|BEN
-	ValueDate      time.Time
+	FundingTxID   int64
+	SuspenseID    *int64
+	AccountID     int64
+	Rail          RailID
+	Currency      string
+	Amount        decimal.Decimal
+	DebtorName    string // exchange nostro holder name
+	DebtorAccount string // nostro IBAN / account number
+	DebtorBIC     string
+	CreditorName  string // beneficiary legal name
+	CreditorIBAN  string
+	CreditorBIC   string
+	// Originator* carry the FATF R.16 ordering customer when the client
+	// ordering the payment differs from the debtor (the exchange nostro
+	// holder). The Phase-21 Task 21.3.2 travel-rule gate populates them;
+	// SwiftAdapter maps them onto MT103 field 50K (name/account/address).
+	// Empty → adapters fall back to the Debtor* fields (unchanged legacy
+	// envelope for in-house wires).
+	OriginatorName    string
+	OriginatorAccount string
+	OriginatorAddress string
+	RemittanceInfo    string
+	EndToEndID        string // caller-supplied or generated
+	Charges           string // OUR|SHA|BEN
+	ValueDate         time.Time
 }
 
 // ReturnInstruction is the automated return-wire request (spec §17.12.2

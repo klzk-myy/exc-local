@@ -6,8 +6,8 @@ import (
 	flatbuffers "github.com/google/flatbuffers/go"
 )
 
-/// Inbound: atomic amend/replace (Task 2.3.20). Single-thread total order —
-/// concurrent amends on the same order_seq resolve to exactly one winner.
+// / Inbound: atomic amend/replace (Task 2.3.20). Single-thread total order —
+// / concurrent amends on the same order_seq resolve to exactly one winner.
 type OrderAmend struct {
 	_tab flatbuffers.Table
 }

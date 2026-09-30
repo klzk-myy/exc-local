@@ -53,6 +53,17 @@ RiskDecision PreTradeChecker::check(const Order& order) noexcept {
             return RiskDecision::REJECT;
         }
     }
+    // Task 21.3.10 — a bound sanctions cache gates the detached path
+    // too: anything but a clear verdict rejects (fail closed).
+    if (sanctions_ != nullptr) {
+        const uint64_t now = clock_fn_ != nullptr
+                                 ? clock_fn_(clock_ctx_)
+                                 : steady_ns();
+        if (sanctions_->verdict_for(order.account_id, now) !=
+            SanctionsCache::Verdict::Clear) {
+            return RiskDecision::REJECT;
+        }
+    }
     if (accounts_ == nullptr) return RiskDecision::ACCEPT;  // detached stub
     const uint64_t now = clock_fn_ != nullptr
                              ? clock_fn_(clock_ctx_)
@@ -221,6 +232,26 @@ RiskVerdict PreTradeChecker::run(const Order& order,
         if (suspensions_->otr_breached(order.account_id)) {
             return reject(kCodeOtrLimitExceeded,
                           "order-to-trade ratio limit breached — cancels only");
+        }
+    }
+
+    // ---- 0c. Sanctions account flag (Phase-21 Task 21.3.10) --------------
+    // Bound cache reads the last `exc:sanctions:*` snapshot — flagged
+    // accounts reject SANCTIONS_HIT before any balance/margin work; a
+    // snapshot that cannot attest state (unverifiable, missing heartbeat,
+    // or stale past the bound window) rejects fail closed.
+    if (sanctions_ != nullptr) {
+        const SanctionsCache::Verdict sv =
+            sanctions_->verdict_for(order.account_id, ctx.now_ns);
+        if (sv == SanctionsCache::Verdict::Hit) {
+            return reject(kCodeSanctionsHit,
+                          "account sanctions-flagged — order entry blocked");
+        }
+        if (sv != SanctionsCache::Verdict::Clear) {
+            return reject(kCodeSanctionsUnavailable,
+                          sv == SanctionsCache::Verdict::Unscreened
+                              ? "account screening unverified — fail closed"
+                              : "sanctions flag state unverifiable — fail closed");
         }
     }
 

@@ -1,0 +1,7 @@
+# DEV FIXTURE ONLY — not a real PEP list. One name per line, PEP kind
+# (pep* filename convention → EntryKindPEP/SrcPEP). PEP hits route to
+# EDD review holds — they never fire the sanctions funding block.
+# See README.md.
+Senator Fixture Example
+Ambassador Dev Persona
+Consul Test Official

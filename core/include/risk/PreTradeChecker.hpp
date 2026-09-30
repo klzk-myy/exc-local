@@ -18,6 +18,14 @@
 //   0b. MiFID II RTS 9 order-to-trade breach (Phase-13 Task 13.3.6):
 //       the same refreshed snapshot carries `otr:breach:{account}` —
 //       breached accounts reject OTR_LIMIT_EXCEEDED; cancels exempt.
+//   0c. Sanctions hook (Phase-21 Task 21.3.10): bound SanctionsCache
+//       consults the last Redis-polled `exc:sanctions:*` snapshot —
+//       flagged account → SANCTIONS_HIT (403); unverifiable/stale
+//       snapshot → SANCTIONS_SERVICE_UNAVAILABLE (503); strict-mode
+//       unscreened account → SANCTIONS_SERVICE_UNAVAILABLE. A bound
+//       cache with no successfully-polled snapshot fails CLOSED; an
+//       unbound seam keeps the legacy behavior (Go admission gates own
+//       enforcement). Cancels never reach this pipeline.
 //   1.  Account status (ACTIVE only)
 //   2.  Instrument status (ACTIVE; RESTRICTED=limit-only; DELISTED=
 //       reduce_only-only per §7.1 + remediation #35)
@@ -56,6 +64,7 @@
 #include "book/OrderBook.hpp"
 #include "risk/BilateralCreditMatrix.h"
 #include "risk/RiskInterfaces.hpp"
+#include "risk/SanctionsCache.hpp"
 #include "risk/SuspensionFlags.hpp"
 
 namespace exch {
@@ -181,6 +190,13 @@ public:
     void bind_suspensions(const SuspensionFlags* f) noexcept {
         suspensions_ = f;
     }
+    // Phase-21 Task 21.3.10 sanctions seam: non-null engages the
+    // per-account sanctions-flag gate as check 0c. The bound cache must
+    // outlive the checker and be refreshed by a SanctionsRefresher
+    // control loop (unwired-but-bound fails closed).
+    void bind_sanctions(const SanctionsCache* c) noexcept {
+        sanctions_ = c;
+    }
     // Time source for the legacy check(order) path (ctx-less callers).
     // Defaults to steady_ns (monotonic — correct base for the collar window).
     void set_clock(uint64_t (*fn)(void*) noexcept, void* ctx) noexcept {
@@ -254,6 +270,7 @@ private:
     const BilateralCreditMatrix* credit_ = nullptr;       // optional §3.3b
     const IPartyMap* party_map_ = nullptr;
     const SuspensionFlags* suspensions_ = nullptr;        // Task 11.3.4/8/12
+    const SanctionsCache* sanctions_ = nullptr;           // Task 21.3.10
     uint64_t (*clock_fn_)(void*) noexcept = nullptr;      // legacy path only
     void* clock_ctx_ = nullptr;
 

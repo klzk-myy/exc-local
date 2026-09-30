@@ -198,7 +198,7 @@ var ckP03SettlementDates = ckContains(map[string][]string{
 }, settle, "TestSettlementT1PlainWeekday|TestSettlementT2InterimHoliday|TestSettlementHolidayShift|TestSettlementModifiedFollowingMonthEnd|TestSettlementNeverBeforeTradeDate")
 
 var ckP03SameDaySettlement = ckContains(map[string][]string{
-	"internal/settlement/settlement.go":      {"CycleSameDay"},
+	"internal/settlement/settlement.go":         {"CycleSameDay"},
 	"internal/settlement/settlement_service.go": {},
 }, settle, "TestGenerateInstructionsSameDayUSDCAD|TestGenerateInstructionsSameDayUSDMXN|TestSettlementSameDayUSDCAD")
 

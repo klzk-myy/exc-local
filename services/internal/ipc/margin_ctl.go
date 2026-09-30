@@ -215,8 +215,8 @@ type WalMarginReservePayload struct {
 	ConsumerShard uint32 // shard whose orders may draw on the slice
 	HostShard     uint32 // shard holding the locked headroom
 	InstrumentID  uint32
-	Origin        uint8  // 0 = Local, 1 = Hosted
-	Amount        int64  // committed slice, 1e8-scaled ticks
+	Origin        uint8 // 0 = Local, 1 = Hosted
+	Amount        int64 // committed slice, 1e8-scaled ticks
 	ExpiresAtNs   uint64
 }
 

@@ -15,19 +15,19 @@ import (
 // failover timing, K8s scheduling, PTP hardware) remain honest open AC
 // rows, not checkpoint failures.
 const (
-	p09Flags   = "./internal/flags"
-	p09Cache   = "./internal/cache"
-	p09MW      = "./internal/middleware"
-	p09Ops     = "./internal/ops"
-	p09Fleet   = "./internal/fleet"
-	p09Trace   = "./internal/tracing"
-	p09TS      = "./internal/timesync"
-	p09Ret     = "./internal/operations/retention"
-	p09Arch    = "./internal/archiver"
-	p09Dep     = "./internal/deprecation"
-	p09API     = "./internal/api"
-	p09MD      = "./internal/marketdata"
-	p09Bridge  = "./internal/bridge"
+	p09Flags  = "./internal/flags"
+	p09Cache  = "./internal/cache"
+	p09MW     = "./internal/middleware"
+	p09Ops    = "./internal/ops"
+	p09Fleet  = "./internal/fleet"
+	p09Trace  = "./internal/tracing"
+	p09TS     = "./internal/timesync"
+	p09Ret    = "./internal/operations/retention"
+	p09Arch   = "./internal/archiver"
+	p09Dep    = "./internal/deprecation"
+	p09API    = "./internal/api"
+	p09MD     = "./internal/marketdata"
+	p09Bridge = "./internal/bridge"
 )
 
 func registerPhase09(r *spec.Registry) {
