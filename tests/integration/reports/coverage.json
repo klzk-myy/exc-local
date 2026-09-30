@@ -1,16 +1,14 @@
 {
   "tool": "exchange-integration/8.3.1",
   "version": "1.0.0",
-  "generated_at": "2026-09-30T01:23:21Z",
-  "elapsed": "5.097417932s",
+  "generated_at": "2026-09-30T04:43:21Z",
+  "elapsed": "940.937µs",
   "summary": {
-    "EXECUTABLE": 135,
-    "PASS": 10,
+    "EXECUTABLE": 145,
     "PLANNED": 274
   },
   "phase_1_7_counts": {
-    "EXECUTABLE": 135,
-    "PASS": 10,
+    "EXECUTABLE": 145,
     "PLANNED": 3
   },
   "criteria": [
@@ -18,33 +16,13 @@
       "criterion_id": 1,
       "stable_test_id": "T02-001",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
-      "status": "PASS",
-      "legs": [
-        {
-          "test": "e2e:pipeline",
-          "kind": "e2e:pipeline",
-          "status": "PASS",
-          "detail": "buy#80 sell#81 filled=true bookBid=true",
-          "at": "2026-09-30T01:23:20.470770042Z",
-          "elapsed": "78.394914ms"
-        }
-      ]
+      "status": "EXECUTABLE"
     },
     {
       "criterion_id": 2,
       "stable_test_id": "T02-002",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
-      "status": "PASS",
-      "legs": [
-        {
-          "test": "e2e:pipeline",
-          "kind": "e2e:pipeline",
-          "status": "PASS",
-          "detail": "buy#80 sell#81 filled=true bookBid=true",
-          "at": "2026-09-30T01:23:20.470771814Z",
-          "elapsed": "78.396901ms"
-        }
-      ]
+      "status": "EXECUTABLE"
     },
     {
       "criterion_id": 3,
@@ -68,49 +46,19 @@
       "criterion_id": 6,
       "stable_test_id": "T02-006",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
-      "status": "PASS",
-      "legs": [
-        {
-          "test": "e2e:crash-wal",
-          "kind": "e2e:crash-wal",
-          "status": "PASS",
-          "detail": "kill -9 → restart → cancel oid=82: http=200 cancelled=true replayed=true {\"order_id\":82,\"client_order_id\":\"itest-crash-31396\",\"status\":\"CANCELLED\",\"order_seq\":1790731399825705616,\"transact_time…",
-          "at": "2026-09-30T01:23:21.079108996Z",
-          "elapsed": "584.252067ms"
-        }
-      ]
+      "status": "EXECUTABLE"
     },
     {
       "criterion_id": 7,
       "stable_test_id": "T04-001",
       "owner_phase": "Phase 4 — Persistence \u0026 Recovery",
-      "status": "PASS",
-      "legs": [
-        {
-          "test": "e2e:crash-wal",
-          "kind": "e2e:crash-wal",
-          "status": "PASS",
-          "detail": "kill -9 → restart → cancel oid=82: http=200 cancelled=true replayed=true {\"order_id\":82,\"client_order_id\":\"itest-crash-31396\",\"status\":\"CANCELLED\",\"order_seq\":1790731399825705616,\"transact_time…",
-          "at": "2026-09-30T01:23:21.07911053Z",
-          "elapsed": "584.253802ms"
-        }
-      ]
+      "status": "EXECUTABLE"
     },
     {
       "criterion_id": 8,
       "stable_test_id": "T04-002",
       "owner_phase": "Phase 4 — Persistence \u0026 Recovery",
-      "status": "PASS",
-      "legs": [
-        {
-          "test": "e2e:crash-wal",
-          "kind": "e2e:crash-wal",
-          "status": "PASS",
-          "detail": "kill -9 → restart → cancel oid=82: http=200 cancelled=true replayed=true {\"order_id\":82,\"client_order_id\":\"itest-crash-31396\",\"status\":\"CANCELLED\",\"order_seq\":1790731399825705616,\"transact_time…",
-          "at": "2026-09-30T01:23:21.079110724Z",
-          "elapsed": "584.254005ms"
-        }
-      ]
+      "status": "EXECUTABLE"
     },
     {
       "criterion_id": 9,
@@ -218,17 +166,7 @@
       "criterion_id": 26,
       "stable_test_id": "T07-001",
       "owner_phase": "Phase 7 — Admin \u0026 Monitoring (Go)",
-      "status": "PASS",
-      "legs": [
-        {
-          "test": "e2e:rbac",
-          "kind": "e2e:rbac",
-          "status": "PASS",
-          "detail": "no-binding admin read → 403; auditor GET /admin/audit → 200; auditor POST → 403 (read-only cannot mutate)",
-          "at": "2026-09-30T01:23:20.494673961Z",
-          "elapsed": "13.859414ms"
-        }
-      ]
+      "status": "EXECUTABLE"
     },
     {
       "criterion_id": 27,
@@ -306,17 +244,7 @@
       "criterion_id": 39,
       "stable_test_id": "T02-008",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
-      "status": "PASS",
-      "legs": [
-        {
-          "test": "e2e:degradation",
-          "kind": "e2e:degradation",
-          "status": "PASS",
-          "detail": "ReadOnly POST /orders → 503 DEGRADED_MODE; ReadOnly GET /orders → 200; Maintenance GET /orders → 429; mode cleared → reads 200",
-          "at": "2026-09-30T01:23:20.480503483Z",
-          "elapsed": "9.485145ms"
-        }
-      ]
+      "status": "EXECUTABLE"
     },
     {
       "criterion_id": 40,
@@ -1894,17 +1822,7 @@
       "criterion_id": 302,
       "stable_test_id": "ERR-302",
       "owner_phase": "Phase 4 — Persistence \u0026 Recovery",
-      "status": "PASS",
-      "legs": [
-        {
-          "test": "e2e:crash-wal",
-          "kind": "e2e:crash-wal",
-          "status": "PASS",
-          "detail": "kill -9 → restart → cancel oid=82: http=200 cancelled=true replayed=true {\"order_id\":82,\"client_order_id\":\"itest-crash-31396\",\"status\":\"CANCELLED\",\"order_seq\":1790731399825705616,\"transact_time…",
-          "at": "2026-09-30T01:23:21.079112339Z",
-          "elapsed": "584.255618ms"
-        }
-      ]
+      "status": "EXECUTABLE"
     },
     {
       "criterion_id": 303,
@@ -1928,17 +1846,7 @@
       "criterion_id": 306,
       "stable_test_id": "ERR-306",
       "owner_phase": "Phase 7 — Admin \u0026 Monitoring (Go)",
-      "status": "PASS",
-      "legs": [
-        {
-          "test": "e2e:ready",
-          "kind": "e2e:ready",
-          "status": "PASS",
-          "detail": "ready=200 status=ok mode=Normal",
-          "at": "2026-09-30T01:23:20.39229879Z",
-          "elapsed": "1.104501ms"
-        }
-      ]
+      "status": "EXECUTABLE"
     },
     {
       "criterion_id": 307,
@@ -2190,17 +2098,7 @@
       "criterion_id": 348,
       "stable_test_id": "MAT-348",
       "owner_phase": "Phase 7 — Admin \u0026 Monitoring (Go)",
-      "status": "PASS",
-      "legs": [
-        {
-          "test": "e2e:rbac",
-          "kind": "e2e:rbac",
-          "status": "PASS",
-          "detail": "no-binding admin read → 403; auditor GET /admin/audit → 200; auditor POST → 403 (read-only cannot mutate)",
-          "at": "2026-09-30T01:23:20.494674884Z",
-          "elapsed": "13.860504ms"
-        }
-      ]
+      "status": "EXECUTABLE"
     },
     {
       "criterion_id": 349,

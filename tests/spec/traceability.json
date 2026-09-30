@@ -1,7 +1,7 @@
 {
   "tool": "exchange-testspec/validator trace",
   "version": "1.0.0",
-  "generated_at": "2026-09-30T01:02:33.157781747Z",
+  "generated_at": "2026-09-30T04:17:35.757021506Z",
   "repo_root": "/www/wwwroot/exc.local",
   "docs": "/www/wwwroot/exc.local/docs",
   "spec": "Specification - Complete Exchange System Suite.md",
@@ -20,7 +20,7 @@
       "spec_components": 101,
       "task_ac": 59
     },
-    "checkpoint_edges_implemented": 198,
+    "checkpoint_edges_implemented": 207,
     "fail_defects": 0,
     "warn_defects": 0
   },
@@ -5588,7 +5588,7 @@
         "checkpoints": [
           {
             "id": "P20-T20.3.6-C1",
-            "implemented": false,
+            "implemented": true,
             "checked": false,
             "text": "client statements + confirmations (§5.28, §24 #143)"
           }
@@ -8368,7 +8368,7 @@
         "checkpoints": [
           {
             "id": "P20-T20.3.7-C1",
-            "implemented": false,
+            "implemented": true,
             "checked": false,
             "text": "house finance reporting (§16.5, §24 #205)"
           }
@@ -11333,7 +11333,7 @@
         "checkpoints": [
           {
             "id": "P20-T20.3.10-C1",
-            "implemented": false,
+            "implemented": true,
             "checked": false,
             "text": "tax calculations expose method, costs, period, and reproducible export (§24 #276)"
           },
@@ -13544,7 +13544,7 @@
         "checkpoints": [
           {
             "id": "P20-T20.3.11-C1",
-            "implemented": false,
+            "implemented": true,
             "checked": false,
             "text": "ClickHouse ingestion buffering and dead-letter recovery fail closed (§24 #322)"
           }
@@ -15276,7 +15276,7 @@
         "checkpoints": [
           {
             "id": "P20-T20.3.12-C1",
-            "implemented": false,
+            "implemented": true,
             "checked": false,
             "text": "income ledger by type/symbol/time reconciled to statements (§24 #361)"
           }
@@ -15320,7 +15320,7 @@
         "checkpoints": [
           {
             "id": "P20-T20.3.13-C1",
-            "implemented": false,
+            "implemented": true,
             "checked": false,
             "text": "daily hash-chained account snapshots with history API (§24 #362)"
           }
@@ -15858,7 +15858,7 @@
         "checkpoints": [
           {
             "id": "P20-T20.3.14-C1",
-            "implemented": false,
+            "implemented": true,
             "checked": false,
             "text": "ex-ante preview and annual ex-post costs statement reconciled to ledger (§24 #374)"
           }
@@ -15902,7 +15902,7 @@
         "checkpoints": [
           {
             "id": "P20-T20.3.15-C1",
-            "implemented": false,
+            "implemented": true,
             "checked": false,
             "text": "per-position 10%-multiple depreciation notices with episode dedupe (§24 #375)"
           }
@@ -16166,7 +16166,7 @@
         "checkpoints": [
           {
             "id": "P20-T20.3.16-C1",
-            "implemented": false,
+            "implemented": true,
             "checked": false,
             "text": "promo inventory and counts-only consent cohorts (§24 #381)"
           }

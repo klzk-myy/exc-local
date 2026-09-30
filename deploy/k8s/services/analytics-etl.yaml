@@ -1,0 +1,85 @@
+# analytics-etl — Phase-20 Tasks 20.3.1/20.3.3/20.3.11/20.3.12 (spec §16).
+# JetStream -> ClickHouse ETL daemon (ticks, trades, volume_stats,
+# income_ledger projection) plus the Phase-6 candle engine writing
+# fx_klines (PG hot) and ohlcv_* (CH cold, 5y TTL). The Pebble spool is
+# the §16.6 zero-loss buffer — it MUST live on a PersistentVolume so a
+# pod restart mid-CH-outage does not drop buffered rows.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: analytics-etl
+  namespace: exchange
+  labels: {app.kubernetes.io/name: analytics-etl, app.kubernetes.io/part-of: exchange}
+spec:
+  replicas: 1            # single writer: durable consumers + Pebble spool are single-tenant
+  revisionHistoryLimit: 3
+  strategy:
+    type: Recreate       # the RWO spool volume cannot multi-attach
+  selector:
+    matchLabels: {app.kubernetes.io/name: analytics-etl}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: analytics-etl}
+    spec:
+      serviceAccountName: exchange-service
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: analytics
+          image: registry.internal/exchange/analytics-etl:CHANGE_ME
+          imagePullPolicy: IfNotPresent
+          ports:
+            - {name: metrics, containerPort: 9200}
+          envFrom:
+            - configMapRef: {name: exchange-env}
+          env:
+            - name: EXC_POSTGRES_DSN
+              valueFrom: {secretKeyRef: {name: exchange-db, key: dsn}}
+            - name: EXC_CH_USER
+              valueFrom: {secretKeyRef: {name: exchange-analytics, key: user}}
+            - name: EXC_CH_PASSWORD
+              valueFrom: {secretKeyRef: {name: exchange-analytics, key: password}}
+          readinessProbe:
+            httpGet: {path: /healthz, port: metrics}
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 6    # CH outage must NOT flap the pod — it spools
+          livenessProbe:
+            httpGet: {path: /healthz, port: metrics}
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests: {cpu: 500m, memory: 512Mi}
+            limits:   {cpu: "2",  memory: 2Gi}
+          securityContext:
+            runAsUser: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: ch-spool, mountPath: /var/spool/exchange}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: ch-spool
+          persistentVolumeClaim: {claimName: analytics-etl-spool}
+        - {name: tmp, emptyDir: {}}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: analytics-etl-spool
+  namespace: exchange
+  labels: {app.kubernetes.io/name: analytics-etl, app.kubernetes.io/part-of: exchange}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      # §16.6 sizing: the spool self-caps at DefaultSpoolMaxBytes = 100GiB
+      # (≈ 50k rows/sec × ~200B/row over a ~2.8h CH outage at full load).
+      # The PVC matches the cap so the fs is the binding constraint never.
+      storage: 100Gi

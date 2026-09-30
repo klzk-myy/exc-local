@@ -61,8 +61,12 @@ func TestStreamConfigCanonical(t *testing.T) {
 		if cfg.MaxAge != 7*24*time.Hour {
 			t.Errorf("%s: MaxAge = %v, want 168h", name, cfg.MaxAge)
 		}
-		if cfg.Retention.String() != "WorkQueue" {
-			t.Errorf("%s: Retention = %s, want WorkQueue", name, cfg.Retention)
+		// Spec §2.3.1: Settlement, Risk, Compliance, Analytics, and Market
+		// Data maintain independent durable consumer groups on shared
+		// subjects — WorkQueue deletes on first ack and rejects overlapping
+		// filters, so the policy is Limits (bounded by MaxAge above).
+		if cfg.Retention.String() != "Limits" {
+			t.Errorf("%s: Retention = %s, want Limits", name, cfg.Retention)
 		}
 		if cfg.Storage.String() != "File" {
 			t.Errorf("%s: Storage = %s, want File", name, cfg.Storage)

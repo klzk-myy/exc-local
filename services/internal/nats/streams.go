@@ -33,11 +33,20 @@ const (
 )
 
 // streamConfig builds the canonical StreamConfig for one stream.
+//
+// Retention is LimitsPolicy, not WorkQueue: spec §2.3.1 makes every
+// stream a fan-out topic — "Settlement, Risk, Compliance, Analytics, and
+// Market Data services each maintain independent NATS JetStream consumer
+// groups with durable cursors". WorkQueue retention deletes a message on
+// the FIRST consumer ack (silently starving every other consumer group)
+// and rejects overlapping filter subjects, so it is unusable here. The
+// 7-day MaxAge + DiscardOld bounds storage instead; per-consumer
+// at-least-once is preserved by each durable's own ack floor.
 func streamConfig(name string) jetstream.StreamConfig {
 	return jetstream.StreamConfig{
 		Name:      name,
 		Subjects:  []string{name + ".>"},
-		Retention: jetstream.WorkQueuePolicy, // removed once a consumer acks
+		Retention: jetstream.LimitsPolicy, // retained for all consumer groups until MaxAge
 		Storage:   jetstream.FileStorage,
 		Replicas:  StreamReplicas,
 		MaxAge:    StreamMaxAge,

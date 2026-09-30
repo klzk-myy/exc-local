@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Trade Confirmation {{.TradeID}}</title></head>
+<body>
+<h1>Trade Confirmation — {{.Venue}}</h1>
+<p><strong>Jurisdiction:</strong> United Kingdom (FCA COBS 16) · <strong>Status:</strong> {{.Status}} · <strong>Version:</strong> {{.Version}}</p>
+{{if .Adjusted}}<p><em>AMENDED CONFIRMATION — supersedes the prior version.</em></p>{{end}}
+<table border="0" cellpadding="3">
+<tr><td><b>Confirmation ID</b></td><td>{{.ConfirmationID}}</td></tr>
+<tr><td><b>Trade ID</b></td><td>{{.TradeID}}</td></tr>
+<tr><td><b>Account</b></td><td>{{.AccountID}}</td></tr>
+<tr><td><b>Instrument</b></td><td>{{.Symbol}}</td></tr>
+<tr><td><b>Side</b></td><td>{{.Side}}</td></tr>
+<tr><td><b>Quantity</b></td><td>{{.Quantity}}</td></tr>
+<tr><td><b>Execution price</b></td><td>{{.Price}}</td></tr>
+<tr><td><b>Commission / fee</b></td><td>{{.Fee}} {{.FeeCurrency}}</td></tr>
+<tr><td><b>Executed at</b></td><td>{{.ExecutedAt}}</td></tr>
+<tr><td><b>Settlement date</b></td><td>{{.SettlementDate}}</td></tr>
+<tr><td><b>Execution venue</b></td><td>{{.Venue}}</td></tr>
+</table>
+<p><small>{{.Disclosure}}</small></p>
+<p><small>Issued {{fmtTime .GeneratedAt}}. This is a durable record of an executed transaction.</small></p>
+</body>
+</html>

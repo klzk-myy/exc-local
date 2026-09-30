@@ -18,6 +18,7 @@ import (
 
 	"exchange/internal/accounts"
 	"exchange/internal/admin"
+	"exchange/internal/analytics"
 	"exchange/internal/api"
 	"exchange/internal/auth"
 	"exchange/internal/compliance"
@@ -28,6 +29,7 @@ import (
 	"exchange/internal/nats"
 	"exchange/internal/orders"
 	excredis "exchange/internal/redis"
+	"exchange/internal/reporting"
 	"exchange/internal/settlement"
 )
 
@@ -683,4 +685,78 @@ func (a maintenanceAlerter) Alert(ctx context.Context, severity, code,
 	return a.inner.Raise(ctx, settlement.OpsAlert{
 		Severity: severity, Code: code, Summary: message,
 	})
+}
+
+// ---------------------------------------------------------------------------
+// Phase-20 adapters (analytics & reporting wiring)
+// ---------------------------------------------------------------------------
+
+// pgAccountTierLookup implements analytics.AccountTierLookup — the CH
+// volume-stats tier join resolves accounts.client_category in-process
+// (canonical SQL per the analytics/stats.go package doc; CH cannot reach
+// PG). Unresolved accounts are simply absent from the map — the store
+// folds them into its unresolved bucket rather than guessing a tier.
+type pgAccountTierLookup struct{ pool *pgxpool.Pool }
+
+// ClientCategories implements analytics.AccountTierLookup.
+func (l pgAccountTierLookup) ClientCategories(ctx context.Context, ids []int64) (map[int64]string, error) {
+	out := make(map[int64]string, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	rows, err := l.pool.Query(ctx,
+		`SELECT id, client_category::text FROM accounts WHERE id = ANY($1)`, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		var cat string
+		if err := rows.Scan(&id, &cat); err != nil {
+			return nil, err
+		}
+		out[id] = cat
+	}
+	return out, rows.Err()
+}
+
+// analyticsConfirmationGenerator adapts analytics.ConfirmationService
+// (the Task 20.3.6 generation seam — row type analytics.Confirmation)
+// onto reporting.ConfirmationGenerator (the Task 20.3.8 delivery seam —
+// mirror row type). Field-for-field; both row shapes are identical by
+// contract.
+type analyticsConfirmationGenerator struct {
+	svc *analytics.ConfirmationService
+}
+
+// Generate implements reporting.ConfirmationGenerator.
+func (g analyticsConfirmationGenerator) Generate(ctx context.Context, tradeID int64) ([]reporting.ConfirmationRecord, error) {
+	rows, err := g.svc.Generate(ctx, tradeID)
+	return confirmationRecords(rows), err
+}
+
+// MarkAdjusted implements reporting.ConfirmationGenerator.
+func (g analyticsConfirmationGenerator) MarkAdjusted(ctx context.Context, tradeID int64) ([]reporting.ConfirmationRecord, error) {
+	rows, err := g.svc.MarkAdjusted(ctx, tradeID)
+	return confirmationRecords(rows), err
+}
+
+func confirmationRecords(rows []analytics.Confirmation) []reporting.ConfirmationRecord {
+	out := make([]reporting.ConfirmationRecord, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, reporting.ConfirmationRecord{
+			ConfirmationID: r.ConfirmationID,
+			TradeID:        r.TradeID,
+			AccountID:      r.AccountID,
+			Version:        r.Version,
+			Status:         r.Status,
+			FileRef:        r.FileRef,
+			ContentSHA256:  r.ContentSHA256,
+			GeneratedAt:    r.GeneratedAt,
+			DeliveredAt:    r.DeliveredAt,
+			SupersedesID:   r.SupersedesID,
+		})
+	}
+	return out
 }

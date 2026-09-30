@@ -54,16 +54,19 @@ func TestIntegrationEnsureStreams(t *testing.T) {
 		if err != nil {
 			t.Fatalf("EnsureStreams pass %d: %v", i+1, err)
 		}
-		if len(infos) != 7 {
-			t.Fatalf("EnsureStreams returned %d streams, want 7", len(infos))
+		if len(infos) != len(Streams) {
+			t.Fatalf("EnsureStreams returned %d streams, want %d", len(infos), len(Streams))
 		}
 		for _, info := range infos {
 			name := info.Config.Name
 			if info.Config.Replicas != 3 {
 				t.Errorf("%s: replicas=%d, want 3", name, info.Config.Replicas)
 			}
-			if info.Config.Retention != jetstream.WorkQueuePolicy {
-				t.Errorf("%s: retention=%s, want WorkQueue", name, info.Config.Retention)
+			// LimitsPolicy, not WorkQueue — spec §2.3.1 requires
+			// independent durable consumer groups per service (see
+			// streamConfig doc).
+			if info.Config.Retention != jetstream.LimitsPolicy {
+				t.Errorf("%s: retention=%s, want Limits", name, info.Config.Retention)
 			}
 			if info.Config.MaxAge != StreamMaxAge {
 				t.Errorf("%s: max_age=%v, want %v", name, info.Config.MaxAge, StreamMaxAge)
@@ -87,11 +90,12 @@ func TestIntegrationPublishFetchAck(t *testing.T) {
 		t.Fatalf("EnsureStreams: %v", err)
 	}
 
-	// Distinct filter subject per durable — work-queue streams require
-	// non-overlapping filters (the natsctl-smoke durable owns
-	// trades.0.EUR-USD, so tests use dedicated shards 8/9).
+	// Unique symbol per run: under LimitsPolicy the stream retains history,
+	// so a reused subject would replay stale copies from prior runs into
+	// this consumer's backlog.
+	sym := fmt.Sprintf("ITEST-%d", time.Now().UnixNano())
 	cons, err := c.EnsureConsumer(ctx, "trades", "itest-ack",
-		WithFilterSubject("trades.9.EUR-USD"))
+		WithFilterSubject("trades.9."+sym))
 	if err != nil {
 		t.Fatalf("EnsureConsumer: %v", err)
 	}
@@ -102,8 +106,8 @@ func TestIntegrationPublishFetchAck(t *testing.T) {
 		}
 	}()
 
-	payload := []byte(`{"test":"ack","pair":"EUR-USD"}`)
-	ack, err := c.Publish(ctx, "trades", 9, "EUR-USD", payload)
+	payload := []byte(`{"test":"ack","pair":"` + sym + `"}`)
+	ack, err := c.Publish(ctx, "trades", 9, sym, payload)
 	if err != nil {
 		t.Fatalf("Publish: %v", err)
 	}
@@ -122,8 +126,8 @@ func TestIntegrationPublishFetchAck(t *testing.T) {
 		t.Fatalf("Fetch got %d msgs, want 1", len(msgs))
 	}
 	m := msgs[0]
-	if m.Subject() != "trades.9.EUR-USD" {
-		t.Fatalf("subject = %q, want trades.9.EUR-USD", m.Subject())
+	if m.Subject() != "trades.9."+sym {
+		t.Fatalf("subject = %q, want trades.9.%s", m.Subject(), sym)
 	}
 	if string(m.Data()) != string(payload) {
 		t.Fatalf("payload = %q, want %q", m.Data(), payload)
@@ -151,8 +155,11 @@ func TestIntegrationRedelivery(t *testing.T) {
 
 	// Short AckWait so the test doesn't sit through the 30s default —
 	// the production template value is covered by config assertions.
+	// Unique symbol per run: LimitsPolicy retains history, so a reused
+	// subject would replay stale copies into this consumer's backlog.
+	sym := fmt.Sprintf("ITEST-%d", time.Now().UnixNano())
 	cons, err := c.EnsureConsumer(ctx, "trades", "itest-redeliver",
-		WithFilterSubject("trades.8.GBP-USD"),
+		WithFilterSubject("trades.8."+sym),
 		WithAckWait(2*time.Second),
 		WithMaxDeliver(ConsumerMaxDeliver))
 	if err != nil {
@@ -165,7 +172,7 @@ func TestIntegrationRedelivery(t *testing.T) {
 		}
 	}()
 
-	if _, err := c.Publish(ctx, "trades", 8, "GBP-USD", []byte(`{"test":"redelivery"}`)); err != nil {
+	if _, err := c.Publish(ctx, "trades", 8, sym, []byte(`{"test":"redelivery"}`)); err != nil {
 		t.Fatalf("Publish: %v", err)
 	}
 
@@ -261,14 +268,14 @@ func TestIntegrationHealth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("JetStreamHealth: %v", err)
 	}
-	if rep.Account.Streams < 7 {
-		t.Fatalf("account streams = %d, want >= 7", rep.Account.Streams)
+	if rep.Account.Streams < len(Streams) {
+		t.Fatalf("account streams = %d, want >= %d", rep.Account.Streams, len(Streams))
 	}
 	if len(rep.MissingStream) != 0 {
 		t.Fatalf("missing streams: %v", rep.MissingStream)
 	}
-	if len(rep.Streams) != 7 {
-		t.Fatalf("report covers %d streams, want 7", len(rep.Streams))
+	if len(rep.Streams) != len(Streams) {
+		t.Fatalf("report covers %d streams, want %d", len(rep.Streams), len(Streams))
 	}
 	for _, s := range rep.Streams {
 		fmt.Fprintf(os.Stderr, "  %-14s msgs=%-4d replicas=%d consumers=%d\n",

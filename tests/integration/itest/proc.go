@@ -172,6 +172,10 @@ func StartGateway(ctx context.Context, e *Env, bin, dir string, port int, jwtKey
 		"EXC_SHARDING_CONFIG="+filepath.Join(e.Root, "config", "sharding.yaml"),
 		"EXC_JWT_HS256_KEY_B64="+jwtKeyB64,
 		"EXC_SECRETS_DATA_KEY="+dataKeyB64,
+		// Client-facing PDFs (statements/confirmations/invoices) are
+		// AES-128 encrypted and generation fails closed without a cipher
+		// root — the harness uses a fixed scratch secret.
+		"EXC_DOCS_SECRET=itest-doc-secret",
 		"EXC_ENVIRONMENT=development",
 		"EXC_LOGGING_FORMAT=text",
 		// The harness stands in for the HAProxy edge — per-test XFF

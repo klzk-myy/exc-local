@@ -330,3 +330,137 @@ func TestRenderPDF(t *testing.T) {
 		t.Fatal("empty report produced invalid pdf")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Task 20.3.10 — from/to window, flow lines, Koinly export, limiter.
+// ---------------------------------------------------------------------------
+
+type fakeFlows struct{ flows []FlowLine }
+
+func (f fakeFlows) Flows(context.Context, int64, time.Time, time.Time) ([]FlowLine, error) {
+	return f.flows, nil
+}
+
+func TestReportRangeWindow(t *testing.T) {
+	svc, err := NewService(fakeSource{threeBuysThenSell()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Only the 2026-02-01 sell closes in February → both disposals land
+	// in the narrow window; a January-only window reports none.
+	rep, err := svc.ReportRange(t.Context(), 7,
+		at(2026, 1, 20), at(2026, 3, 1), MethodFIFO)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Disposals) != 2 {
+		t.Fatalf("window disposals=%d want 2", len(rep.Disposals))
+	}
+	rep2, err := svc.ReportRange(t.Context(), 7,
+		at(2026, 1, 1), at(2026, 1, 20), MethodFIFO)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep2.Disposals) != 0 {
+		t.Fatalf("jan-only disposals=%d want 0", len(rep2.Disposals))
+	}
+	// Rejected bounds.
+	if _, err := svc.ReportRange(t.Context(), 7,
+		at(2026, 3, 1), at(2026, 1, 1), MethodFIFO); err == nil {
+		t.Fatal("from>to accepted")
+	}
+	if rep.Inducement != NoInducementStatement {
+		t.Fatal("no-inducement statement missing")
+	}
+	if !rep.From.Equal(at(2026, 1, 20)) || !rep.To.Equal(at(2026, 3, 1)) {
+		t.Fatalf("window fields = %s..%s", rep.From, rep.To)
+	}
+}
+
+func TestReportFlowsSurface(t *testing.T) {
+	svc, err := NewService(fakeSource{threeBuysThenSell()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.SetFlowSource(fakeFlows{[]FlowLine{
+		{Kind: "FEE", Direction: "CREDIT", Currency: "USD",
+			Amount: dec0("2.50"), At: at(2026, 2, 1), Narrative: "COMMISSION trade=4"},
+		{Kind: "ROLLOVER", Direction: "CREDIT", Currency: "USD",
+			Amount: dec0("1.20"), At: at(2026, 2, 2), Narrative: "SWAP rollover=7"},
+		{Kind: "ROLLOVER", Direction: "DEBIT", Currency: "USD",
+			Amount: dec0("0.30"), At: at(2026, 2, 3), Narrative: "SWAP rollover=8"},
+	}})
+	rep, err := svc.Report(t.Context(), 7, 2026, MethodFIFO)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Flows) != 3 || len(rep.FlowTotals) != 1 {
+		t.Fatalf("flows=%d totals=%d", len(rep.Flows), len(rep.FlowTotals))
+	}
+	tot := rep.FlowTotals[0]
+	if !tot.FeesPaid.Equal(dec0("2.50")) || !tot.SwapPaid.Equal(dec0("1.20")) ||
+		!tot.SwapReceived.Equal(dec0("0.30")) || !tot.NetCost.Equal(dec0("3.40")) {
+		t.Fatalf("flow totals=%+v", tot)
+	}
+	csv := string(RenderCSV(rep))
+	for _, want := range []string{"kind,direction,currency,amount",
+		"FEE,CREDIT,USD,2.50000000", "currency,fees_paid,rebates,swap_paid",
+		"inducement_statement"} {
+		if !strings.Contains(csv, want) {
+			t.Fatalf("csv missing %q:\n%s", want, csv)
+		}
+	}
+	pdf := string(RenderPDF(rep))
+	if !strings.Contains(pdf, "Inducements:") {
+		t.Fatal("pdf missing inducement line")
+	}
+}
+
+func TestRenderKoinlyCSV(t *testing.T) {
+	rep := testReport(t)
+	rep.Flows = []FlowLine{
+		{Kind: "FEE", Direction: "CREDIT", Currency: "USD",
+			Amount: dec0("0.15"), At: at(2026, 2, 1), Narrative: "COMMISSION trade=4"},
+		{Kind: "ROLLOVER", Direction: "DEBIT", Currency: "USD",
+			Amount: dec0("0.30"), At: at(2026, 2, 2), Narrative: "SWAP rollover=8"},
+	}
+	out := string(RenderKoinlyCSV(rep))
+	if !strings.HasPrefix(out, "Date,Sent Amount,Sent Currency,Received Amount,Received Currency,Fee Amount,Fee Currency,") {
+		t.Fatalf("header wrong:\n%s", out)
+	}
+	// EURUSD disposal: sent 100 EUR, received 130 USD (1.30×100), label rows.
+	if !strings.Contains(out, "100.00000000,EUR,130.00000000,USD") {
+		t.Fatalf("disposal row missing:\n%s", out)
+	}
+	if !strings.Contains(out, ",fee,") || !strings.Contains(out, "0.15000000,USD") {
+		t.Fatalf("fee row missing:\n%s", out)
+	}
+	if !strings.Contains(out, ",swap_received,") {
+		t.Fatalf("swap row missing:\n%s", out)
+	}
+}
+
+// Limiter math — the Redis leg is gated (EXC_REDIS_TEST=1); the mem
+// fake exercises the handler contract only.
+func TestDailyLimiterInterface(t *testing.T) {
+	var l DailyLimiter = &memLimiter{max: 1}
+	if _, err := l.Allow(t.Context(), 42); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.Allow(t.Context(), 42); err != ErrDailyReportLimit {
+		t.Fatalf("second allow = %v, want ErrDailyReportLimit", err)
+	}
+}
+
+type memLimiter struct {
+	max   int
+	count int
+}
+
+func (m *memLimiter) Allow(context.Context, int64) (int, error) {
+	m.count++
+	if m.count > m.max {
+		return 0, ErrDailyReportLimit
+	}
+	return m.max - m.count, nil
+}

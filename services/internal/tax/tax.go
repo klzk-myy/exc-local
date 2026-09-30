@@ -19,6 +19,20 @@
 //
 // Source data is the trades table (real fills, not a stub) joined to
 // instruments for symbol/quote currency.
+//
+// Phase-20 Task 20.3.10 deltas:
+//   - Reports accept an arbitrary [from,to) UTC window (the year param
+//     remains a convenience for the canonical year range).
+//   - The report carries the in-window ledger flow lines (FEE +
+//     ROLLOVER rows from ledger_entries — the account's append-only
+//     book of record, migration 102) so fees and swap accruals sit next
+//     to the disposals they belong to; direction DEBIT = money in,
+//     CREDIT = money out.
+//   - Koinly export (RenderKoinlyCSV in koinly.go) maps disposals and
+//     flow lines onto the Koinly universal CSV layout.
+//   - A per-account daily generation cap (limiter.go) rate-limits
+//     report issuance to TaxReportsPerDay per UTC day.
+//   - Every generated document carries NoInducementStatement.
 package tax
 
 import (
@@ -106,16 +120,99 @@ type CurrencySummary struct {
 // IRC871m is the §871(m) dividend-equivalent withholding applicability
 // note: "N/A" — a spot-only fiat FX venue has no equity swaps to withhold
 // on (Phase-12 Task 12.3.13 documentation requirement).
+//
+// Task 20.3.10 adds: From/To delimit the disposal window (year reports
+// set them to the year's UTC bounds); Flows/FlowTotals carry the
+// in-window fee and swap ledger lines; Inducement is the fixed
+// no-inducement declaration printed on every generated document.
 type Report struct {
 	AccountID          int64             `json:"account_id"`
 	Year               int               `json:"year"`
+	From               time.Time         `json:"from"` // window start (inclusive, UTC)
+	To                 time.Time         `json:"to"`   // window end (exclusive, UTC)
 	Method             Method            `json:"method"`
 	BookOfRecordMethod Method            `json:"book_of_record_method"`
 	Projection         bool              `json:"projection"`
 	IRC871m            string            `json:"irc_871m_applicability"`
 	Disposals          []Disposal        `json:"disposals"`
 	Summary            []CurrencySummary `json:"summary"`
+	Flows              []FlowLine        `json:"flows,omitempty"`
+	FlowTotals         []FlowSummary     `json:"flow_totals,omitempty"`
+	Inducement         string            `json:"inducement_statement"`
 	GeneratedAt        time.Time         `json:"generated_at"`
+}
+
+// NoInducementStatement is the fixed declaration carried on every
+// generated tax document (Task 20.3.10 — R10: no IB/retrocession flow).
+const NoInducementStatement = "No third-party inducements paid or received (venue has no IB/retrocession flow per R10)."
+
+// FlowLine is one in-window ledger flow surfaced on the report —
+// FEE (commissions, conversion fees) and ROLLOVER (Tom-Next swap
+// accruals) rows from ledger_entries. Direction is the ledger's own:
+// DEBIT = money in, CREDIT = money out (migration 102 contract).
+type FlowLine struct {
+	Kind        string          `json:"kind"`      // FEE | ROLLOVER
+	Direction   string          `json:"direction"` // DEBIT | CREDIT
+	Currency    string          `json:"currency"`
+	Amount      decimal.Decimal `json:"amount"` // positive
+	At          time.Time       `json:"at"`
+	ReferenceID int64           `json:"reference_id,omitempty"`
+	Narrative   string          `json:"narrative,omitempty"`
+}
+
+// FlowSummary aggregates the flow lines per currency — the fee/swap
+// totals a filer reconciles against the ex-post cost disclosure
+// (analytics.CostsDisclosureService reads the same ledger rows, so the
+// two documents reconcile by construction).
+type FlowSummary struct {
+	Currency     string          `json:"currency"`
+	FeesPaid     decimal.Decimal `json:"fees_paid"`     // FEE credits
+	Rebates      decimal.Decimal `json:"rebates"`       // FEE debits (money in)
+	SwapPaid     decimal.Decimal `json:"swap_paid"`     // ROLLOVER credits
+	SwapReceived decimal.Decimal `json:"swap_received"` // ROLLOVER debits
+	NetCost      decimal.Decimal `json:"net_cost"`      // paid − received
+}
+
+// FlowSource supplies the in-window ledger flow lines. PgxSource
+// implements it alongside FillSource — both read the same PG pool, so
+// NewService auto-detects the capability (no wiring change needed).
+type FlowSource interface {
+	Flows(ctx context.Context, accountID int64, from, to time.Time) ([]FlowLine, error)
+}
+
+// SummarizeFlows folds flow lines into per-currency totals.
+func SummarizeFlows(flows []FlowLine) []FlowSummary {
+	byCcy := map[string]*FlowSummary{}
+	for _, f := range flows {
+		s, ok := byCcy[f.Currency]
+		if !ok {
+			s = &FlowSummary{Currency: f.Currency}
+			byCcy[f.Currency] = s
+		}
+		cost := f.Direction == "CREDIT" // money out = cost
+		switch f.Kind {
+		case "FEE":
+			if cost {
+				s.FeesPaid = s.FeesPaid.Add(f.Amount)
+			} else {
+				s.Rebates = s.Rebates.Add(f.Amount)
+			}
+		case "ROLLOVER":
+			if cost {
+				s.SwapPaid = s.SwapPaid.Add(f.Amount)
+			} else {
+				s.SwapReceived = s.SwapReceived.Add(f.Amount)
+			}
+		}
+	}
+	out := make([]FlowSummary, 0, len(byCcy))
+	for _, s := range byCcy {
+		s.NetCost = s.FeesPaid.Add(s.SwapPaid).
+			Sub(s.Rebates).Sub(s.SwapReceived)
+		out = append(out, *s)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Currency < out[j].Currency })
+	return out
 }
 
 // ---------------------------------------------------------------------------
@@ -422,9 +519,47 @@ func (s *PgxSource) Fills(ctx context.Context, accountID int64, before time.Time
 	return out, rows.Err()
 }
 
-// Service ties the source to the engine.
+// Flows implements FlowSource — the account's in-window FEE and
+// ROLLOVER ledger entries (ledger_entries, migration 102; the PG book
+// of record the Task 20.3.14 ex-post disclosure reconciles against).
+// Entry narratives are the posting engine's prefix convention
+// ("COMMISSION trade=…", "SWAP rollover=…" — see internal/ledger and
+// internal/settlement posting callers); rows are returned verbatim.
+func (s *PgxSource) Flows(ctx context.Context, accountID int64, from, to time.Time) ([]FlowLine, error) {
+	rows, err := s.Pool.Query(ctx, `
+		SELECT entry_type::text, direction::text, currency, amount::text,
+		       posted_at, COALESCE(reference_id, 0), COALESCE(description, '')
+		  FROM ledger_entries
+		 WHERE account_id = $1 AND posted_at >= $2 AND posted_at < $3
+		   AND entry_type::text IN ('FEE', 'ROLLOVER')
+		 ORDER BY posted_at, id`, accountID, from.UTC(), to.UTC())
+	if err != nil {
+		return nil, fmt.Errorf("tax: flows query: %w", err)
+	}
+	defer rows.Close()
+	var out []FlowLine
+	for rows.Next() {
+		var f FlowLine
+		var amt string
+		if err := rows.Scan(&f.Kind, &f.Direction, &f.Currency, &amt,
+			&f.At, &f.ReferenceID, &f.Narrative); err != nil {
+			return nil, fmt.Errorf("tax: flow scan: %w", err)
+		}
+		if f.Amount, err = decimal.NewFromString(amt); err != nil {
+			return nil, fmt.Errorf("tax: flow amount %q: %w", amt, err)
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
+// Service ties the source to the engine. When the source also
+// implements FlowSource (PgxSource does), reports carry the in-window
+// fee/swap ledger lines automatically — the existing NewPgxSource
+// wiring needs no change.
 type Service struct {
 	source FillSource
+	flows  FlowSource // nil when the fill source cannot read ledger rows
 	now    func() time.Time
 }
 
@@ -433,36 +568,78 @@ func NewService(source FillSource) (*Service, error) {
 	if source == nil {
 		return nil, ErrNoSource
 	}
-	return &Service{source: source, now: time.Now}, nil
+	s := &Service{source: source, now: time.Now}
+	if fs, ok := source.(FlowSource); ok {
+		s.flows = fs
+	}
+	return s, nil
 }
+
+// SetFlowSource overrides/attaches the ledger-flow seam — for sources
+// that cannot implement FlowSource themselves (test fakes stay tiny).
+func (s *Service) SetFlowSource(fs FlowSource) { s.flows = fs }
 
 // SetClockForTest overrides the clock; tests only.
 func (s *Service) SetClockForTest(now func() time.Time) { s.now = now }
 
-// Report builds the account's lot/disposal report for `year`.
+// Report builds the account's lot/disposal report for `year` — the
+// canonical convenience wrapper around ReportRange using the year's
+// UTC bounds.
 func (s *Service) Report(ctx context.Context, accountID int64, year int, method Method) (*Report, error) {
-	if accountID <= 0 {
-		return nil, fmt.Errorf("tax: account id must be positive")
-	}
 	if year < 1970 || year > s.now().Year()+1 {
 		return nil, fmt.Errorf("tax: year %d out of range", year)
 	}
-	yearStart := time.Date(year, 1, 1, 0, 0, 0, 0, time.UTC)
-	yearEnd := time.Date(year+1, 1, 1, 0, 0, 0, 0, time.UTC)
-	fills, err := s.source.Fills(ctx, accountID, yearEnd)
+	return s.ReportRange(ctx, accountID,
+		time.Date(year, 1, 1, 0, 0, 0, 0, time.UTC),
+		time.Date(year+1, 1, 1, 0, 0, 0, 0, time.UTC), method)
+}
+
+// ReportRange builds the account's lot/disposal report for the
+// [from,to) UTC window (Task 20.3.10). Lots opened before `from` still
+// contribute basis — the fill stream covers everything before `to`.
+// Fee/swap flow lines are loaded for the same window when a flow
+// source is wired.
+func (s *Service) ReportRange(ctx context.Context, accountID int64,
+	from, to time.Time, method Method) (*Report, error) {
+
+	if accountID <= 0 {
+		return nil, fmt.Errorf("tax: account id must be positive")
+	}
+	from, to = from.UTC(), to.UTC()
+	if !from.Before(to) {
+		return nil, fmt.Errorf("tax: from must precede to (%s !< %s)", from, to)
+	}
+	// A window still open at generation time is clamped to now — the
+	// report must never project into the future.
+	if now := s.now().UTC(); to.After(now) {
+		to = now
+	}
+	fills, err := s.source.Fills(ctx, accountID, to)
 	if err != nil {
 		return nil, err
 	}
-	disposals := Compute(fills, method, yearStart, yearEnd)
-	return &Report{
+	disposals := Compute(fills, method, from, to)
+	rep := &Report{
 		AccountID:          accountID,
-		Year:               year,
+		Year:               from.Year(),
+		From:               from,
+		To:                 to,
 		Method:             method,
 		BookOfRecordMethod: MethodFIFO,
 		Projection:         method != MethodFIFO,
 		IRC871m:            "N/A — spot FX venue (no §871(m) dividend-equivalent instruments)",
 		Disposals:          disposals,
 		Summary:            Summarize(disposals),
+		Inducement:         NoInducementStatement,
 		GeneratedAt:        s.now().UTC(),
-	}, nil
+	}
+	if s.flows != nil {
+		flows, err := s.flows.Flows(ctx, accountID, from, to)
+		if err != nil {
+			return nil, fmt.Errorf("tax: flows load: %w", err)
+		}
+		rep.Flows = flows
+		rep.FlowTotals = SummarizeFlows(flows)
+	}
+	return rep, nil
 }

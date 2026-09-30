@@ -85,7 +85,7 @@ func localRow(code string, httpStatus int, owner, desc string) CodeDef {
 		Owner: owner, Spec: false}
 }
 
-// specCodes is the verbatim spec §23 table (180 rows).
+// specCodes is the verbatim spec §23 table (206 rows).
 var specCodes = []CodeDef{
 	specRow("INVALID_REQUEST", 400, "Malformed request body (Phase-05 Task 5.3.29 API Gateway & Load Balancer — centralized OpenAPI-schema request validation; remediation #19)"),
 	specRow("UNAUTHORIZED", 401, "Missing or invalid auth token (Phase-05 Task 5.3.26 WebSocket Authentication Upgrade & In-Flight Token Renewal; REST JWT/OAuth per spec §8.4; remediation #19)"),
@@ -299,6 +299,7 @@ var specCodes = []CodeDef{
 	specRow("MARK_PRICE_STALE", 503, "Published mark price exceeded the consumer's staleness window; margin/liquidation evaluation deferred to the stale-price ladder (Phase-19.5 Task 19.5.3.3; §27.1 Mark Price matrix row)"),
 	specRow("MARK_PRICE_OUT_OF_BOUNDS", 400, "Mark/reference price outside the instrument's sanity band; rejected before valuation (Phase-19.5 Task 19.5.3.2; §27.1 Mark Price matrix row)"),
 	specRow("STALE_FORWARD_POINTS", 503, "Tom-Next / forward swap points past their staleness window; forward/rollover pricing halted (Phase-19.5 Task 19.5.3.5; §27.1 Yield Curves matrix row)"),
+	specRow("INSUFFICIENT_COHORT", 422, "Marketing-consent cohort aggregate below the 100-record anonymity floor; the cohort row is suppressed rather than emitted (spec §16.11, Phase-20 Task 20.3.16; §24 #381)"),
 }
 
 // localCodes are emitted by the gateway but carry no spec §23 row yet.

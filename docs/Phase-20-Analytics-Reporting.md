@@ -36,16 +36,16 @@ Implement ClickHouse analytics: tick history storage, trade analytics, P&L repor
 7. Analytics dashboard data feed: latency, throughput, fill rate, and P&L metrics exposed for the analytics dashboard (spec §24 #68; rendered by Phase-7 Grafana/Phase-10 admin views).
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] ClickHouse tables created (ticks, trades, ohlcv, pnl, volume)
-* [ ] ETL pipeline: PostgreSQL → ClickHouse
-* [ ] Real-time ticks within 1s
-* [ ] ClickHouse sustains 50,000 inserts/sec on tick ingest (spec §24 #65)
-* [ ] Analytics dashboard metrics exposed: latency, throughput, fill rate, P&L (spec §24 #68)
-* [ ] Batch aggregation for OHLCV
+* [x] ClickHouse tables created (ticks, trades, ohlcv, pnl, volume)
+* [x] ETL pipeline: PostgreSQL → ClickHouse
+* [x] Real-time ticks within 1s
+* [x] ClickHouse sustains 50,000 inserts/sec on tick ingest (spec §24 #65)
+* [x] Analytics dashboard metrics exposed: latency, throughput, fill rate, P&L (spec §24 #68)
+* [x] Batch aggregation for OHLCV
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: ClickHouse for tick history + analytics — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: ClickHouse for tick history + analytics — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -62,14 +62,14 @@ Implement ClickHouse analytics: tick history storage, trade analytics, P&L repor
 4. Compression: ClickHouse LZ4.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Ticks stored in ClickHouse
-* [ ] Tick history query works with date range
-* [ ] Raw tick TTL 90 days; aggregated OHLCV retained 5 years (spec §16.1/§16.2)
-* [ ] LZ4 compression
+* [x] Ticks stored in ClickHouse
+* [x] Tick history query works with date range
+* [x] Raw tick TTL 90 days; aggregated OHLCV retained 5 years (spec §16.1/§16.2)
+* [x] LZ4 compression (ClickHouse MergeTree default codec — no explicit CODEC clause required)
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: tick history retention (90d raw / 5yr aggregates) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: tick history retention (90d raw / 5yr aggregates) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -85,13 +85,13 @@ Implement ClickHouse analytics: tick history storage, trade analytics, P&L repor
 3. `GET /api/v1/history/klines/{symbol}?interval=1m&from=&to=` — query candles.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] OHLCV analytics projection covers all 12 persisted intervals (supersedes prior 9/6; 1s remains memory-only in Phase-06)
-* [ ] Materialized views for real-time aggregation
-* [ ] Kline query works
+* [x] OHLCV analytics projection covers all 12 persisted intervals (supersedes prior 9/6; 1s remains memory-only in Phase-06)
+* [x] Materialized views for real-time aggregation — `volume_stats_hourly_mv` (MV) + `ohlcv` UNION-ALL convenience view; candle intervals are engine-computed (deterministic 12-interval engine supersedes per-interval MVs)
+* [x] Kline query works
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: OHLCV at multiple timeframes — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: OHLCV at multiple timeframes — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -108,13 +108,13 @@ Implement ClickHouse analytics: tick history storage, trade analytics, P&L repor
 4. Aggregated: per account, per instrument, per day.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] P&L report per account per day
-* [ ] CSV and PDF export
-* [ ] Aggregation by account, instrument, day
+* [x] P&L report per account per day
+* [x] CSV and PDF export
+* [x] Aggregation by account, instrument, day
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: P&L reporting — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: P&L reporting — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -132,14 +132,14 @@ Implement ClickHouse analytics: tick history storage, trade analytics, P&L repor
 5. `GET /api/v1/analytics/stats` — trading statistics.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Volume report per symbol/day/hour
-* [ ] Trade count per symbol/tier
-* [ ] Fill rate computed
-* [ ] Stats endpoints work
+* [x] Volume report per symbol/day/hour
+* [x] Trade count per symbol/tier
+* [x] Fill rate computed
+* [x] Stats endpoints work
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: volume + stats reporting — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: volume + stats reporting — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -160,16 +160,16 @@ Implement ClickHouse analytics: tick history storage, trade analytics, P&L repor
 **Migration note:** `migrations/049_client_statements.up.sql` — `client_statements` + `trade_confirmations` + `fee_invoices` tables (spec §5.28).
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Daily + monthly statements generated and downloadable (PDF/CSV) (§24 #143)
-* [ ] Trade confirmation within 60s of execution; retrievable via API
-* [ ] Statement totals reconcile to GL (zero-sum invariant)
-* [ ] Monthly fee invoices for institutional accounts (Finance Ops export)
-* [ ] 5-year retention enforced
+* [x] Daily + monthly statements generated and downloadable (PDF/CSV) (§24 #143)
+* [x] Trade confirmation within 60s of execution; retrievable via API
+* [x] Statement totals reconcile to GL (zero-sum invariant)
+* [x] Monthly fee invoices for institutional accounts (Finance Ops export)
+* [x] 5-year retention enforced
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: client statements + confirmations (§5.28, §24 #143) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: statement during pending settlement, confirmation for busted trade (flagged + adjusted confirmation), invoice for suspended MM program
+- [x] Spec checkpoint: client statements + confirmations (§5.28, §24 #143) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [x] Edge cases: statement during pending settlement, confirmation for busted trade (flagged + adjusted confirmation), invoice for suspended MM program
 
 ---
 
@@ -186,14 +186,14 @@ Implement ClickHouse analytics: tick history storage, trade analytics, P&L repor
 4. Retention: trial balances and finance exports retained ≥ 7 years (audit/tax).
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Daily trial balance per currency with zero variance to GL (zero-sum invariant verified) (§24 #205)
-* [ ] Finance P&L / balance-sheet exports generated by EOD+1h and reconciled to sub-ledgers
-* [ ] ERP nightly batch delivered with checksum manifest + replay protection; 7-year retention
+* [x] Daily trial balance per currency with zero variance to GL (zero-sum invariant verified) (§24 #205)
+* [x] Finance P&L / balance-sheet exports generated by EOD+1h and reconciled to sub-ledgers
+* [x] ERP nightly batch delivered with checksum manifest + replay protection; 7-year retention
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: house finance reporting (§16.5, §24 #205) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: first-run with empty GL day, weekend/holiday EOD, currency with no activity
+- [x] Spec checkpoint: house finance reporting (§16.5, §24 #205) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [x] Edge cases: first-run with empty GL day, weekend/holiday EOD, currency with no activity
 
 ---
 
@@ -213,16 +213,16 @@ Implement ClickHouse analytics: tick history storage, trade analytics, P&L repor
 7. Archival: generated documents stored in S3 with 7-year retention (MiFID II requirement). Retrievable by compliance for regulatory inquiries.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Trade confirmations generated on execution with all regulatory fields
-* [ ] Delivery via secure portal and email with encrypted PDF
-* [ ] T+1 delivery for retail, real-time for institutional
-* [ ] Account statements generated daily/weekly/monthly
-* [ ] Documents archived in S3 with 7-year retention
+* [x] Trade confirmations generated on execution with all regulatory fields
+* [x] Delivery via secure portal and email with encrypted PDF
+* [x] T+1 delivery for retail, real-time for institutional
+* [x] Account statements generated daily/weekly/monthly — implemented DAILY+MONTHLY per spec §5.28 type ENUM (no WEEKLY value exists; supersedes the weekly cadence in this prose)
+* [x] Documents archived in S3 with 7-year retention
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: trade confirmation delivery — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: trade amendment after confirmation sent, multiple fills same order, email delivery failure retry
+- [x] Spec checkpoint: trade confirmation delivery — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [x] Edge cases: trade amendment after confirmation sent, multiple fills same order, email delivery failure retry
 
 ---
 
@@ -241,17 +241,17 @@ Implement ClickHouse analytics: tick history storage, trade analytics, P&L repor
 6. Institutional white-label TCA PDF reports with venue comparison.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Per-fill TCA: slippage computed vs arrival price, VWAP, and ECB fix
-* [ ] Price-improvement delta recorded and included in TCA reports (§24 #400)
-* [ ] Aggregated TCA stored in ClickHouse with daily/monthly/quarterly granularity
-* [ ] REST endpoint functional with account and period filters
-* [ ] Quarterly RTS 28 TCA summary auto-generated
+* [x] Per-fill TCA: slippage computed vs arrival price, VWAP, and ECB fix
+* [x] Price-improvement delta recorded and included in TCA reports (§24 #400)
+* [x] Aggregated TCA stored in ClickHouse with daily/monthly/quarterly granularity
+* [x] REST endpoint functional with account and period filters
+* [x] Quarterly RTS 28 TCA summary auto-generated
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: TCA engine — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: zero-fill orders, benchmark orders with no ECB fix available, multi-fill orders spanning sessions
-- [ ] Edge cases: price-improvement delta zero or negative (adverse selection), trade-through events with no fill
+- [x] Spec checkpoint: TCA engine — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [x] Edge cases: zero-fill orders, benchmark orders with no ECB fix available, multi-fill orders spanning sessions
+- [x] Edge cases: price-improvement delta zero or negative (adverse selection), trade-through events with no fill
 
 ---
 
@@ -260,8 +260,8 @@ Implement ClickHouse analytics: tick history storage, trade analytics, P&L repor
 User-facing tax calculator tool — `GET /api/v1/account/tax-report?year={YYYY}&method={FIFO|LIFO|HIFO|AVG_COST}` generates downloadable tax report (PDF + CSV). Covers: realized P&L per trade (with selected cost-basis method), swap/rollover income/expense, fees paid, dividends/adjustments. Leverages Phase-03 ledger and Phase-20 reporting infrastructure. Supports date-range filtering. Frontend: Settings → Tax Reports → year/method selector → Generate & Download buttons. Rate-limited to 5 generations per day per account. Third-party export format compatible with common tax tools (Koinly CSV schema).
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: tax calculations expose method, costs, period, and reproducible export (§24 #276) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: tax calculations expose method, costs, period, and reproducible export (§24 #276) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -275,13 +275,13 @@ User-facing tax calculator tool — `GET /api/v1/account/tax-report?year={YYYY}&
 3. **Deduplication Invariant:** Enforce `ReplacingMergeTree` engine with versioning on `(instrument_id, trade_id, event_seq)` ensuring duplicate insertions during replay are completely transparent.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] ClickHouse timeouts divert ticks to local disk spool
-* [ ] Spool automatically drains upon ClickHouse recovery
-* [ ] ReplacingMergeTree deduplication guarantees zero duplicate ticks
+* [x] ClickHouse timeouts divert ticks to local disk spool
+* [x] Spool automatically drains upon ClickHouse recovery
+* [x] ReplacingMergeTree deduplication guarantees zero duplicate ticks
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: ClickHouse ingestion buffering and dead-letter recovery fail closed (§24 #322) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: ClickHouse ingestion buffering and dead-letter recovery fail closed (§24 #322) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -294,12 +294,12 @@ User-facing tax calculator tool — `GET /api/v1/account/tax-report?year={YYYY}&
 2. Served from a ClickHouse projection synced by the Task 20.3.1 ETL; PG remains the book of record for disputes.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Every income type queryable per symbol and window with GL linkage
-* [ ] Totals reconcile to statements (Task 20.3.6) for the same period
+* [x] Every income type queryable per symbol and window with GL linkage
+* [x] Totals reconcile to statements (Task 20.3.6) for the same period
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: income ledger by type/symbol/time reconciled to statements (§24 #361) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: income ledger by type/symbol/time reconciled to statements (§24 #361) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -314,12 +314,12 @@ User-facing tax calculator tool — `GET /api/v1/account/tax-report?year={YYYY}&
 2. `GET /api/v1/account/snapshots?date=` serves history; snapshots feed the auditor evidence pack (Task 24.3.18) and the §24 #345 audit API.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Daily snapshots complete for all funded accounts with hash chain intact
-* [ ] History endpoint serves any retained date within the retention schedule
+* [x] Daily snapshots complete for all funded accounts with hash chain intact
+* [x] History endpoint serves any retained date within the retention schedule
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: daily hash-chained account snapshots with history API (§24 #362) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: daily hash-chained account snapshots with history API (§24 #362) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -333,13 +333,13 @@ User-facing tax calculator tool — `GET /api/v1/account/tax-report?year={YYYY}&
 3. Third-party inducements: none paid (venue has no IB/retrocession flow per R10) — stated on both documents so audits stop flagging it.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Cost preview matches post-trade actuals within rounding; ex-post annual statement reconciles to income ledger + invoices
-* [ ] No-inducement statement present on both documents
+* [x] Cost preview matches post-trade actuals within rounding; ex-post annual statement reconciles to income ledger + invoices
+* [x] No-inducement statement present on both documents
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: ex-ante preview and annual ex-post costs statement reconciled to ledger (§24 #374) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: preview vs volatile-spread drift (timestamped quote); ex-post for closed accounts (retained, downloadable); cent profiles (minor-unit aware)
+- [x] Spec checkpoint: ex-ante preview and annual ex-post costs statement reconciled to ledger (§24 #374) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [x] Edge cases: preview vs volatile-spread drift (timestamped quote); ex-post for closed accounts (retained, downloadable); cent profiles (minor-unit aware)
 
 ---
 
@@ -353,13 +353,13 @@ User-facing tax calculator tool — `GET /api/v1/account/tax-report?year={YYYY}&
 3. Each notice states the depreciated value, threshold crossed and current margin level (Task 19.3.16 link); repeated crossings after recovery re-notify (new episode, HWM-style reset on return above −5%).
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Every −10% multiple crossing notifies same business day; no duplicate notices per episode
-* [ ] Recovery above −5% resets the episode; notices link margin level
+* [x] Every −10% multiple crossing notifies same business day; no duplicate notices per episode
+* [x] Recovery above −5% resets the episode; notices link margin level
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: per-position 10%-multiple depreciation notices with episode dedupe (§24 #375) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: flash-spike crossing that recovers intra-hour (EOD catch-up still notifies); position closed before EOD (notice on close if crossed); professional/ECP excluded (retail-only rule)
+- [x] Spec checkpoint: per-position 10%-multiple depreciation notices with episode dedupe (§24 #375) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [x] Edge cases: flash-spike crossing that recovers intra-hour (EOD catch-up still notifies); position closed before EOD (notice on close if crossed); professional/ECP excluded (retail-only rule)
 
 ---
 
@@ -373,13 +373,13 @@ User-facing tax calculator tool — `GET /api/v1/account/tax-report?year={YYYY}&
 3. Explicit non-scope: no campaign attribution, no per-user engagement tracking, no purchased lists — stated so audits stop requesting it while R4/R10 stand.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Promo inventory reconciles to the promotions table; SLA breaches flagged
-* [ ] Consent cohorts are counts-only with the 100-cohort floor; non-scope stated
+* [x] Promo inventory reconciles to the promotions table; SLA breaches flagged
+* [x] Consent cohorts are counts-only with the 100-cohort floor; non-scope stated
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: promo inventory and counts-only consent cohorts (§24 #381) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: consent withdrawn mid-campaign window (counts reflect current state with as-of timestamp); expired-promotion content still served from cache (flagged, links Task 21.3.26 render gate)
+- [x] Spec checkpoint: promo inventory and counts-only consent cohorts (§24 #381) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [x] Edge cases: consent withdrawn mid-campaign window (counts reflect current state with as-of timestamp); expired-promotion content still served from cache (flagged, links Task 21.3.26 render gate)
 
 ---
 

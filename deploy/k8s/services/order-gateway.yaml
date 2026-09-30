@@ -56,6 +56,8 @@ spec:
               valueFrom: {secretKeyRef: {name: exchange-secrets, key: jwt-hs256-key-b64}}
             - name: EXC_REDIS_PASSWORD
               valueFrom: {secretKeyRef: {name: exchange-secrets, key: redis-password}}
+            - name: EXC_DOCS_SECRET         # client-PDF cipher root (Task 20.3.8)
+              valueFrom: {secretKeyRef: {name: exchange-secrets, key: docs-secret}}
             - name: EXC_TRUST_PROXY        # behind HAProxy — honor X-Forwarded-For
               value: "1"
           readinessProbe:                  # R9 readiness — gates traffic
@@ -194,6 +196,8 @@ spec:
               valueFrom: {secretKeyRef: {name: exchange-secrets, key: jwt-hs256-key-b64}}
             - name: EXC_REDIS_PASSWORD
               valueFrom: {secretKeyRef: {name: exchange-secrets, key: redis-password}}
+            - name: EXC_DOCS_SECRET         # client-PDF cipher root (Task 20.3.8)
+              valueFrom: {secretKeyRef: {name: exchange-secrets, key: docs-secret}}
             - name: EXC_TRUST_PROXY
               value: "1"
           readinessProbe:

@@ -1,0 +1,55 @@
+# balance-snapshot-builder — Phase-20 Task 20.3.13 (spec §16.7, §24 #362,
+# migration 093). Daily 23:59 UTC hash-chained account snapshots: one row
+# per (account, currency, day) including zero balances, chained
+# prev_hash → hash per account for auditor evidence. Runs --once under
+# the CronJob; the per-date chain-tip rule makes a retried run safe.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: balance-snapshot-builder
+  namespace: exchange
+  labels: {app.kubernetes.io/name: balance-snapshot-builder, app.kubernetes.io/part-of: exchange}
+spec:
+  schedule: "59 23 * * *"            # 23:59 UTC — last ledger image of the day
+  timeZone: "Etc/UTC"
+  concurrencyPolicy: Forbid          # two builders would fork the hash chain
+  successfulJobsHistoryLimit: 14
+  failedJobsHistoryLimit: 14
+  startingDeadlineSeconds: 600
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 1800    # snapshot set must land before 00:30 UTC
+      backoffLimit: 2                # OnFailure retry replays the same date — idempotent
+      template:
+        metadata:
+          labels: {app.kubernetes.io/name: balance-snapshot-builder}
+        spec:
+          serviceAccountName: exchange-service
+          automountServiceAccountToken: false
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            fsGroup: 10001
+            seccompProfile: {type: RuntimeDefault}
+          containers:
+            - name: snapshot-builder
+              image: registry.internal/exchange/snapshot-builder:CHANGE_ME
+              imagePullPolicy: IfNotPresent
+              args: ["--once"]
+              envFrom:
+                - configMapRef: {name: exchange-env}
+              env:
+                - name: EXC_POSTGRES_DSN
+                  valueFrom: {secretKeyRef: {name: exchange-db, key: dsn}}
+              resources:
+                requests: {cpu: 250m, memory: 256Mi}
+                limits:   {cpu: "1",  memory: 512Mi}
+              securityContext:
+                runAsUser: 10001
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: [ALL]}
+              volumeMounts:
+                - {name: tmp, mountPath: /tmp}
+          volumes:
+            - {name: tmp, emptyDir: {}}

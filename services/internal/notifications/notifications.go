@@ -47,6 +47,12 @@ const (
 	// corrected trade are notified (spec §5.29/§24 #138).
 	EventTradeBusted        = "trade_busted"
 	EventTradePriceAdjusted = "trade_price_adjusted"
+	// EventPositionDepreciation (Phase-20 Task 20.3.15): a RETAIL
+	// leveraged position depreciated past a −10% multiple (MiFID II
+	// 10%-rule, spec §16.9/§24 #375). Payload carries position_id,
+	// symbol, threshold_pct, dep_pct, depreciated_value and
+	// margin_level_pct.
+	EventPositionDepreciation = "position_depreciation"
 )
 
 var validChannels = map[string]bool{
@@ -54,18 +60,19 @@ var validChannels = map[string]bool{
 }
 
 var validEvents = map[string]bool{
-	EventDepositConfirmed:    true,
-	EventWithdrawalCompleted: true,
-	EventOrderFilled:         true,
-	EventKYCApproved:         true,
-	EventKYCRejected:         true,
-	EventLiquidationWarning:  true,
-	EventSecurityAlert:       true,
-	EventTradingHalt:         true,
-	EventKYCTierDowngraded:   true,
-	EventCopyChildSkipped:    true,
-	EventTradeBusted:         true,
-	EventTradePriceAdjusted:  true,
+	EventDepositConfirmed:     true,
+	EventWithdrawalCompleted:  true,
+	EventOrderFilled:          true,
+	EventKYCApproved:          true,
+	EventKYCRejected:          true,
+	EventLiquidationWarning:   true,
+	EventSecurityAlert:        true,
+	EventTradingHalt:          true,
+	EventKYCTierDowngraded:    true,
+	EventCopyChildSkipped:     true,
+	EventTradeBusted:          true,
+	EventTradePriceAdjusted:   true,
+	EventPositionDepreciation: true,
 }
 
 // criticalEvents bypass quiet hours (Task 12.3.6 item 4 ruling):
@@ -80,6 +87,11 @@ var criticalEvents = map[string]bool{
 	// A busted/repriced trade moved money — never defer that notice.
 	EventTradeBusted:        true,
 	EventTradePriceAdjusted: true,
+	// The MiFID II 10%-rule notice is a statutory same-BUSINESS-DAY duty
+	// (spec §16.9) — deferring it past quiet-hours end could push
+	// delivery past the deadline, so it bypasses quiet hours like the
+	// other money-safety events.
+	EventPositionDepreciation: true,
 }
 
 // ValidChannel reports whether c is a known channel token.
@@ -97,8 +109,8 @@ func Events() []string {
 	return []string{
 		EventDepositConfirmed, EventKYCApproved, EventKYCRejected,
 		EventKYCTierDowngraded, EventLiquidationWarning, EventOrderFilled,
-		EventSecurityAlert, EventTradeBusted, EventTradePriceAdjusted,
-		EventTradingHalt, EventWithdrawalCompleted,
+		EventPositionDepreciation, EventSecurityAlert, EventTradeBusted,
+		EventTradePriceAdjusted, EventTradingHalt, EventWithdrawalCompleted,
 	}
 }
 

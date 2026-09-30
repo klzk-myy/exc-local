@@ -1434,3 +1434,130 @@ are endpoint/key-configured HTTP integrations — production vendor
 wire-protocol credentials plug into the same constructors; ClickHouse
 archive binds with Phase-20's owned ingestion pipeline; Aeron band is
 optional (Redis keyspace is the C++ contract per `PriceOracleFeed.hpp`).
+
+## [2026-09-30 02:28 UTC] — Phase 20 START
+Scope: 16 tasks (20.3.1–20.3.16) — ClickHouse analytics schema + ETL
+(JetStream→CH, GL batch projection), tick history, OHLCV projections,
+P&L/volume/stats, client statements + confirmations + fee invoicing,
+house finance (trial balance + ERP), confirmation delivery engine, TCA
+engine, tax-tool deltas, ingestion spool (§16.6), income ledger, daily
+snapshots, costs disclosure, depreciation notices, marketing-ops.
+
+- **Pre-landed seams (orchestrator):** `internal/analytics/ch.go` —
+  native-protocol `Conn` seam over clickhouse-go/v2 (v2.40.1) with
+  async_insert ingest settings + `ConfigFromEnv` (`EXC_CH_*`);
+  `internal/api/pdfdoc.go` — shared minimal PDF-1.4 writer
+  (`RenderPDFDoc`/`ChunkLines`) extracted from tax's pattern; go.mod adds
+  `cockroachdb/pebble v1.1.5`.
+- **Decision:** §16.6 "local RocksDB queue" implemented on **Pebble**
+  (pure-Go, RocksDB-format-family LSM) — apt ships librocksdb 6.11 <
+  grocksdb's required version and CGO everywhere in the services module
+  is worse than a format-family substitution. Recorded here + to spec
+  §27 at settle.
+- Dispatch: 7 background agents across disjoint write scopes; 20.3.10
+  (tax tool) mostly pre-landed under Phase-05 — deltas assigned.
+
+### [2026-09-30 04:47 UTC] — Phase 20 Clusters Landed (20.3.1–20.3.16)
+
+- **Cluster A — CH schema + ETL + spool (Tasks 20.3.1, 20.3.11):**
+  `deploy/clickhouse/schema/` — 20 objects live on dev ClickHouse
+  (`ticks`/`trades` MergeTree 90-day TTL, 12 `ohlcv_*` interval tables +
+  UNION-ALL `ohlcv` view + `volume_stats_hourly_mv`, `account_pnl`,
+  `income_ledger`, `tca_results`, `etl_watermarks`); `internal/analytics/
+  etl.go` JetStream→CH fan-in consumer (durable `ch-etl-*`, batched
+  async_insert, GL projection); `spool.go` Pebble durable write-behind
+  queue + dedup + dead-letter. Measured **139,415 rows/s** vs 50k/s AC;
+  live NATS→CH E2E proven; spool drain-after-outage verified.
+- **Cluster B — ticks/OHLCV (Tasks 20.3.2, 20.3.3):**
+  `analytics/ticks.go` + `ohlcv.go` — cursor-paginated history handlers,
+  `CHArchiveSink` cold-store; deterministic candle intervals via the
+  Phase-06 engine (no per-interval MVs — design note recorded).
+- **Cluster C — P&L/stats (Tasks 20.3.4, 20.3.5):** `analytics/pnl.go` +
+  `stats.go` — `account_pnl` upserts, volume stats, CSV/PDF export;
+  `api/pdfdoc.go` final shape `RenderPDFDoc(title, []PDFLine)`.
+- **Cluster D — statements/finance (Tasks 20.3.6, 20.3.7):** mig **049**
+  split schema (`client_statements`, `trade_confirmations`,
+  `fee_invoices`, `trial_balances`, `erp_delivery_log` — supersedes spec
+  §5.28 unified-table prose, amended at settle); DAILY+MONTHLY periods
+  (`statement_period_enum` has no WEEKLY — prose superseded); bust →
+  ADJUSTED + v2 confirmations; suspended-MM zero-rebate invoices; ERP
+  replay protection; 7/7 PG-gated tests green.
+- **Cluster E — confirmations/TCA (Tasks 20.3.8, 20.3.9):**
+  `internal/reporting/` — templates, delivery sweep, MT515 seam;
+  `tca.go` engine + `TCAFillConsumer` + RTS28 quarterly job.
+- **Cluster F — income/snapshots (Tasks 20.3.12, 20.3.13):** CH
+  `income_ledger` + watermark sync + GL reconcile (phantom-row drift
+  detection); mig **093** `balance_snapshots` + `cmd/snapshot_builder`
+  daily UTC hash-chained snapshots — live `-once` run: 45 accounts /
+  64 rows, chain intact.
+- **Cluster G — costs/depreciation/marketing + tax deltas (Tasks
+  20.3.10Δ, 20.3.14–16):** mig **237** `depreciation_episodes` (hourly +
+  00:05-UTC EOD retail scans, durable episode HWM, quiet-hours bypass);
+  `costs.go` ex-ante/ex-post MiFID II disclosures; `marketing.go`
+  100-record cohort floor → `INSUFFICIENT_COHORT`; tax `from`/`to`
+  windows + FEE/ROLLOVER flows + Koinly CSV + 5/day cap.
+- **Orchestrator wiring:** `cmd/analytics` (candle engine via
+  `OnTradeFill` hook + `Advance` ticker — closes the latent no-producer
+  gap on `fx_klines`/`ohlcv_*`); `cmd/gateway` (CH dial, all Phase-20
+  services, confirmations+TCA consumers, statements/trial-balance/ERP/
+  RTS28/delivery-sweep jobs via `runDailyUTC`); routes flipped
+  `v1`→`v1live` + `statements/{id}/download` registry row + handler-map
+  entries; `analytics-etl.yaml` + `order-gateway.yaml` deploy manifests
+  (spool PVC, `EXC_DOCS_SECRET` ExternalSecret binding).
+
+### [2026-09-30 04:47 UTC] — Phase-20 Settle-Pass Fixes
+
+- **NATS retention correction (spec conformance):** canonical streams
+  `WorkQueuePolicy → LimitsPolicy` — §2.3.1 requires independent durable
+  consumer groups; WorkQueue deletes on first ack and rejects overlapping
+  filters (was silently degrading `pamm_copy_fanout`/`algo_vp_volume`
+  before Phase-20). All 8 streams recreated live (R3, 7d MaxAge, file);
+  fan-out proven — one fill delivered independently to 5 overlapping
+  `trades.>` durables. `nats_test.go` asserts `Limits`; stream-count
+  assertions switched to `len(Streams)`; persistent-stream tests now use
+  unique `ITEST-<ts>` symbols.
+- **Symbol canonicalization:** `parseSubject` maps NATS tokens
+  `EUR-USD` → canonical `EUR/USD` at ingest — CH projections were
+  unreachable under canonical REST symbols otherwise.
+- **PDF encryption (spec-required):** `internal/pdfsec` — AES-128
+  (V4/R4, AESV2) post-pass over the hand-rolled writer; encrypts at the
+  `objectstore.Put` boundary for statements/confirmations/invoices;
+  per-account user PIN = HMAC-SHA256(`EXC_DOCS_SECRET`, account_id)
+  truncated to 6 digits + per-file owner password; **generation fails
+  closed when `EXC_DOCS_SECRET` unset**; PIN surfaced on the
+  authenticated statements envelope; `DecryptPDF` verifies round-trip.
+- **Typed-nil hazard:** CH-backed deps stay nil interfaces (not
+  typed-nil pointers) so handlers' nil checks fail closed.
+- **Audit-chain fix:** `manual_liquidations` append now passes `nil`
+  payload (self-verifiable convention — opaque `positionsJSON` was
+  unverifiable providerless; detail stays in `admin_audit_log
+  .after_state`); stale dev `audit_hash_chain` fixture rows truncated.
+- **Error codes:** `INSUFFICIENT_COHORT` promoted localRow → §23
+  `specRow` (201 table rows / **206 emitted**; +3 append-only localCodes
+  pending §23 transcription).
+- **Test-hygiene:** `TestCHOhlcvStore` window tightened to the inserted
+  candle's minute (accumulated `TEST/PAIR` rows polluted `Limit: 10`);
+  `migverify` DB created on dev PG (5433); PII inventory regenerated
+  (149 cols / 214 tables).
+
+### [2026-09-30 04:47 UTC] — PHASE 20 COMPLETE
+
+- **Checkpoints:** `tests/spec/checks/phase20.go` binds all 16 IDs —
+  16/16 PASS (corpus shard=-1: `total=16 pass=16 fail=0`).
+- **Full corpus:** 571 total, **489 pass, 0 fail**, 2 skip
+  (`P02.5-T2.5.3.1/2-C1` sustained-rate gates — 8h recorded < 72h
+  required, legitimately pending), 80 pending (Phases 8.5/21–24
+  unimplemented).
+- **Build/test:** `go build ./cmd/...` clean · `go vet ./...` clean ·
+  `go test ./...` green incl. PG/Redis/CH/NATS-gated legs live.
+- **Traceability:** 419/419 criteria mapped, 0 defects; impl bindings
+  198 → **207**.
+- **Counts:** migrations 151 → **154** (049/093/237 round-tripped) ·
+  error codes **206** emitted · §24 419 / tasks 479 / checkpoints 543
+  unchanged.
+- **Docs:** phase file 91/91 boxes ticked; spec §5.28 split-schema
+  amendment + §23 row + §27 Phase-20 settle record (Pebble deviation,
+  LimitsPolicy ruling, statement cadence, encryption keying, symbol
+  canonicalization, audit-payload fix); meta-docs synced.
+- Commit: this commit. Next: Phase-08.5 (3 pending checkpoints) +
+  Phase-21.

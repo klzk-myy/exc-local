@@ -240,9 +240,12 @@ func (s *pgLiquidationStore) RecordLiquidation(ctx context.Context, p recordPara
 	}
 
 	// Audit hash chain (spec §5.8) in the SAME transaction — the
-	// liquidation record cannot commit without its chain link.
+	// liquidation record cannot commit without its chain link. The
+	// payload is nil: the positions detail already lives in the
+	// admin_audit_log after_state above, and an opaque payload would make
+	// the chain unverifiable once the source row is gone.
 	entry, err := audit.Append(ctx, tx, "manual_liquidations", &recID,
-		"MANUAL_LIQ", positionsJSON)
+		"MANUAL_LIQ", nil)
 	if err != nil {
 		return 0, 0, nil, excerrors.Wrap("INTERNAL_ERROR", "audit chain append", err)
 	}

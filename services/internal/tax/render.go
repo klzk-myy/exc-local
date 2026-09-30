@@ -15,10 +15,17 @@ func RenderCSV(r *Report) []byte {
 	var b bytes.Buffer
 	fmt.Fprintf(&b, "account_id,%d\n", r.AccountID)
 	fmt.Fprintf(&b, "year,%d\n", r.Year)
+	if !r.From.IsZero() {
+		fmt.Fprintf(&b, "from,%s\n", r.From.UTC().Format(time.RFC3339))
+	}
+	if !r.To.IsZero() {
+		fmt.Fprintf(&b, "to,%s\n", r.To.UTC().Format(time.RFC3339))
+	}
 	fmt.Fprintf(&b, "method,%s\n", r.Method)
 	fmt.Fprintf(&b, "book_of_record_method,%s\n", r.BookOfRecordMethod)
 	fmt.Fprintf(&b, "projection,%t\n", r.Projection)
 	fmt.Fprintf(&b, "irc_871m_applicability,%s\n", csvField(r.IRC871m))
+	fmt.Fprintf(&b, "inducement_statement,%s\n", csvField(r.Inducement))
 	fmt.Fprintf(&b, "generated_at,%s\n", r.GeneratedAt.UTC().Format(time.RFC3339))
 	b.WriteString("\nsymbol,currency,direction,open_trade_id,close_trade_id,opened_at,closed_at,quantity,unit_cost,unit_proceeds,proceeds,cost_basis,gain\n")
 	for _, d := range r.Disposals {
@@ -37,6 +44,24 @@ func RenderCSV(r *Report) []byte {
 			s.Currency, s.DisposalCount,
 			s.TotalProceeds.StringFixed(8), s.TotalCostBasis.StringFixed(8),
 			s.NetGain.StringFixed(8))
+	}
+	if len(r.Flows) > 0 {
+		b.WriteString("\nkind,direction,currency,amount,reference_id,at,narrative\n")
+		for _, f := range r.Flows {
+			fmt.Fprintf(&b, "%s,%s,%s,%s,%d,%s,%s\n",
+				f.Kind, f.Direction, f.Currency, f.Amount.StringFixed(8),
+				f.ReferenceID, f.At.UTC().Format(time.RFC3339),
+				csvField(f.Narrative))
+		}
+	}
+	if len(r.FlowTotals) > 0 {
+		b.WriteString("\ncurrency,fees_paid,rebates,swap_paid,swap_received,net_cost\n")
+		for _, s := range r.FlowTotals {
+			fmt.Fprintf(&b, "%s,%s,%s,%s,%s,%s\n",
+				s.Currency, s.FeesPaid.StringFixed(8), s.Rebates.StringFixed(8),
+				s.SwapPaid.StringFixed(8), s.SwapReceived.StringFixed(8),
+				s.NetCost.StringFixed(8))
+		}
 	}
 	return b.Bytes()
 }
@@ -81,6 +106,9 @@ func RenderPDF(r *Report) []byte {
 		emit(fmt.Sprintf("PLANNING PROJECTION — not the book of record (filed method: %s)", r.BookOfRecordMethod), 10)
 	}
 	emit(fmt.Sprintf("IRC 871(m) applicability: %s", r.IRC871m), 9)
+	if r.Inducement != "" {
+		emit(fmt.Sprintf("Inducements: %s", r.Inducement), 9)
+	}
 	emit(fmt.Sprintf("Generated %s UTC", r.GeneratedAt.UTC().Format("2006-01-02 15:04:05")), 9)
 	emit(" ", 8)
 	emit(fmt.Sprintf("%-12s %-4s %-10s %12s %12s %12s %14s %14s",
@@ -99,6 +127,17 @@ func RenderPDF(r *Report) []byte {
 		emit(fmt.Sprintf("%-8s %8d %16s %16s %16s",
 			s.Currency, s.DisposalCount, s.TotalProceeds.StringFixed(2),
 			s.TotalCostBasis.StringFixed(2), s.NetGain.StringFixed(2)), 10)
+	}
+	if len(r.FlowTotals) > 0 {
+		emit(" ", 8)
+		emit(fmt.Sprintf("%-8s %14s %14s %14s %14s %14s",
+			"Currency", "FeesPaid", "Rebates", "SwapPaid", "SwapRcvd", "NetCost"), 10)
+		for _, s := range r.FlowTotals {
+			emit(fmt.Sprintf("%-8s %14s %14s %14s %14s %14s",
+				s.Currency, s.FeesPaid.StringFixed(2), s.Rebates.StringFixed(2),
+				s.SwapPaid.StringFixed(2), s.SwapReceived.StringFixed(2),
+				s.NetCost.StringFixed(2)), 10)
+		}
 	}
 	flush()
 	if len(pages) == 0 {

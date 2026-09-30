@@ -1,5 +1,52 @@
 # ClickHouse Backup & DR Runbook — Task 4.3.6 (spec §18.3, §24 #159)
 
+## Schema (Task 20.3.1, spec §16)
+
+DDL lives in `./schema/` — apply files in lexical order; every statement is
+`IF NOT EXISTS` so re-application is idempotent:
+
+```bash
+for f in schema/*.sql; do
+  clickhouse-client --user "$CH_USER" --password "$CH_PASS" -n < "$f"
+done
+```
+
+| File | Objects | Engine / retention |
+|---|---|---|
+| `000_database.sql` | `exchange_analytics` | — |
+| `001_ticks.sql` | `ticks` | ReplacingMergeTree(ver), `toYYYYMM` partitions, **TTL 90d** (§16.1) |
+| `002_trades.sql` | `trades` | ReplacingMergeTree(ver), TTL 5y (MiFID warm tier, §19.12) |
+| `003_ohlcv.sql` | `ohlcv_{1m,5m,15m,30m,1h,2h,4h,6h,8h,1d,1w,1mo}` + `ohlcv` union VIEW | SummingMergeTree, TTL 5y (§16.2 — 12 tables per spec, not one partitioned table) |
+| `004_volume_stats.sql` | `volume_stats` + `volume_stats_hourly_mv` | SummingMergeTree, TTL 5y; MV does the real-time hourly rollup over `ticks` |
+| `005_account_pnl.sql` | `account_pnl` | ReplacingMergeTree(ver), no TTL (finance ≥5–7y) |
+| `006_tca_results.sql` | `tca_results` | ReplacingMergeTree(ver), no TTL (Task 20.3.9 writer) |
+| `007_income_ledger.sql` | `income_ledger` | ReplacingMergeTree(ver), no TTL (PG `ledger_entries`/`journal_entries` projection, §16.7) |
+
+Dedup invariant (§16.6, §24 #322): every ingest table is
+`ReplacingMergeTree(ver)` keyed on `(symbol, trade_id, event_seq)`; the Go
+ETL (`services/internal/analytics`) stamps `ver = ingest unix-nanos`, so
+spool replays overwrite deterministically.
+
+Note: `IF NOT EXISTS` makes re-application safe but does NOT migrate
+columns — a column rename/type change requires `DROP TABLE` + re-apply
+(dev) or an explicit `ALTER`/`RENAME` + backfill plan (prod).
+
+## ETL & spool (Tasks 20.3.1/20.3.11)
+
+`services/cmd/analytics` runs the JetStream→ClickHouse consumer: fills on
+`trades.{shard}.{symbol}` land in `ticks`+`trades`, order lifecycle events
+on `analytics.*` feed the order index + `volume_stats` '1d' counters, and
+the hourly MV rolls `ticks` into `volume_stats` '1h' rows. PG
+`ledger_entries` → `income_ledger` runs as a 60s cursor poll (cursor in
+the spool's meta keyspace). On any ClickHouse insert failure (>5s timeout
+or unreachable cluster) batches divert to the Pebble spool
+(`EXC_CH_SPOOL_DIR`, default `/var/spool/exchange/clickhouse_buffer`);
+`Recover` drains it in 10k-entry rounds with 100ms→5s exponential pacing.
+Ack discipline: NATS messages ack only after the batch is durable in CH
+*or* on disk. Dashboard metrics on `-metrics-addr` `/metrics`
+(`analytics_ch_rows_inserted_total`, `analytics_spool_size_bytes`,
+`analytics_fills_total`, `analytics_income_projection_lag_seconds`, …).
+
 ## Model
 
 | Layer | Mechanism | Covers | Bound |

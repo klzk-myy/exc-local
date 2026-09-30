@@ -23,10 +23,12 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/nats-io/nats.go/jetstream"
 
 	"exchange/internal/accounts"
 	"exchange/internal/admin"
 	"exchange/internal/algo"
+	"exchange/internal/analytics"
 	"exchange/internal/api"
 	"exchange/internal/auth"
 	"exchange/internal/bots"
@@ -62,6 +64,7 @@ import (
 	"exchange/internal/ratelimit"
 	"exchange/internal/reconciliation"
 	"exchange/internal/redis"
+	"exchange/internal/reporting"
 	"exchange/internal/risk"
 	"exchange/internal/security"
 	"exchange/internal/settlement"
@@ -502,6 +505,11 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("tax service: %w", err)
 	}
+	// Task 20.3.10 — the daily generation cap (5 reports per account per
+	// UTC day) rides the coordination Redis via an atomic INCR+EXPIRE
+	// Lua script; a Redis outage fails closed (503 at the handler, never
+	// an uncapped report flood).
+	taxLimiter := tax.NewRedisDailyLimiter(rdb.Client, tax.TaxReportsPerDay)
 
 	// Phase-12 Tasks 12.3.4/12.3.13: KYC submission intake + ops matrix.
 	// Document bytes go to S3 via internal/objectstore with SSE-KMS
@@ -1145,6 +1153,358 @@ func run() error {
 	// margin engine (19.3.26) and collateral monitor (19.3.28) have a
 	// live feed.
 	markCache := risk.NewRedisMarkCache(rdb.Client)
+
+	// Phase-20 Task 20.3.14 — MiFID II ex-ante cost preview + ex-post
+	// annual cost reconciliation (spec §16.10, §24 #379). Every seam
+	// resolves to an already-live store: oracleProv is the mark seam
+	// (PRICE_ORACLE_UNAVAILABLE fails closed, never a fabricated mark),
+	// fundStore the account-meta seam, and the Redis cross-rate source
+	// the conversion seam — the same one the funding conversion service
+	// consumes, so preview and settlement price identically.
+	costsSvc, err := analytics.NewCostsDisclosureService(analytics.CostsDeps{
+		Marks:       oracleProv,
+		Instruments: analytics.NewPgCostInstrumentSource(pool),
+		FeeModels:   settlement.NewPgProfileFeeModelSource(pool),
+		Commissions: settlement.NewPgCommissionStore(pool),
+		Swap:        settlement.NewPgSwapRateStore(pool),
+		Spread:      analytics.NewPgSpreadBpsSource(pool),
+		Accounts:    fundStore,
+		Conv:        &funding.RedisCrossRateSource{Rdb: rdb},
+		Activity:    analytics.NewPgCostActivitySource(pool),
+		Trades:      analytics.NewPgTradeFillSource(pool),
+	})
+	if err != nil {
+		return fmt.Errorf("costs disclosure service: %w", err)
+	}
+
+	// Phase-20 Task 20.3.16 — marketing-ops report. The inventory store
+	// reads the Phase-21-owned financial_promotions relation (no Phase-20
+	// migration creates it); a missing table degrades to the registered
+	// SERVICE_DEGRADED 503, never an empty report. Cohort cells carry the
+	// 100-record anonymity floor — sub-floor cells report
+	// INSUFFICIENT_COHORT with the count withheld.
+	marketingSvc, err := analytics.NewMarketingReportService(
+		analytics.NewPgPromoInventoryStore(pool),
+		analytics.NewPgConsentCohortStore(pool))
+	if err != nil {
+		return fmt.Errorf("marketing report service: %w", err)
+	}
+
+	// Phase-20 Task 20.3.15 — retail leveraged-position depreciation
+	// notices (MiFID II 10% rule, spec §16.9, §24 #375). Episode HWM state
+	// persists in depreciation_episodes (migration 237) — restarts never
+	// re-notify a live episode nor lose a reset. The event is registered
+	// critical → quiet-hours bypass preserves the statutory
+	// same-business-day delivery.
+	depSvc, err := analytics.NewDepreciationService(analytics.DepreciationDeps{
+		Marks:     oracleProv,
+		Positions: analytics.NewPgDepreciationPositionSource(pool),
+		Episodes:  analytics.NewPgDepreciationStore(pool),
+		Notifier:  notifSvc,
+		Margin:    risk.RedisMarginLevelReader{C: rdb},
+		Logf:      func(f string, a ...any) { log.Warn(fmt.Sprintf(f, a...)) },
+	})
+	if err != nil {
+		return fmt.Errorf("depreciation service: %w", err)
+	}
+	depSvc.Start(sweepCtx, time.Hour, func(err error) {
+		log.Warn("depreciation hourly sweep failed", "err", err)
+	})
+	// EOD catch-up at each UTC business-day close (00:05 into the new
+	// day): re-evaluates the open set plus positions flattened during the
+	// day just ended — an intra-day close below a threshold still emits
+	// its notice ("notice on close if crossed").
+	go func() {
+		for {
+			now := time.Now().UTC()
+			next := now.Truncate(24 * time.Hour).Add(24*time.Hour + 5*time.Minute)
+			t := time.NewTimer(next.Sub(now))
+			select {
+			case <-sweepCtx.Done():
+				t.Stop()
+				return
+			case <-t.C:
+			}
+			dayStart := time.Now().UTC().Truncate(24 * time.Hour).Add(-24 * time.Hour)
+			if _, serr := depSvc.EndOfDaySweep(sweepCtx, dayStart); serr != nil {
+				log.Warn("depreciation EOD sweep failed", "err", serr)
+			}
+		}
+	}()
+
+	// ---- Phase-20 analytics & reporting services (Tasks 20.3.1–20.3.13)
+	// ClickHouse read side: ingestion is cmd/analytics' owned surface —
+	// the gateway only queries. A boot dial failure degrades every
+	// CH-backed endpoint to SERVICE_DEGRADED 503 (handlers fail closed
+	// on nil deps) instead of blocking gateway start.
+	var chConn analytics.Conn
+	if c, derr := analytics.Dial(context.Background(), analytics.ConfigFromEnv()); derr != nil {
+		log.Warn("clickhouse unavailable — analytics/reporting endpoints fail closed",
+			"addr", analytics.ConfigFromEnv().Addr, "err", derr)
+	} else {
+		chConn = c
+		defer func() { _ = c.Close() }()
+	}
+	// Interface-typed so a CH outage leaves these genuinely nil — the
+	// handlers' `dep == nil` fail-closed checks only work on a nil
+	// interface, not a typed-nil concrete store.
+	histDeps := &api.HistoryDeps{Instruments: marketStore}
+	anDeps := &api.AnalyticsDeps{}
+	var incomeSrc api.IncomeHistorySource
+	var tcaRep analytics.ReportQuerier
+	var tcaReports *analytics.CHReportStore
+	if chConn != nil {
+		histDeps.Ticks = analytics.NewTickStore(chConn)
+		histDeps.Klines = analytics.NewOHLCVStore(chConn)
+		anDeps.PnL = analytics.NewPnLStore(chConn)
+		anDeps.Stats = analytics.NewVolumeStatsStore(chConn, pgAccountTierLookup{pool: pool})
+		incomeSrc = analytics.NewIncomeStore(chConn)
+		tcaReports = analytics.NewCHReportStore(chConn)
+		tcaRep = tcaReports
+	}
+
+	// Document store for statements / confirmations / invoices / RTS28
+	// (5–7y retention targets — Tasks 20.3.6–20.3.9). S3 is the durable
+	// backend (EXC_REPORTS_S3_BUCKET; dev binds the devs3 stub through
+	// EXC_S3_ENDPOINT). No bucket → in-process MemFileStore with a loud
+	// warning: acceptable in dev only, documents regenerate on demand.
+	var reportDocs analytics.FileStore
+	var reportObjects objectstore.Client
+	if bucket := os.Getenv("EXC_REPORTS_S3_BUCKET"); bucket != "" {
+		ocfg := objectstore.ConfigFromEnv(bucket, os.Getenv)
+		var oc objectstore.Client
+		var oerr error
+		if cfg.Environment != "production" && ocfg.Endpoint != "" {
+			oc, oerr = objectstore.NewDev(context.Background(), ocfg)
+		} else {
+			oc, oerr = objectstore.NewAWS(context.Background(), ocfg)
+		}
+		if oerr != nil {
+			log.Warn("reports object store init failed — document fetch degrades",
+				"err", oerr)
+			reportDocs = analytics.NewMemFileStore()
+		} else {
+			reportObjects = oc
+			reportDocs = &analytics.S3FileStore{Client: oc, Prefix: "reports"}
+		}
+	} else {
+		log.Warn("EXC_REPORTS_S3_BUCKET unset — report documents held in-process (dev only)")
+		reportDocs = analytics.NewMemFileStore()
+	}
+
+	// Task 20.3.8 — client-facing PDFs (statements, confirmations,
+	// invoices) are AES-128 encrypted at render (pdfsec V4/R4). The
+	// document-open password is a per-account PIN derived from
+	// EXC_DOCS_SECRET; unset ⇒ the services fail closed at generate
+	// time rather than emitting plaintext client documents.
+	docCipher := analytics.NewDocCipher([]byte(os.Getenv("EXC_DOCS_SECRET")))
+	if docCipher == nil {
+		log.Warn("EXC_DOCS_SECRET unset — statement/confirmation/invoice generation will fail closed")
+	}
+
+	stmtSvc, err := analytics.NewStatementService(pool, reportDocs)
+	if err != nil {
+		return fmt.Errorf("statement service: %w", err)
+	}
+	stmtSvc.SetDocCipher(docCipher)
+	invSvc, err := analytics.NewInvoiceService(pool, reportDocs, nil)
+	if err != nil {
+		return fmt.Errorf("invoice service: %w", err)
+	}
+	invSvc.SetDocCipher(docCipher)
+	confSvc, err := analytics.NewConfirmationService(pool, reportDocs)
+	if err != nil {
+		return fmt.Errorf("confirmation service: %w", err)
+	}
+	confSvc.SetDocCipher(docCipher)
+	tbSvc, err := analytics.NewTrialBalanceService(pool)
+	if err != nil {
+		return fmt.Errorf("trial balance service: %w", err)
+	}
+	snapStore := analytics.NewSnapshotStore(pool)
+
+	// Task 20.3.8 — confirmation delivery engine: portal fetch is the
+	// delivery marker; email renders through the log seam (production
+	// binds SMTP/SES — ops seam); MT515 submits through the log adapter
+	// until Phase-24's SWIFT transport owns the uplink.
+	confTracker := reporting.NewPgConfirmationTracker(pool)
+	confCats := reporting.NewPgCategorySource(pool)
+	confDeliv := &reporting.Delivery{
+		Tracker:    confTracker,
+		Docs:       reportDocs,
+		Email:      reporting.LogEmailSender{Log: log},
+		Recipients: reporting.NewPgRecipientSource(pool),
+		Categories: confCats,
+		MT515:      reporting.LogMT515Submitter{Log: log},
+		Logf:       func(f string, a ...any) { log.Warn(fmt.Sprintf(f, a...)) },
+	}
+	confEngine, err := reporting.NewConfirmationService(reporting.ServiceOptions{
+		Generator:  analyticsConfirmationGenerator{svc: confSvc},
+		Tracker:    confTracker,
+		Delivery:   confDeliv,
+		Categories: confCats,
+		Logf:       func(f string, a ...any) { log.Warn(fmt.Sprintf(f, a...)) },
+	})
+	if err != nil {
+		return fmt.Errorf("confirmation delivery: %w", err)
+	}
+	// T+1 sweep — institutional rows are already due (dueAt == generated)
+	// so the same sweep is both the retail schedule and the retry path
+	// for failed immediate dispatches.
+	confSched := reporting.NewDeliveryScheduler(confTracker, confDeliv, confCats)
+	confSched.Logf = func(f string, a ...any) { log.Warn(fmt.Sprintf(f, a...)) }
+	go confSched.Run(sweepCtx, time.Minute)
+
+	if natsClient != nil {
+		// Per-fill generation consumer — trades.> fills become contract
+		// notes within the MiFID II 60s window (AckAfterInsert ordering:
+		// generation writes durable PG rows before the ack).
+		if confConsumer, cerr := reporting.NewConfirmationConsumer(confEngine); cerr != nil {
+			log.Warn("confirmation consumer init failed", "err", cerr)
+		} else if cons, cerr := natsClient.EnsureConsumer(context.Background(), "trades",
+			"confirmations_delivery", nats.WithFilterSubject("trades.>")); cerr != nil {
+			log.Warn("confirmation consumer unavailable", "err", cerr)
+		} else {
+			go func() {
+				if cerr := confConsumer.Consume(sweepCtx, cons); cerr != nil &&
+					!errors.Is(cerr, context.Canceled) {
+					log.Error("confirmation consumer stopped", "err", cerr)
+				}
+			}()
+			log.Info("confirmation delivery consuming", "stream", "trades",
+				"durable", "confirmations_delivery")
+		}
+	}
+
+	// Task 20.3.9 — TCA: per-fill slippage vs arrival/session-VWAP/fix
+	// into tca_results (CH), plus the quarterly RTS28 rollup. Both need
+	// the CH conn; without it the consumer simply isn't armed (no fake
+	// analytics are ever emitted).
+	var rts28 *analytics.RTS28SummaryJob
+	if chConn != nil && natsClient != nil {
+		tcaEngine, terr := analytics.NewTCAEngine(
+			analytics.NewCHTCASink(chConn),
+			analytics.OracleArrivalSource{P: oracleProv},
+			analytics.CHSessionVWAP{CH: chConn},
+			analytics.RedisFixSource{Rdb: rdb.Client})
+		if terr != nil {
+			log.Warn("TCA engine init failed", "err", terr)
+		} else if tcaCons, terr := analytics.NewTCAFillConsumer(tcaEngine,
+			settlement.NewPgxTradeResolver(pool),
+			analytics.NewPgTCAOrderSource(pool),
+			analytics.NewPgTCASymbolSource(pool)); terr != nil {
+			log.Warn("TCA consumer init failed", "err", terr)
+		} else if cons, cerr := natsClient.EnsureConsumer(context.Background(),
+			"trades", "tca_fills", nats.WithFilterSubject("trades.>")); cerr != nil {
+			log.Warn("TCA consumer unavailable", "err", cerr)
+		} else {
+			stop, serr := natsClient.Subscribe(cons, func(m jetstream.Msg) {
+				if err := tcaCons.HandleMsg(sweepCtx, m); err != nil {
+					log.Warn("TCA fill failed", "err", err)
+				}
+			})
+			if serr != nil {
+				log.Warn("TCA subscribe failed", "err", serr)
+			} else {
+				go func() { <-sweepCtx.Done(); stop() }()
+				log.Info("TCA fill consumer running", "stream", "trades",
+					"durable", "tca_fills")
+			}
+		}
+		if j, jerr := analytics.NewRTS28SummaryJob(tcaReports,
+			analytics.NewCHTCASink(chConn), reportObjects); jerr != nil {
+			log.Warn("RTS28 job init failed", "err", jerr)
+		} else {
+			rts28 = j
+		}
+	}
+	_ = rts28 // scheduled below alongside the other Phase-20 jobs
+
+	// Nightly/daily jobs — all RunOnce bodies are idempotent (UNIQUE
+	// upserts / checksum-gated batches), so a retried slot is safe.
+	stmtJob := analytics.NewStatementJob(stmtSvc)
+	runDailyUTC(sweepCtx, log, "statements", 45,
+		func(ctx context.Context) {
+			d, m, jerr := stmtJob.RunOnce(ctx)
+			if jerr != nil {
+				log.Warn("statement generation failed", "err", jerr)
+				return
+			}
+			log.Info("statements generated", "generated", d.Generated,
+				"failed", d.Failed, "monthly", m != nil)
+		})
+	tbJob := analytics.NewDailyTrialBalanceJob(tbSvc)
+	runDailyUTC(sweepCtx, log, "trial-balance", 15,
+		func(ctx context.Context) {
+			day := time.Now().UTC().Truncate(24 * time.Hour).Add(-24 * time.Hour)
+			tb, checks, jerr := tbJob.RunOnce(ctx, day)
+			if jerr != nil {
+				log.Warn("trial balance job failed", "err", jerr)
+				return
+			}
+			for _, c := range checks {
+				if !c.OK {
+					log.Error("GL reconciliation variance", "check", c.Name,
+						"currency", c.Currency, "variance", c.Variance.String())
+				}
+			}
+			log.Info("trial balance persisted", "day", day.Format("2006-01-02"),
+				"currencies", len(tb.Currencies))
+		})
+	// Task 20.3.7 — ERP nightly batch. Adapter selection is env-driven:
+	// EXC_ERP_WEBHOOK_URL → webhook POST; EXC_ERP_DROP_DIR → SFTP drop
+	// directory (a real SFTP client substitutes the same seam). Neither
+	// configured → the job is not armed (fail-quiet, logged once).
+	var erpAdapter analytics.ERPAdapter
+	switch {
+	case os.Getenv("EXC_ERP_WEBHOOK_URL") != "":
+		erpAdapter = &analytics.WebhookAdapter{URL: os.Getenv("EXC_ERP_WEBHOOK_URL")}
+	case os.Getenv("EXC_ERP_DROP_DIR") != "":
+		erpAdapter = &analytics.SFTPDropAdapter{
+			Dir:      os.Getenv("EXC_ERP_DROP_DIR"),
+			Endpoint: os.Getenv("EXC_ERP_SFTP_ENDPOINT")}
+	default:
+		log.Warn("no ERP adapter configured (EXC_ERP_WEBHOOK_URL/EXC_ERP_DROP_DIR) — nightly export not armed")
+	}
+	if erpAdapter != nil {
+		erpSvc, eerr := analytics.NewERPBatchService(pool, erpAdapter, tbSvc)
+		if eerr != nil {
+			log.Warn("ERP batch service init failed", "err", eerr)
+		} else {
+			erpJob := analytics.NewERPNightlyJob(erpSvc)
+			runDailyUTC(sweepCtx, log, "erp-export", 90,
+				func(ctx context.Context) {
+					d, jerr := erpJob.RunOnce(ctx)
+					if jerr != nil {
+						log.Warn("ERP nightly export failed", "err", jerr)
+						return
+					}
+					log.Info("ERP batch delivered", "run_id", d.RunID, "ref", d.DeliveryRef)
+				})
+		}
+	}
+	if rts28 != nil {
+		runDailyUTC(sweepCtx, log, "rts28", 120,
+			func(ctx context.Context) {
+				now := time.Now().UTC()
+				// Quarter roll: run on the first two days of each quarter
+				// for the just-ended quarter (day 2 is the retry window —
+				// the rollup is idempotent on its (quarter, venue) keys).
+				qs := analytics.QuarterContaining(now)
+				if now.Sub(qs) > 48*time.Hour {
+					return
+				}
+				prev := qs.AddDate(0, -3, 0)
+				n, jerr := rts28.RunQuarter(ctx, prev)
+				if jerr != nil {
+					log.Warn("RTS28 quarterly rollup failed", "quarter", prev, "err", jerr)
+					return
+				}
+				log.Info("RTS28 quarterly rollup persisted",
+					"quarter", prev.Format("2006-01-02"), "rows", n)
+			})
+	}
+
 	// §13.12/§13.4a ADV yardstick: the instrument:adv:{id} Redis mirror
 	// is the fast path for venues publishing precomputed analytics; the
 	// trailing 7-day trades-ledger mean is the system of record, and a
@@ -3489,9 +3849,37 @@ func run() error {
 		"DELETE /api/v1/webhooks/{id}":             http.HandlerFunc(whDisable),
 		"POST /api/v1/webhooks/{id}/rotate-secret": http.HandlerFunc(whRotate),
 		"GET /api/v1/webhooks/{id}/deliveries":     http.HandlerFunc(whDeliveries),
-		// Task 5.3.19 tax reporting (phase + canonical client path).
-		"GET /api/v1/tax/report":         http.HandlerFunc(api.TaxReport(taxSvc)),
-		"GET /api/v1/account/tax-report": http.HandlerFunc(api.TaxReport(taxSvc)),
+		// Task 5.3.19 tax reporting (phase + canonical client path) —
+		// the 20.3.10 daily-cap limiter rides the variadic dep.
+		"GET /api/v1/tax/report":         http.HandlerFunc(api.TaxReport(taxSvc, taxLimiter)),
+		"GET /api/v1/account/tax-report": http.HandlerFunc(api.TaxReport(taxSvc, taxLimiter)),
+		// Phase-20 Task 20.3.14 — MiFID II ex-ante cost preview +
+		// ex-post annual reconciliation (?annual=YEAR).
+		"GET /api/v1/account/cost-preview": http.HandlerFunc(api.AccountCostPreview(costsSvc)),
+		// Phase-20 Task 20.3.16 — marketing-ops report over the
+		// Phase-21-owned promotions/consent relations (503 while those
+		// tables are absent).
+		"GET /api/v1/admin/promotions/report": http.HandlerFunc(api.AdminPromotionsReport(marketingSvc)),
+		// Phase-20 read surface — every dep fails closed when its store
+		// is nil (CH down at boot → 503 SERVICE_DEGRADED, never an empty
+		// report standing in for "unavailable").
+		"GET /api/v1/history/ticks/{symbol}":           http.HandlerFunc(api.HistoryTicks(histDeps)),
+		"GET /api/v1/history/klines/{symbol}":          http.HandlerFunc(api.HistoryKlines(histDeps)),
+		"GET /api/v1/analytics/volume":                 http.HandlerFunc(api.AnalyticsVolume(anDeps)),
+		"GET /api/v1/analytics/stats":                  http.HandlerFunc(api.AnalyticsStats(anDeps)),
+		"GET /api/v1/analytics/pnl":                    http.HandlerFunc(api.AnalyticsPnL(anDeps)),
+		"GET /api/v1/account/statements":               http.HandlerFunc(api.AccountStatements(stmtSvc)),
+		"GET /api/v1/account/statements/{id}/download": http.HandlerFunc(api.AccountStatementDownload(stmtSvc)),
+		"GET /api/v1/account/confirmations/{trade_id}": http.HandlerFunc(api.AccountConfirmation(api.ConfirmationReadDeps{
+			Service: confSvc, AdminLookup: confTracker})),
+		"GET /api/v1/account/income":    http.HandlerFunc(api.AccountIncome(incomeSrc)),
+		"GET /api/v1/account/snapshots": http.HandlerFunc(api.AccountSnapshots(snapStore)),
+		"GET /api/v1/reports/tca/{account_id}": http.HandlerFunc(api.ReportsTCA(api.TCAReportDeps{
+			Reports: tcaRep, Classes: analytics.NewPgInstrumentClassResolver(pool)})),
+		"GET /api/v1/admin/finance/trial-balance": http.HandlerFunc(api.AdminTrialBalance(tbSvc)),
+		"GET /api/v1/admin/finance/pnl":           http.HandlerFunc(api.AdminFinancePnL(tbSvc)),
+		"GET /api/v1/admin/finance/balance-sheet": http.HandlerFunc(api.AdminFinanceBalanceSheet(tbSvc)),
+		"GET /api/v1/admin/invoices":              http.HandlerFunc(api.AdminInvoices(invSvc)),
 		// Phase-12 Tasks 12.3.4/12.3.13 — KYC intake + ops matrix +
 		// tax self-certification (approve/reject live below — Task 14.3.4).
 		"POST /api/v1/kyc/submit":             http.HandlerFunc(api.KYCSubmit(kycSvc)),
@@ -4289,4 +4677,35 @@ func (p sessionNATSPublisher) Publish(channel string, data any) {
 		return
 	}
 	_ = p.pub.Publish(context.Background(), channel, b)
+}
+
+// runDailyUTC runs fn once per UTC day at minuteOfDay past 00:00 —
+// the Phase-20 scheduler for statements (00:45), trial balance (00:15),
+// ERP export (01:30) and the RTS28 quarter-roll check (02:00). The tick
+// is computed fresh each iteration so DST never drifts the slot (UTC has
+// no DST anyway) and a restart mid-window simply waits for the next day;
+// every job body is idempotent, so a missed slot is replayable via its
+// RunOnce rather than needing catch-up state.
+func runDailyUTC(ctx context.Context, log *slog.Logger, name string,
+	minuteOfDay int, fn func(context.Context)) {
+	go func() {
+		for {
+			now := time.Now().UTC()
+			next := now.Truncate(24 * time.Hour).Add(time.Duration(minuteOfDay) * time.Minute)
+			if !next.After(now) {
+				next = next.Add(24 * time.Hour)
+			}
+			t := time.NewTimer(next.Sub(now))
+			select {
+			case <-ctx.Done():
+				t.Stop()
+				return
+			case <-t.C:
+			}
+			start := time.Now()
+			fn(ctx)
+			log.Debug("daily job completed", "job", name,
+				"elapsed", time.Since(start).Round(time.Millisecond))
+		}
+	}()
 }

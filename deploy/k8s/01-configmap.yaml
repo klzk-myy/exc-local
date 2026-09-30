@@ -19,6 +19,16 @@ data:
   EXC_SENTINEL_ADDRS: "redis-sentinel-0.redis-ha.exchange.svc:26379,redis-sentinel-1.redis-ha.exchange.svc:26379,redis-sentinel-2.redis-ha.exchange.svc:26379"
   EXC_REDIS_ADDR: "mymaster"                    # sentinel master name; go-redis FailoverClient resolves it
   EXC_SHARDING_CONFIG: "/etc/exchange/sharding.yaml"
+  # ClickHouse analytics cluster (Phase-20, spec §16). Native protocol
+  # endpoint consumed by cmd/analytics (ingest) and cmd/gateway (read
+  # side); credentials ride the exchange-analytics ExternalSecret.
+  EXC_CH_NATIVE_URL: "clickhouse.exchange.svc:9000"
+  EXC_CH_DATABASE: "exchange_analytics"
+  EXC_CH_SPOOL_DIR: "/var/spool/exchange/clickhouse_buffer"
+  # Report/document retention bucket — statements, confirmations,
+  # invoices, RTS28 summaries (5–7y per §19.12/§16.8). Server-side
+  # encryption + retention policy are bucket-side per §19.7 WORM posture.
+  EXC_REPORTS_S3_BUCKET: "exchange-reports"
 ---
 # Ship config/sharding.yaml verbatim — it is the single source of truth for
 # symbol→shard mapping (Task 1.3.7) parsed by both Go and C++.
