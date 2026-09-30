@@ -1,15 +1,12 @@
 // Package archiver implements Task 4.3.7: the PostgreSQL partition
 // archival engine — detach partitions older than the cutoff, export them
-// to zstd-compressed CSV with a deterministic column manifest, upload to a
-// WORM (Object Lock compliance) bucket, verify ETag+SHA-256 before the
-// local drop, log every step to partition_archive_log, and provide the
-// restore drill path.
-//
-// FORMAT DEVIATION (documented): the plan calls for Parquet. The export is
-// zstd-compressed CSV + a JSON column manifest instead — the heavy
-// arrow/parquet dependency is not justified for this pipeline stage, and
-// CSV restores via native COPY FROM STDIN with zero extra code. The
-// manifest format column records "csv+zstd". See REPORT deviations.
+// to zstd-compressed Parquet with a deterministic column manifest, upload
+// to a WORM (Object Lock compliance) bucket, verify ETag+SHA-256 before
+// the local drop, log every step to partition_archive_log, and provide the
+// restore drill path. The parquet file is the archive object itself —
+// zstd page compression inside the container (format "parquet+zstd"),
+// sha256 over the stored bytes, per spec §19.7. Dynamic schemas are built
+// per-partition in parquet_export.go.
 //
 // WORM modelling: ObjectLockMode=COMPLIANCE + retain_until is set on every
 // upload. Against devs3 the flag is stored as object metadata and enforced
@@ -41,8 +38,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/klauspost/compress/zstd"
 
 	"exchange/internal/objectstore"
 )
@@ -93,8 +90,7 @@ type Manifest struct {
 	Partition     string   `json:"partition"`
 	Columns       []Column `json:"columns"`
 	RowCount      int64    `json:"row_count"`
-	Format        string   `json:"format"` // "csv+zstd"
-	CSVSHA256     string   `json:"csv_sha256"`
+	Format        string   `json:"format"` // "parquet+zstd"
 	ArchiveSHA256 string   `json:"archive_sha256"`
 	SizeBytes     int64    `json:"size_bytes"`
 	ExportedAt    string   `json:"exported_at"`
@@ -330,86 +326,8 @@ type exportResult struct {
 	path       string // temp .zst file
 	cols       []Column
 	rowCount   int64
-	csvSHA256  string
 	archSHA256 string
 	sizeBytes  int64
-}
-
-// exportCopy streams the partition out via COPY TO STDOUT (csv) through a
-// zstd compressor into a temp file, computing both SHA-256 digests.
-func (a *Archiver) exportCopy(ctx context.Context, p Partition) (*exportResult, error) {
-	cols, err := a.Columns(ctx, p.Schema, p.Name)
-	if err != nil {
-		return nil, err
-	}
-	if len(cols) == 0 {
-		return nil, fmt.Errorf("archiver: %s.%s has no columns", p.Schema, p.Name)
-	}
-	qcols := make([]string, len(cols))
-	for i, c := range cols {
-		q, qerr := quoteIdent(c.Name)
-		if qerr != nil {
-			return nil, qerr
-		}
-		qcols[i] = q
-	}
-	qs, qerr := quoteIdent(p.Schema)
-	if qerr != nil {
-		return nil, qerr
-	}
-	qn, qerr := quoteIdent(p.Name)
-	if qerr != nil {
-		return nil, qerr
-	}
-	sql := fmt.Sprintf(`COPY (SELECT %s FROM %s.%s) TO STDOUT WITH (FORMAT csv)`,
-		strings.Join(qcols, ", "), qs, qn)
-
-	tmp, err := os.CreateTemp(a.tmpDir, "part-archive-*.csv.zst")
-	if err != nil {
-		return nil, err
-	}
-	path := tmp.Name()
-	res := &exportResult{path: path, cols: cols}
-	fail := func(e error) (*exportResult, error) {
-		tmp.Close()
-		os.Remove(path)
-		return nil, e
-	}
-
-	csvHash := sha256.New()
-	archHash := sha256.New()
-	// COPY → tee(csvHash) → zstd → tee(archHash) → file.
-	archTee := &hashWriter{w: tmp, h: archHash}
-	zw, err := zstd.NewWriter(archTee, zstd.WithEncoderLevel(zstd.SpeedDefault))
-	if err != nil {
-		return fail(err)
-	}
-	copyDst := io.MultiWriter(csvHash, zw)
-
-	conn, err := a.pool.Acquire(ctx)
-	if err != nil {
-		return fail(err)
-	}
-	defer conn.Release()
-	tag, err := conn.Conn().PgConn().CopyTo(ctx, copyDst, sql)
-	if err != nil {
-		zw.Close()
-		return fail(fmt.Errorf("archiver: copy %s.%s: %w", p.Schema, p.Name, err))
-	}
-	if err := zw.Close(); err != nil {
-		return fail(err)
-	}
-	if err := tmp.Sync(); err != nil {
-		return fail(err)
-	}
-	tmp.Close()
-
-	res.rowCount = tag.RowsAffected()
-	res.csvSHA256 = hex.EncodeToString(csvHash.Sum(nil))
-	res.archSHA256 = hex.EncodeToString(archHash.Sum(nil))
-	st, _ := os.Stat(path)
-	res.sizeBytes = st.Size()
-	return res, nil
 }
 
 // hashWriter writes through to w while updating h.
@@ -424,10 +342,10 @@ func (hw *hashWriter) Write(p []byte) (int, error) {
 	return n, err
 }
 
-// s3Keys: {parent}/{name}/{name}.csv.zst + .manifest.json
+// s3Keys: {parent}/{name}/{name}.parquet + .manifest.json
 func s3Keys(p Partition) (dataKey, manifestKey string) {
 	base := fmt.Sprintf("%s/%s/%s", p.Parent, p.Name, p.Name)
-	return base + ".csv.zst", base + ".manifest.json"
+	return base + ".parquet", base + ".manifest.json"
 }
 
 func (a *Archiver) logInsert(ctx context.Context, p Partition, ex *exportResult,
@@ -438,11 +356,13 @@ func (a *Archiver) logInsert(ctx context.Context, p Partition, ex *exportResult,
 		  (parent_table, partition_name, s3_bucket, s3_key, manifest_key,
 		   row_count, size_bytes, archive_sha256, csv_sha256, etag,
 		   format, object_lock_mode, retain_until, status)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'csv+zstd','COMPLIANCE',$11,'EXPORTED')
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'parquet+zstd','COMPLIANCE',$11,'EXPORTED')
 		RETURNING archive_id`,
 		p.Parent, p.Name, a.store.Bucket(), dataKey, manifestKey,
-		ex.rowCount, ex.sizeBytes, ex.archSHA256, ex.csvSHA256, etag,
+		ex.rowCount, ex.sizeBytes, ex.archSHA256, ex.archSHA256, etag,
 		retainUntil).Scan(&id)
+	// csv_sha256 is NOT NULL in the schema — for parquet archives it
+	// carries the same archive sha256 (the file is the only artifact).
 	return id, err
 }
 
@@ -486,7 +406,7 @@ func (e *HeldError) Error() string {
 }
 
 // ArchivePartition runs the full pipeline for one attached partition:
-// hold check → DETACH → export(csv+zstd) → PUT data+manifest (WORM) →
+// hold check → DETACH → export(parquet+zstd) → PUT data+manifest (WORM) →
 // HEAD-verify (etag + lock + manifest hash) → log → DROP. On post-detach
 // failure the partition is re-attached with its original bound.
 func (a *Archiver) ArchivePartition(ctx context.Context, p Partition) (*LogEntry, error) {
@@ -521,8 +441,8 @@ func (a *Archiver) ArchivePartition(ctx context.Context, p Partition) (*LogEntry
 // export → PUT data+manifest (WORM, per-class retain) → HEAD-verify →
 // log → DROP. The caller owns any reattach/compensation semantics.
 func (a *Archiver) archiveDetached(ctx context.Context, p Partition) (*LogEntry, error) {
-	// 2. Export detached partition → temp .csv.zst with dual hashes.
-	ex, err := a.exportCopy(ctx, p)
+	// 2. Export detached partition → temp .parquet (zstd pages) + sha256.
+	ex, err := a.exportParquet(ctx, p)
 	if err != nil {
 		return nil, fmt.Errorf("archiver: export %s: %w", p.Name, err)
 	}
@@ -534,9 +454,9 @@ func (a *Archiver) archiveDetached(ctx context.Context, p Partition) (*LogEntry,
 	}
 	man := Manifest{
 		ParentTable: p.Parent, Partition: p.Name, Columns: ex.cols,
-		RowCount: ex.rowCount, Format: "csv+zstd",
-		CSVSHA256: ex.csvSHA256, ArchiveSHA256: ex.archSHA256,
-		SizeBytes: ex.sizeBytes, ExportedAt: a.now().Format(time.RFC3339),
+		RowCount: ex.rowCount, Format: "parquet+zstd",
+		ArchiveSHA256: ex.archSHA256,
+		SizeBytes:     ex.sizeBytes, ExportedAt: a.now().Format(time.RFC3339),
 		BoundExpr: p.BoundExpr,
 	}
 	manRaw, _ := json.MarshalIndent(man, "", "  ")
@@ -548,14 +468,13 @@ func (a *Archiver) archiveDetached(ctx context.Context, p Partition) (*LogEntry,
 		Key:                   dataKey,
 		Body:                  bytes.NewReader(blob),
 		Size:                  int64(len(blob)),
-		ContentType:           "application/zstd",
+		ContentType:           "application/vnd.apache.parquet",
 		ObjectLockMode:        "COMPLIANCE",
 		ObjectLockRetainUntil: retainUntil,
 		Metadata: map[string]string{
 			"parent":         p.Parent,
 			"partition":      p.Name,
 			"archive-sha256": ex.archSHA256,
-			"csv-sha256":     ex.csvSHA256,
 			"row-count":      strconv.FormatInt(ex.rowCount, 10),
 		},
 	})
@@ -680,18 +599,14 @@ func (a *Archiver) RestorePartition(ctx context.Context, partition, intoSchema s
 		return nil, fmt.Errorf("archiver: ETag mismatch on %s", dataKey)
 	}
 
-	// Decompress → CSV bytes; verify csv hash.
-	zr, err := zstd.NewReader(bytes.NewReader(blob))
+	// Read the parquet archive; verify schema fields match the manifest
+	// columns before loading (a truncated/foreign file fails closed here).
+	pqRows, pqFields, err := readParquetRows(blob)
 	if err != nil {
 		return nil, err
 	}
-	defer zr.Close()
-	csv, err := io.ReadAll(zr.IOReadCloser())
-	if err != nil {
-		return nil, fmt.Errorf("archiver: decompress %s: %w", dataKey, err)
-	}
-	if got := hexSHA256b(csv); got != man.CSVSHA256 {
-		return nil, fmt.Errorf("archiver: csv sha256 mismatch on %s", dataKey)
+	if !sameNames(pqFields, man.Columns) {
+		return nil, fmt.Errorf("archiver: %s parquet schema %v != manifest columns", dataKey, pqFields)
 	}
 
 	// Recreate + load under intoSchema.
@@ -723,23 +638,16 @@ func (a *Archiver) RestorePartition(ctx context.Context, partition, intoSchema s
 		}
 	}
 
-	colList := make([]string, len(man.Columns))
-	for i, c := range man.Columns {
-		cq, _ := quoteIdent(c.Name)
-		colList[i] = cq
-	}
 	conn, err := a.pool.Acquire(ctx)
 	if err != nil {
 		return nil, err
 	}
-	tag, err := conn.Conn().PgConn().CopyFrom(ctx, bytes.NewReader(csv),
-		fmt.Sprintf(`COPY %s.%s (%s) FROM STDIN WITH (FORMAT csv)`, qs, qn,
-			strings.Join(colList, ", ")))
+	loaded, err := a.copyFromRows(ctx, conn.Conn(),
+		pgx.Identifier{intoSchema, partition}, man.Columns, pqRows)
 	conn.Release()
 	if err != nil {
 		return nil, fmt.Errorf("archiver: load %s: %w", partition, err)
 	}
-	loaded := tag.RowsAffected()
 
 	var count int64
 	if err := a.pool.QueryRow(ctx,

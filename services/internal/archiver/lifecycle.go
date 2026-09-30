@@ -10,7 +10,7 @@
 //	          parity is recorded as move evidence (the move is
 //	          metadata-only DDL; the data file never changes).
 //	warm→cold: warm-schema partitions whose range ended > WarmDays ago
-//	           are exported (csv+zstd), uploaded to the WORM bucket,
+//	           are exported (parquet+zstd), uploaded to the WORM bucket,
 //	           verified (ETag + manifest sha256 + COMPLIANCE lock via
 //	           HEAD), logged to partition_archive_log, then dropped.
 //	           The sha256 is the checksum evidence for the move.

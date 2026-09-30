@@ -227,7 +227,7 @@ func TestArchiveReattachesOnUploadFailure(t *testing.T) {
 
 	c, done := wormClient(t)
 	defer done()
-	a := archiver.New(pool, failPut{Client: c, failOn: ".csv.zst"})
+	a := archiver.New(pool, failPut{Client: c, failOn: ".parquet"})
 	a.SetParents([]string{"itest_orders"})
 
 	parts, err := a.ListPartitions(ctx)

@@ -2133,3 +2133,25 @@ Census 67 → 64 annotated-open.
 **Decision:** keeper 25.8 config — raft_configuration is a keeper_server
 sibling (not a coordination_settings child) and tcp_port binds loopback
 without top-level listen_host. Recorded inline in the drill script.
+
+### [2026-09-30 20:55 UTC] — Gap-closure round 5: Parquet partition export (deviation resolved)
+
+The csv+zstd deviation in Task 9.3.17 is corrected — the archiver now emits
+spec-conformant Parquet with ZSTD page compression.
+
+**Files:**
+- `services/internal/archiver/parquet_export.go` (new) — dynamic schema
+  (information_schema → parquet.Group), GenericWriter[any] + zstd pages,
+  read-back + CopyFrom restore.
+- `partition_archiver.go`, `verify.go`, `lifecycle_test.go` — rewired;
+  verify is dual-format (parquet + legacy csv).
+- `docs/ops/data-tiering-policy.md`, `docs/compliance/data-retention.md`,
+  spec §27 (deviation marked RESOLVED), Phase-09 :448 ticked.
+
+**Verification:** archiver suite green on dev PG —
+TestArchiveAndRestorePartition (export→WORM→restore→parity),
+TestVerifyDrillDetectsCorruption (corrupt blob → VIOLATION audited),
+TestLifecycleHotToWarmToCold, TestComplianceHoldBlocksLifecycle.
+
+**Checklist:** :448 ticked. Census 64 → 63; :449 (real-S3 WORM Object
+Lock) remains env-bound.

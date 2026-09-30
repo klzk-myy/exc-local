@@ -12,7 +12,7 @@ by `TestShippedPolicyCoversBuiltin`).
 
 | Data type | Retention | Archival mechanism | Regulatory basis | GDPR interaction |
 |---|---|---|---|---|
-| Order records (`orders` + partitions) | **5 years** | detach→warm schema→csv+zstd WORM S3 | MiFID II RTS 6 | Art. 17(3)(b) — legal obligation overrides erasure |
+| Order records (`orders` + partitions) | **5 years** | detach→warm schema→parquet+zstd WORM S3 | MiFID II RTS 6 | Art. 17(3)(b) — legal obligation overrides erasure |
 | Trades (`trades` partitions) | **5 years** | same | MiFID II RTS 6 | Art. 17(3)(b) |
 | Order audit trail (`order_audit`) | **5 years** | same | MiFID II RTS 6 | Art. 17(3)(b) |
 | Communications recordings (taping) | **5 years** | WORM object store | MiFID II Art. 16(7) | Art. 17(3)(b); erasure blocked while retain live |

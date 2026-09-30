@@ -13,7 +13,7 @@ Engine: `internal/archiver` (`RunLifecycle`) · Enforcement:
 |---|---|---|---|---|
 | **HOT** | PostgreSQL 16 primary (NVMe) | open orders, positions, and partitioned data whose range ended ≤ `hot_days` ago (default **90 d**) | ms | fully indexed, OLTP path |
 | **WARM** | PostgreSQL `warm` schema (detached partitions) **and** ClickHouse for analytics classes | partitioned data `hot_days`–`warm_days` old (default 90 d–1 y per spec §19.7) | seconds | re-attachable on demand (`ATTACH PARTITION` with the recorded `bound_expr`); ClickHouse holds the analytics copies (ticks/OHLCV) under MergeTree TTL |
-| **COLD** | S3 object store, csv+zstd + JSON manifest, Object Lock COMPLIANCE | data older than `warm_days`; WORM-retained until `retain_days` (5 y order/trade, 7 y audit/finance) | minutes (fetch) | queryable via the Trino/Presto federated layer over the archive bucket; `archiver restore --partition` re-materializes for regulators |
+| **COLD** | S3 object store, parquet+zstd + JSON manifest, Object Lock COMPLIANCE | data older than `warm_days`; WORM-retained until `retain_days` (5 y order/trade, 7 y audit/finance) | minutes (fetch) | queryable via the Trino/Presto federated layer over the archive bucket; `archiver restore --partition` re-materializes for regulators |
 
 The canonical per-class numbers live in `tiering_policy.yaml`
 (`hot_days` / `warm_days` / `retain_days` per class) — this document
@@ -58,7 +58,7 @@ an explicit Compliance Officer action.
 
 ## 5. Cold-data query path
 
-Cold archives are `csv+zstd` + manifest under
+Cold archives are `parquet+zstd` + manifest under
 `s3://{bucket}/{parent}/{partition}/`. Options, in order of preference:
 
 1. `exchange restore-partition-archive` / `archiver restore` — full

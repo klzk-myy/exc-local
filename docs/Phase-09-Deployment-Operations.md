@@ -445,7 +445,7 @@ Implement production deployment: bare metal C++ core provisioning, Kubernetes Go
 5. Integrity verification drill: scheduled monthly verification job downloads random sampled partition files, validates cryptographic checksums against PostgreSQL audit log, and validates schema readability.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Partitions older than 90 days are automatically exported to compressed Parquet with SHA256 verification (§24 #179) *(open — deviation: exports use csv+zstd (not Parquet) per §27 record; SHA256 manifest + verify landed)*
+* [x] Partitions older than 90 days are automatically exported to compressed Parquet with SHA256 verification (§24 #179) *(verified 2026-09-30 — deviation resolved: `archiver/parquet_export.go` emits real **Parquet with ZSTD page compression** (format `parquet+zstd`, sha256 over the stored file, dynamic per-partition schema via parquet-go `GenericWriter[any]` + information_schema columns — numeric as canonical pg text, timestamptz as TIMESTAMP(MICROS)); restore path reads parquet → `CopyFrom` binary copy; WORM drill counts materialized rows + schema-name parity; legacy csv archives still verified on their format; `TestArchiveAndRestorePartition` + `TestVerifyDrillDetectsCorruption` green on dev PG)*
 * [ ] Parquet files are stored in S3 with 5-year WORM Object Lock preventing deletion or modification *(open — pending-infra: WORM Object Lock requires real S3; policy documented, not enforced live)*
 * [x] Detached partitions are safely pruned from PostgreSQL primary storage only after S3 confirmation
 * [x] Monthly integrity drill confirms readability and cryptographic match of archived data

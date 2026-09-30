@@ -346,7 +346,7 @@ func TestVerifyDrillDetectsCorruption(t *testing.T) {
 	}
 
 	// Corrupt one object → drill must fail and log a VIOLATION.
-	ca := archiver.New(pool, corruptGet{Client: c, key: "itest_lc_p2020_01.csv.zst"})
+	ca := archiver.New(pool, corruptGet{Client: c, key: "itest_lc_p2020_01.parquet"})
 	rep, err = ca.VerifyDrill(ctx, 0)
 	if err == nil {
 		t.Fatal("corrupt archive passed the drill")
