@@ -55,6 +55,7 @@ support_tickets,adr_reference,VARCHAR(128),LINKAGE,plaintext,ADR routing,complai
 ticket_notes,body,TEXT,FREE_TEXT,plaintext — may embed PII,admin/client notes,complaints floor
 trade_busts,reason,VARCHAR(255),FREE_TEXT,plaintext,obvious-error rationale — officer-entered,audit floor
 account_closures,reason,TEXT,FREE_TEXT,plaintext,closure record — client/officer-entered,financial record floor
+margin_model_param_changes,reject_reason,VARCHAR(255),FREE_TEXT,plaintext,validator-entered rejection note,audit floor
 webauthn_credentials,user_id,BIGINT,LINKAGE,n/a (FK),passkey ceremonies,credential lifetime; revoked≠deleted (forensic)
 webauthn_credentials,credential_id,BYTEA,AUTH_SECRET,public credential id,assertion lookup,credential lifetime
 webauthn_credentials,public_key,BYTEA,AUTH_SECRET,public key (not secret),assertion verify,credential lifetime
@@ -146,3 +147,4 @@ instrument_change_requests,reason,TEXT,FREE_TEXT,plaintext,maker justification �
 instrument_change_log,reason,TEXT,FREE_TEXT,plaintext,parameter-change rationale — officer-entered,audit floor
 market_schedule_overrides,reason,TEXT,FREE_TEXT,plaintext,ops note — holiday/early-close justification,audit floor
 benchmark_fixings,skip_reason,TEXT,FREE_TEXT,plaintext,machine/officer skip note,audit floor
+insurance_fund_adjustments,reason,VARCHAR(255),FREE_TEXT,plaintext,officer-entered adjustment justification,audit floor

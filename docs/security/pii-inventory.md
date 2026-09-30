@@ -1,6 +1,6 @@
 # PII Inventory — GDPR Art. 30 Record + Encryption/Access Map
 
-**Generated:** 2026-09-29 21:01 UTC by `scripts/security/gen-pii-inventory.py` (Task 13.5.3.2) from 137 `*.up.sql` migrations (186 tables, 2152 columns). Do not hand-edit; update the generator's ANNOTATIONS map and re-run. Companion artifacts: `pii-catalog.csv` (same rows, machine-checkable), `pii-audit-report.md` (verification evidence), `gdpr-erasure-runbook.md` (Art. 17 procedure).
+**Generated:** 2026-09-30 00:18 UTC by `scripts/security/gen-pii-inventory.py` (Task 13.5.3.2) from 150 `*.up.sql` migrations (207 tables, 2370 columns). Do not hand-edit; update the generator's ANNOTATIONS map and re-run. Companion artifacts: `pii-catalog.csv` (same rows, machine-checkable), `pii-audit-report.md` (verification evidence), `gdpr-erasure-runbook.md` (Art. 17 procedure).
 
 PII classes: **DIRECT_ID** (name/address/residency) · **CONTACT** (email/phone) · **GOV_ID** (TIN/ID documents) · **FINANCIAL** (bank identifiers) · **AUTH_SECRET** (credentials — hashed/sealed, tracked for erasure) · **PSEUDONYMOUS** (IP/UA/fingerprint/geo/actor ids) · **LINKAGE** (user_id/account_id re-identification joins) · **FREE_TEXT** (may embed incidental PII) · **ORG_CONTACT** (institutional contacts).
 
@@ -148,6 +148,12 @@ Retention classes reference `infrastructure/data-tiering/tiering_policy.yaml` (e
 | column | type | class | encryption at rest | access path | retention |
 |---|---|---|---|---|---|
 | `reason` | TEXT | FREE_TEXT | plaintext | closure record — client/officer-entered | financial record floor |
+
+### `margin_model_param_changes`
+
+| column | type | class | encryption at rest | access path | retention |
+|---|---|---|---|---|---|
+| `reject_reason` | VARCHAR(255) | FREE_TEXT | plaintext | validator-entered rejection note | audit floor |
 
 ### `webauthn_credentials`
 
@@ -450,6 +456,12 @@ Retention classes reference `infrastructure/data-tiering/tiering_policy.yaml` (e
 |---|---|---|---|---|---|
 | `skip_reason` | TEXT | FREE_TEXT | plaintext | machine/officer skip note | audit floor |
 
+### `insurance_fund_adjustments`
+
+| column | type | class | encryption at rest | access path | retention |
+|---|---|---|---|---|---|
+| `reason` | VARCHAR(255) | FREE_TEXT | plaintext | officer-entered adjustment justification | audit floor |
+
 ## 2. Columns pending review
 
 None — every PII-name-pattern column carries a curated classification.
@@ -461,13 +473,15 @@ Schema-verified by the generator (no PII-name-pattern column and no curated anno
 `instruments` `balances` `audit_hash_chain` `risk_limits` `fee_tiers` `margin_accounts` `positions` `liquidation_auctions`
 `insurance_fund` `nostro_accounts` `audit_merkle_roots` `processed_trades` `book_snapshots` `surveillance_signals`
 `fix_sessions` `fix_messages` `chart_of_accounts` `journal_entries` `ledger_lines` `prime_brokers` `pb_credit_limits`
-`pb_giveup_trades` `appropriateness_assessments` `mm_programs` `mm_compliance` `mm_rebate_accruals` `fix_certifications`
-`recovery_reports` `grid_bots` `grid_bot_orders` `prevented_matches` `client_role_bindings` `client_approval_policies`
-`order_list_legs` `strategies` `withdrawal_whitelist_settings` `vip_tier_schedule` `account_equity_snapshots`
-`account_vip_history` `instruments_reference` `auction_calendar` `currency_day_counts` `swap_markup_policies`
-`non_trading_fee_schedule` `swap_accrual_records` `principal_role_systems` `admin_recert_campaigns` `environments`
-`fleet_hosts` `release_promotions` `deploy_windows` `recovery_digests` `account_product_profiles` `copy_follows`
-`copy_child_orders` `high_water_marks` `profit_share_accruals` `product_target_markets` `governance_packs`
+`pb_giveup_trades` `collateral_schedule` `appropriateness_assessments` `mm_programs` `mm_compliance`
+`mm_rebate_accruals` `fix_certifications` `credit_groups` `credit_parties` `credit_relationships` `credit_reservations`
+`shard_margin_reservations` `position_transfers` `margin_model_runs` `recovery_reports` `grid_bots` `grid_bot_orders`
+`prevented_matches` `client_role_bindings` `client_approval_policies` `order_list_legs` `strategies`
+`withdrawal_whitelist_settings` `vip_tier_schedule` `account_equity_snapshots` `account_vip_history`
+`instruments_reference` `auction_calendar` `currency_day_counts` `swap_markup_policies` `non_trading_fee_schedule`
+`swap_accrual_records` `principal_role_systems` `admin_recert_campaigns` `environments` `fleet_hosts`
+`release_promotions` `deploy_windows` `recovery_digests` `account_product_profiles` `copy_follows` `copy_child_orders`
+`high_water_marks` `profit_share_accruals` `entity_leverage_policy` `product_target_markets` `governance_packs`
 `ledger_entries` `journal_sums` `swap_free_admin_fees` `rail_payments` `risk_daily_usage` `currency_conversions`
 `position_fills` `nostro_movements` `dust_sweeps` `swap_rates` `carry_trade_allocations` `carry_trade_legs`
 `carry_yield_records` `carry_yield_totals` `swap_free_admin_fee_assessments` `rollover_runs` `commission_tiers`
@@ -480,7 +494,9 @@ Schema-verified by the generator (no PII-name-pattern column and no curated anno
 `reconciliation_runs` `reconciliation_findings` `solvency_snapshots` `solvency_proofs` `cooling_off_periods`
 `pamm_allocations` `pamm_subledger_entries` `pamm_fill_allocations` `auto_halt_events` `algo_orders`
 `algo_order_children` `bracket_orders` `bracket_children` `fix_allocations` `fix_allocation_legs` `allocation_events`
-`sor_shadow_orders` `sor_fill_dedup` `fixsbe_sessions` `fixsbe_schema_registry`
+`sor_shadow_orders` `sor_fill_dedup` `fixsbe_sessions` `fixsbe_schema_registry` `insurance_fund_transactions`
+`margin_call_events` `liquidation_events` `nbp_events` `adl_directives` `insurance_fund_governance` `pb_credit_reservations`
+`leverage_tiers` `account_leverage` `account_margin_thresholds`
 
 ## 4. Data-flow summary
 

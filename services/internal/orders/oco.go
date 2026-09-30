@@ -154,24 +154,22 @@ func (s *Service) SubmitOCO(ctx context.Context, acct *Account,
 			q := base
 			leg.Quantity = &q
 		}
-		if s.limits != nil {
-			evalPrice := decimal.Zero
-			if leg.Price != nil {
-				evalPrice = *leg.Price
-			} else if ref != nil {
-				evalPrice = *ref
-			}
-			if err := s.limits.CheckOrder(ctx, risk.OrderRequest{
-				AccountID:  acct.ID,
-				KycTier:    acct.KycTier,
-				Symbol:     inst.Symbol,
-				Side:       leg.Side,
-				Quantity:   *leg.Quantity,
-				Price:      evalPrice,
-				ReduceOnly: leg.ReduceOnly,
-			}); err != nil {
-				return nil, err
-			}
+		evalPrice := decimal.Zero
+		if leg.Price != nil {
+			evalPrice = *leg.Price
+		} else if ref != nil {
+			evalPrice = *ref
+		}
+		if err := s.checkOrderRisk(ctx, risk.OrderRequest{
+			AccountID:  acct.ID,
+			KycTier:    acct.KycTier,
+			Symbol:     inst.Symbol,
+			Side:       leg.Side,
+			Quantity:   *leg.Quantity,
+			Price:      evalPrice,
+			ReduceOnly: leg.ReduceOnly,
+		}); err != nil {
+			return nil, err
 		}
 		if err := s.checkBalance(ctx, acct, inst, leg, ref); err != nil {
 			return nil, err

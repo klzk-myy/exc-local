@@ -157,6 +157,7 @@ func compositeFixture(t *testing.T, ctx context.Context,
 	}
 	execMigration(t, ctx, pool, "075_opo_order_lists.up.sql")
 	execMigration(t, ctx, pool, "225_bracket_orders.up.sql")
+	execMigration(t, ctx, pool, "229_orders_cod_exempt.up.sql")
 	return NewPgStore(pool)
 }
 

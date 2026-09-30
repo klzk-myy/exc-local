@@ -3336,6 +3336,8 @@ API errors are structured into two fundamental categories to guide client retry 
 | `RATE_LIMIT_TIER_EXCEEDED` | 429 | Rate limit hit |
 | `INSUFFICIENT_BALANCE` | 400 | Not enough available balance (Phase-02 Task 2.3.3 pre-trade check 2; Phase-05 Task 5.3.24 batch rejection; remediation #35 — owner citation added) |
 | `MARGIN_INSUFFICIENT` | 400 | Post-fill margin exceeds threshold (Phase-02 Task 2.3.3 Pre-Trade Risk — post-fill margin check; Phase-19 Task 19.3.1 Margin Modes; remediation #19) |
+| `MARGIN_MODE_SWITCH_BLOCKED` | 409 | Margin-mode switch rejected while open positions exist (Phase-19 Task 19.3.1 Margin Modes / Task 19.3.23 Runtime Leverage & Margin-Mode Change; registered at the Phase-19 landing) |
+| `MARGIN_CALL_EXCEEDED` | 409 | Margin call active — position-increasing orders blocked for the episode (§13.6d; Phase-19 Task 19.3.3 margin-call order-entry block; registered at the Phase-19 landing) |
 | `PRICE_OUT_OF_BAND` | 400 | Price outside allowed band |
 | `INSTRUMENT_SUSPENDED` | 409 | Instrument not active |
 | `INSTRUMENT_HALTED` | 409 | Instrument halted |

@@ -94,6 +94,8 @@ var specCodes = []CodeDef{
 	specRow("RATE_LIMIT_TIER_EXCEEDED", 429, "Rate limit hit"),
 	specRow("INSUFFICIENT_BALANCE", 400, "Not enough available balance (Phase-02 Task 2.3.3 pre-trade check 2; Phase-05 Task 5.3.24 batch rejection; remediation #35 — owner citation added)"),
 	specRow("MARGIN_INSUFFICIENT", 400, "Post-fill margin exceeds threshold (Phase-02 Task 2.3.3 Pre-Trade Risk — post-fill margin check; Phase-19 Task 19.3.1 Margin Modes; remediation #19)"),
+	specRow("MARGIN_MODE_SWITCH_BLOCKED", 409, "Margin-mode switch rejected while open positions exist (Phase-19 Task 19.3.1 Margin Modes / Task 19.3.23 runtime change)"),
+	specRow("MARGIN_CALL_EXCEEDED", 409, "Margin call active — position-increasing orders blocked for the episode (spec §13.6d; Phase-19 Task 19.3.3 margin-call order block)"),
 	specRow("PRICE_OUT_OF_BAND", 400, "Price outside allowed band"),
 	specRow("INSTRUMENT_SUSPENDED", 409, "Instrument not active"),
 	specRow("INSTRUMENT_HALTED", 409, "Instrument halted"),
@@ -293,5 +295,18 @@ var specCodes = []CodeDef{
 
 // localCodes are emitted by the gateway but carry no spec §23 row yet.
 // Spec=false marks them for the docs-drift check — each needs a §23 row.
-// As of remediation #44 the slice is empty: all emitted codes are §23 rows.
-var localCodes = []CodeDef{}
+// As of remediation #44 the slice was empty; Phase-19 Task 19.3.12 adds
+// three codes that ARE spec-cited but were never transcribed into §23:
+// INSUFFICIENT_MARGIN is named verbatim in §13.9 item 2(c) (HTTP 409) and
+// the §27.1 Internal Position Transfers matrix row carries
+// POSITION_TRANSFER_FAILED / TRANSFER_INSUFFICIENT (400, L2). They land
+// here (append-only) rather than as specRows because the §23 transcription
+// count is pinned by tests; the spec-side fix is a §23 row add.
+var localCodes = []CodeDef{
+	localRow("INSUFFICIENT_MARGIN", 409, "Phase-19 Task 19.3.12",
+		"Position transfer aborted atomically: destination account lacks free balance for required initial margin (spec §13.9 item 2(c), remediation #38)"),
+	localRow("POSITION_TRANSFER_FAILED", 400, "Phase-19 Task 19.3.12",
+		"Internal position transfer rejected: entity/hierarchy mismatch, non-ACTIVE account, structural validation failure, or audit-row conflict (spec §13.9, §27.1 matrix row)"),
+	localRow("TRANSFER_INSUFFICIENT", 400, "Phase-19 Task 19.3.12",
+		"Internal position transfer rejected: source account has no matching open position or the open quantity is below the requested transfer quantity (spec §13.9, §27.1 matrix row)"),
+}

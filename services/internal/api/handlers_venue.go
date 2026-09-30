@@ -20,6 +20,7 @@ import (
 	"exchange/internal/accounts"
 	"exchange/internal/gateway"
 	"exchange/internal/marketapi"
+	"exchange/internal/risk"
 	"exchange/internal/timesync"
 )
 
@@ -57,12 +58,20 @@ type VenueProfileLister interface {
 	ListProfiles(ctx context.Context, includeRetired bool) ([]accounts.ProductProfile, error)
 }
 
+// VenueLeveragePolicyLister publishes the effective per-entity leverage
+// ceilings (Phase-19 Task 19.3.24, spec §13.14 — *risk.PgLeverageStore
+// satisfies it); nil omits the leverage_policies section.
+type VenueLeveragePolicyLister interface {
+	ListEntityPolicies(ctx context.Context) ([]risk.EntityPolicyRow, error)
+}
+
 // VenueDeps bundles the seams behind the exchange-info document.
 type VenueDeps struct {
-	Store    marketapi.Store
-	Cache    *marketapi.Cache
-	Profiles VenueProfileLister // optional — per-profile scope section
-	Now      func() time.Time
+	Store            marketapi.Store
+	Cache            *marketapi.Cache
+	Profiles         VenueProfileLister        // optional — per-profile scope section
+	LeveragePolicies VenueLeveragePolicyLister // optional — §13.14 entity ceilings
+	Now              func() time.Time
 }
 
 func (d *VenueDeps) now() time.Time {
@@ -114,6 +123,28 @@ func ExchangeInfo(d *VenueDeps) http.HandlerFunc {
 					SubunitDivisor:  p.SubunitDivisor,
 					MinDeposit:      p.MinDeposit.String(),
 				})
+			}
+		}
+		// Task 19.3.24 / spec §13.14 — publish the effective per-entity
+		// leverage ceilings so clients see the jurisdiction cap that
+		// applies to them before they negotiate account leverage.
+		if d.LeveragePolicies != nil {
+			rows, err := d.LeveragePolicies.ListEntityPolicies(r.Context())
+			if err != nil {
+				WriteError(w, "SERVICE_DEGRADED",
+					"leverage policy read unavailable",
+					gateway.RequestIDFrom(r.Context()), nil)
+				return
+			}
+			for _, row := range rows {
+				doc.LeveragePolicies = append(doc.LeveragePolicies,
+					marketapi.LeveragePolicyDoc{
+						EntityCode:      row.EntityCode,
+						ClientCategory:  row.ClientCategory,
+						InstrumentGroup: row.InstrumentGroup,
+						MaxLeverage:     row.MaxLeverage,
+						EffectiveFrom:   row.EffectiveFrom,
+					})
 			}
 		}
 		etag, err := marketapi.VenueETag(doc)

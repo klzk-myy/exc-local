@@ -167,20 +167,18 @@ func (s *Service) SubmitOrderList(ctx context.Context, acct *Account,
 		q := base
 		w.Quantity = &q
 	}
-	if s.limits != nil {
-		evalPrice := decimal.Zero
-		if w.Price != nil {
-			evalPrice = *w.Price
-		} else if ref != nil {
-			evalPrice = *ref
-		}
-		if err := s.limits.CheckOrder(ctx, risk.OrderRequest{
-			AccountID: acct.ID, KycTier: acct.KycTier, Symbol: inst.Symbol,
-			Side: w.Side, Quantity: *w.Quantity, Price: evalPrice,
-			ReduceOnly: w.ReduceOnly,
-		}); err != nil {
-			return nil, err
-		}
+	evalPrice := decimal.Zero
+	if w.Price != nil {
+		evalPrice = *w.Price
+	} else if ref != nil {
+		evalPrice = *ref
+	}
+	if err := s.checkOrderRisk(ctx, risk.OrderRequest{
+		AccountID: acct.ID, KycTier: acct.KycTier, Symbol: inst.Symbol,
+		Side: w.Side, Quantity: *w.Quantity, Price: evalPrice,
+		ReduceOnly: w.ReduceOnly,
+	}); err != nil {
+		return nil, err
 	}
 	if err := s.checkBalance(ctx, acct, inst, w, ref); err != nil {
 		return nil, err

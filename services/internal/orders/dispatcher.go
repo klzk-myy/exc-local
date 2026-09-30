@@ -61,17 +61,23 @@ func (d *Dispatcher) SubmitClose(ctx context.Context, req accounts.CloseOrderReq
 	if err != nil {
 		return nil, errInternal("reference price", err)
 	}
-	if ref == nil || !ref.IsPositive() {
+	if (ref == nil || !ref.IsPositive()) && !req.LimitPrice.IsPositive() {
 		return nil, codeErr("ORDER_REJECTED_NO_LIQUIDITY",
 			"no reference price for close order on %s", inst.Symbol)
 	}
-	bps := decimal.NewFromInt(int64(req.MaxSlippageBps)).Div(decimal.NewFromInt(10000))
 	side := string(req.Side)
 	var cap_ decimal.Decimal
-	if side == SideBuy {
-		cap_ = ref.Mul(decimal.One.Add(bps))
+	if req.LimitPrice.IsPositive() {
+		// §13.4 auction leg / force-cash cap: explicit bound supersedes
+		// the synthetic slippage band.
+		cap_ = req.LimitPrice
 	} else {
-		cap_ = ref.Mul(decimal.One.Sub(bps))
+		bps := decimal.NewFromInt(int64(req.MaxSlippageBps)).Div(decimal.NewFromInt(10000))
+		if side == SideBuy {
+			cap_ = ref.Mul(decimal.One.Add(bps))
+		} else {
+			cap_ = ref.Mul(decimal.One.Sub(bps))
+		}
 	}
 	// Align the synthetic cap to the tick grid — a price not on tick is
 	// an INVALID_REQUEST down the pipeline, and the engine would have
@@ -84,11 +90,16 @@ func (d *Dispatcher) SubmitClose(ctx context.Context, req accounts.CloseOrderReq
 		}
 	}
 	qty := req.Quantity
+	tif := TIFIOC
+	if req.ExpireAt != nil {
+		tif = TIFGTD // resting auction leg through the CALL/EXTEND window
+	}
 	ack, err := d.svc.Submit(ctx, acct, &SubmitRequest{
 		Symbol:        inst.Symbol,
 		Side:          side,
 		OrderType:     TypeLimit,
-		TimeInForce:   TIFIOC,
+		TimeInForce:   tif,
+		GTDExpiry:     req.ExpireAt,
 		Quantity:      &qty,
 		Price:         &cap_,
 		ReduceOnly:    true,

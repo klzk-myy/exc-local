@@ -71,6 +71,22 @@ type VenueInfo struct {
 	// (Phase-14 Task 14.3.13) so clients discover which classes their
 	// account profile admits; omitted when no profile source is wired.
 	ProductProfiles []ProfileDoc `json:"product_profiles,omitempty"`
+	// LeveragePolicies publishes the effective per-entity leverage
+	// ceilings (spec §13.14, Phase-19 Task 19.3.24) so clients see the
+	// jurisdiction cap that applies to them; omitted when no policy
+	// source is wired.
+	LeveragePolicies []LeveragePolicyDoc `json:"leverage_policies,omitempty"`
+}
+
+// LeveragePolicyDoc is the venue-facing view of one
+// entity_leverage_policy row — the effective ceiling per
+// entity × category × instrument group.
+type LeveragePolicyDoc struct {
+	EntityCode      string    `json:"entity_code"`
+	ClientCategory  string    `json:"client_category"`
+	InstrumentGroup string    `json:"instrument_group"`
+	MaxLeverage     int       `json:"max_leverage"`
+	EffectiveFrom   time.Time `json:"effective_from"`
 }
 
 // ProfileDoc is the venue-facing view of one account_product_profiles

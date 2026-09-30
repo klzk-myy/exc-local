@@ -97,10 +97,38 @@ func setupIT(t *testing.T) (context.Context, *pgxpool.Pool, *PgStore) {
 	return ctx, pool, NewPgStore(pool)
 }
 
+// pgFakeExec wraps fakeExec so the returned child order_id is backed by
+// a real orders row — algo_order_children.order_id carries a FK to
+// orders(id), which the bare fake's synthetic IDs would violate.
+type pgFakeExec struct {
+	*fakeExec
+	pool *pgxpool.Pool
+}
+
+func (f *pgFakeExec) SubmitChild(ctx context.Context, acct int64,
+	req ChildRequest) (int64, error) {
+	oid, err := f.fakeExec.SubmitChild(ctx, acct, req)
+	if err != nil {
+		return 0, err
+	}
+	var price any
+	if req.Price.IsPositive() {
+		price = req.Price.String()
+	}
+	if _, err := f.pool.Exec(ctx,
+		`INSERT INTO orders (id, account_id, instrument_id, side, price, quantity)
+		 SELECT $1, $2, id, $3, $4::numeric, $5::numeric
+		   FROM instruments WHERE symbol=$6`,
+		oid, acct, req.Side, price, req.Quantity.String(), req.Symbol); err != nil {
+		return 0, fmt.Errorf("fake orders row: %w", err)
+	}
+	return oid, nil
+}
+
 func itEngine(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 	fs *PgStore, fe *fakeExec) *Engine {
 	e, err := NewEngine(Options{
-		Store: fs, Exec: fe,
+		Store: fs, Exec: &pgFakeExec{fakeExec: fe, pool: pool},
 		Quote: NewPgTopOfBook(pool), Ref: NewPgRefPrice(pool),
 		Pips: NewPgPipSize(pool),
 	})
@@ -171,14 +199,21 @@ func TestITChildRowsAndIdempotentCID(t *testing.T) {
 		t.Fatalf("submit: %v", err)
 	}
 	deadline := time.Now().Add(5 * time.Second)
+	var children []Child
 	for time.Now().Before(deadline) {
-		children, _ := fs.Children(ctx, p.ID)
-		if len(children) == 3 {
+		children, _ = fs.Children(ctx, p.ID)
+		ready := len(children) == 3
+		for _, c := range children {
+			if c.OrderID == nil || c.DispatchedAt == nil {
+				ready = false // row persisted, dispatch update in flight
+			}
+		}
+		if ready {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	children, err := fs.Children(ctx, p.ID)
+	children, err = fs.Children(ctx, p.ID)
 	if err != nil || len(children) != 3 {
 		t.Fatalf("children: %v n=%d", err, len(children))
 	}

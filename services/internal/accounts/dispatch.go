@@ -2,6 +2,7 @@ package accounts
 
 import (
 	"context"
+	"time"
 
 	"exchange/pkg/decimal"
 )
@@ -44,6 +45,11 @@ type MassCancelResult struct {
 // position by close-all (Task 5.3.36). Slippage protection maps to the
 // engine's max_slippage_bps mechanism (Phase-02 Task 2.3.15): the market
 // close is converted to a synthetic limit at mark±bps.
+//
+// Auction legs (spec §13.4) set LimitPrice explicitly — it becomes the
+// cap instead of the synthetic mark±bps band — and ExpireAt to rest the
+// leg as a reduce-only GTD through the CALL/EXTEND/FILL window instead
+// of an immediate IOC.
 type CloseOrderRequest struct {
 	AccountID      int64
 	InstrumentID   int64
@@ -51,7 +57,13 @@ type CloseOrderRequest struct {
 	Quantity       decimal.Decimal // full position quantity
 	ReduceOnly     bool            // always true on this path
 	MaxSlippageBps int             // slippage guard; <=0 uses venue default
-	ClientOrderID  string          // idempotency key for the dispatch
+	// LimitPrice is an explicit cap (BUY) / floor (SELL); when positive
+	// it supersedes the synthetic mark±slippage band (auction legs).
+	LimitPrice decimal.Decimal
+	// ExpireAt rests the close as GTD until the timestamp instead of an
+	// IOC — the §13.4 CALL/EXTEND windows need the leg on the book.
+	ExpireAt      *time.Time
+	ClientOrderID string // idempotency key for the dispatch
 }
 
 // OrderAck is the order pipeline's acceptance receipt for one close.

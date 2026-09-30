@@ -1123,6 +1123,40 @@ func run() error {
 	// and realized-PnL accounting. Persisted in migration-071 tables.
 	gridEngine := bots.NewEngine(bots.NewPgStore(pool), orderSvc, orderStore, nil)
 
+	// Phase-19 mark placeholder: last-trade mark provider (the
+	// Phase-19.5 oracle swaps in composite marks without touching this
+	// seam). Fed by every engine fill below so auction floors and
+	// FORCE_CASH caps always price off a live mark; PgLastTradeFallback
+	// covers cold start.
+	markProv := risk.NewStubMarkPriceProvider().WithFallback(risk.PgLastTradeFallback(pool))
+	// markCache is the Redis mark keyspace (mark:{symbol}) — the
+	// Phase-19.5 oracle writes these keys; today the fill hook publishes
+	// last-trade deltas through the same seam so the event-driven
+	// margin engine (19.3.26) and collateral monitor (19.3.28) have a
+	// live feed.
+	markCache := risk.NewRedisMarkCache(rdb.Client)
+	// §13.12/§13.4a ADV yardstick: the instrument:adv:{id} Redis mirror
+	// is the fast path for venues publishing precomputed analytics; the
+	// trailing 7-day trades-ledger mean is the system of record, and a
+	// 60s per-instrument memoization bounds the per-tick PG cost the
+	// event-driven margin engine would otherwise impose.
+	advSrc := &risk.CachedADVSource{
+		Src: risk.ChainedADVSource{
+			risk.NewRedisADVSource(rdb.Client),
+			risk.PgADVSource{Pool: pool},
+		},
+		TTL: time.Minute,
+	}
+	// Forward declarations: the liquidation service and margin-call
+	// service are constructed once the Phase-19 services below assemble
+	// (they need the fund, which needs the ledger). The consumer fill
+	// hook guards on nil — a fill arriving before construction logs and
+	// skips rather than blocking the read-model drain.
+	var liqSvc *risk.LiquidationService
+	var liqStore *risk.PgLiquidationStore
+	var adlStore *risk.PgADLStore
+	var bilatSvc *risk.BilateralCreditService
+
 	// Engine out-ring consumer: cancel echoes + trade fills update the PG
 	// read model; without it pending confirms only time out. The fill
 	// hook is the order_filled emitter (Task 12.3.5) — order→account→user
@@ -1144,6 +1178,92 @@ func run() error {
 			o, oerr := orderStore.GetOrder(ctx, orderID)
 			if oerr != nil || o == nil {
 				return
+			}
+			// Phase-19: every engine fill feeds the mark placeholder —
+			// the last-trade price IS the mark until Phase-19.5's oracle
+			// takes over the same seam.
+			if inst, ierr := orderStore.InstrumentByID(ctx, o.InstrumentID); ierr == nil && inst != nil {
+				markProv.Observe(inst.Symbol, px, time.Now())
+				// Publish the mark delta (SET mark:{symbol} + PUBLISH)
+				// — the margin engine's RedisMarkSource consumes it.
+				// Best-effort: a publish failure must not stall the
+				// read-model drain; the 2s scanner remains authoritative.
+				if err := markCache.PublishMarkDelta(ctx, inst.Symbol, px, time.Now()); err != nil {
+					log.Warn("mark delta publish", "symbol", inst.Symbol, "err", err)
+				}
+			}
+			// Phase-19 liquidation fills reconcile through RecordFill:
+			// liq-{position_id}-{ms} direct closes, auc-{auction_id}-{ms}
+			// auction legs, auc-fc-{auction_id}-{ms} force-cash legs.
+			// The position's side inverts the close order's side.
+			// ADL force-close fills reconcile against their directive:
+			// adl-{adl_seq} — the store's CompleteADLFill resolves the
+			// counterparty position and writes both event rows atomically.
+			// The liquidated-side context isn't persisted on the
+			// directive (migration 230) — LiquidatedAccountID=0 skips the
+			// supplementary event; the liquidated side already carries
+			// its own liquidation_events rows from the original close.
+			if adlStore != nil {
+				if seq, isADL := parseADLClientID(o.ClientOrderID); isADL {
+					mark := decimal.Zero
+					if inst, ierr := orderStore.InstrumentByID(ctx, o.InstrumentID); ierr == nil && inst != nil {
+						if m, merr := markProv.GetMarkPrice(inst.Symbol); merr == nil {
+							mark = m
+						}
+					}
+					if _, err := adlStore.CompleteADLFill(ctx, risk.ADLFillReport{
+						AdlSeq: seq, FilledQty: qty, FillPrice: px, MarkPrice: mark,
+					}); err != nil {
+						log.Error("adl fill reconcile failed — ops reconcile required",
+							"order_id", orderID, "client_order_id", o.ClientOrderID, "err", err)
+					}
+				}
+			}
+			if liqSvc != nil && liqStore != nil {
+				posID, auctionID, isAuction, isFC, isLiq := parseLiquidationClientID(o.ClientOrderID)
+				if isLiq {
+					mark := decimal.Zero
+					if inst, ierr := orderStore.InstrumentByID(ctx, o.InstrumentID); ierr == nil && inst != nil {
+						if m, merr := markProv.GetMarkPrice(inst.Symbol); merr == nil {
+							mark = m
+						}
+					}
+					if isAuction && auctionID > 0 {
+						if row, rerr := liqStore.AuctionByID(ctx, auctionID); rerr == nil && row != nil {
+							posID = row.PositionID
+						}
+					}
+					if posID > 0 {
+						side := "LONG"
+						if o.Side == "BUY" {
+							side = "SHORT"
+						}
+						f := risk.LiquidationFill{
+							PositionID: posID, AccountID: o.AccountID,
+							InstrumentID: o.InstrumentID, Side: side,
+							Qty: qty, Price: px, MarkPrice: mark,
+							IsAuction: isAuction, IsForceCash: isFC,
+						}
+						if isAuction {
+							f.AuctionID = &auctionID
+						}
+						if err := liqSvc.RecordFill(ctx, f); err != nil {
+							log.Error("liquidation fill reconcile failed — ops reconcile required",
+								"order_id", orderID, "client_order_id", o.ClientOrderID, "err", err)
+						}
+					}
+				}
+			}
+			// Task 19.3.10: every fill consumes the order's bilateral
+			// credit reservation pro-rata (quote-ccy notional → USD).
+			// No reservation row = no-op, so ordinary flow is untouched;
+			// engine-reserved matches reconcile here.
+			if bilatSvc != nil {
+				if inst, ierr := orderStore.InstrumentByID(ctx, o.InstrumentID); ierr == nil && inst != nil {
+					if err := bilatSvc.ConsumeFill(ctx, o.ID, inst.QuoteCurrency, px.Mul(qty)); err != nil {
+						log.Warn("bilateral credit consume", "order_id", orderID, "err", err)
+					}
+				}
 			}
 			// Phase-13 circuit-breaker feeds: last-trade price →
 			// INSTRUMENT move window + MARKET_WIDE aggregate; fill
@@ -1208,6 +1328,13 @@ func run() error {
 		// cascade to children; list leg cancels advance the list;
 		// engine-cancelled MOO/MOC emit order.cancelled.
 		orderSvc.OnCancel(context.Background(), orderID)
+		// Task 19.3.10: cancel/reject releases the order's bilateral
+		// credit reservation (idempotent — no row means no-op).
+		if bilatSvc != nil {
+			if err := bilatSvc.ReleaseOrder(context.Background(), orderID); err != nil {
+				log.Warn("bilateral credit release", "order_id", orderID, "err", err)
+			}
+		}
 	}).Run(sweepCtx, shardIDs(shardMap))
 
 	// accounts.OrderDispatcher ← orders.Service (dead-man sweeper,
@@ -1550,7 +1677,7 @@ func run() error {
 	if natsClient != nil {
 		liqSink = liquidationSink{nc: natsClient}
 	}
-	liqSvc := api.NewManualLiquidationService(pool,
+	manLiqSvc := api.NewManualLiquidationService(pool,
 		api.AdminRoleResolver(adminRoleResolver), liqSink)
 
 	// Phase-07 Tasks 7.3.7/7.3.3 — support tickets / complaints /
@@ -1851,6 +1978,23 @@ func run() error {
 		return err
 	}
 	api.RegisterInstrumentExecutors(dualSvc, instrumentSvc)
+	// Phase-19 Tasks 19.3.21/19.3.24 — margin-model parameter changes
+	// and entity_leverage_policy cells ride the §8.2 four-eyes queue:
+	// approval evaluates the §13.12 ParamChangeGate (linked PASS run,
+	// validator independence, freshness, parameter scope) or upserts
+	// the effective-dated policy cell inside the approval tx. A gate
+	// refusal fails the executor — the request stays PENDING and the
+	// rejected attempt is recorded on margin_model_param_changes.
+	if runStore, rerr := risk.NewPgModelRunStore(pool); rerr != nil {
+		log.Warn("margin param gate: run store unavailable", "err", rerr)
+	} else if chStore, cerr := risk.NewPgParamChangeStore(pool); cerr != nil {
+		log.Warn("margin param gate: change store unavailable", "err", cerr)
+	} else if pGate, gerr := risk.NewParamChangeGate(runStore, chStore, 0, nil); gerr != nil {
+		log.Warn("margin param gate: construction failed", "err", gerr)
+	} else {
+		api.RegisterMarginParamChangeExecutor(dualSvc, pGate, chStore)
+	}
+	api.RegisterEntityLeveragePolicyExecutor(dualSvc)
 	// Dual-approved instrument ops publish their engine feed + auction
 	// arm + WS event post-commit — the approval tx cannot write Redis.
 	// PublishCommitted re-derives the side effects from the committed
@@ -2357,6 +2501,596 @@ func run() error {
 	// account- and api-key-existence seams of the fix-session handler.
 	fixPgCheckers := fix.NewPgCheckers(pool)
 
+	// ---- Phase-19 multi-asset margin API surface (Tasks 19.3.1/.8/.14–.17/.23) ----
+	// The §23 row for MARGIN_MODE_SWITCH_BLOCKED lands with the Phase-19
+	// spec-sync; until then the gateway registers it locally so the live
+	// margin-mode handler emits 409, not the unregistered-code 500 shim.
+	if _, ok := errs.Default.Lookup(risk.CodeMarginModeBlocked); !ok {
+		if err := errs.Default.Register(errs.CodeDef{
+			Code:        risk.CodeMarginModeBlocked,
+			HTTPStatus:  http.StatusConflict,
+			Description: "Margin-mode switch rejected: open positions exist (Phase-19 Task 19.3.1)",
+			Owner:       "Phase-19 Task 19.3.1",
+		}); err != nil {
+			log.Warn("margin-mode blocked code registration failed", "err", err)
+		}
+	}
+	// Services are bound nil-safely: a construction failure logs and the
+	// handler serves SERVICE_DEGRADED rather than aborting gateway boot
+	// (partial Phase-19 migrations must not take the whole API down).
+	var collateralSvc *risk.CollateralService
+	if cst, cerr := risk.NewPgCollateralScheduleStore(pool); cerr != nil {
+		log.Warn("phase19 collateral store unavailable", "err", cerr)
+	} else if c, cerr := risk.NewCollateralService(risk.CollateralDeps{
+		Store:   cst,
+		Alerter: opsAlerter,
+		Logf:    func(f string, a ...any) { log.Warn(fmt.Sprintf(f, a...)) },
+	}); cerr != nil {
+		log.Warn("phase19 collateral service unavailable", "err", cerr)
+	} else {
+		collateralSvc = c
+	}
+	var marginSvc *risk.MarginService
+	if mst, merr := risk.NewPgMarginStore(pool); merr != nil {
+		log.Warn("phase19 margin store unavailable", "err", merr)
+	} else {
+		mo := risk.MarginOptions{
+			Store: mst,
+			Marks: risk.NewRedisMarkCache(rdb.Client),
+			// §13.12 add-on denominators — OI from the positions
+			// aggregate (PgMarginStore.OpenInterest), ADV from the
+			// instrument:adv:{id} Redis mirror the analytics rollup
+			// owns (absent ⇒ the pessimistic cap leg applies).
+			OI:  mst,
+			ADV: advSrc,
+		}
+		if collateralSvc != nil {
+			// Task 19.3.8 §13.6b — the service requires the haircut/
+			// concentration valuator in production; bind only when the
+			// construction above succeeded (typed-nil would panic).
+			mo.Collateral = collateralSvc
+		}
+		if m, merr := risk.NewMarginService(mo); merr != nil {
+			log.Warn("phase19 margin service unavailable", "err", merr)
+		} else {
+			marginSvc = m
+		}
+	}
+	levStore := risk.NewPgLeverageStore(pool)
+	levSvc := risk.NewLeverageService(levStore, risk.NewRedisLeverageCache(rdb))
+	// Task 19.3.24 / spec §13.14 — the venue document publishes the
+	// effective per-entity leverage ceilings.
+	venueDeps.LeveragePolicies = levStore
+	posModeSvc := risk.NewPositionModeService(risk.NewPgPositionModeStore(pool))
+	var fundSvc *risk.InsuranceFundService
+	if f, ferr := risk.NewInsuranceFundService(risk.InsuranceFundDeps{
+		Pool:    pool,
+		Redis:   rdb,
+		Poster:  ledgerSvc,
+		Pub:     ledgerPub,
+		Alerter: opsAlerter,
+		Logf:    func(f string, a ...any) { log.Warn(fmt.Sprintf(f, a...)) },
+	}); ferr != nil {
+		log.Warn("phase19 insurance fund service unavailable", "err", ferr)
+	} else {
+		fundSvc = f
+	}
+	// Task 19.3.9 — retail NBP service. Fund + GL poster are mandatory
+	// (restitution must debit the fund or fail); a nil fund degrades
+	// the whole seam to absent rather than half-wired.
+	var nbpSvc *risk.NBPService
+	if fundSvc != nil {
+		if nStore, nerr := risk.NewPgNBPStore(pool); nerr != nil {
+			log.Warn("phase19 nbp store unavailable", "err", nerr)
+		} else if ns, nerr2 := risk.NewNBPService(risk.NBPDeps{
+			Store:   nStore,
+			Redis:   rdb,
+			Levels:  risk.RedisMarginLevelReader{C: rdb},
+			Fund:    fundSvc,
+			Poster:  ledgerSvc,
+			Alerter: opsAlerter,
+			Logf:    func(f string, a ...any) { log.Warn(fmt.Sprintf(f, a...)) },
+		}); nerr2 != nil {
+			log.Warn("phase19 nbp service unavailable", "err", nerr2)
+		} else {
+			nbpSvc = ns
+			// §13.6c daily sweep at 17:00 ET — catches deficits the
+			// post-liquidation hook missed (e.g. overnight gaps).
+			go func(svc *risk.NBPService) {
+				loc, lerr := time.LoadLocation("America/New_York")
+				if lerr != nil {
+					log.Warn("nbp sweep: ET tz unavailable — running 22:00 UTC fallback")
+					loc = time.UTC
+				}
+				for {
+					now := time.Now().In(loc)
+					next := time.Date(now.Year(), now.Month(), now.Day(), 17, 0, 0, 0, loc)
+					if !next.After(now) {
+						next = next.Add(24 * time.Hour)
+					}
+					select {
+					case <-sweepCtx.Done():
+						return
+					case <-time.After(time.Until(next)):
+						if n, err := svc.SweepOnce(sweepCtx); err != nil && sweepCtx.Err() == nil {
+							log.Warn("nbp daily sweep", "err", err)
+						} else if n > 0 {
+							log.Info("nbp daily sweep restituted accounts", "count", n)
+						}
+					}
+				}
+			}(nbpSvc)
+		}
+	}
+	// Phase-19 Tasks 19.3.3/19.3.4/19.3.16 — margin-call + liquidation
+	// lifecycle construction. Every dep is required; a failed leg is
+	// logged loudly and the consumer hooks stay nil-guarded (§2.7: a
+	// half-wired engine silently skipping stop-outs is worse than an
+	// absent one).
+	liqReader := risk.RedisMarginLevelReader{C: rdb}
+	liqQueue, qerr := risk.NewLiquidationQueue(rdb, func(f string, a ...any) {
+		log.Warn(fmt.Sprintf(f, a...))
+	})
+	if qerr != nil {
+		log.Warn("phase19 liquidation queue unavailable", "err", qerr)
+	}
+	if ls, lerr := risk.NewPgLiquidationStore(pool); lerr != nil {
+		log.Warn("phase19 liquidation store unavailable", "err", lerr)
+	} else {
+		liqStore = ls
+	}
+	var auctionEng *risk.AuctionEngine
+	var marginCallSvc *risk.MarginCallService
+	if liqStore != nil {
+		if ae, aerr := risk.NewAuctionEngine(risk.AuctionDeps{
+			Redis:    rdb,
+			Store:    liqStore,
+			Dispatch: orders.NewDispatcher(orderSvc),
+			Marks:    markProv,
+			Alerter:  opsAlerter,
+			Logf:     func(f string, a ...any) { log.Warn(fmt.Sprintf(f, a...)) },
+		}); aerr != nil {
+			log.Warn("phase19 auction engine unavailable", "err", aerr)
+		} else {
+			auctionEng = ae
+		}
+	}
+	if liqQueue != nil {
+		if mcStore, merr := risk.NewPgMarginCallStore(pool); merr != nil {
+			log.Warn("phase19 margin-call store unavailable", "err", merr)
+		} else if mc, cerr := risk.NewMarginCallService(risk.MarginCallDeps{
+			Pool:    pool,
+			Redis:   rdb,
+			Store:   mcStore,
+			Levels:  liqReader,
+			Queue:   liqQueue,
+			Notify:  notifSvc,
+			Alerter: opsAlerter,
+			Logf:    func(f string, a ...any) { log.Warn(fmt.Sprintf(f, a...)) },
+		}); cerr != nil {
+			log.Warn("phase19 margin-call service unavailable", "err", cerr)
+		} else {
+			marginCallSvc = mc
+			// §13.6d order-entry block: position-increasing orders
+			// reject MARGIN_CALL_EXCEEDED while the account's block
+			// flag stands; reduce_only bypasses it inside
+			// checkAdmission.
+			orderSvc.WithMarginCall(mc)
+		}
+	}
+	// Task 19.3.19 — ADL indicator publisher (adl:indicator:* hashes +
+	// adl:priority:* ZSETs refreshed on the 2s scanner cadence) and the
+	// depletion-fallback engine bound into the liquidation service.
+	var adlEng *risk.ADLEngine
+	var adlPub *risk.ADLIndicatorPublisher
+	if fundSvc != nil {
+		if as, aerr := risk.NewPgADLStore(pool); aerr != nil {
+			log.Warn("phase19 adl store unavailable", "err", aerr)
+		} else {
+			adlStore = as
+			scorer, serr := risk.NewADLScorer(
+				risk.NewRedisMarkCache(rdb.Client), levSvc)
+			if serr != nil {
+				log.Warn("phase19 adl scorer unavailable", "err", serr)
+			} else {
+				if ap, perr := risk.NewADLIndicatorPublisher(risk.ADLPublisherDeps{
+					Redis:    rdb,
+					Universe: as,
+					Scorer:   scorer,
+					Logf:     func(f string, a ...any) { log.Warn(fmt.Sprintf(f, a...)) },
+				}); perr != nil {
+					log.Warn("phase19 adl publisher unavailable", "err", perr)
+				} else {
+					adlPub = ap
+				}
+				if ae, eerr := risk.NewADLEngine(risk.ADLEngineDeps{
+					Store:    as,
+					Scorer:   scorer,
+					Fund:     fundSvc,
+					Dispatch: orders.NewDispatcher(orderSvc),
+					Alerter:  opsAlerter,
+					Logf:     func(f string, a ...any) { log.Warn(fmt.Sprintf(f, a...)) },
+				}); eerr != nil {
+					log.Warn("phase19 adl engine unavailable", "err", eerr)
+				} else {
+					adlEng = ae
+				}
+			}
+		}
+	}
+	if liqStore != nil && liqQueue != nil {
+		if ls, lerr := risk.NewLiquidationService(risk.LiquidationDeps{
+			Pool:       pool,
+			Redis:      rdb,
+			Store:      liqStore,
+			Levels:     liqReader,
+			Queue:      liqQueue,
+			Dispatch:   orders.NewDispatcher(orderSvc),
+			Fund:       fundSvc,
+			Auction:    auctionEng,
+			MarginCall: marginCallSvc,
+			NBP:        nbpSvc,
+			ADL:        adlEng,
+			// §13.4a/6a ADV slicing yardstick — same instrument:adv:{id}
+			// mirror the margin add-on reads.
+			ADV:     advSrc,
+			Alerter: opsAlerter,
+			Logf:    func(f string, a ...any) { log.Warn(fmt.Sprintf(f, a...)) },
+		}); lerr != nil {
+			log.Warn("phase19 liquidation service unavailable", "err", lerr)
+		} else {
+			liqSvc = ls
+			// Worker: BLPOP-paced job consumption under the per-account
+			// lock (anti-stranding + delayed-retry promotion handled in
+			// the engine).
+			go func() {
+				for {
+					if err := liqSvc.ConsumeOnce(sweepCtx); err != nil && sweepCtx.Err() == nil {
+						log.Warn("liquidation worker", "err", err)
+						select {
+						case <-sweepCtx.Done():
+							return
+						case <-time.After(200 * time.Millisecond):
+						}
+					}
+					if sweepCtx.Err() != nil {
+						return
+					}
+				}
+			}()
+			// §13.4a scanner: 2s cadence — delayed retry promotion,
+			// margin-call expiry sweep, auction phase advancement,
+			// isolated-leg breaches, account stop-out scan.
+			go func() {
+				t := time.NewTicker(2 * time.Second)
+				defer t.Stop()
+				for {
+					select {
+					case <-sweepCtx.Done():
+						return
+					case <-t.C:
+						if _, err := liqSvc.ScanOnce(sweepCtx); err != nil && sweepCtx.Err() == nil {
+							log.Warn("liquidation scan", "err", err)
+						}
+						// §13.5 ADL priority refresh rides the same
+						// 2s cadence (AdlScanCadence).
+						if adlPub != nil {
+							if _, err := adlPub.TickOnce(sweepCtx); err != nil && sweepCtx.Err() == nil {
+								log.Warn("adl indicator tick", "err", err)
+							}
+						}
+					}
+				}
+			}()
+		}
+	}
+	// Phase-19 Tasks 19.3.26/19.3.27/19.3.28 — the event-driven margin
+	// engine, isolated-margin service, volatility scaler and intraday
+	// collateral monitor. The engine consumes mark:* deltas (published
+	// by the fill hook), evaluates only affected accounts, publishes
+	// margin:level hashes, and dispatches stop-outs to the durable
+	// queue — the 2s scanner above stays as the belt-and-braces path.
+	if liqQueue != nil {
+		if liqDispatch, derr := risk.NewQueueLiquidationDispatcher(liqQueue); derr != nil {
+			log.Warn("phase19 queue dispatcher unavailable", "err", derr)
+		} else if mStore, merr := risk.NewPgMarginStore(pool); merr != nil {
+			log.Warn("phase19 engine margin store unavailable", "err", merr)
+		} else {
+			var isoSvc *risk.IsolatedMarginService
+			if isoStore, ierr := risk.NewPgIsolatedMarginStore(pool); ierr != nil {
+				log.Warn("phase19 isolated margin store unavailable", "err", ierr)
+			} else if sv, verr := risk.NewIsolatedMarginService(risk.IsolatedMarginDeps{
+				Store: isoStore, Dispatcher: liqDispatch, Alerter: opsAlerter,
+				Logf: func(f string, a ...any) { log.Warn(fmt.Sprintf(f, a...)) },
+			}); verr != nil {
+				log.Warn("phase19 isolated margin service unavailable", "err", verr)
+			} else {
+				isoSvc = sv
+			}
+			sink, skerr := risk.NewRedisMarginSnapshotSink(rdb, mStore)
+			if skerr != nil {
+				log.Warn("phase19 margin snapshot sink unavailable", "err", skerr)
+			}
+			// Volatility scaler fed by the in-memory tick ring — the
+			// engine's MarkObserver fan-out records every consumed tick
+			// into it (no ClickHouse tick source exists pre-Phase-19.5;
+			// the ring accumulates from runtime marks, restart-safe).
+			tickRing := risk.NewMarkTickRing()
+			volScaler, verr := risk.NewVolatilityScaler(risk.VolatilityScalerDeps{
+				Source: tickRing, Alerter: opsAlerter,
+				Logf: func(f string, a ...any) { log.Warn(fmt.Sprintf(f, a...)) },
+			})
+			if verr != nil {
+				log.Warn("phase19 volatility scaler unavailable", "err", verr)
+				volScaler = nil
+			}
+			// Correlation matrix: Redis-persisted warm start; Refresh
+			// needs a ReturnSeriesSource (ClickHouse daily closes —
+			// Phase-19.5 binding) so the engine serves the persisted
+			// matrix and skips refresh until then.
+			corrMx := risk.NewCorrelationMatrix(risk.CorrelationMatrixDeps{
+				Redis: rdb.Client,
+				Audit: risk.NewRedisCorrelationAudit(rdb.Client),
+				Logf:  func(f string, a ...any) { log.Warn(fmt.Sprintf(f, a...)) },
+			})
+			if err := corrMx.LoadPersisted(sweepCtx); err != nil && sweepCtx.Err() == nil {
+				log.Warn("phase19 correlation matrix warm load", "err", err)
+			}
+			obs := []risk.MarkObserver{markProv, tickRing}
+			var vol risk.IMMultiplierSource
+			if volScaler != nil {
+				vol = volScaler
+			}
+			if eng, eerr := risk.NewMarginEngine(risk.MarginEngineDeps{
+				Store:       mStore,
+				Marks:       markCache,
+				Source:      risk.NewRedisMarkSource(rdb.Client, nil),
+				Dispatcher:  liqDispatch,
+				Isolated:    isoSvc,
+				Sink:        sink,
+				Correlation: corrMx,
+				Collateral:  collateralSvc,
+				Volatility:  vol,
+				OI:          mStore,
+				ADV:         advSrc,
+				Thresholds: risk.NewMarginThresholdService(
+					risk.NewPgMarginThresholdStore(pool)),
+				Observer: risk.FanOutMarkObservers(obs...),
+				Alerter:  opsAlerter,
+				Logf:     func(f string, a ...any) { log.Warn(fmt.Sprintf(f, a...)) },
+			}); eerr != nil {
+				log.Warn("phase19 margin engine unavailable", "err", eerr)
+			} else {
+				go func() {
+					if err := eng.Run(sweepCtx); err != nil && sweepCtx.Err() == nil {
+						log.Warn("margin engine stopped", "err", err)
+					}
+				}()
+				// Volatility refresh loop: rescale every minute over
+				// the symbols the engine is tracking (positions' marks).
+				if volScaler != nil {
+					go func(vs *risk.VolatilityScaler, me *risk.MarginEngine) {
+						t := time.NewTicker(time.Minute)
+						defer t.Stop()
+						for {
+							select {
+							case <-sweepCtx.Done():
+								return
+							case <-t.C:
+								vs.Refresh(sweepCtx, me.TrackedSymbols())
+							}
+						}
+					}(volScaler, eng)
+				}
+				// Task 19.3.28 — intraday collateral haircut monitor:
+				// >100bps currency moves re-anchor the day and trigger
+				// margin re-evaluation of accounts holding that ccy.
+				if collateralSvc != nil && marginSvc != nil {
+					if mon, merr := risk.NewCollateralMonitor(risk.CollateralMonitorDeps{
+						Schedule: collateralSvc,
+						Marks:    risk.NewRedisMarkSource(rdb.Client, nil),
+						Pairs:    mStore.FxPairInstruments,
+						Accounts: risk.CollateralAccountFunc(func(ctx context.Context, ccy string) ([]int64, error) {
+							rows, err := pool.Query(ctx,
+								`SELECT DISTINCT account_id FROM balances WHERE currency=$1`, ccy)
+							if err != nil {
+								return nil, err
+							}
+							defer rows.Close()
+							var ids []int64
+							for rows.Next() {
+								var id int64
+								if err := rows.Scan(&id); err != nil {
+									return nil, err
+								}
+								ids = append(ids, id)
+							}
+							return ids, rows.Err()
+						}),
+						Margin:  marginSvc,
+						Calls:   marginCallSvc,
+						Alerter: opsAlerter,
+						Logf:    func(f string, a ...any) { log.Warn(fmt.Sprintf(f, a...)) },
+					}); merr != nil {
+						log.Warn("phase19 collateral monitor unavailable", "err", merr)
+					} else {
+						go func() {
+							if err := mon.Run(sweepCtx); err != nil && sweepCtx.Err() == nil {
+								log.Warn("collateral monitor stopped", "err", err)
+							}
+						}()
+					}
+				}
+			}
+		}
+	}
+	// Task 19.3.10 — bilateral credit service: PG authority over
+	// credit_groups/relationships/reservations (migration 053), shm
+	// credit-matrix publication for the engine's match-time screen, and
+	// the divergence probe. The engine-side reserve protocol owns
+	// pre-commit decisions; the Go side reconciles fills/cancels
+	// (ConsumeFill/ReleaseOrder hooks below), sweeps TTL-dead
+	// reservations and verifies matrix↔PG parity.
+	if bcStore, berr := risk.NewPgBilateralCreditStore(pool); berr != nil {
+		log.Warn("phase19 bilateral credit store unavailable", "err", berr)
+	} else {
+		var cw risk.CreditCellWriter
+		var cr risk.CreditCellReader
+		if cm, cerr := ipc.OpenCreditMatrix("credit_matrix", true); cerr != nil {
+			log.Warn("phase19 credit matrix shm unavailable — publishing disabled", "err", cerr)
+		} else {
+			cw, cr = cm, cm
+		}
+		if bs, berr2 := risk.NewBilateralCreditService(risk.BilateralCreditOptions{
+			Store:   bcStore,
+			Conv:    position.NewConverter(risk.LastTradeRates{Instruments: pnlStore, Marks: orderStore}, ""),
+			Redis:   rdb,
+			Alerter: opsAlerter,
+			Writer:  cw,
+			Reader:  cr,
+			Logf:    func(f string, a ...any) { log.Warn(fmt.Sprintf(f, a...)) },
+		}); berr2 != nil {
+			log.Warn("phase19 bilateral credit service unavailable", "err", berr2)
+		} else {
+			bilatSvc = bs
+			if cw != nil {
+				if n, perr := bs.PublishSnapshot(sweepCtx); perr != nil {
+					log.Warn("bilateral credit snapshot publish", "err", perr)
+				} else if n > 0 {
+					log.Info("bilateral credit matrix published", "cells", n)
+				}
+			}
+			// Sweeper (reservation TTL / orphan release) + divergence
+			// verify — the shm matrix must never silently diverge from
+			// the PG authority (spec §13.8).
+			go func(svc *risk.BilateralCreditService) {
+				sweepT := time.NewTicker(5 * time.Second)
+				verifyT := time.NewTicker(30 * time.Second)
+				defer sweepT.Stop()
+				defer verifyT.Stop()
+				for {
+					select {
+					case <-sweepCtx.Done():
+						return
+					case <-sweepT.C:
+						if n, err := svc.Sweep(sweepCtx); err != nil && sweepCtx.Err() == nil {
+							log.Warn("bilateral credit sweep", "err", err)
+						} else if n > 0 {
+							log.Info("bilateral credit reservations swept", "count", n)
+						}
+					case <-verifyT.C:
+						if cw == nil {
+							continue
+						}
+						if n, err := svc.VerifyMatrix(sweepCtx); err != nil && sweepCtx.Err() == nil {
+							log.Warn("bilateral credit verify", "err", err)
+						} else if n > 0 {
+							log.Warn("bilateral credit matrix divergence corrected", "cells", n)
+						}
+					}
+				}
+			}(bilatSvc)
+		}
+	}
+	// Task 19.3.16 item 4 — margin:level hash diffs → private:margin WS
+	// push at 500ms cadence (the engine publishes the hash; this loop is
+	// a read-only change feed — never a second writer).
+	risk.NewMarginLevelWatcher(liqReader, redisPatternLister{c: rdb},
+		func(_ context.Context, acct int64, channel, _ string, payload any) error {
+			if wsSrv != nil {
+				wsSrv.PublishPrivate(acct, channel, payload)
+			}
+			return nil
+		}).Start(sweepCtx, 500*time.Millisecond,
+		func(e error) { log.Warn("margin level watcher", "err", e) })
+	// Task 19.3.13 — margin-model validation drivers. The weekly stress
+	// suite and the daily predicted-vs-realized backtest both persist
+	// margin_model_runs rows (migration 064); FlashCrashProvider is the
+	// Phase-20 tick-replay seam and stays nil here (the engine treats a
+	// nil provider as "skip flash-crash scenarios").
+	if runStore, rerr := risk.NewPgModelRunStore(pool); rerr != nil {
+		log.Warn("phase19 model-run store unavailable", "err", rerr)
+	} else {
+		if pSrc, perr := risk.NewPgStressPortfolioSource(pool); perr != nil {
+			log.Warn("phase19 stress source unavailable", "err", perr)
+		} else if eng, eerr := risk.NewStressEngine(pSrc, runStore,
+			risk.NewPgFundBalanceSource(pool), nil, opsAlerter,
+			risk.StressEngineConfig{}, nil,
+			func(f string, a ...any) { log.Warn(fmt.Sprintf(f, a...)) }); eerr != nil {
+			log.Warn("phase19 stress engine unavailable", "err", eerr)
+		} else {
+			sched := &risk.StressScheduler{Engine: eng}
+			go func() {
+				t := time.NewTicker(time.Hour)
+				defer t.Stop()
+				for {
+					select {
+					case <-sweepCtx.Done():
+						return
+					case <-t.C:
+						if ran, err := sched.RunDue(sweepCtx); err != nil && sweepCtx.Err() == nil {
+							log.Warn("stress suite scheduler", "err", err)
+						} else if ran {
+							log.Info("weekly margin stress suite ran")
+						}
+					}
+				}
+			}()
+		}
+		if bSrc, berr := risk.NewPgBacktestSource(pool); berr != nil {
+			log.Warn("phase19 backtest source unavailable", "err", berr)
+		} else if bt, bterr := risk.NewBacktester(bSrc, runStore, opsAlerter, nil,
+			func(f string, a ...any) { log.Warn(fmt.Sprintf(f, a...)) }); bterr != nil {
+			log.Warn("phase19 backtester unavailable", "err", bterr)
+		} else {
+			go func() {
+				// Hourly poll — RunDue is catch-up-aware and no-ops
+				// once yesterday's register row exists.
+				t := time.NewTicker(time.Hour)
+				defer t.Stop()
+				for {
+					select {
+					case <-sweepCtx.Done():
+						return
+					case <-t.C:
+						if _, err := bt.RunDue(sweepCtx); err != nil && sweepCtx.Err() == nil {
+							log.Warn("margin backtest scheduler", "err", err)
+						}
+					}
+				}
+			}()
+		}
+	}
+	// Positions-view decoration: margin:level hash + margin/position
+	// modes + ADL indicator + per-position effective leverage. Every
+	// reader is nil-tolerant — a missing seam omits its fields.
+	positionsDec := &api.PositionsDecoration{
+		ADL:         api.RedisADLIndicatorReader{C: rdb},
+		MarginLevel: risk.RedisMarginLevelReader{C: rdb},
+		Leverage:    levSvc,
+	}
+	if marginSvc != nil {
+		positionsDec.MarginMode = marginSvc
+	}
+	if posModeSvc != nil {
+		positionsDec.PositionMode = posModeSvc
+	}
+	// True-nil interface bindings for the possibly-failed constructions —
+	// assigning a typed-nil pointer into an interface would defeat the
+	// handlers' nil checks.
+	var marginModeH api.MarginModeSetter
+	if marginSvc != nil {
+		marginModeH = marginSvc
+	}
+	var fundH api.InsuranceFundReader
+	if fundSvc != nil {
+		fundH = fundSvc
+	}
+	var collateralH api.CollateralScheduleUpdater
+	if collateralSvc != nil {
+		collateralH = collateralSvc
+	}
+
 	live := map[string]http.Handler{
 		"GET /api/v1/account/rate-limits": http.HandlerFunc(
 			api.AccountRateLimits(limiter, tierResolver)),
@@ -2377,6 +3111,15 @@ func run() error {
 		"GET /api/v1/account/balances":    http.HandlerFunc(api.AccountBalances(fundStore)),
 		"GET /api/v1/positions":           http.HandlerFunc(api.AccountPositions(fundStore)),
 		"GET /api/v1/account/risk-limits": http.HandlerFunc(api.AccountRiskLimits(riskLimits, fundStore)),
+		// --- Phase-19 multi-asset margin surface (Tasks 19.3.1/.15–.17/.23) ---
+		"GET /api/v1/account/positions": http.HandlerFunc(
+			api.AccountPositionsEnriched(fundStore, positionsDec)),
+		"POST /api/v1/account/margin-mode": http.HandlerFunc(
+			api.AccountMarginMode(marginModeH)),
+		"POST /api/v1/account/leverage": http.HandlerFunc(
+			api.AccountLeverageSet(levSvc, levStore)),
+		"GET /api/v1/account/liquidations": http.HandlerFunc(
+			api.AccountLiquidations(api.NewPgLiquidationLister(pool))),
 		// Phase-13 Task 13.3.4 — real-time realized/unrealized P&L rollup.
 		"GET /api/v1/account/pnl":         http.HandlerFunc(api.AccountPnL(pnlSvc)),
 		"GET /api/v1/deposits/{currency}": http.HandlerFunc(api.DepositInstructions(fundStore)),
@@ -2832,7 +3575,24 @@ func run() error {
 		"GET /api/v1/market-data/l3-snapshot/{symbol}": http.HandlerFunc(
 			api.MarketDataL3Snapshot(l3SnapDeps)),
 		// Task 5.3.30: dual-control manual liquidation.
-		"POST /api/v1/admin/liquidation/manual": api.ManualLiquidationHandler(liqSvc, true),
+		"POST /api/v1/admin/liquidation/manual": api.ManualLiquidationHandler(manLiqSvc, true),
+		// Phase-19 Tasks 19.3.8/19.3.14 — insurance-fund admin view and
+		// the collateral-schedule write (audit-logged; ≤5s propagation via
+		// the service cache TTL + post-write invalidation).
+		"GET /api/v1/admin/insurance-fund": http.HandlerFunc(
+			api.AdminInsuranceFund(fundH, adminRoleResolver)),
+		"PUT /api/v1/admin/collateral-schedule": http.HandlerFunc(
+			api.AdminCollateralSchedulePut(collateralH, adminRoleResolver)),
+		// Phase-19 Tasks 19.3.21/19.3.24 — §13.12 model-parameter change
+		// proposals and the §13.14 entity leverage matrix ride the §8.2
+		// dual-control queue (makers create PENDING requests; a second
+		// principal's approval runs the gated executor).
+		"POST /api/v1/admin/margin-param-changes": http.HandlerFunc(
+			api.AdminMarginParamChangeSubmit(dualSvc, adminRoleResolver)),
+		"POST /api/v1/admin/entity-leverage-policy": http.HandlerFunc(
+			api.AdminEntityLeveragePolicySubmit(dualSvc, adminRoleResolver)),
+		"GET /api/v1/admin/entity-leverage-policy": http.HandlerFunc(
+			api.AdminEntityLeveragePolicyList(levStore, adminRoleResolver)),
 		// Task 5.3.42: published hardening contracts.
 		"GET /api/v1/meta/rate-limits": http.HandlerFunc(api.RateLimitsMetaHandler),
 		"GET /api/v1/meta/pagination":  http.HandlerFunc(api.ListMetaHandler),
@@ -3205,6 +3965,60 @@ type pnlPublisherFunc func(accountID int64, channel string, data any)
 // PublishPrivate implements risk.PnlPublisher.
 func (f pnlPublisherFunc) PublishPrivate(accountID int64, channel string, data any) {
 	f(accountID, channel, data)
+}
+
+// parseLiquidationClientID decodes the Phase-19 liquidation
+// client_order_id conventions (internal/risk):
+//
+//	liq-{position_id}-{ms}       — direct close order
+//	auc-{auction_id}-{ms}        — auction leg
+//	auc-fc-{auction_id}-{ms}     — force-cash leg
+//
+// Anything else is not a liquidation order (isLiq=false).
+func parseLiquidationClientID(coid string) (posID, auctionID int64, isAuction, isFC, isLiq bool) {
+	if rest, ok := strings.CutPrefix(coid, "liq-"); ok {
+		if idStr, _, ok := strings.Cut(rest, "-"); ok {
+			posID, _ = strconv.ParseInt(idStr, 10, 64)
+			return posID, 0, false, false, posID > 0
+		}
+		return 0, 0, false, false, false
+	}
+	if rest, ok := strings.CutPrefix(coid, "auc-"); ok {
+		isAuction = true
+		if fc, ok := strings.CutPrefix(rest, "fc-"); ok {
+			isFC, rest = true, fc
+		}
+		if idStr, _, ok := strings.Cut(rest, "-"); ok {
+			auctionID, _ = strconv.ParseInt(idStr, 10, 64)
+		}
+		return 0, auctionID, isAuction, isFC, auctionID > 0
+	}
+	return 0, 0, false, false, false
+}
+
+// parseADLClientID extracts the directive sequence from an ADL
+// force-close client order id (adl-{adl_seq}). Anything else is not an
+// ADL order (isADL=false).
+func parseADLClientID(coid string) (seq int64, isADL bool) {
+	if rest, ok := strings.CutPrefix(coid, "adl-"); ok {
+		seq, _ = strconv.ParseInt(strings.TrimSpace(rest), 10, 64)
+		return seq, seq > 0
+	}
+	return 0, false
+}
+
+// redisPatternLister implements risk.MarginLevelHashLister — a generic
+// SCAN over the coordination Redis for margin:level:* keys.
+type redisPatternLister struct{ c *redis.Client }
+
+// ScanKeys implements risk.MarginLevelHashLister.
+func (l redisPatternLister) ScanKeys(ctx context.Context, pattern string) ([]string, error) {
+	var keys []string
+	iter := l.c.Scan(ctx, 0, pattern, 200).Iterator()
+	for iter.Next(ctx) {
+		keys = append(keys, iter.Val())
+	}
+	return keys, iter.Err()
 }
 
 // wsNotifyPush fans a notification payload to every account the user

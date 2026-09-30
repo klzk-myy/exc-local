@@ -41,6 +41,15 @@ const (
 	CodePositionLimitExceeded = "POSITION_LIMIT_EXCEEDED"  // HTTP 400, L2
 	CodeInvalidFill           = "INVALID_FILL"             // HTTP 400, L2
 	CodeMarkPriceUnavailable  = "PRICE_ORACLE_UNAVAILABLE" // HTTP 503, L1
+	CodeReduceOnlyViolation   = "REDUCE_ONLY_VIOLATION"    // HTTP 400, L2
+)
+
+// Task 19.3.15 — accounts.position_mode values (position_mode_enum,
+// migration 233). Mirrored locally because risk imports this package —
+// importing back would cycle.
+const (
+	posModeNetting = "NETTING"
+	posModeHedging = "HEDGING"
 )
 
 // Position side values (positions.side enum has only LONG/SHORT; FLAT is
@@ -112,6 +121,15 @@ type PositionFill struct {
 	Side         FillSide
 	Price        decimal.Decimal
 	Quantity     decimal.Decimal
+	// Task 19.3.15 (HEDGING bookkeeping):
+	// ReduceOnly marks a closing fill — under HEDGING it consumes the
+	// opposing-side leg and can never open or over-reduce one; under
+	// NETTING it may not flip the position.
+	ReduceOnly bool
+	// PositionID targets one specific hedge leg (MT5-style close-by);
+	// 0 = side-derived. The row must belong to the account+instrument
+	// and sit on the opposing side of the fill.
+	PositionID int64
 }
 
 // PositionUpdate is the outcome of applying one fill.
@@ -178,16 +196,29 @@ type PositionTx interface {
 	FillApplied(ctx context.Context, tradeID uint64, accountID int64) (bool, error)
 	// RecordFill inserts the position_fills dedup/audit row.
 	RecordFill(ctx context.Context, f PositionFill, realizedDelta decimal.Decimal) error
-	// GetPositionForUpdate locks and returns the position row, or nil.
+	// GetPositionForUpdate locks and returns the NETTING row: the open
+	// (quantity <> 0) row when one exists, else the most recent row for
+	// reuse — under NETTING there is at most one non-flat row per
+	// (account, instrument) by service invariant.
 	GetPositionForUpdate(ctx context.Context, accountID, instrumentID int64) (*Position, error)
+	// GetSidePositionForUpdate locks the side-scoped row (HEDGING
+	// bookkeeping — migration 233 keyed positions by
+	// (account, instrument, side)).
+	GetSidePositionForUpdate(ctx context.Context, accountID, instrumentID int64, side string) (*Position, error)
+	// GetPositionByIDForUpdate locks one leg by primary key for
+	// PositionID-targeted hedge reductions.
+	GetPositionByIDForUpdate(ctx context.Context, positionID int64) (*Position, error)
 	// UpsertPosition writes the position (insert or update by
-	// (account_id, instrument_id)).
+	// (account_id, instrument_id, side)).
 	UpsertPosition(ctx context.Context, p *Position) error
 	// CountOpenPositions counts rows with quantity <> 0 for the account.
 	CountOpenPositions(ctx context.Context, accountID int64) (int, error)
 	// MaxOpenPositions resolves the account's position ceiling: account
 	// row, else global-default row, else (0,false) meaning service default.
 	MaxOpenPositions(ctx context.Context, accountID int64) (int, bool, error)
+	// AccountPositionMode returns accounts.position_mode — 'NETTING' or
+	// 'HEDGING' (migration 233; absent/''=>NETTING).
+	AccountPositionMode(ctx context.Context, accountID int64) (string, error)
 }
 
 // PositionService applies trade fills to net positions.
@@ -267,12 +298,25 @@ func (s *PositionService) applyInTx(ctx context.Context, tx PositionTx, f Positi
 		return nil, excerrors.New(CodeInvalidFill, "fill price and quantity must be > 0")
 	}
 
+	mode, err := tx.AccountPositionMode(ctx, f.AccountID)
+	if err != nil {
+		return nil, fmt.Errorf("position mode: %w", err)
+	}
+	switch mode {
+	case "", posModeNetting:
+		mode = posModeNetting // absent/pre-233 → retail-safe default
+	case posModeHedging:
+	default:
+		return nil, excerrors.New(CodeInvalidFill,
+			fmt.Sprintf("account %d has unrecognized position_mode %q", f.AccountID, mode))
+	}
+
 	done, err := tx.FillApplied(ctx, f.TradeID, f.AccountID)
 	if err != nil {
 		return nil, fmt.Errorf("position fill dedup check: %w", err)
 	}
 	if done {
-		pos, err := tx.GetPositionForUpdate(ctx, f.AccountID, f.InstrumentID)
+		pos, err := s.reloadForDuplicate(ctx, tx, f, mode)
 		if err != nil {
 			return nil, fmt.Errorf("position reload for duplicate fill: %w", err)
 		}
@@ -283,6 +327,33 @@ func (s *PositionService) applyInTx(ctx context.Context, tx PositionTx, f Positi
 		return upd, nil
 	}
 
+	if mode == posModeHedging {
+		return s.applyHedgeInTx(ctx, tx, f)
+	}
+	return s.applyNetInTx(ctx, tx, f)
+}
+
+// reloadForDuplicate resolves the row a replayed fill touched so the
+// DUPLICATE ack reports the post-state rather than an arbitrary leg.
+func (s *PositionService) reloadForDuplicate(ctx context.Context, tx PositionTx,
+	f PositionFill, mode string) (*Position, error) {
+	if mode == posModeHedging {
+		switch {
+		case f.PositionID != 0:
+			return tx.GetPositionByIDForUpdate(ctx, f.PositionID)
+		case f.ReduceOnly:
+			return tx.GetSidePositionForUpdate(ctx, f.AccountID, f.InstrumentID, opposingOf(f.Side))
+		default:
+			return tx.GetSidePositionForUpdate(ctx, f.AccountID, f.InstrumentID, legSideOf(f.Side))
+		}
+	}
+	return tx.GetPositionForUpdate(ctx, f.AccountID, f.InstrumentID)
+}
+
+// applyNetInTx is the NETTING path: one net row per (account,
+// instrument); opposing fills reduce/close/flip it with realized P&L.
+// reduce_only fills may only shrink the open row — a flip is rejected.
+func (s *PositionService) applyNetInTx(ctx context.Context, tx PositionTx, f PositionFill) (*PositionUpdate, error) {
 	pos, err := tx.GetPositionForUpdate(ctx, f.AccountID, f.InstrumentID)
 	if err != nil {
 		return nil, fmt.Errorf("position load: %w", err)
@@ -296,29 +367,146 @@ func (s *PositionService) applyInTx(ctx context.Context, tx PositionTx, f Positi
 		}
 	}
 
+	if f.ReduceOnly {
+		signed := pos.signedQty()
+		fq := f.Quantity
+		if f.Side == FillSell {
+			fq = fq.Neg()
+		}
+		if signed.IsZero() {
+			return nil, excerrors.New(CodeReduceOnlyViolation,
+				fmt.Sprintf("reduce-only fill on flat position acct=%d instr=%d", f.AccountID, f.InstrumentID))
+		}
+		if signed.Sign() == fq.Sign() || fq.Abs().GreaterThan(signed.Abs()) {
+			return nil, excerrors.New(CodeReduceOnlyViolation,
+				fmt.Sprintf("reduce-only fill qty %s would open/flip net %s acct=%d instr=%d",
+					f.Quantity, signed, f.AccountID, f.InstrumentID))
+		}
+	}
+
 	// Position-count ceiling: only a fill that OPENS a new open position
 	// (from nil/FLAT) can breach it. Reductions, closes and reversals keep
 	// or lower the count.
 	wasOpen := !pos.Quantity.IsZero()
 	if !wasOpen {
-		max, found, err := tx.MaxOpenPositions(ctx, f.AccountID)
-		if err != nil {
-			return nil, fmt.Errorf("position limit lookup: %w", err)
-		}
-		if !found || max <= 0 {
-			max = s.fallback
-		}
-		open, err := tx.CountOpenPositions(ctx, f.AccountID)
-		if err != nil {
-			return nil, fmt.Errorf("position count: %w", err)
-		}
-		if open >= max {
-			return nil, excerrors.New(CodePositionLimitExceeded,
-				fmt.Sprintf("account %d has %d open positions, limit %d", f.AccountID, open, max))
+		if err := s.assertPositionRoom(ctx, tx, f.AccountID); err != nil {
+			return nil, err
 		}
 	}
 
 	realized, action := applyFill(pos, f)
+	return s.finishFill(ctx, tx, f, pos, realized, action)
+}
+
+// applyHedgeInTx is the HEDGING path: fill-side legs coexist. A plain
+// fill opens/increases the SAME-side leg (BUY→LONG, SELL→SHORT);
+// reduce_only or PositionID fills consume the OPPOSING-side leg and
+// realize P&L — never flipping it (over-close is rejected).
+func (s *PositionService) applyHedgeInTx(ctx context.Context, tx PositionTx, f PositionFill) (*PositionUpdate, error) {
+	if f.ReduceOnly || f.PositionID != 0 {
+		return s.applyHedgeReduce(ctx, tx, f)
+	}
+	legSide := legSideOf(f.Side)
+	leg, err := tx.GetSidePositionForUpdate(ctx, f.AccountID, f.InstrumentID, legSide)
+	if err != nil {
+		return nil, fmt.Errorf("hedge leg load: %w", err)
+	}
+	if leg == nil {
+		leg = &Position{
+			AccountID:    f.AccountID,
+			InstrumentID: f.InstrumentID,
+			Side:         legSide,
+			Quantity:     decimal.Zero,
+		}
+	}
+	if leg.Quantity.IsZero() {
+		if err := s.assertPositionRoom(ctx, tx, f.AccountID); err != nil {
+			return nil, err
+		}
+	}
+	realized, action := applyFill(leg, f) // signed math → OPENED/INCREASED
+	return s.finishFill(ctx, tx, f, leg, realized, action)
+}
+
+// applyHedgeReduce consumes the opposing-side leg under HEDGING.
+// PositionID targets one specific leg; reduce-only without it resolves
+// the leg by side. Over-close is impossible — the engine's own reduce
+// sizing should bound it, so exceeding qty is INVALID semantics
+// (REDUCE_ONLY_VIOLATION), never a silent clamp.
+func (s *PositionService) applyHedgeReduce(ctx context.Context, tx PositionTx, f PositionFill) (*PositionUpdate, error) {
+	opposing := opposingOf(f.Side)
+	var leg *Position
+	var err error
+	if f.PositionID != 0 {
+		leg, err = tx.GetPositionByIDForUpdate(ctx, f.PositionID)
+		if err != nil {
+			return nil, fmt.Errorf("targeted hedge leg load: %w", err)
+		}
+		if leg == nil || leg.AccountID != f.AccountID || leg.InstrumentID != f.InstrumentID {
+			return nil, excerrors.New(CodeReduceOnlyViolation,
+				fmt.Sprintf("position %d not an open leg of acct=%d instr=%d",
+					f.PositionID, f.AccountID, f.InstrumentID))
+		}
+		if leg.Side != opposing {
+			return nil, excerrors.New(CodeReduceOnlyViolation,
+				fmt.Sprintf("%s fill cannot close %s leg %d", f.Side, leg.Side, f.PositionID))
+		}
+	} else {
+		leg, err = tx.GetSidePositionForUpdate(ctx, f.AccountID, f.InstrumentID, opposing)
+		if err != nil {
+			return nil, fmt.Errorf("opposing hedge leg load: %w", err)
+		}
+	}
+	if leg == nil || leg.Quantity.IsZero() {
+		return nil, excerrors.New(CodeReduceOnlyViolation,
+			fmt.Sprintf("no open %s leg to reduce acct=%d instr=%d",
+				opposing, f.AccountID, f.InstrumentID))
+	}
+	if f.Quantity.GreaterThan(leg.Quantity) {
+		return nil, excerrors.New(CodeReduceOnlyViolation,
+			fmt.Sprintf("reduce fill %s exceeds %s leg qty %s acct=%d instr=%d",
+				f.Quantity, leg.Side, leg.Quantity, f.AccountID, f.InstrumentID))
+	}
+
+	closed := f.Quantity
+	sign := int64(1)
+	if leg.Side == PositionShort {
+		sign = -1
+	}
+	realized := f.Price.Sub(leg.EntryPrice).Mul(closed).Mul(decimal.NewFromInt(sign))
+	action := "REDUCED"
+	if closed.Equal(leg.Quantity) {
+		action = "CLOSED"
+	}
+	leg.Quantity = leg.Quantity.Sub(closed)
+	return s.finishFill(ctx, tx, f, leg, realized, action)
+}
+
+// assertPositionRoom enforces the per-account open-position ceiling
+// before a new leg/net position opens.
+func (s *PositionService) assertPositionRoom(ctx context.Context, tx PositionTx, accountID int64) error {
+	max, found, err := tx.MaxOpenPositions(ctx, accountID)
+	if err != nil {
+		return fmt.Errorf("position limit lookup: %w", err)
+	}
+	if !found || max <= 0 {
+		max = s.fallback
+	}
+	open, err := tx.CountOpenPositions(ctx, accountID)
+	if err != nil {
+		return fmt.Errorf("position count: %w", err)
+	}
+	if open >= max {
+		return excerrors.New(CodePositionLimitExceeded,
+			fmt.Sprintf("account %d has %d open positions, limit %d", accountID, open, max))
+	}
+	return nil
+}
+
+// finishFill is the shared tail: mark, unrealized, persist, dedup row.
+func (s *PositionService) finishFill(ctx context.Context, tx PositionTx,
+	f PositionFill, pos *Position, realized decimal.Decimal, action string) (*PositionUpdate, error) {
+
 	pos.RealizedPnl = pos.RealizedPnl.Add(realized)
 
 	// Mark: oracle first (Phase-19.5), else last-trade placeholder.
@@ -347,6 +535,24 @@ func (s *PositionService) applyInTx(ctx context.Context, tx PositionTx, f Positi
 	}
 	upd.Position = *pos
 	return upd, nil
+}
+
+// legSideOf maps a fill direction to the hedge-leg side it opens:
+// BUY opens/increases LONG, SELL opens/increases SHORT.
+func legSideOf(side FillSide) string {
+	if side == FillSell {
+		return PositionShort
+	}
+	return PositionLong
+}
+
+// opposingOf maps a fill direction to the leg it reduces: SELL reduces
+// LONG, BUY reduces SHORT.
+func opposingOf(side FillSide) string {
+	if side == FillSell {
+		return PositionLong
+	}
+	return PositionShort
 }
 
 func (s *PositionService) markPrice(ctx context.Context, instrumentID int64) (decimal.Decimal, error) {
@@ -472,20 +678,18 @@ func (t pgxPositionTx) RecordFill(ctx context.Context, f PositionFill, realizedD
 	return err
 }
 
-func (t pgxPositionTx) GetPositionForUpdate(ctx context.Context, accountID, instrumentID int64) (*Position, error) {
+// positionCols is the shared SELECT list for the FOR UPDATE reads.
+const positionCols = `id, account_id, instrument_id, side, quantity, entry_price,
+        mark_price, unrealized_pnl, realized_pnl, updated_at`
+
+func scanPosition(row pgx.Row) (*Position, error) {
 	var (
 		p       Position
 		mark    *decimal.Decimal
 		updated time.Time
 	)
-	err := t.tx.QueryRow(ctx,
-		`SELECT id, account_id, instrument_id, side, quantity, entry_price,
-		        mark_price, unrealized_pnl, realized_pnl, updated_at
-		   FROM positions
-		  WHERE account_id = $1 AND instrument_id = $2
-		  FOR UPDATE`, accountID, instrumentID).
-		Scan(&p.ID, &p.AccountID, &p.InstrumentID, &p.Side, &p.Quantity,
-			&p.EntryPrice, &mark, &p.UnrealizedPnl, &p.RealizedPnl, &updated)
+	err := row.Scan(&p.ID, &p.AccountID, &p.InstrumentID, &p.Side, &p.Quantity,
+		&p.EntryPrice, &mark, &p.UnrealizedPnl, &p.RealizedPnl, &updated)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -497,6 +701,36 @@ func (t pgxPositionTx) GetPositionForUpdate(ctx context.Context, accountID, inst
 	}
 	p.UpdatedAt = updated
 	return &p, nil
+}
+
+// GetPositionForUpdate locks the NETTING row: the open (quantity <> 0)
+// row when one exists, else the most recently touched row (a flat row
+// is reused so NETTING keeps a single row per instrument). Under
+// HEDGING callers use GetSidePositionForUpdate instead.
+func (t pgxPositionTx) GetPositionForUpdate(ctx context.Context, accountID, instrumentID int64) (*Position, error) {
+	return scanPosition(t.tx.QueryRow(ctx,
+		`SELECT `+positionCols+`
+		   FROM positions
+		  WHERE account_id = $1 AND instrument_id = $2
+		  ORDER BY (quantity <> 0) DESC, id DESC
+		  LIMIT 1 FOR UPDATE`, accountID, instrumentID))
+}
+
+// GetSidePositionForUpdate locks the side-scoped leg (HEDGING
+// bookkeeping under the (account, instrument, side) unique key).
+func (t pgxPositionTx) GetSidePositionForUpdate(ctx context.Context, accountID, instrumentID int64, side string) (*Position, error) {
+	return scanPosition(t.tx.QueryRow(ctx,
+		`SELECT `+positionCols+`
+		   FROM positions
+		  WHERE account_id = $1 AND instrument_id = $2 AND side = $3
+		  LIMIT 1 FOR UPDATE`, accountID, instrumentID, side))
+}
+
+// GetPositionByIDForUpdate locks one leg by primary key.
+func (t pgxPositionTx) GetPositionByIDForUpdate(ctx context.Context, positionID int64) (*Position, error) {
+	return scanPosition(t.tx.QueryRow(ctx,
+		`SELECT `+positionCols+`
+		   FROM positions WHERE id = $1 FOR UPDATE`, positionID))
 }
 
 func (t pgxPositionTx) UpsertPosition(ctx context.Context, p *Position) error {
@@ -557,4 +791,23 @@ func (t pgxPositionTx) MaxOpenPositions(ctx context.Context, accountID int64) (i
 		return *v, true, nil
 	}
 	return 0, false, nil
+}
+
+// AccountPositionMode reads accounts.position_mode (migration 233).
+// Missing row → NETTING (fail closed to the retail posture).
+func (t pgxPositionTx) AccountPositionMode(ctx context.Context, accountID int64) (string, error) {
+	var m *string
+	err := t.tx.QueryRow(ctx,
+		`SELECT position_mode::text FROM accounts WHERE id = $1`,
+		accountID).Scan(&m)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return posModeNetting, nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if m == nil || *m == "" {
+		return posModeNetting, nil
+	}
+	return *m, nil
 }

@@ -158,6 +158,12 @@ type OrderRequest struct {
 	Price      decimal.Decimal
 	ReduceOnly bool   // reduces exposure: notional increment checks skipped
 	OpenOrders *int64 // caller-known open-order count; nil = store query
+	// ExposureChecked is set by the admission layer AFTER the Task
+	// 19.3.5 ExposureGate (risk.ExposureService) already evaluated this
+	// request — CheckOrder then skips its own exposure block so the cap
+	// set is enforced exactly once (gate and check agree on the same
+	// mode-aware math).
+	ExposureChecked bool
 }
 
 // Store is the persistence seam. PgStore implements it over pgx; tests
@@ -303,6 +309,7 @@ type LimitsService struct {
 	store Store
 	cache Cache // may be nil — Redis mirror is optional
 	clock func() time.Time
+	modes PositionModeSource // Task 19.3.5/19.3.15 — nil ⇒ conservative full-add
 
 	mu   sync.RWMutex
 	rows []Row
@@ -376,6 +383,16 @@ func (s *LimitsService) EffectiveLimits(accountID int64, tier, symbol string) Ef
 	return Resolve(s.rows, accountID, tier, symbol)
 }
 
+// WithPositionModes binds the accounts.position_mode source (Task
+// 19.3.15): CheckOrder's exposure block switches from the conservative
+// "every fill adds gross" rule to the mode-aware netting math — a
+// NETTING account's opposing order only adds the residual beyond the
+// opposing side. Startup-time wiring (cmd/gateway + cmd/fix).
+func (s *LimitsService) WithPositionModes(modes PositionModeSource) *LimitsService {
+	s.modes = modes
+	return s
+}
+
 // internalError wraps store failures. Enforcement callers must treat any
 // error as a rejection (fail-closed).
 func internalError(op string, err error) error {
@@ -387,10 +404,12 @@ func internalError(op string, err error) error {
 // limits, or a coded *errors.Error on breach / internal failure —
 // callers must reject on any non-nil result.
 //
-// Conservative exposure semantics (documented for Phase-19 refinement):
-// any non-reduce-only order adds its notional to the symbol gross total
-// and to the account total; a SELL additionally adds to the short
-// total. Netting/hedging-aware exposure arrives with Task 19.3.15.
+// Exposure semantics (Task 19.3.5/19.3.15): a non-reduce-only order's
+// exposure increment is position-mode aware — NETTING accounts only add
+// the residual beyond the opposing side; HEDGING (or an unreadable mode)
+// adds the full notional (SELL also adds to the short total). When the
+// admission layer already ran the ExposureGate the request carries
+// ExposureChecked and this block is skipped (single evaluation).
 func (s *LimitsService) CheckOrder(ctx context.Context, req OrderRequest) error {
 	lim := s.EffectiveLimits(req.AccountID, req.KycTier, req.Symbol)
 
@@ -448,7 +467,7 @@ func (s *LimitsService) CheckOrder(ctx context.Context, req OrderRequest) error 
 		}
 	}
 
-	if !req.ReduceOnly {
+	if !req.ReduceOnly && !req.ExposureChecked {
 		exps, err := s.store.SymbolExposures(ctx, req.AccountID)
 		if err != nil {
 			return internalError("symbol exposures", err)
@@ -461,25 +480,36 @@ func (s *LimitsService) CheckOrder(ctx context.Context, req OrderRequest) error 
 				sym = e
 			}
 		}
-		if req.Side == "SELL" && lim.MaxShortExposure != nil {
-			if sym.ShortNotional.Add(notional).GreaterThan(*lim.MaxShortExposure) {
+		// Task 19.3.15: mode-aware increments — an unreadable mode is
+		// conservative (full add), so a NETTING flip can never under-
+		// count, and a HEDGING order can never pretend to net.
+		mode := ModeHedging
+		if s.modes != nil {
+			if m, merr := s.modes.PositionMode(ctx, req.AccountID); merr == nil && m == ModeNetting {
+				mode = ModeNetting
+			}
+		}
+		long := sym.GrossNotional.Sub(sym.ShortNotional)
+		grossIncr, shortIncr := exposureIncrements(mode, req.Side, notional, long, sym.ShortNotional)
+		if shortIncr.IsPositive() && lim.MaxShortExposure != nil {
+			if sym.ShortNotional.Add(shortIncr).GreaterThan(*lim.MaxShortExposure) {
 				return excerrors.New(CodeMaxExposureExceeded,
 					fmt.Sprintf("short exposure %s + %s exceeds max_short_exposure %s on %s",
-						sym.ShortNotional, notional, *lim.MaxShortExposure, req.Symbol))
+						sym.ShortNotional, shortIncr, *lim.MaxShortExposure, req.Symbol))
 			}
 		}
 		if lim.MaxNotionalExposure != nil {
-			if sym.GrossNotional.Add(notional).GreaterThan(*lim.MaxNotionalExposure) {
+			if sym.GrossNotional.Add(grossIncr).GreaterThan(*lim.MaxNotionalExposure) {
 				return excerrors.New(CodeMaxExposureExceeded,
 					fmt.Sprintf("symbol exposure %s + %s exceeds max_notional_exposure %s on %s",
-						sym.GrossNotional, notional, *lim.MaxNotionalExposure, req.Symbol))
+						sym.GrossNotional, grossIncr, *lim.MaxNotionalExposure, req.Symbol))
 			}
 		}
 		if lim.MaxAccountNotional != nil {
-			if accountGross.Add(notional).GreaterThan(*lim.MaxAccountNotional) {
+			if accountGross.Add(grossIncr).GreaterThan(*lim.MaxAccountNotional) {
 				return excerrors.New(CodeMaxExposureExceeded,
 					fmt.Sprintf("account exposure %s + %s exceeds max_account_notional %s",
-						accountGross, notional, *lim.MaxAccountNotional))
+						accountGross, grossIncr, *lim.MaxAccountNotional))
 			}
 		}
 	}

@@ -106,7 +106,27 @@ func AccountBalances(src balanceSource) http.HandlerFunc {
 
 // AccountPositions serves the open-position read (quantity <> 0) with
 // entry/mark prices, unrealized + realized P&L and margin usage.
+// The Phase-19 account-scoped variant adds decoration seams — see
+// AccountPositionsEnriched in handlers_margin.go.
 func AccountPositions(src positionSource) http.HandlerFunc {
+	return accountPositions(src, nil)
+}
+
+// positionView is PositionRow plus the optional Phase-19 decoration
+// fields (adl_indicator, effective_leverage) — pointer types so absent
+// decoration readers omit the keys entirely.
+type positionView struct {
+	funding.PositionRow
+	ADLIndicator      *int `json:"adl_indicator,omitempty"`
+	EffectiveLeverage *int `json:"effective_leverage,omitempty"`
+}
+
+// accountPositions is the shared core: the plain read when dec is nil
+// (GET /api/v1/positions), the decorated Phase-19 surface otherwise
+// (GET /api/v1/account/positions). Decoration failures degrade by
+// omission — never fail the primary read (§8.8 decoration contract:
+// enrichment is read-only and nil-safe).
+func accountPositions(src positionSource, dec *PositionsDecoration) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		accountID, claims, ok := claimsAccount(w, r)
 		if !ok {
@@ -120,13 +140,54 @@ func AccountPositions(src positionSource) http.HandlerFunc {
 			writeServiceErr(w, r, err)
 			return
 		}
-		if rows == nil {
-			rows = []funding.PositionRow{}
+		resp := map[string]any{"account_id": accountID}
+		if dec == nil {
+			if rows == nil {
+				rows = []funding.PositionRow{}
+			}
+			resp["positions"] = rows
+			WriteJSON(w, http.StatusOK, resp)
+			return
 		}
-		WriteJSON(w, http.StatusOK, map[string]any{
-			"account_id": accountID,
-			"positions":  rows,
-		})
+		// ---- Phase-19 decoration (all readers nil-safe, degrade-by-omit) ----
+		if dec.MarginMode != nil {
+			if mode, err := dec.MarginMode.ModeFor(r.Context(), accountID); err == nil && mode != "" {
+				resp["margin_mode"] = string(mode)
+			}
+		}
+		if dec.PositionMode != nil {
+			if mode, err := dec.PositionMode.PositionMode(r.Context(), accountID); err == nil && mode != "" {
+				resp["position_mode"] = mode
+			}
+		}
+		if dec.MarginLevel != nil {
+			if lv, err := dec.MarginLevel.MarginLevel(r.Context(), accountID); err == nil && lv != nil {
+				resp["margin"] = marginLevelJSON(lv)
+			}
+		}
+		var adl map[int64]int
+		if dec.ADL != nil {
+			if m, err := dec.ADL.ADLIndicators(r.Context(), accountID); err == nil {
+				adl = m
+			}
+		}
+		views := make([]positionView, 0, len(rows))
+		for _, row := range rows {
+			v := positionView{PositionRow: row}
+			if q, ok := adl[row.ID]; ok {
+				q := q
+				v.ADLIndicator = &q
+			}
+			if dec.Leverage != nil {
+				if eff, err := dec.Leverage.Effective(r.Context(), accountID, row.InstrumentID); err == nil && eff > 0 {
+					eff := eff
+					v.EffectiveLeverage = &eff
+				}
+			}
+			views = append(views, v)
+		}
+		resp["positions"] = views
+		WriteJSON(w, http.StatusOK, resp)
 	}
 }
 

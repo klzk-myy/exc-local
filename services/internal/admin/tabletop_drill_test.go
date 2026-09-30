@@ -12,7 +12,7 @@
 // The drill is self-timing: elapsed is asserted < 15 min (P1 SLA).
 // Drill-scoped keys (account 900000777, symbol DRILLUSD) are cleaned up
 // in defer; halt:global is raised then cleared inside the same test.
-package admin
+package admin_test
 
 import (
 	"context"
@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"exchange/internal/admin"
 	excredis "exchange/internal/redis"
 	"exchange/internal/risk"
 )
@@ -52,14 +53,14 @@ func TestTabletopTradingHalt(t *testing.T) {
 	ctx := context.Background()
 	const acct = int64(900000777)
 	const sym = "DRILLUSD"
-	resolver := NewKillSwitchResolver(rdb, "DEV")
+	resolver := admin.NewKillSwitchResolver(rdb, "DEV")
 
 	// Drill hygiene — no stale flags from a prior run.
 	_ = rdb.ClearHalt(ctx)
-	_ = rdb.ClearHaltScope(ctx, ScopeAccount, "900000777")
+	_ = rdb.ClearHaltScope(ctx, admin.ScopeAccount, "900000777")
 	defer func() {
 		_ = rdb.ClearHalt(ctx)
-		_ = rdb.ClearHaltScope(ctx, ScopeAccount, "900000777")
+		_ = rdb.ClearHaltScope(ctx, admin.ScopeAccount, "900000777")
 	}()
 
 	step := func(n int, what string) {
@@ -76,7 +77,7 @@ func TestTabletopTradingHalt(t *testing.T) {
 	// Step 2 — GLOBAL halt raised (the kill-switch GLOBAL flag, same key
 	// orders admission consults).
 	step(2, "SetHaltScope GLOBAL — venue-wide trading halt")
-	if err := rdb.SetHaltScope(ctx, ScopeGlobal, "", "tabletop T1 global halt"); err != nil {
+	if err := rdb.SetHaltScope(ctx, admin.ScopeGlobal, "", "tabletop T1 global halt"); err != nil {
 		t.Fatalf("global halt set: %v", err)
 	}
 	halted, err := resolver.GlobalHalted(ctx)
@@ -84,7 +85,7 @@ func TestTabletopTradingHalt(t *testing.T) {
 		t.Fatalf("GlobalHalted=%v err=%v after set", halted, err)
 	}
 	scope, detail, err := resolver.OrderHalt(ctx, acct, sym, "", "")
-	if err != nil || scope != ScopeGlobal {
+	if err != nil || scope != admin.ScopeGlobal {
 		t.Fatalf("expected GLOBAL suspension, got scope=%q err=%v", scope, err)
 	}
 	t.Logf("order admission suspended: scope=%s detail=%q", scope, detail)
@@ -101,19 +102,19 @@ func TestTabletopTradingHalt(t *testing.T) {
 
 	// Step 4 — scoped ACCOUNT halt: only the target account is gated.
 	step(4, "SetHaltScope ACCOUNT 900000777")
-	if err := rdb.SetHaltScope(ctx, ScopeAccount, "900000777",
+	if err := rdb.SetHaltScope(ctx, admin.ScopeAccount, "900000777",
 		"tabletop T1 account halt"); err != nil {
 		t.Fatalf("account halt set: %v", err)
 	}
 	scope, _, err = resolver.OrderHalt(ctx, acct, sym, "", "")
-	if err != nil || scope != ScopeAccount {
+	if err != nil || scope != admin.ScopeAccount {
 		t.Fatalf("expected ACCOUNT suspension, got %q err=%v", scope, err)
 	}
 	scope, _, err = resolver.OrderHalt(ctx, acct+1, sym, "", "")
 	if err != nil || scope != "" {
 		t.Fatalf("unrelated account must stay open, got %q err=%v", scope, err)
 	}
-	if err := rdb.ClearHaltScope(ctx, ScopeAccount, "900000777"); err != nil {
+	if err := rdb.ClearHaltScope(ctx, admin.ScopeAccount, "900000777"); err != nil {
 		t.Fatalf("clear scoped halt: %v", err)
 	}
 

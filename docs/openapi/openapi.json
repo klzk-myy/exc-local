@@ -515,6 +515,12 @@
         "owner": "Phase-02 Task 2.3.3"
       },
       {
+        "code": "INSUFFICIENT_MARGIN",
+        "description": "Position transfer aborted atomically: destination account lacks free balance for required initial margin (spec §13.9 item 2(c), remediation #38)",
+        "http_status": 409,
+        "owner": "Phase-19 Task 19.3.12"
+      },
+      {
         "code": "INSUFFICIENT_SCOPE",
         "description": "API key lacks required permission scope for endpoint (remediation #15) (Phase-05 Task 5.3.26 scope-claim verification; Phase-12 Task 12.3.11 delegated RBAC; remediation #19)",
         "http_status": 403,
@@ -642,6 +648,12 @@
         "owner": "Phase-02 Task 2.3.6"
       },
       {
+        "code": "MARGIN_CALL_EXCEEDED",
+        "description": "Margin call active — position-increasing orders blocked for the episode (spec §13.6d; Phase-19 Task 19.3.3 margin-call order block)",
+        "http_status": 409,
+        "owner": "Phase-19 Task 19.3.3"
+      },
+      {
         "code": "MARGIN_INSUFFICIENT",
         "description": "Post-fill margin exceeds threshold (Phase-02 Task 2.3.3 Pre-Trade Risk — post-fill margin check; Phase-19 Task 19.3.1 Margin Modes; remediation #19)",
         "http_status": 400,
@@ -652,6 +664,12 @@
         "description": "Margin-parameter change blocked without a passing independent validation run (spec §13.12, Phase-19 Task 19.3.21; remediation #24)",
         "http_status": 503,
         "owner": "Phase-19 Task 19.3.21"
+      },
+      {
+        "code": "MARGIN_MODE_SWITCH_BLOCKED",
+        "description": "Margin-mode switch rejected while open positions exist (Phase-19 Task 19.3.1 Margin Modes / Task 19.3.23 runtime change)",
+        "http_status": 409,
+        "owner": "Phase-19 Task 19.3.1"
       },
       {
         "code": "MARKET_ABUSE_DETECTED",
@@ -839,6 +857,12 @@
         "http_status": 409
       },
       {
+        "code": "POSITION_TRANSFER_FAILED",
+        "description": "Internal position transfer rejected: entity/hierarchy mismatch, non-ACTIVE account, structural validation failure, or audit-row conflict (spec §13.9, §27.1 matrix row)",
+        "http_status": 400,
+        "owner": "Phase-19 Task 19.3.12"
+      },
+      {
         "code": "POST_ONLY_VIOLATION",
         "description": "Post-only order would execute immediately — added 2026-09-15",
         "http_status": 400
@@ -934,6 +958,12 @@
         "description": "Risk-limit store internal failure (Phase-05 Task 5.3.4 Risk-Limit Administration; remediation #44)",
         "http_status": 500,
         "owner": "Phase-05 Task 5.3.4"
+      },
+      {
+        "code": "ROUTING_REJECTED",
+        "description": "SOR route rejected: the parent order already holds a non-terminal external shadow order — no concurrent local+external order (spec §24 #242, Phase-18 Task 18.3.14; internal/sor Router guard)",
+        "http_status": 409,
+        "owner": "Phase-18 Task 18.3.14"
       },
       {
         "code": "SANCTIONS_HIT",
@@ -1087,6 +1117,12 @@
         "code": "TRANSACTION_CONFLICT_RETRY_EXHAUSTED",
         "description": "PostgreSQL SERIALIZABLE 40001/40P01 retry budget exhausted (remediation #15)",
         "http_status": 503
+      },
+      {
+        "code": "TRANSFER_INSUFFICIENT",
+        "description": "Internal position transfer rejected: source account has no matching open position or the open quantity is below the requested transfer quantity (spec §13.9, §27.1 matrix row)",
+        "http_status": 400,
+        "owner": "Phase-19 Task 19.3.12"
       },
       {
         "code": "TREASURY_LIQUIDITY_BREACH",
@@ -2584,7 +2620,6 @@
     },
     "/api/v1/account/leverage": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_account_leverage",
         "responses": {
           "200": {
@@ -2623,13 +2658,12 @@
         "x-env": "",
         "x-owner": "Phase-19 Task 19.3.16",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/account/liquidations": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_account_liquidations",
         "responses": {
           "200": {
@@ -2672,7 +2706,7 @@
         "x-env": "",
         "x-owner": "Phase-19",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -2726,7 +2760,6 @@
     },
     "/api/v1/account/margin-mode": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_account_margin_mode",
         "responses": {
           "200": {
@@ -2765,7 +2798,7 @@
         "x-env": "",
         "x-owner": "Phase-19 Task 19.3.1",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -2909,7 +2942,6 @@
     },
     "/api/v1/account/positions": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_account_positions",
         "responses": {
           "200": {
@@ -2952,7 +2984,7 @@
         "x-env": "",
         "x-owner": "Phase-19 Task 19.3.15",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -5498,7 +5530,6 @@
     },
     "/api/v1/admin/collateral-schedule": {
       "put": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "put_api_v1_admin_collateral_schedule",
         "responses": {
           "200": {
@@ -5534,7 +5565,7 @@
         "x-owner": "Phase-19 Task 19.3.8",
         "x-rate-tier": "basic",
         "x-rbac-role": "Risk Manager",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -6130,6 +6161,86 @@
         "x-rate-tier": "basic",
         "x-rbac-role": "Compliance Officer",
         "x-status": "stub",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/entity-leverage-policy": {
+      "get": {
+        "operationId": "get_api_v1_admin_entity_leverage_policy",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Entity leverage policy matrix (all cells)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Risk Manager",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-19 Task 19.3.24",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Risk Manager",
+        "x-status": "live",
+        "x-weight": 1
+      },
+      "post": {
+        "operationId": "post_api_v1_admin_entity_leverage_policy",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Upsert entity/jurisdiction leverage ceiling cell (effective-dated)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Risk Manager",
+          "scopes": null
+        },
+        "x-dual-control": true,
+        "x-env": "",
+        "x-owner": "Phase-19 Task 19.3.24",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Risk Manager",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -8941,7 +9052,6 @@
     },
     "/api/v1/admin/insurance-fund": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_admin_insurance_fund",
         "responses": {
           "200": {
@@ -8977,7 +9087,7 @@
         "x-owner": "Phase-19 Task 19.3.14",
         "x-rate-tier": "basic",
         "x-rbac-role": "Risk Manager",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -10246,6 +10356,47 @@
         "x-owner": "Phase-05 Task 5.3.14",
         "x-rate-tier": "basic",
         "x-rbac-role": "Support Agent",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/margin-param-changes": {
+      "post": {
+        "operationId": "post_api_v1_admin_margin_param_changes",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Propose margin-model parameter change (linked validation run; §13.12 gate at approval)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Risk Manager",
+          "scopes": null
+        },
+        "x-dual-control": true,
+        "x-env": "",
+        "x-owner": "Phase-19 Task 19.3.21",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Risk Manager",
         "x-status": "live",
         "x-weight": 1
       }

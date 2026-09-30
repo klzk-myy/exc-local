@@ -40,6 +40,7 @@ tests/soak/*report*.json
 # Local runtime dirs/binaries from manual engine/CLI runs
 /snap/
 services/wal-recovery
+services/risk
 
 # Phase-08 load-test artifacts (harness + report are tracked; bulk output is not)
 tests/load/results/

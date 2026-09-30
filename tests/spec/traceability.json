@@ -1,7 +1,7 @@
 {
   "tool": "exchange-testspec/validator trace",
   "version": "1.0.0",
-  "generated_at": "2026-09-29T21:01:41.437685538Z",
+  "generated_at": "2026-09-30T00:03:01.129528855Z",
   "repo_root": "/www/wwwroot/exc.local",
   "docs": "/www/wwwroot/exc.local/docs",
   "spec": "Specification - Complete Exchange System Suite.md",
@@ -20,7 +20,7 @@
       "spec_components": 101,
       "task_ac": 59
     },
-    "checkpoint_edges_implemented": 180,
+    "checkpoint_edges_implemented": 195,
     "fail_defects": 0,
     "warn_defects": 0
   },
@@ -28,7 +28,7 @@
     {
       "id": 1,
       "criterion": "Matching engine matches orders by price-time priority correctly (FIFO at each price level)",
-      "spec_line": 3538,
+      "spec_line": 3540,
       "subsection": "24.1",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
       "owner_phase_tags": [
@@ -70,7 +70,7 @@
     {
       "id": 2,
       "criterion": "Limit orders rest on book at specified price; market orders execute immediately",
-      "spec_line": 3539,
+      "spec_line": 3541,
       "subsection": "24.1",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
       "owner_phase_tags": [
@@ -119,7 +119,7 @@
     {
       "id": 3,
       "criterion": "FOK orders fill completely or cancel; IOC orders fill partially and cancel remainder",
-      "spec_line": 3540,
+      "spec_line": 3542,
       "subsection": "24.1",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
       "owner_phase_tags": [
@@ -166,7 +166,7 @@
     {
       "id": 4,
       "criterion": "Self-trade prevention: no account trades against itself",
-      "spec_line": 3541,
+      "spec_line": 3543,
       "subsection": "24.1",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
       "owner_phase_tags": [
@@ -208,7 +208,7 @@
     {
       "id": 5,
       "criterion": "ICEBERG orders expose only visible slice; hidden portion replenishes after fill",
-      "spec_line": 3542,
+      "spec_line": 3544,
       "subsection": "24.1",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
       "owner_phase_tags": [
@@ -248,7 +248,7 @@
     {
       "id": 6,
       "criterion": "Order book snapshot + WAL replay recovers exact book state after crash",
-      "spec_line": 3543,
+      "spec_line": 3545,
       "subsection": "24.1",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
       "owner_phase_tags": [
@@ -296,7 +296,7 @@
     {
       "id": 7,
       "criterion": "Zero duplicate trades on crash recovery (idempotent replay via seq)",
-      "spec_line": 3544,
+      "spec_line": 3546,
       "subsection": "24.1",
       "owner_phase": "Phase 4 — Persistence \u0026 Recovery",
       "owner_phase_tags": [
@@ -335,7 +335,7 @@
     {
       "id": 8,
       "criterion": "Zero missing trades on crash recovery",
-      "spec_line": 3545,
+      "spec_line": 3547,
       "subsection": "24.1",
       "owner_phase": "Phase 4 — Persistence \u0026 Recovery",
       "owner_phase_tags": [
@@ -374,7 +374,7 @@
     {
       "id": 9,
       "criterion": "Balance mutations are atomic (SERIALIZABLE isolation, account mutex)",
-      "spec_line": 3546,
+      "spec_line": 3548,
       "subsection": "24.1",
       "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
       "owner_phase_tags": [
@@ -410,7 +410,7 @@
     {
       "id": 10,
       "criterion": "Concurrent order cancellation does not cause double-credit",
-      "spec_line": 3547,
+      "spec_line": 3549,
       "subsection": "24.1",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
       "owner_phase_tags": [
@@ -449,7 +449,7 @@
     {
       "id": 11,
       "criterion": "Load test sustains ≥ 50,000 orders/sec per shard on bare metal (4-core/16GB)",
-      "spec_line": 3548,
+      "spec_line": 3550,
       "subsection": "24.1",
       "owner_phase": "Phase 2.5 — Engine Soak \u0026 Benchmark Sign-off",
       "owner_phase_tags": [
@@ -489,7 +489,7 @@
     {
       "id": 12,
       "criterion": "p99 tick-to-trade latency ≤ 50µs (supersedes prior ≤ 1ms) (C++ core)",
-      "spec_line": 3549,
+      "spec_line": 3551,
       "subsection": "24.1",
       "owner_phase": "Phase 2.5 — Engine Soak \u0026 Benchmark Sign-off",
       "owner_phase_tags": [
@@ -529,7 +529,7 @@
     {
       "id": 13,
       "criterion": "p99 REST API latency ≤ 5ms (Go gateway)",
-      "spec_line": 3550,
+      "spec_line": 3552,
       "subsection": "24.1",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
       "owner_phase_tags": [
@@ -565,7 +565,7 @@
     {
       "id": 14,
       "criterion": "No stream/queue backlog growth under sustained load",
-      "spec_line": 3551,
+      "spec_line": 3553,
       "subsection": "24.1",
       "owner_phase": "Phase 6 — Market Data Distribution",
       "owner_phase_tags": [
@@ -604,7 +604,7 @@
     {
       "id": 15,
       "criterion": "WebSocket market data conflation under load: no stale data, no gaps",
-      "spec_line": 3552,
+      "spec_line": 3554,
       "subsection": "24.1",
       "owner_phase": "Phase 6 — Market Data Distribution",
       "owner_phase_tags": [
@@ -640,7 +640,7 @@
     {
       "id": 16,
       "criterion": "WS reconnect with `last_seq` replays missed updates or sends full snapshot",
-      "spec_line": 3553,
+      "spec_line": 3555,
       "subsection": "24.1",
       "owner_phase": "Phase 6 — Market Data Distribution",
       "owner_phase_tags": [
@@ -676,7 +676,7 @@
     {
       "id": 17,
       "criterion": "L2 book snapshot is consistent (bids + asks + seq)",
-      "spec_line": 3554,
+      "spec_line": 3556,
       "subsection": "24.1",
       "owner_phase": "Phase 6 — Market Data Distribution",
       "owner_phase_tags": [
@@ -720,7 +720,7 @@
     {
       "id": 18,
       "criterion": "L3 order-level data matches engine state exactly",
-      "spec_line": 3555,
+      "spec_line": 3557,
       "subsection": "24.1",
       "owner_phase": "Phase 17 — L3 Order-Level Data",
       "owner_phase_tags": [
@@ -765,7 +765,7 @@
     {
       "id": 19,
       "criterion": "T+1/T+2 settlement instructions created correctly per trade",
-      "spec_line": 3556,
+      "spec_line": 3558,
       "subsection": "24.1",
       "owner_phase": "Phase 24 — Backoffice \u0026 Settlement (Nostro/Vostro)",
       "owner_phase_tags": [
@@ -801,7 +801,7 @@
     {
       "id": 20,
       "criterion": "Nostro account debited/credited correctly on settlement",
-      "spec_line": 3557,
+      "spec_line": 3559,
       "subsection": "24.1",
       "owner_phase": "Phase 24 — Backoffice \u0026 Settlement (Nostro/Vostro)",
       "owner_phase_tags": [
@@ -837,7 +837,7 @@
     {
       "id": 21,
       "criterion": "Settlement reconciliation detects discrepancies \u003e $1,000 or 0.01%",
-      "spec_line": 3558,
+      "spec_line": 3560,
       "subsection": "24.1",
       "owner_phase": "Phase 24 — Backoffice \u0026 Settlement (Nostro/Vostro)",
       "owner_phase_tags": [
@@ -876,7 +876,7 @@
     {
       "id": 22,
       "criterion": "Withdrawal confirmation window: 15min PENDING with token; expired → AUTO_CANCELLED",
-      "spec_line": 3559,
+      "spec_line": 3561,
       "subsection": "24.1",
       "owner_phase": "Phase 11 — Funding via Banking Rails, Suspension, Stats",
       "owner_phase_tags": [
@@ -920,7 +920,7 @@
     {
       "id": 23,
       "criterion": "Withdrawal cooldown: 30min same bank account enforced",
-      "spec_line": 3560,
+      "spec_line": 3562,
       "subsection": "24.1",
       "owner_phase": "Phase 11 — Funding via Banking Rails, Suspension, Stats",
       "owner_phase_tags": [
@@ -956,7 +956,7 @@
     {
       "id": 24,
       "criterion": "Withdrawal review tiers: \u003c$10K auto / $10K–$50K standard / \u003e$50K PENDING_REVIEW+4h",
-      "spec_line": 3561,
+      "spec_line": 3563,
       "subsection": "24.1",
       "owner_phase": "Phase 11 — Funding via Banking Rails, Suspension, Stats",
       "owner_phase_tags": [
@@ -992,7 +992,7 @@
     {
       "id": 25,
       "criterion": "Deposit anti-fraud tiers: \u003c$10K auto / $10K–$50K double-confirm / \u003e$50K review+4h",
-      "spec_line": 3562,
+      "spec_line": 3564,
       "subsection": "24.1",
       "owner_phase": "Phase 11 — Funding via Banking Rails, Suspension, Stats",
       "owner_phase_tags": [
@@ -1028,7 +1028,7 @@
     {
       "id": 26,
       "criterion": "RBAC: 6 roles with correct permissions matrix; dual control on sensitive ops",
-      "spec_line": 3563,
+      "spec_line": 3565,
       "subsection": "24.1",
       "owner_phase": "Phase 7 — Admin \u0026 Monitoring (Go)",
       "owner_phase_tags": [
@@ -1067,7 +1067,7 @@
     {
       "id": 27,
       "criterion": "KYC T0/T1/T2 tier caps enforced on withdrawal and trading",
-      "spec_line": 3564,
+      "spec_line": 3566,
       "subsection": "24.1",
       "owner_phase": "Phase 14 — Extended Production Features",
       "owner_phase_tags": [
@@ -1103,7 +1103,7 @@
     {
       "id": 28,
       "criterion": "Sanctions screening: real-time, fail-closed on timeout",
-      "spec_line": 3565,
+      "spec_line": 3567,
       "subsection": "24.1",
       "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
       "owner_phase_tags": [
@@ -1142,7 +1142,7 @@
     {
       "id": 29,
       "criterion": "Sanctions FLAG blocks withdrawals + audit",
-      "spec_line": 3566,
+      "spec_line": 3568,
       "subsection": "24.1",
       "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
       "owner_phase_tags": [
@@ -1178,7 +1178,7 @@
     {
       "id": 30,
       "criterion": "MiFID II trade reporting: correct fields, timely submission",
-      "spec_line": 3567,
+      "spec_line": 3569,
       "subsection": "24.1",
       "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
       "owner_phase_tags": [
@@ -1214,7 +1214,7 @@
     {
       "id": 31,
       "criterion": "EMIR derivatives reporting to trade repository",
-      "spec_line": 3568,
+      "spec_line": 3570,
       "subsection": "24.1",
       "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
       "owner_phase_tags": [
@@ -1250,7 +1250,7 @@
     {
       "id": 32,
       "criterion": "Margin call: 15min deposit window; liquidation if not restored",
-      "spec_line": 3569,
+      "spec_line": 3571,
       "subsection": "24.1",
       "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
       "owner_phase_tags": [
@@ -1286,7 +1286,7 @@
     {
       "id": 33,
       "criterion": "Liquidation auction: 4-phase lifecycle (CALL → FILL → EXTEND → FORCE_CASH)",
-      "spec_line": 3570,
+      "spec_line": 3572,
       "subsection": "24.1",
       "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
       "owner_phase_tags": [
@@ -1325,7 +1325,7 @@
     {
       "id": 34,
       "criterion": "Price floor enforced at ×0.98/×1.02; reduces 0.5% per 5s EXTEND increment; ≤60s total",
-      "spec_line": 3571,
+      "spec_line": 3573,
       "subsection": "24.1",
       "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
       "owner_phase_tags": [
@@ -1367,7 +1367,7 @@
     {
       "id": 35,
       "criterion": "FORCE_CASH at mark×0.95/×1.05; deficiency to insurance fund",
-      "spec_line": 3572,
+      "spec_line": 3574,
       "subsection": "24.1",
       "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
       "owner_phase_tags": [
@@ -1406,7 +1406,7 @@
     {
       "id": 36,
       "criterion": "LP rebate 0.05% on auction fills, paid from insurance fund",
-      "spec_line": 3573,
+      "spec_line": 3575,
       "subsection": "24.1",
       "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
       "owner_phase_tags": [
@@ -1445,7 +1445,7 @@
     {
       "id": 37,
       "criterion": "Liquidation scanner runs every 2s; scans all CROSS/PORTFOLIO accounts",
-      "spec_line": 3574,
+      "spec_line": 3576,
       "subsection": "24.1",
       "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
       "owner_phase_tags": [
@@ -1481,7 +1481,7 @@
     {
       "id": 38,
       "criterion": "Circuit breaker: 5 scopes, correct triggers, state machine transitions",
-      "spec_line": 3575,
+      "spec_line": 3577,
       "subsection": "24.1",
       "owner_phase": "Phase 13 — Production Hardening \u0026 Reconciliation",
       "owner_phase_tags": [
@@ -1520,7 +1520,7 @@
     {
       "id": 39,
       "criterion": "Degradation modes: 6 modes (Normal + 5 degraded), correct triggers and recovery",
-      "spec_line": 3576,
+      "spec_line": 3578,
       "subsection": "24.1",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
       "owner_phase_tags": [
@@ -1556,7 +1556,7 @@
     {
       "id": 40,
       "criterion": "Leader election: SETNX + heartbeat; split-brain detection fail-closed",
-      "spec_line": 3577,
+      "spec_line": 3579,
       "subsection": "24.1",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
       "owner_phase_tags": [
@@ -1592,7 +1592,7 @@
     {
       "id": 41,
       "criterion": "Cross-shard basket order: 2-phase commit (Reserve → Commit/Compensate)",
-      "spec_line": 3578,
+      "spec_line": 3580,
       "subsection": "24.1",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
       "owner_phase_tags": [
@@ -1631,7 +1631,7 @@
     {
       "id": 42,
       "criterion": "Audit hash chain: SHA-256 prev_hash + payload_hash; daily Merkle root",
-      "spec_line": 3579,
+      "spec_line": 3581,
       "subsection": "24.1",
       "owner_phase": "Phase 13 — Production Hardening \u0026 Reconciliation",
       "owner_phase_tags": [
@@ -1675,7 +1675,7 @@
     {
       "id": 43,
       "criterion": "`exchange:verify-audit` detects any mutated row (non-zero exit)",
-      "spec_line": 3580,
+      "spec_line": 3582,
       "subsection": "24.1",
       "owner_phase": "Phase 1 — C++ Core Foundation",
       "owner_phase_tags": [
@@ -1711,7 +1711,7 @@
     {
       "id": 44,
       "criterion": "DR: primary region failover completes within RTO; WAL cross-region replication verified",
-      "spec_line": 3581,
+      "spec_line": 3583,
       "subsection": "24.1",
       "owner_phase": "Phase 4 — Persistence \u0026 Recovery",
       "owner_phase_tags": [
@@ -1747,7 +1747,7 @@
     {
       "id": 45,
       "criterion": "Price oracle: ≥2 independent sources; 5s staleness gate; fail-closed on stale",
-      "spec_line": 3582,
+      "spec_line": 3584,
       "subsection": "24.1",
       "owner_phase": "Phase 19.5 — Price Oracle \u0026 Mark Price Service",
       "owner_phase_tags": [
@@ -1791,7 +1791,7 @@
     {
       "id": 46,
       "criterion": "Global trading halt: kill-switch rejects all new orders; cancels/reads/WS survive",
-      "spec_line": 3583,
+      "spec_line": 3585,
       "subsection": "24.1",
       "owner_phase": "Phase 11 — Funding via Banking Rails, Suspension, Stats",
       "owner_phase_tags": [
@@ -1835,7 +1835,7 @@
     {
       "id": 47,
       "criterion": "OCO orders: fill of one leg cancels sibling within 100ms",
-      "spec_line": 3589,
+      "spec_line": 3591,
       "subsection": "24.2",
       "owner_phase": "Phase 16 — Advanced Order Types",
       "owner_phase_tags": [
@@ -1874,7 +1874,7 @@
     {
       "id": 48,
       "criterion": "TWAP orders: execute in equal time slices over specified duration",
-      "spec_line": 3590,
+      "spec_line": 3592,
       "subsection": "24.2",
       "owner_phase": "Phase 16 — Advanced Order Types",
       "owner_phase_tags": [
@@ -1916,7 +1916,7 @@
     {
       "id": 49,
       "criterion": "VWAP orders: execute weighted by historical volume profile",
-      "spec_line": 3591,
+      "spec_line": 3593,
       "subsection": "24.2",
       "owner_phase": "Phase 16 — Advanced Order Types",
       "owner_phase_tags": [
@@ -1955,7 +1955,7 @@
     {
       "id": 50,
       "criterion": "Trailing stop: stop price trails market by specified offset",
-      "spec_line": 3592,
+      "spec_line": 3594,
       "subsection": "24.2",
       "owner_phase": "Phase 16 — Advanced Order Types",
       "owner_phase_tags": [
@@ -1994,7 +1994,7 @@
     {
       "id": 51,
       "criterion": "Bracket order: take-profit + stop-loss around a position",
-      "spec_line": 3593,
+      "spec_line": 3595,
       "subsection": "24.2",
       "owner_phase": "Phase 16 — Advanced Order Types",
       "owner_phase_tags": [
@@ -2034,7 +2034,7 @@
     {
       "id": 52,
       "criterion": "Spread order: multi-leg with price relationship enforced",
-      "spec_line": 3594,
+      "spec_line": 3596,
       "subsection": "24.2",
       "owner_phase": "Phase 16 — Advanced Order Types",
       "owner_phase_tags": [
@@ -2070,7 +2070,7 @@
     {
       "id": 53,
       "criterion": "Scaled order: multiple price levels with quantity distribution",
-      "spec_line": 3595,
+      "spec_line": 3597,
       "subsection": "24.2",
       "owner_phase": "Phase 16 — Advanced Order Types",
       "owner_phase_tags": [
@@ -2106,7 +2106,7 @@
     {
       "id": 54,
       "criterion": "FIX 4.4 session: logon, heartbeat, logout, resend, gap-fill",
-      "spec_line": 3596,
+      "spec_line": 3598,
       "subsection": "24.2",
       "owner_phase": "Phase 18 — FIX Protocol Gateway",
       "owner_phase_tags": [
@@ -2142,7 +2142,7 @@
     {
       "id": 55,
       "criterion": "FIX 5.0 SP2: extended for derivatives",
-      "spec_line": 3597,
+      "spec_line": 3599,
       "subsection": "24.2",
       "owner_phase": "Phase 18 — FIX Protocol Gateway",
       "owner_phase_tags": [
@@ -2178,7 +2178,7 @@
     {
       "id": 56,
       "criterion": "FX-specific FIX tags: Currency, SettlementType, SettlementDate, NoPartyIDs",
-      "spec_line": 3598,
+      "spec_line": 3600,
       "subsection": "24.2",
       "owner_phase": "Phase 18 — FIX Protocol Gateway",
       "owner_phase_tags": [
@@ -2214,7 +2214,7 @@
     {
       "id": 57,
       "criterion": "Forward pricing: forward_rate computed with the per-currency day-count convention (ACT/360: USD, EUR, CHF, JPY; ACT/365: GBP, AUD, NZD, CAD, SGD, HKD) per spec §15.3 (supersedes prior hardcoded d/360 formula, remediation #35)",
-      "spec_line": 3599,
+      "spec_line": 3601,
       "subsection": "24.2",
       "owner_phase": "Phase 22 — FX Derivatives Foundation",
       "owner_phase_tags": [
@@ -2250,7 +2250,7 @@
     {
       "id": 58,
       "criterion": "NDF: cash settlement at fixing date with reference rate",
-      "spec_line": 3600,
+      "spec_line": 3602,
       "subsection": "24.2",
       "owner_phase": "Phase 22 — FX Derivatives Foundation",
       "owner_phase_tags": [
@@ -2286,7 +2286,7 @@
     {
       "id": 59,
       "criterion": "FX swap: near leg + far leg with respective value dates",
-      "spec_line": 3601,
+      "spec_line": 3603,
       "subsection": "24.2",
       "owner_phase": "Phase 22 — FX Derivatives Foundation",
       "owner_phase_tags": [
@@ -2322,7 +2322,7 @@
     {
       "id": 60,
       "criterion": "Vanilla option: Black-Scholes-Garman-Kohlhagen pricing",
-      "spec_line": 3602,
+      "spec_line": 3604,
       "subsection": "24.2",
       "owner_phase": "Phase 22 — FX Derivatives Foundation",
       "owner_phase_tags": [
@@ -2358,7 +2358,7 @@
     {
       "id": 61,
       "criterion": "Barrier option: knock-in/knock-out monitoring",
-      "spec_line": 3603,
+      "spec_line": 3605,
       "subsection": "24.2",
       "owner_phase": "Phase 22 — FX Derivatives Foundation",
       "owner_phase_tags": [
@@ -2394,7 +2394,7 @@
     {
       "id": 62,
       "criterion": "Option Greeks: delta, gamma, vega, theta, rho computed real-time",
-      "spec_line": 3604,
+      "spec_line": 3606,
       "subsection": "24.2",
       "owner_phase": "Phase 22 — FX Derivatives Foundation",
       "owner_phase_tags": [
@@ -2430,7 +2430,7 @@
     {
       "id": 63,
       "criterion": "Implied volatility surface from market data",
-      "spec_line": 3605,
+      "spec_line": 3607,
       "subsection": "24.2",
       "owner_phase": "Phase 22 — FX Derivatives Foundation",
       "owner_phase_tags": [
@@ -2466,7 +2466,7 @@
     {
       "id": 64,
       "criterion": "Option exercise: European (expiry only), American (any time)",
-      "spec_line": 3606,
+      "spec_line": 3608,
       "subsection": "24.2",
       "owner_phase": "Phase 22 — FX Derivatives Foundation",
       "owner_phase_tags": [
@@ -2502,7 +2502,7 @@
     {
       "id": 65,
       "criterion": "ClickHouse tick history: 50k inserts/sec sustained",
-      "spec_line": 3607,
+      "spec_line": 3609,
       "subsection": "24.2",
       "owner_phase": "Phase 20 — Analytics \u0026 Reporting (ClickHouse)",
       "owner_phase_tags": [
@@ -2541,7 +2541,7 @@
     {
       "id": 66,
       "criterion": "OHLCV aggregation: 12 persisted intervals (1m/5m/15m/30m/1h/2h/4h/6h/8h/1D/1W/1M) computed correctly — Phase-06 owns computation, Phase-20 projects (supersedes prior 4-interval list/Phase-20 owner, remediation #35)",
-      "spec_line": 3608,
+      "spec_line": 3610,
       "subsection": "24.2",
       "owner_phase": "Phase 6 — Market Data Distribution",
       "owner_phase_tags": [
@@ -2578,7 +2578,7 @@
     {
       "id": 67,
       "criterion": "Real-time P\u0026L: updated per trade, streamed to UI",
-      "spec_line": 3609,
+      "spec_line": 3611,
       "subsection": "24.2",
       "owner_phase": "Phase 20 — Analytics \u0026 Reporting (ClickHouse)",
       "owner_phase_tags": [
@@ -2617,7 +2617,7 @@
     {
       "id": 68,
       "criterion": "Analytics dashboard: latency, throughput, fill rate, P\u0026L",
-      "spec_line": 3610,
+      "spec_line": 3612,
       "subsection": "24.2",
       "owner_phase": "Phase 20 — Analytics \u0026 Reporting (ClickHouse)",
       "owner_phase_tags": [
@@ -2656,7 +2656,7 @@
     {
       "id": 69,
       "criterion": "Sub-account hierarchy: max 20 per master; independent trading; master aggregation",
-      "spec_line": 3611,
+      "spec_line": 3613,
       "subsection": "24.2",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
       "owner_phase_tags": [
@@ -2692,7 +2692,7 @@
     {
       "id": 70,
       "criterion": "API tokens: restrictive IP allowlist; non-matching IP → TOKEN_IP_FORBIDDEN",
-      "spec_line": 3612,
+      "spec_line": 3614,
       "subsection": "24.2",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
       "owner_phase_tags": [
@@ -2728,7 +2728,7 @@
     {
       "id": 71,
       "criterion": "Session management: concurrent session limits per account and IP",
-      "spec_line": 3613,
+      "spec_line": 3615,
       "subsection": "24.2",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
       "owner_phase_tags": [
@@ -2765,7 +2765,7 @@
     {
       "id": 72,
       "criterion": "FROZEN legal-hold state: no trading, no withdrawals; admin-only release",
-      "spec_line": 3614,
+      "spec_line": 3616,
       "subsection": "24.2",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
       "owner_phase_tags": [
@@ -2801,7 +2801,7 @@
     {
       "id": 73,
       "criterion": "Test environment: separate environment with reset capability",
-      "spec_line": 3615,
+      "spec_line": 3617,
       "subsection": "24.2",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
       "owner_phase_tags": [
@@ -2837,7 +2837,7 @@
     {
       "id": 74,
       "criterion": "Announcements + maintenance calendar: status page + user dashboard",
-      "spec_line": 3616,
+      "spec_line": 3618,
       "subsection": "24.2",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
       "owner_phase_tags": [
@@ -2873,7 +2873,7 @@
     {
       "id": 75,
       "criterion": "Fee promo windows: promo rates applied while promo_until \u003e now()",
-      "spec_line": 3617,
+      "spec_line": 3619,
       "subsection": "24.2",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
       "owner_phase_tags": [
@@ -2909,7 +2909,7 @@
     {
       "id": 76,
       "criterion": "OpenAPI docs: Swagger UI at `/developer`",
-      "spec_line": 3618,
+      "spec_line": 3620,
       "subsection": "24.2",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
       "owner_phase_tags": [
@@ -2945,7 +2945,7 @@
     {
       "id": 77,
       "criterion": "Signed outbound webhooks: HMAC-SHA256 signature; retry with backoff",
-      "spec_line": 3619,
+      "spec_line": 3621,
       "subsection": "24.2",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
       "owner_phase_tags": [
@@ -2981,7 +2981,7 @@
     {
       "id": 78,
       "criterion": "Nostro-aware withdrawals: bank balance tracked; replenishment with dual control",
-      "spec_line": 3620,
+      "spec_line": 3622,
       "subsection": "24.2",
       "owner_phase": "Phase 24 — Backoffice \u0026 Settlement (Nostro/Vostro)",
       "owner_phase_tags": [
@@ -3017,7 +3017,7 @@
     {
       "id": 79,
       "criterion": "Withdrawal caps: per-account daily, per-account hourly, exchange-wide daily",
-      "spec_line": 3621,
+      "spec_line": 3623,
       "subsection": "24.2",
       "owner_phase": "Phase 11 — Funding via Banking Rails, Suspension, Stats",
       "owner_phase_tags": [
@@ -3053,7 +3053,7 @@
     {
       "id": 80,
       "criterion": "New bank account hold: 24h hold for unverified bank accounts",
-      "spec_line": 3622,
+      "spec_line": 3624,
       "subsection": "24.2",
       "owner_phase": "Phase 11 — Funding via Banking Rails, Suspension, Stats",
       "owner_phase_tags": [
@@ -3089,7 +3089,7 @@
     {
       "id": 81,
       "criterion": "Order-modify audit trail: old/new fields in `order_audit` table",
-      "spec_line": 3623,
+      "spec_line": 3625,
       "subsection": "24.2",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
       "owner_phase_tags": [
@@ -3133,7 +3133,7 @@
     {
       "id": 82,
       "criterion": "STALE_MODIFY: rejects stale `order_seq` on modify",
-      "spec_line": 3624,
+      "spec_line": 3626,
       "subsection": "24.2",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
       "owner_phase_tags": [
@@ -3169,7 +3169,7 @@
     {
       "id": 83,
       "criterion": "L2 depth checksums: CRC32 in depth updates; resync on mismatch",
-      "spec_line": 3625,
+      "spec_line": 3627,
       "subsection": "24.2",
       "owner_phase": "Phase 6 — Market Data Distribution",
       "owner_phase_tags": [
@@ -3208,7 +3208,7 @@
     {
       "id": 84,
       "criterion": "L2/L3 subscription limits: 20 / 5 concurrent streams",
-      "spec_line": 3626,
+      "spec_line": 3628,
       "subsection": "24.2",
       "owner_phase": "Phase 6 — Market Data Distribution",
       "owner_phase_tags": [
@@ -3244,7 +3244,7 @@
     {
       "id": 85,
       "criterion": "PostgreSQL backup/PITR: nightly full + WAL archive; PITR restores to timestamp",
-      "spec_line": 3627,
+      "spec_line": 3629,
       "subsection": "24.2",
       "owner_phase": "Phase 4 — Persistence \u0026 Recovery",
       "owner_phase_tags": [
@@ -3296,7 +3296,7 @@
     {
       "id": 86,
       "criterion": "PostgreSQL RPO ≤ 15s / RTO ≤ 5min per spec DR table",
-      "spec_line": 3628,
+      "spec_line": 3630,
       "subsection": "24.2",
       "owner_phase": "Phase 4 — Persistence \u0026 Recovery",
       "owner_phase_tags": [
@@ -3340,7 +3340,7 @@
     {
       "id": 87,
       "criterion": "Redis DR: replica promotion RPO ≤ 5s / RTO ≤ 30s",
-      "spec_line": 3629,
+      "spec_line": 3631,
       "subsection": "24.2",
       "owner_phase": "Phase 4 — Persistence \u0026 Recovery",
       "owner_phase_tags": [
@@ -3376,7 +3376,7 @@
     {
       "id": 88,
       "criterion": "Cache warming: P0 keys within 30s; P1 keys within 5s after recovery",
-      "spec_line": 3630,
+      "spec_line": 3632,
       "subsection": "24.2",
       "owner_phase": "Phase 9 — Deployment \u0026 Operations",
       "owner_phase_tags": [
@@ -3412,7 +3412,7 @@
     {
       "id": 89,
       "criterion": "Feature flags: per-tier, per-account, global; canary deploys",
-      "spec_line": 3631,
+      "spec_line": 3633,
       "subsection": "24.2",
       "owner_phase": "Phase 9 — Deployment \u0026 Operations",
       "owner_phase_tags": [
@@ -3448,7 +3448,7 @@
     {
       "id": 90,
       "criterion": "Incident post-mortem: structured template within 48h of P0/P1",
-      "spec_line": 3632,
+      "spec_line": 3634,
       "subsection": "24.2",
       "owner_phase": "Phase 9 — Deployment \u0026 Operations",
       "owner_phase_tags": [
@@ -3484,7 +3484,7 @@
     {
       "id": 91,
       "criterion": "API deprecation policy: 6-month notice; sunset header; migration guide",
-      "spec_line": 3633,
+      "spec_line": 3635,
       "subsection": "24.2",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
       "owner_phase_tags": [
@@ -3520,7 +3520,7 @@
     {
       "id": 92,
       "criterion": "Developer portal: API keys, rate limit tiers, documentation, sandbox",
-      "spec_line": 3634,
+      "spec_line": 3636,
       "subsection": "24.2",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
       "owner_phase_tags": [
@@ -3556,7 +3556,7 @@
     {
       "id": 93,
       "criterion": "Chargeback handling: dispute workflow, evidence collection",
-      "spec_line": 3635,
+      "spec_line": 3637,
       "subsection": "24.2",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
       "owner_phase_tags": [
@@ -3592,7 +3592,7 @@
     {
       "id": 94,
       "criterion": "Tax reporting: 1099-B equivalent, gain/loss by lot",
-      "spec_line": 3636,
+      "spec_line": 3638,
       "subsection": "24.2",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
       "owner_phase_tags": [
@@ -3628,7 +3628,7 @@
     {
       "id": 95,
       "criterion": "API throttling tiers: 5 tiers with correct limits and burst",
-      "spec_line": 3637,
+      "spec_line": 3639,
       "subsection": "24.2",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
       "owner_phase_tags": [
@@ -3664,7 +3664,7 @@
     {
       "id": 96,
       "criterion": "Portfolio margin: cross-currency with FX conversion",
-      "spec_line": 3638,
+      "spec_line": 3640,
       "subsection": "24.2",
       "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
       "owner_phase_tags": [
@@ -3700,7 +3700,7 @@
     {
       "id": 97,
       "criterion": "ADL (auto-deleverage): insurance fund depletion triggers position reduction",
-      "spec_line": 3639,
+      "spec_line": 3641,
       "subsection": "24.2",
       "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
       "owner_phase_tags": [
@@ -3736,7 +3736,7 @@
     {
       "id": 98,
       "criterion": "GROSS-NET settlement: configurable per instrument",
-      "spec_line": 3640,
+      "spec_line": 3642,
       "subsection": "24.2",
       "owner_phase": "Phase 24 — Backoffice \u0026 Settlement (Nostro/Vostro)",
       "owner_phase_tags": [
@@ -3772,7 +3772,7 @@
     {
       "id": 99,
       "criterion": "Market data SLA: p99 WS push ≤ 100ms; uptime 99.95%",
-      "spec_line": 3641,
+      "spec_line": 3643,
       "subsection": "24.2",
       "owner_phase": "Phase 6 — Market Data Distribution",
       "owner_phase_tags": [
@@ -3812,7 +3812,7 @@
     {
       "id": 100,
       "criterion": "Notification delivery: multi-channel (email/SMS/push), retry/backoff, tracking",
-      "spec_line": 3642,
+      "spec_line": 3644,
       "subsection": "24.2",
       "owner_phase": "Phase 12 — User Self-Service \u0026 Notifications",
       "owner_phase_tags": [
@@ -3851,7 +3851,7 @@
     {
       "id": 101,
       "criterion": "KYC re-verification: triggered on document expiry, risk score change, regulatory update",
-      "spec_line": 3643,
+      "spec_line": 3645,
       "subsection": "24.2",
       "owner_phase": "Phase 14 — Extended Production Features",
       "owner_phase_tags": [
@@ -3887,7 +3887,7 @@
     {
       "id": 102,
       "criterion": "KYC document encryption: SSE-KMS at rest",
-      "spec_line": 3644,
+      "spec_line": 3646,
       "subsection": "24.2",
       "owner_phase": "Phase 14 — Extended Production Features",
       "owner_phase_tags": [
@@ -3923,7 +3923,7 @@
     {
       "id": 103,
       "criterion": "GDPR: right to erasure, data export, consent management",
-      "spec_line": 3645,
+      "spec_line": 3647,
       "subsection": "24.2",
       "owner_phase": "Phase 14 — Extended Production Features",
       "owner_phase_tags": [
@@ -3962,7 +3962,7 @@
     {
       "id": 104,
       "criterion": "Geo-block: IP-based jurisdiction restriction",
-      "spec_line": 3646,
+      "spec_line": 3648,
       "subsection": "24.2",
       "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
       "owner_phase_tags": [
@@ -3998,7 +3998,7 @@
     {
       "id": 105,
       "criterion": "CTR (Currency Transaction Report): auto-generated for transactions ≥ $10,000",
-      "spec_line": 3647,
+      "spec_line": 3649,
       "subsection": "24.2",
       "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
       "owner_phase_tags": [
@@ -4034,7 +4034,7 @@
     {
       "id": 106,
       "criterion": "MiFID II best execution: execution quality report",
-      "spec_line": 3648,
+      "spec_line": 3650,
       "subsection": "24.2",
       "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
       "owner_phase_tags": [
@@ -4070,7 +4070,7 @@
     {
       "id": 107,
       "criterion": "Travel rule: originator/beneficiary info for transfers ≥ $1,000",
-      "spec_line": 3649,
+      "spec_line": 3651,
       "subsection": "24.2",
       "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
       "owner_phase_tags": [
@@ -4106,7 +4106,7 @@
     {
       "id": 108,
       "criterion": "SAR (Suspicious Activity Report): filing workflow with dual control",
-      "spec_line": 3650,
+      "spec_line": 3652,
       "subsection": "24.2",
       "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
       "owner_phase_tags": [
@@ -4145,7 +4145,7 @@
     {
       "id": 109,
       "criterion": "Pen testing: quarterly external + annual red team",
-      "spec_line": 3651,
+      "spec_line": 3653,
       "subsection": "24.2",
       "owner_phase": "Phase 13.5 — Security \u0026 Compliance Audit",
       "owner_phase_tags": [
@@ -4184,7 +4184,7 @@
     {
       "id": 110,
       "criterion": "PII audit: zero leaks verified by automated scan",
-      "spec_line": 3652,
+      "spec_line": 3654,
       "subsection": "24.2",
       "owner_phase": "Phase 13.5 — Security \u0026 Compliance Audit",
       "owner_phase_tags": [
@@ -4220,7 +4220,7 @@
     {
       "id": 111,
       "criterion": "Secret rotation: 90-day schedule, zero downtime",
-      "spec_line": 3653,
+      "spec_line": 3655,
       "subsection": "24.2",
       "owner_phase": "Phase 13.5 — Security \u0026 Compliance Audit",
       "owner_phase_tags": [
@@ -4264,7 +4264,7 @@
     {
       "id": 112,
       "criterion": "OpenTelemetry: trace_id continuity HTTP → Aeron → C++ core",
-      "spec_line": 3654,
+      "spec_line": 3656,
       "subsection": "24.2",
       "owner_phase": "Phase 9 — Deployment \u0026 Operations",
       "owner_phase_tags": [
@@ -4300,7 +4300,7 @@
     {
       "id": 113,
       "criterion": "Blue-green deployment: rollback script tested",
-      "spec_line": 3655,
+      "spec_line": 3657,
       "subsection": "24.2",
       "owner_phase": "Phase 9 — Deployment \u0026 Operations",
       "owner_phase_tags": [
@@ -4336,7 +4336,7 @@
     {
       "id": 114,
       "criterion": "Runbooks: 47+ alert types documented",
-      "spec_line": 3656,
+      "spec_line": 3658,
       "subsection": "24.2",
       "owner_phase": "Phase 9 — Deployment \u0026 Operations",
       "owner_phase_tags": [
@@ -4372,7 +4372,7 @@
     {
       "id": 115,
       "criterion": "Tabletop exercises: 4 scenarios \u003c SLA",
-      "spec_line": 3657,
+      "spec_line": 3659,
       "subsection": "24.2",
       "owner_phase": "Phase 9 — Deployment \u0026 Operations",
       "owner_phase_tags": [
@@ -4408,7 +4408,7 @@
     {
       "id": 116,
       "criterion": "Load shedding: graceful degradation under extreme load",
-      "spec_line": 3658,
+      "spec_line": 3660,
       "subsection": "24.2",
       "owner_phase": "Phase 9 — Deployment \u0026 Operations",
       "owner_phase_tags": [
@@ -4444,7 +4444,7 @@
     {
       "id": 117,
       "criterion": "Cache warming: auto-fires after recovery and deploy",
-      "spec_line": 3659,
+      "spec_line": 3661,
       "subsection": "24.2",
       "owner_phase": "Phase 9 — Deployment \u0026 Operations",
       "owner_phase_tags": [
@@ -4480,7 +4480,7 @@
     {
       "id": 118,
       "criterion": "Cross-shard atomicity: 2PC with compensation reaper",
-      "spec_line": 3660,
+      "spec_line": 3662,
       "subsection": "24.2",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
       "owner_phase_tags": [
@@ -4527,7 +4527,7 @@
     {
       "id": 119,
       "criterion": "Instrument lifecycle: SUSPENDED/RESTRICTED grace periods enforced",
-      "spec_line": 3661,
+      "spec_line": 3663,
       "subsection": "24.2",
       "owner_phase": "Phase 15 — Market Admin Lifecycle",
       "owner_phase_tags": [
@@ -4566,7 +4566,7 @@
     {
       "id": 120,
       "criterion": "Stale mark price: liquidation fails closed on stale oracle",
-      "spec_line": 3662,
+      "spec_line": 3664,
       "subsection": "24.2",
       "owner_phase": "Phase 19.5 — Price Oracle \u0026 Mark Price Service",
       "owner_phase_tags": [
@@ -4602,7 +4602,7 @@
     {
       "id": 121,
       "criterion": "Double-entry general ledger: all financial transactions generate balanced debits and credits (`sum(debit) == sum(credit)`)",
-      "spec_line": 3663,
+      "spec_line": 3665,
       "subsection": "24.2",
       "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
       "owner_phase_tags": [
@@ -4639,7 +4639,7 @@
     {
       "id": 122,
       "criterion": "EOD Tom-Next rollover: open spot margin positions held at 17:00 ET (21:00 UTC EDT / 22:00 UTC EST) automatically roll (timezone wording aligned, remediation #35) value dates with interest rate differential swap points (triple rollover on Wednesday)",
-      "spec_line": 3664,
+      "spec_line": 3666,
       "subsection": "24.2",
       "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
       "owner_phase_tags": [
@@ -4675,7 +4675,7 @@
     {
       "id": 123,
       "criterion": "Multi-currency holiday calendar: ISDA Modified Following Business Day convention correctly handles split holidays across currency pairs",
-      "spec_line": 3665,
+      "spec_line": 3667,
       "subsection": "24.2",
       "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
       "owner_phase_tags": [
@@ -4714,7 +4714,7 @@
     {
       "id": 124,
       "criterion": "Benchmark fixing orders: orders executed at official WM/Refinitiv 4 PM London or ECB 14:15 CET fix",
-      "spec_line": 3666,
+      "spec_line": 3668,
       "subsection": "24.2",
       "owner_phase": "Phase 16 — Advanced Order Types",
       "owner_phase_tags": [
@@ -4750,7 +4750,7 @@
     {
       "id": 125,
       "criterion": "Prime Brokerage give-up: pre-trade NOP/DSL limits enforced; execution reports dispatched to PB via Drop Copy / Traiana within 1s",
-      "spec_line": 3667,
+      "spec_line": 3669,
       "subsection": "24.2",
       "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
       "owner_phase_tags": [
@@ -4788,7 +4788,7 @@
     {
       "id": 126,
       "criterion": "CLS settlement: MT300/MT304 confirmation messages generated for eligible currencies with PvP status tracking",
-      "spec_line": 3668,
+      "spec_line": 3670,
       "subsection": "24.2",
       "owner_phase": "Phase 24 — Backoffice \u0026 Settlement (Nostro/Vostro)",
       "owner_phase_tags": [
@@ -4824,7 +4824,7 @@
     {
       "id": 127,
       "criterion": "PTP clock synchronization: PTP IEEE 1588 hardware sync maintains server clock within 100 microseconds of UTC per MiFID II RTS 25",
-      "spec_line": 3669,
+      "spec_line": 3671,
       "subsection": "24.2",
       "owner_phase": "Phase 9 — Deployment \u0026 Operations",
       "owner_phase_tags": [
@@ -4860,7 +4860,7 @@
     {
       "id": 128,
       "criterion": "FIX Mass Quoting: Tag 35=i processed with batch price-level updates and Tag 35=Z mass quote cancel",
-      "spec_line": 3670,
+      "spec_line": 3672,
       "subsection": "24.2",
       "owner_phase": "Phase 18 — FIX Protocol Gateway",
       "owner_phase_tags": [
@@ -4897,7 +4897,7 @@
     {
       "id": 129,
       "criterion": "`post_only` flag: marketable post-only order rejected (`POST_ONLY_VIOLATION`), no fill",
-      "spec_line": 3671,
+      "spec_line": 3673,
       "subsection": "24.2",
       "owner_phase": "Phase 16 — Advanced Order Types",
       "owner_phase_tags": [
@@ -4937,7 +4937,7 @@
     {
       "id": 130,
       "criterion": "`reduce_only` flag: order may only reduce an open position; reject/clip on increase",
-      "spec_line": 3672,
+      "spec_line": 3674,
       "subsection": "24.2",
       "owner_phase": "Phase 16 — Advanced Order Types",
       "owner_phase_tags": [
@@ -4977,7 +4977,7 @@
     {
       "id": 131,
       "criterion": "Algo + derivative order parameters persisted (strike, expiry, option_type, barrier, value dates, premium, algo_params, oco_group_id, display_qty, peg_offset — migrations 038/039)",
-      "spec_line": 3673,
+      "spec_line": 3675,
       "subsection": "24.2",
       "owner_phase": "Phase 22 — FX Derivatives Foundation",
       "owner_phase_tags": [
@@ -5032,7 +5032,7 @@
     {
       "id": 132,
       "criterion": "MiFID client categorization: RETAIL/PROFESSIONAL/ECP gating; appropriateness test; binary options professional-only",
-      "spec_line": 3674,
+      "spec_line": 3676,
       "subsection": "24.2",
       "owner_phase": "Phase 14 — Extended Production Features",
       "owner_phase_tags": [
@@ -5079,7 +5079,7 @@
     {
       "id": 133,
       "criterion": "Negative balance protection: retail accounts never debited below zero; shortfall to insurance fund",
-      "spec_line": 3675,
+      "spec_line": 3677,
       "subsection": "24.2",
       "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
       "owner_phase_tags": [
@@ -5115,7 +5115,7 @@
         "checkpoints": [
           {
             "id": "P19-T19.3.9-C1",
-            "implemented": false,
+            "implemented": true,
             "checked": false,
             "text": "retail NBP with insurance-fund absorption (§13.6c, §24 #133)"
           }
@@ -5126,7 +5126,7 @@
     {
       "id": 134,
       "criterion": "Oracle provides interest-rate/yield-curve feeds per currency (OIS/money-market) for forwards + Tom-Next",
-      "spec_line": 3676,
+      "spec_line": 3678,
       "subsection": "24.2",
       "owner_phase": "Phase 19.5 — Price Oracle \u0026 Mark Price Service",
       "owner_phase_tags": [
@@ -5173,7 +5173,7 @@
     {
       "id": 135,
       "criterion": "FIX session entitlement: session bound to account_id; orders for other accounts/instruments rejected (`SESSION_NOT_ENTITLED`)",
-      "spec_line": 3677,
+      "spec_line": 3679,
       "subsection": "24.2",
       "owner_phase": "Phase 18 — FIX Protocol Gateway",
       "owner_phase_tags": [
@@ -5220,7 +5220,7 @@
     {
       "id": 136,
       "criterion": "FIX cancel-on-disconnect: abnormal disconnect cancels session's resting orders when enabled",
-      "spec_line": 3678,
+      "spec_line": 3680,
       "subsection": "24.2",
       "owner_phase": "Phase 18 — FIX Protocol Gateway",
       "owner_phase_tags": [
@@ -5267,7 +5267,7 @@
     {
       "id": 137,
       "criterion": "FIX per-session throttle: `max_msgs_per_sec` enforced, excess rejected not dropped",
-      "spec_line": 3679,
+      "spec_line": 3681,
       "subsection": "24.2",
       "owner_phase": "Phase 18 — FIX Protocol Gateway",
       "owner_phase_tags": [
@@ -5314,7 +5314,7 @@
     {
       "id": 138,
       "criterion": "Trade bust/price-adjust: dual control, GL reversal entries, settlement held, clients notified",
-      "spec_line": 3680,
+      "spec_line": 3682,
       "subsection": "24.2",
       "owner_phase": "Phase 15 — Market Admin Lifecycle",
       "owner_phase_tags": [
@@ -5361,7 +5361,7 @@
     {
       "id": 139,
       "criterion": "Market-maker program: quoting obligations monitored; MMP auto mass-cancel after N fills in window; maker rebates via GL",
-      "spec_line": 3681,
+      "spec_line": 3683,
       "subsection": "24.2",
       "owner_phase": "Phase 18 — FIX Protocol Gateway",
       "owner_phase_tags": [
@@ -5408,7 +5408,7 @@
     {
       "id": 140,
       "criterion": "OTR limits (MiFID II RTS 9): per-account per-instrument order-to-trade ratio enforced; breach → `OTR_LIMIT_EXCEEDED`",
-      "spec_line": 3682,
+      "spec_line": 3684,
       "subsection": "24.2",
       "owner_phase": "Phase 13 — Production Hardening \u0026 Reconciliation",
       "owner_phase_tags": [
@@ -5455,7 +5455,7 @@
     {
       "id": 141,
       "criterion": "Beneficiary bank registry: withdrawals only to verified accounts; name-match to KYC; third-party deposits rejected",
-      "spec_line": 3683,
+      "spec_line": 3685,
       "subsection": "24.2",
       "owner_phase": "Phase 11 — Funding via Banking Rails, Suspension, Stats",
       "owner_phase_tags": [
@@ -5502,7 +5502,7 @@
     {
       "id": 142,
       "criterion": "Reopening auction: HALT→ACTIVE and weekly open uncross via call auction (5-min default, indicative price streamed)",
-      "spec_line": 3684,
+      "spec_line": 3686,
       "subsection": "24.2",
       "owner_phase": "Phase 15 — Market Admin Lifecycle",
       "owner_phase_tags": [
@@ -5552,7 +5552,7 @@
     {
       "id": 143,
       "criterion": "Client statements: per-trade confirmation + daily/monthly statements generated and delivered",
-      "spec_line": 3685,
+      "spec_line": 3687,
       "subsection": "24.2",
       "owner_phase": "Phase 20 — Analytics \u0026 Reporting (ClickHouse)",
       "owner_phase_tags": [
@@ -5599,7 +5599,7 @@
     {
       "id": 144,
       "criterion": "Internal transfers: master↔sub-account and same-user account↔account transfers with GL posting",
-      "spec_line": 3686,
+      "spec_line": 3688,
       "subsection": "24.2",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
       "owner_phase_tags": [
@@ -5643,7 +5643,7 @@
     {
       "id": 145,
       "criterion": "Collateral haircuts: non-settlement-currency collateral haircut per `collateral_schedule`; ineligible currencies contribute zero equity",
-      "spec_line": 3687,
+      "spec_line": 3689,
       "subsection": "24.2",
       "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
       "owner_phase_tags": [
@@ -5679,7 +5679,7 @@
         "checkpoints": [
           {
             "id": "P19-T19.3.8-C1",
-            "implemented": false,
+            "implemented": true,
             "checked": false,
             "text": "collateral haircuts + concentration (§13.6b, §24 #145)"
           }
@@ -5690,7 +5690,7 @@
     {
       "id": 146,
       "criterion": "Initial margin (UMR/SIMM-consistent) for in-scope derivatives + legal agreement gating (ISDA/CSA)",
-      "spec_line": 3688,
+      "spec_line": 3690,
       "subsection": "24.2",
       "owner_phase": "Phase 22 — FX Derivatives Foundation",
       "owner_phase_tags": [
@@ -5737,7 +5737,7 @@
     {
       "id": 147,
       "criterion": "HMAC-SHA256 request signing for API-key REST access; 30s replay window",
-      "spec_line": 3689,
+      "spec_line": 3691,
       "subsection": "24.2",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
       "owner_phase_tags": [
@@ -5781,7 +5781,7 @@
     {
       "id": 148,
       "criterion": "Idempotent order submission: duplicate `client_order_id` returns original ack, never a second order",
-      "spec_line": 3690,
+      "spec_line": 3692,
       "subsection": "24.2",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
       "owner_phase_tags": [
@@ -5825,7 +5825,7 @@
     {
       "id": 149,
       "criterion": "PEP screening + adverse media + ongoing monitoring rules feed SAR triggers",
-      "spec_line": 3691,
+      "spec_line": 3693,
       "subsection": "24.2",
       "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
       "owner_phase_tags": [
@@ -5872,7 +5872,7 @@
     {
       "id": 150,
       "criterion": "MiFID II RTS 6: algo certification, annual self-assessment, DEA controls, order records retained ≥5y",
-      "spec_line": 3692,
+      "spec_line": 3694,
       "subsection": "24.2",
       "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
       "owner_phase_tags": [
@@ -5919,7 +5919,7 @@
     {
       "id": 151,
       "criterion": "Basel III: capital adequacy + leverage ratio reporting",
-      "spec_line": 3693,
+      "spec_line": 3695,
       "subsection": "24.2",
       "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
       "owner_phase_tags": [
@@ -5966,7 +5966,7 @@
     {
       "id": 152,
       "criterion": "Scoped kill-switch: per-account / per-FIX-session / per-instrument order rejection",
-      "spec_line": 3694,
+      "spec_line": 3696,
       "subsection": "24.2",
       "owner_phase": "Phase 11 — Funding via Banking Rails, Suspension, Stats",
       "owner_phase_tags": [
@@ -6010,7 +6010,7 @@
     {
       "id": 153,
       "criterion": "Per-instrument mass cancel (`DELETE /orders?symbol=`) + cancel-on-disconnect for REST/WS sessions",
-      "spec_line": 3695,
+      "spec_line": 3697,
       "subsection": "24.2",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
       "owner_phase_tags": [
@@ -6061,7 +6061,7 @@
     {
       "id": 154,
       "criterion": "Configurable STP modes: CANCEL_NEWEST/OLDEST/BOTH/DECREMENT enforced in matching",
-      "spec_line": 3696,
+      "spec_line": 3698,
       "subsection": "24.2",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
       "owner_phase_tags": [
@@ -6108,7 +6108,7 @@
     {
       "id": 155,
       "criterion": "Bilateral payment netting per counterparty+currency+value date + client SSI registry",
-      "spec_line": 3697,
+      "spec_line": 3699,
       "subsection": "24.2",
       "owner_phase": "Phase 24 — Backoffice \u0026 Settlement (Nostro/Vostro)",
       "owner_phase_tags": [
@@ -6155,7 +6155,7 @@
     {
       "id": 156,
       "criterion": "Public instrument reference data endpoint: symbol, tick/lot, min notional, status, trading hours",
-      "spec_line": 3698,
+      "spec_line": 3700,
       "subsection": "24.2",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
       "owner_phase_tags": [
@@ -6194,7 +6194,7 @@
     {
       "id": 157,
       "criterion": "Tick/lot + min-notional validation at pre-trade (reject `MIN_NOTIONAL_VIOLATION` / invalid increments)",
-      "spec_line": 3699,
+      "spec_line": 3701,
       "subsection": "24.2",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
       "owner_phase_tags": [
@@ -6233,7 +6233,7 @@
     {
       "id": 158,
       "criterion": "Option expiry processing: 15:00 UTC exercise cutoff, ≥0.5% ITM auto-exercise, premium settled T+2",
-      "spec_line": 3700,
+      "spec_line": 3702,
       "subsection": "24.2",
       "owner_phase": "Phase 22 — FX Derivatives Foundation",
       "owner_phase_tags": [
@@ -6280,7 +6280,7 @@
     {
       "id": 159,
       "criterion": "ClickHouse backup to S3 (daily) + restore drill; DR RPO ≤ 60s / RTO ≤ 30min",
-      "spec_line": 3701,
+      "spec_line": 3703,
       "subsection": "24.2",
       "owner_phase": "Phase 4 — Persistence \u0026 Recovery",
       "owner_phase_tags": [
@@ -6327,7 +6327,7 @@
     {
       "id": 160,
       "criterion": "Edge protection: WAF + DDoS mitigation in front of all public endpoints",
-      "spec_line": 3702,
+      "spec_line": 3704,
       "subsection": "24.2",
       "owner_phase": "Phase 9 — Deployment \u0026 Operations",
       "owner_phase_tags": [
@@ -6371,7 +6371,7 @@
     {
       "id": 161,
       "criterion": "Supply-chain security: SAST + dependency audit (govulncheck/npm audit/Trivy) gates PRs",
-      "spec_line": 3703,
+      "spec_line": 3705,
       "subsection": "24.2",
       "owner_phase": "Phase 1.5 — CI/CD \u0026 Validation Harness Hardening",
       "owner_phase_tags": [
@@ -6415,7 +6415,7 @@
     {
       "id": 162,
       "criterion": "SLOs + error-budget policy defined (availability/latency/freshness SLIs, burn-rate alerts)",
-      "spec_line": 3704,
+      "spec_line": 3706,
       "subsection": "24.2",
       "owner_phase": "Phase 9 — Deployment \u0026 Operations",
       "owner_phase_tags": [
@@ -6459,7 +6459,7 @@
     {
       "id": 163,
       "criterion": "Support tickets + complaints routing (COMPLAINT → Compliance Officer queue)",
-      "spec_line": 3705,
+      "spec_line": 3707,
       "subsection": "24.2",
       "owner_phase": "Phase 7 — Admin \u0026 Monitoring (Go)",
       "owner_phase_tags": [
@@ -6503,7 +6503,7 @@
     {
       "id": 164,
       "criterion": "Per-rail cut-off times enforced on funding ops (value-date-aware withdrawal ETAs)",
-      "spec_line": 3706,
+      "spec_line": 3708,
       "subsection": "24.2",
       "owner_phase": "Phase 11 — Funding via Banking Rails, Suspension, Stats",
       "owner_phase_tags": [
@@ -6550,7 +6550,7 @@
     {
       "id": 165,
       "criterion": "Bilateral credit screening: both directed relationships have product-pool/value-date headroom; atomic reservations prevent any fill beyond mutual credit",
-      "spec_line": 3707,
+      "spec_line": 3709,
       "subsection": "24.2",
       "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
       "owner_phase_tags": [
@@ -6583,7 +6583,7 @@
         "checkpoints": [
           {
             "id": "P19-T19.3.10-C1",
-            "implemented": false,
+            "implemented": true,
             "checked": false,
             "text": "mutual bilateral credit + atomic reservations (§13.8, §24 #165)"
           }
@@ -6594,7 +6594,7 @@
     {
       "id": 166,
       "criterion": "Institutional market data: independently routed A/B multicast feeds carry identical sequences; TCP replay and snapshot recovery converge exactly with duplicate suppression",
-      "spec_line": 3708,
+      "spec_line": 3710,
       "subsection": "24.2",
       "owner_phase": "Phase 6 — Market Data Distribution",
       "owner_phase_tags": [
@@ -6638,7 +6638,7 @@
     {
       "id": 167,
       "criterion": "FIX security/certification: FIXS over TLS 1.3 with mutual certificate-to-CompID binding; client certification pack passes before production enablement",
-      "spec_line": 3709,
+      "spec_line": 3711,
       "subsection": "24.2",
       "owner_phase": "Phase 18 — FIX Protocol Gateway",
       "owner_phase_tags": [
@@ -6682,7 +6682,7 @@
     {
       "id": 168,
       "criterion": "CLS adapter: ISO 20022 paired instructions can be submitted/amended/rescinded; internal finality posts only from authenticated CLS settlement status; eligibility/cut-offs are reference-data driven",
-      "spec_line": 3710,
+      "spec_line": 3712,
       "subsection": "24.2",
       "owner_phase": "Phase 24 — Backoffice \u0026 Settlement (Nostro/Vostro)",
       "owner_phase_tags": [
@@ -6718,7 +6718,7 @@
     {
       "id": 169,
       "criterion": "EMIR REFIT: ISO 20022 TR reports include UTI, DSB UPI, action/event lifecycle, valuation/margin data; acknowledgements and reconciliation breaks are repaired with immutable history",
-      "spec_line": 3711,
+      "spec_line": 3713,
       "subsection": "24.2",
       "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
       "owner_phase_tags": [
@@ -6762,7 +6762,7 @@
     {
       "id": 170,
       "criterion": "CFTC Parts 43/45: creation/continuation, UTI/USI, DSB UPI, action/event, prior-ID links and correction workflows validate against current SDR technical rules",
-      "spec_line": 3712,
+      "spec_line": 3714,
       "subsection": "24.2",
       "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
       "owner_phase_tags": [
@@ -6806,7 +6806,7 @@
     {
       "id": 171,
       "criterion": "DORA: ICT inventory/risk, incident classification and reporting, resilience testing, third-party register and exit plans produce retained regulator-ready evidence",
-      "spec_line": 3713,
+      "spec_line": 3715,
       "subsection": "24.2",
       "owner_phase": "Phase 9 — Deployment \u0026 Operations",
       "owner_phase_tags": [
@@ -6850,7 +6850,7 @@
     {
       "id": 172,
       "criterion": "Bunched-order allocation: pre-declared fair method, average price, partial-fill handling and claim/reject/correct lifecycle never over-allocate a fill",
-      "spec_line": 3714,
+      "spec_line": 3716,
       "subsection": "24.2",
       "owner_phase": "Phase 24 — Backoffice \u0026 Settlement (Nostro/Vostro)",
       "owner_phase_tags": [
@@ -6894,7 +6894,7 @@
     {
       "id": 173,
       "criterion": "Client-money safeguarding: client and house funds segregated; internal/external reconciliation each business day; shortfalls block movements and are remediated immediately under dual control",
-      "spec_line": 3715,
+      "spec_line": 3717,
       "subsection": "24.2",
       "owner_phase": "Phase 24 — Backoffice \u0026 Settlement (Nostro/Vostro)",
       "owner_phase_tags": [
@@ -6938,7 +6938,7 @@
     {
       "id": 174,
       "criterion": "Regulated-venue controls: member/DEA due diligence and annual review, market monitoring, emergency actions, rule enforcement, system-safeguard self-assessment and CCO report are auditable",
-      "spec_line": 3716,
+      "spec_line": 3718,
       "subsection": "24.2",
       "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
       "owner_phase_tags": [
@@ -6982,7 +6982,7 @@
     {
       "id": 175,
       "criterion": "Bank statement ingestion: SWIFT MT940/MT942 and ISO 20022 camt.053 parse and automatically match nostro GL postings within the configured break tolerance (default $1,000 or 0.01% per §17.3 — supersedes prior fixed $0.01, remediation #35)",
-      "spec_line": 3717,
+      "spec_line": 3719,
       "subsection": "24.2",
       "owner_phase": "Phase 24 — Backoffice \u0026 Settlement (Nostro/Vostro)",
       "owner_phase_tags": [
@@ -7029,7 +7029,7 @@
     {
       "id": 176,
       "criterion": "Cross-shard portfolio margin coherence: Risk Coordinator enforces atomic cross-shard margin reservations; portfolio accounts never over-leverage across currency shards",
-      "spec_line": 3718,
+      "spec_line": 3720,
       "subsection": "24.2",
       "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
       "owner_phase_tags": [
@@ -7072,7 +7072,7 @@
           },
           {
             "id": "P19-T19.3.11-C1",
-            "implemented": false,
+            "implemented": true,
             "checked": false,
             "text": "Cross-shard portfolio margin coherence (§13.1, §24 #176)"
           }
@@ -7086,7 +7086,7 @@
     {
       "id": 177,
       "criterion": "Bare-metal deployment procedure: engine drain/swap/verify sequence executes with zero lost orders and rollback capability within 60s",
-      "spec_line": 3719,
+      "spec_line": 3721,
       "subsection": "24.2",
       "owner_phase": "Phase 9 — Deployment \u0026 Operations",
       "owner_phase_tags": [
@@ -7133,7 +7133,7 @@
     {
       "id": 178,
       "criterion": "MiFID II APA/ARM: RTS 1/2 post-trade transparency published to APA destination within 1 min; RTS 22 reports delivered to ARM with automated ACK/NACK repair",
-      "spec_line": 3720,
+      "spec_line": 3722,
       "subsection": "24.2",
       "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
       "owner_phase_tags": [
@@ -7180,7 +7180,7 @@
     {
       "id": 179,
       "criterion": "PostgreSQL partition archival: daily partitions older than 90 days detached, compressed, uploaded to WORM S3, verified via SHA-256, and dropped from OLTP",
-      "spec_line": 3721,
+      "spec_line": 3723,
       "subsection": "24.2",
       "owner_phase": "Phase 9 — Deployment \u0026 Operations",
       "owner_phase_tags": [
@@ -7234,7 +7234,7 @@
     {
       "id": 180,
       "criterion": "Multi-currency P\u0026L: raw quote P\u0026L converted to account base currency using mark oracle mid-rate; realized P\u0026L settled unambiguously in base ledger",
-      "spec_line": 3722,
+      "spec_line": 3724,
       "subsection": "24.2",
       "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
       "owner_phase_tags": [
@@ -7278,7 +7278,7 @@
     {
       "id": 181,
       "criterion": "Redis HA Sentinel: 3-node Sentinel topology executes automated failover \u003c3s with zero session loss and instant client reconnect",
-      "spec_line": 3723,
+      "spec_line": 3725,
       "subsection": "24.2",
       "owner_phase": "Phase 1 — C++ Core Foundation",
       "owner_phase_tags": [
@@ -7332,7 +7332,7 @@
     {
       "id": 182,
       "criterion": "FX Global Code: formal 55-principle self-assessment documented with public Statement of Commitment and annual compliance review engine",
-      "spec_line": 3724,
+      "spec_line": 3726,
       "subsection": "24.2",
       "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
       "owner_phase_tags": [
@@ -7379,7 +7379,7 @@
     {
       "id": 183,
       "criterion": "Incident classification \u0026 escalation: P0-P3 matrix operationalized with defined SLA response times, on-call paging, and 48-hour blameless RCA requirement",
-      "spec_line": 3725,
+      "spec_line": 3727,
       "subsection": "24.2",
       "owner_phase": "Phase 9 — Deployment \u0026 Operations",
       "owner_phase_tags": [
@@ -7426,7 +7426,7 @@
     {
       "id": 184,
       "criterion": "Data residency: multi-jurisdiction storage partitioning isolates EU/UK/US customer data to compliant cloud regions and HSM boundaries",
-      "spec_line": 3726,
+      "spec_line": 3728,
       "subsection": "24.2",
       "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
       "owner_phase_tags": [
@@ -7473,7 +7473,7 @@
     {
       "id": 185,
       "criterion": "Aeron configuration: dedicated C media driver with 128MB term buffers, NUMA core pinning, and kernel socket tuning verified \u003c50µs IPC latency",
-      "spec_line": 3727,
+      "spec_line": 3729,
       "subsection": "24.2",
       "owner_phase": "Phase 1 — C++ Core Foundation",
       "owner_phase_tags": [
@@ -7517,7 +7517,7 @@
     {
       "id": 186,
       "criterion": "Merkle root scheduling: daily proof-of-solvency Merkle tree generated at 22:00 UTC, published to public endpoint, with client inclusion proof API",
-      "spec_line": 3728,
+      "spec_line": 3730,
       "subsection": "24.2",
       "owner_phase": "Phase 13 — Production Hardening \u0026 Reconciliation",
       "owner_phase_tags": [
@@ -7564,7 +7564,7 @@
     {
       "id": 187,
       "criterion": "WebSocket auth upgrade: in-flight authentication and token rotation execute without disconnecting active WS market data or order feeds",
-      "spec_line": 3729,
+      "spec_line": 3731,
       "subsection": "24.2",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
       "owner_phase_tags": [
@@ -7611,7 +7611,7 @@
     {
       "id": 188,
       "criterion": "Sparse book behavior: wide spread protection bands reject aggressive market orders when spread exceeds threshold; empty levels serialize correctly",
-      "spec_line": 3730,
+      "spec_line": 3732,
       "subsection": "24.2",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
       "owner_phase_tags": [
@@ -7659,7 +7659,7 @@
     {
       "id": 189,
       "criterion": "FIX failover recovery: secondary gateway synchronizes state, processes ResendRequest with SequenceReset Gap Fill, and deduplicates in-flight executions",
-      "spec_line": 3731,
+      "spec_line": 3733,
       "subsection": "24.2",
       "owner_phase": "Phase 18 — FIX Protocol Gateway",
       "owner_phase_tags": [
@@ -7706,7 +7706,7 @@
     {
       "id": 190,
       "criterion": "Position transfer: administrative and sub-account position transfers execute off-book at mark price with GL balancing and regulatory transfer flags",
-      "spec_line": 3732,
+      "spec_line": 3734,
       "subsection": "24.2",
       "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
       "owner_phase_tags": [
@@ -7742,7 +7742,7 @@
         "checkpoints": [
           {
             "id": "P19-T19.3.12-C1",
-            "implemented": false,
+            "implemented": true,
             "checked": false,
             "text": "Internal position transfers and sub-account allocation (§13.9, §24 #190)"
           }
@@ -7753,7 +7753,7 @@
     {
       "id": 191,
       "criterion": "Capacity planning: documented hardware sizing models for 50k TPS and ClickHouse/PostgreSQL storage growth models verified under load",
-      "spec_line": 3733,
+      "spec_line": 3735,
       "subsection": "24.2",
       "owner_phase": "Phase 9 — Deployment \u0026 Operations",
       "owner_phase_tags": [
@@ -7800,7 +7800,7 @@
     {
       "id": 192,
       "criterion": "Rate limit headers: REST gateway emits standard X-RateLimit headers (Limit, Remaining, Reset) and RFC 6585 Retry-After on HTTP 429",
-      "spec_line": 3734,
+      "spec_line": 3736,
       "subsection": "24.2",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
       "owner_phase_tags": [
@@ -7847,7 +7847,7 @@
     {
       "id": 193,
       "criterion": "Smart Order Routing routes to external FIX venues when internal liquidity is thin",
-      "spec_line": 3735,
+      "spec_line": 3737,
       "subsection": "24.2",
       "owner_phase": "Phase 18 — FIX Protocol Gateway",
       "owner_phase_tags": [
@@ -7884,7 +7884,7 @@
     {
       "id": 194,
       "criterion": "Execution reports from external venues map correctly to internal orders",
-      "spec_line": 3736,
+      "spec_line": 3738,
       "subsection": "24.2",
       "owner_phase": "Phase 18 — FIX Protocol Gateway",
       "owner_phase_tags": [
@@ -7921,7 +7921,7 @@
     {
       "id": 195,
       "criterion": "PAMM/MAM accounts allocate trades pro-rata to sub-accounts",
-      "spec_line": 3737,
+      "spec_line": 3739,
       "subsection": "24.2",
       "owner_phase": "Phase 14 — Extended Production Features",
       "owner_phase_tags": [
@@ -7958,7 +7958,7 @@
     {
       "id": 196,
       "criterion": "Copy trading engine replicates master trades in real-time",
-      "spec_line": 3738,
+      "spec_line": 3740,
       "subsection": "24.2",
       "owner_phase": "Phase 14 — Extended Production Features",
       "owner_phase_tags": [
@@ -8003,7 +8003,7 @@
     {
       "id": 197,
       "criterion": "HIDDEN orders do not appear on L2/L3 market data",
-      "spec_line": 3739,
+      "spec_line": 3741,
       "subsection": "24.2",
       "owner_phase": "Phase 16 — Advanced Order Types",
       "owner_phase_tags": [
@@ -8039,7 +8039,7 @@
     {
       "id": 198,
       "criterion": "Dark orders match at midpoint pricing",
-      "spec_line": 3740,
+      "spec_line": 3742,
       "subsection": "24.2",
       "owner_phase": "Phase 16 — Advanced Order Types",
       "owner_phase_tags": [
@@ -8076,7 +8076,7 @@
     {
       "id": 199,
       "criterion": "Implied-in liquidity generated from outright books correctly",
-      "spec_line": 3741,
+      "spec_line": 3743,
       "subsection": "24.2",
       "owner_phase": "Phase 22 — FX Derivatives Foundation",
       "owner_phase_tags": [
@@ -8121,7 +8121,7 @@
     {
       "id": 200,
       "criterion": "Implied-out liquidity generated from spread books correctly",
-      "spec_line": 3742,
+      "spec_line": 3744,
       "subsection": "24.2",
       "owner_phase": "Phase 22 — FX Derivatives Foundation",
       "owner_phase_tags": [
@@ -8166,7 +8166,7 @@
     {
       "id": 201,
       "criterion": "Atomic cross-book matching executes without race conditions",
-      "spec_line": 3743,
+      "spec_line": 3745,
       "subsection": "24.2",
       "owner_phase": "Phase 22 — FX Derivatives Foundation",
       "owner_phase_tags": [
@@ -8202,7 +8202,7 @@
     {
       "id": 202,
       "criterion": "MiFID II RTS 27/28 best execution: quarterly venue quality report per instrument class + annual top-5 venue report by client category",
-      "spec_line": 3744,
+      "spec_line": 3746,
       "subsection": "24.2",
       "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
       "owner_phase_tags": [
@@ -8238,7 +8238,7 @@
     {
       "id": 203,
       "criterion": "Communications recording (MiFID II taping): client-facing comms captured at source, WORM-stored with hash-chain integrity, retrievable under dual control, retained ≥ 5 years",
-      "spec_line": 3745,
+      "spec_line": 3747,
       "subsection": "24.2",
       "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
       "owner_phase_tags": [
@@ -8285,7 +8285,7 @@
     {
       "id": 204,
       "criterion": "Account closure: closure blocked while positions/orders/settlements open; residual balances swept via banking rails; API keys revoked; full audit trail in `account_closures`",
-      "spec_line": 3746,
+      "spec_line": 3748,
       "subsection": "24.2",
       "owner_phase": "Phase 14 — Extended Production Features",
       "owner_phase_tags": [
@@ -8332,7 +8332,7 @@
     {
       "id": 205,
       "criterion": "House finance reporting: daily per-currency trial balance reconciles zero-variance to GL; finance P\u0026L/balance-sheet exports and ERP batch delivered checksummed",
-      "spec_line": 3747,
+      "spec_line": 3749,
       "subsection": "24.2",
       "owner_phase": "Phase 20 — Analytics \u0026 Reporting (ClickHouse)",
       "owner_phase_tags": [
@@ -8379,7 +8379,7 @@
     {
       "id": 206,
       "criterion": "Margin model validation: stress-scenario suite + daily backtesting of liquidation floors/insurance-fund adequacy; exceptions routed to Risk Manager; parameter changes dual-controlled with evidence",
-      "spec_line": 3748,
+      "spec_line": 3750,
       "subsection": "24.2",
       "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
       "owner_phase_tags": [
@@ -8415,7 +8415,7 @@
         "checkpoints": [
           {
             "id": "P19-T19.3.13-C1",
-            "implemented": false,
+            "implemented": true,
             "checked": false,
             "text": "margin model validation (§13.10, §24 #206)"
           }
@@ -8426,7 +8426,7 @@
     {
       "id": 207,
       "criterion": "Surveillance case management: signal → case → investigation → disposition (SAR/false-positive/escalation) with SLA and audit trail",
-      "spec_line": 3749,
+      "spec_line": 3751,
       "subsection": "24.2",
       "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
       "owner_phase_tags": [
@@ -8463,7 +8463,7 @@
     {
       "id": 208,
       "criterion": "API versioning: `/api/v2/` can coexist with `/api/v1/`; SBE schema evolution backward-compatible",
-      "spec_line": 3750,
+      "spec_line": 3752,
       "subsection": "24.2",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
       "owner_phase_tags": [
@@ -8499,7 +8499,7 @@
     {
       "id": 209,
       "criterion": "Event backbone (NATS JetStream): all cold-path consumers receive all events with correct ordering and at-least-once delivery",
-      "spec_line": 3751,
+      "spec_line": 3753,
       "subsection": "24.2",
       "owner_phase": "Phase 1 — C++ Core Foundation",
       "owner_phase_tags": [
@@ -8535,7 +8535,7 @@
     {
       "id": 210,
       "criterion": "Aeron Bridge fan-out: single Bridge per shard republishes engine events to NATS within \u003c 1ms; bounded buffer on NATS unavailability",
-      "spec_line": 3752,
+      "spec_line": 3754,
       "subsection": "24.2",
       "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
       "owner_phase_tags": [
@@ -8571,7 +8571,7 @@
     {
       "id": 211,
       "criterion": "Quarterly DR drill: full region failover executed quarterly; all §18.3 RPO/RTO targets met",
-      "spec_line": 3753,
+      "spec_line": 3755,
       "subsection": "24.2",
       "owner_phase": "Phase 9 — Deployment \u0026 Operations",
       "owner_phase_tags": [
@@ -8615,7 +8615,7 @@
     {
       "id": 212,
       "criterion": "Unified data retention policy: all data types have documented retention period, archival mechanism, and regulatory basis",
-      "spec_line": 3754,
+      "spec_line": 3756,
       "subsection": "24.2",
       "owner_phase": "Phase 9 — Deployment \u0026 Operations",
       "owner_phase_tags": [
@@ -8659,7 +8659,7 @@
     {
       "id": 213,
       "criterion": "Secrets injection for bare-metal: C++ engine receives credentials without Kubernetes; Aeron IPC secured via Unix permissions",
-      "spec_line": 3755,
+      "spec_line": 3757,
       "subsection": "24.2",
       "owner_phase": "Phase 13.5 — Security \u0026 Compliance Audit",
       "owner_phase_tags": [
@@ -8703,7 +8703,7 @@
     {
       "id": 214,
       "criterion": "2PC reservation timeout: cross-shard basket reservation expires and compensates within 5s; max 10 concurrent per account",
-      "spec_line": 3756,
+      "spec_line": 3758,
       "subsection": "24.2",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
       "owner_phase_tags": [
@@ -8743,7 +8743,7 @@
     {
       "id": 215,
       "criterion": "WebSocket message rate limit: per-session subscribe/unsubscribe rate enforced; excess → throttle warning then disconnect",
-      "spec_line": 3757,
+      "spec_line": 3759,
       "subsection": "24.2",
       "owner_phase": "Phase 6 — Market Data Distribution",
       "owner_phase_tags": [
@@ -8779,7 +8779,7 @@
     {
       "id": 216,
       "criterion": "Go service graceful shutdown: gateway drains in-flight orders, FIX sends Logout, WS sends reconnect hint before pod termination",
-      "spec_line": 3758,
+      "spec_line": 3760,
       "subsection": "24.2",
       "owner_phase": "Phase 9 — Deployment \u0026 Operations",
       "owner_phase_tags": [
@@ -8823,7 +8823,7 @@
     {
       "id": 217,
       "criterion": "24/5 session lifecycle: Friday close preserves GTC; Sunday pre-open accepts orders without matching; reopening auction at 21:00 UTC",
-      "spec_line": 3759,
+      "spec_line": 3761,
       "subsection": "24.2",
       "owner_phase": "Phase 15 — Market Admin Lifecycle",
       "owner_phase_tags": [
@@ -8870,7 +8870,7 @@
     {
       "id": 218,
       "criterion": "Insurance fund governance: initial capitalization, target balance, replenishment mechanism, and regulatory minimum defined and enforced",
-      "spec_line": 3760,
+      "spec_line": 3762,
       "subsection": "24.2",
       "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
       "owner_phase_tags": [
@@ -8907,7 +8907,7 @@
     {
       "id": 219,
       "criterion": "Compliance hold workflow: sanctions hit → auto-FROZEN + order cancellation → Compliance Officer review → release or SAR/closure",
-      "spec_line": 3761,
+      "spec_line": 3763,
       "subsection": "24.2",
       "owner_phase": "Phase 14 — Extended Production Features",
       "owner_phase_tags": [
@@ -8952,7 +8952,7 @@
     {
       "id": 220,
       "criterion": "Market order protection: aggressive market orders converted to synthetic limits at best_price ± max_slippage_bps; unfilled remainder rejected SLIPPAGE_EXCEEDED",
-      "spec_line": 3762,
+      "spec_line": 3764,
       "subsection": "24.2",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
       "owner_phase_tags": [
@@ -8992,7 +8992,7 @@
     {
       "id": 221,
       "criterion": "Overnight swap rate engine: daily swap rates ingested; rollover applies interest differential points at 17:00 ET; triple-swap Wednesday applies 3× charges",
-      "spec_line": 3763,
+      "spec_line": 3765,
       "subsection": "24.2",
       "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
       "owner_phase_tags": [
@@ -9028,7 +9028,7 @@
     {
       "id": 222,
       "criterion": "Pip value calculator: standardized pip value computed across direct, indirect, and cross pairs with live FX conversion to account currency",
-      "spec_line": 3764,
+      "spec_line": 3766,
       "subsection": "24.2",
       "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
       "owner_phase_tags": [
@@ -9064,7 +9064,7 @@
     {
       "id": 223,
       "criterion": "Dual fee model: SPREAD_MARKUP (implicit spread widening) vs RAW_SPREAD_COMMISSION (explicit per-lot fee) configurable per account with volume tiers",
-      "spec_line": 3765,
+      "spec_line": 3767,
       "subsection": "24.2",
       "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
       "owner_phase_tags": [
@@ -9100,7 +9100,7 @@
     {
       "id": 224,
       "criterion": "Funding fee schedule: configurable per rail/currency/direction/tier with flat + percentage and min/max caps; conversion spread applied",
-      "spec_line": 3766,
+      "spec_line": 3768,
       "subsection": "24.2",
       "owner_phase": "Phase 11 — Funding via Banking Rails, Suspension, Stats",
       "owner_phase_tags": [
@@ -9136,7 +9136,7 @@
     {
       "id": 225,
       "criterion": "API gateway: HAProxy L7 routing with health-check failover, TLS termination, blue-green deployment routing, and circuit breaking",
-      "spec_line": 3767,
+      "spec_line": 3769,
       "subsection": "24.2",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
       "owner_phase_tags": [
@@ -9172,7 +9172,7 @@
     {
       "id": 226,
       "criterion": "OHLCV candlestick aggregation: 13 timeframes (1s→1M; supersedes prior 9); 12 persisted in ClickHouse, 1s memory-only; live updates ≤2/sec",
-      "spec_line": 3768,
+      "spec_line": 3770,
       "subsection": "24.2",
       "owner_phase": "Phase 6 — Market Data Distribution",
       "owner_phase_tags": [
@@ -9216,7 +9216,7 @@
     {
       "id": 227,
       "criterion": "LP management module: entity CRUD, per-LP pricing configuration, real-time scorecard (fill ratio, latency, availability), and degradation alerts",
-      "spec_line": 3769,
+      "spec_line": 3771,
       "subsection": "24.2",
       "owner_phase": "Phase 7 — Admin \u0026 Monitoring (Go)",
       "owner_phase_tags": [
@@ -9252,7 +9252,7 @@
     {
       "id": 228,
       "criterion": "Retail Negative Balance Protection (NBP): retail account equity reset to 0 post-liquidation; shortfall debited from insurance fund; audit-logged",
-      "spec_line": 3770,
+      "spec_line": 3772,
       "subsection": "24.2",
       "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
       "owner_phase_tags": [
@@ -9288,7 +9288,7 @@
     {
       "id": 229,
       "criterion": "Position netting/hedging mode: account-level toggle; netting closes opposing position; hedging allows coexistent positions with hedged margin",
-      "spec_line": 3771,
+      "spec_line": 3773,
       "subsection": "24.2",
       "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
       "owner_phase_tags": [
@@ -9324,7 +9324,7 @@
     {
       "id": 230,
       "criterion": "Margin level % display: real-time equity/used_margin × 100 push; ESMA retail thresholds (120% warning, 100% margin call, 50% stop-out liquidation)",
-      "spec_line": 3772,
+      "spec_line": 3774,
       "subsection": "24.2",
       "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
       "owner_phase_tags": [
@@ -9360,7 +9360,7 @@
     {
       "id": 231,
       "criterion": "Tiered leverage by notional: dynamic leverage reduction across notional exposure bands per instrument group and regulatory regime",
-      "spec_line": 3773,
+      "spec_line": 3775,
       "subsection": "24.2",
       "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
       "owner_phase_tags": [
@@ -9396,7 +9396,7 @@
     {
       "id": 232,
       "criterion": "Correlation-based margin offset: daily 90-day correlation matrix; offset applied for correlated FX pairs (|corr| \u003e 0.7) with 20% regulatory gross floor",
-      "spec_line": 3774,
+      "spec_line": 3776,
       "subsection": "24.2",
       "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
       "owner_phase_tags": [
@@ -9432,7 +9432,7 @@
     {
       "id": 233,
       "criterion": "Hot-warm-cold data tiering: PostgreSQL (90d) → ClickHouse (2y) → S3 Parquet (\u003e2y) with automated monthly migration and Presto/Trino cold queries",
-      "spec_line": 3775,
+      "spec_line": 3777,
       "subsection": "24.2",
       "owner_phase": "Phase 9 — Deployment \u0026 Operations",
       "owner_phase_tags": [
@@ -9468,7 +9468,7 @@
     {
       "id": 234,
       "criterion": "Instrument maintenance workflow: maker-checker approval for creation/parameters; session-boundary activation; delisting with FIX/WS notification",
-      "spec_line": 3776,
+      "spec_line": 3778,
       "subsection": "24.2",
       "owner_phase": "Phase 15 — Market Admin Lifecycle",
       "owner_phase_tags": [
@@ -9515,7 +9515,7 @@
     {
       "id": 235,
       "criterion": "Client reporting portal: automated trade confirmation generation (MiFID II Art. 25) delivered via portal + email; 7-year regulatory archival",
-      "spec_line": 3777,
+      "spec_line": 3779,
       "subsection": "24.2",
       "owner_phase": "Phase 20 — Analytics \u0026 Reporting (ClickHouse)",
       "owner_phase_tags": [
@@ -9551,7 +9551,7 @@
     {
       "id": 236,
       "criterion": "Historical tick data REST API: ClickHouse-backed cursor-paginated endpoint with JSON/CSV export, tier-based rate limits, and 15-min delayed free tier",
-      "spec_line": 3778,
+      "spec_line": 3780,
       "subsection": "24.2",
       "owner_phase": "Phase 23 — Market Data Products",
       "owner_phase_tags": [
@@ -9587,7 +9587,7 @@
     {
       "id": 237,
       "criterion": "Post-trade block allocation: institutional block trade split into fund sub-accounts via FIX 35=J; confirmation via 35=AK; settlement per allocation",
-      "spec_line": 3779,
+      "spec_line": 3781,
       "subsection": "24.2",
       "owner_phase": "Phase 24 — Backoffice \u0026 Settlement (Nostro/Vostro)",
       "owner_phase_tags": [
@@ -9623,7 +9623,7 @@
     {
       "id": 238,
       "criterion": "Load-shedding cancel exemption: DELETE/FIX 35=F/35=q bypass shedding unconditionally; dedicated priority lane; zero drops",
-      "spec_line": 3780,
+      "spec_line": 3782,
       "subsection": "24.2",
       "owner_phase": "Phase 9 — Deployment \u0026 Operations",
       "owner_phase_tags": [
@@ -9659,7 +9659,7 @@
     {
       "id": 239,
       "criterion": "Manual liquidation admin: POST /api/v1/admin/liquidation/manual with dual control, WAL MANUAL_LIQUIDATION, audit hash chain",
-      "spec_line": 3781,
+      "spec_line": 3783,
       "subsection": "24.2",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
       "owner_phase_tags": [
@@ -9698,7 +9698,7 @@
     {
       "id": 240,
       "criterion": "Client-money shortfall 4-tier waterfall (insurance → house → capital call → default); Tier 3+ regulatory notification ≤ 60 min",
-      "spec_line": 3782,
+      "spec_line": 3784,
       "subsection": "24.2",
       "owner_phase": "Phase 24 — Backoffice \u0026 Settlement (Nostro/Vostro)",
       "owner_phase_tags": [
@@ -9734,7 +9734,7 @@
     {
       "id": 241,
       "criterion": "Proportional liquidation slicing: positions \u003e 5% ADV sliced at max 10% ADV; 2s inter-slice delay; early halt on margin recovery",
-      "spec_line": 3783,
+      "spec_line": 3785,
       "subsection": "24.2",
       "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
       "owner_phase_tags": [
@@ -9770,7 +9770,7 @@
     {
       "id": 242,
       "criterion": "SOR 5-state lifecycle with shadow orders, 500ms timeout, FILL_BRIDGE reconciliation, no concurrent local+external",
-      "spec_line": 3784,
+      "spec_line": 3786,
       "subsection": "24.2",
       "owner_phase": "Phase 18 — FIX Protocol Gateway",
       "owner_phase_tags": [
@@ -9806,7 +9806,7 @@
     {
       "id": 243,
       "criterion": "FIX TradingSessionStatus (35=h) broadcast ≤ 50ms of instrument state change; subscribe/unsubscribe via 35=g",
-      "spec_line": 3785,
+      "spec_line": 3787,
       "subsection": "24.2",
       "owner_phase": "Phase 18 — FIX Protocol Gateway",
       "owner_phase_tags": [
@@ -9842,7 +9842,7 @@
     {
       "id": 244,
       "criterion": "L3 snapshot async WAL-based generation; REST with pagination; staleness ≤ 500ms; \u003e 100K orders → 413",
-      "spec_line": 3786,
+      "spec_line": 3788,
       "subsection": "24.2",
       "owner_phase": "Phase 17 — L3 Order-Level Data",
       "owner_phase_tags": [
@@ -9878,7 +9878,7 @@
     {
       "id": 245,
       "criterion": "WS disconnect_reason discriminator; cancel-on-disconnect exempt for ABUSE_DISCONNECT; max 1 CoD per account per 5s",
-      "spec_line": 3787,
+      "spec_line": 3789,
       "subsection": "24.2",
       "owner_phase": "Phase 6 — Market Data Distribution",
       "owner_phase_tags": [
@@ -9919,7 +9919,7 @@
     {
       "id": 246,
       "criterion": "TCA engine: per-fill slippage vs arrival/VWAP/ECB fix; ClickHouse; REST API; quarterly RTS 28 auto-generation",
-      "spec_line": 3788,
+      "spec_line": 3790,
       "subsection": "24.2",
       "owner_phase": "Phase 20 — Analytics \u0026 Reporting (ClickHouse)",
       "owner_phase_tags": [
@@ -9955,7 +9955,7 @@
     {
       "id": 247,
       "criterion": "American-style intra-day exercise ≤ 5s; blocked during liquidation; option_assignments table with margin impact",
-      "spec_line": 3789,
+      "spec_line": 3791,
       "subsection": "24.2",
       "owner_phase": "Phase 22 — FX Derivatives Foundation",
       "owner_phase_tags": [
@@ -9991,7 +9991,7 @@
     {
       "id": 248,
       "criterion": "Option spread offsets: verticals, straddles, strangles, calendar; vertical ≤ max loss; PORTFOLIO mode only",
-      "spec_line": 3790,
+      "spec_line": 3792,
       "subsection": "24.2",
       "owner_phase": "Phase 22 — FX Derivatives Foundation",
       "owner_phase_tags": [
@@ -10027,7 +10027,7 @@
     {
       "id": 249,
       "criterion": "CRS/FATCA annual tax reports with FIFO P\u0026L; OECD/IRS schema validation; dual-control sign-off",
-      "spec_line": 3791,
+      "spec_line": 3793,
       "subsection": "24.2",
       "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
       "owner_phase_tags": [
@@ -10063,7 +10063,7 @@
     {
       "id": 250,
       "criterion": "Real-time Greeks WS feed (greeks@{symbol}) at 100ms; premium tier; ClickHouse historical",
-      "spec_line": 3792,
+      "spec_line": 3794,
       "subsection": "24.2",
       "owner_phase": "Phase 23 — Market Data Products",
       "owner_phase_tags": [
@@ -10099,7 +10099,7 @@
     {
       "id": 251,
       "criterion": "Advanced order UI: all TIF, iceberg, trailing stop, bracket; sub-account switcher; admin fee tier assignment",
-      "spec_line": 3793,
+      "spec_line": 3795,
       "subsection": "24.2",
       "owner_phase": "Phase 10 — Trader UI (React + TypeScript)",
       "owner_phase_tags": [
@@ -10135,7 +10135,7 @@
     {
       "id": 252,
       "criterion": "GSLO: guaranteed fill at stop price; premium at placement, refund on cancel; insurance fund gap risk; exposure limits",
-      "spec_line": 3794,
+      "spec_line": 3796,
       "subsection": "24.2",
       "owner_phase": "Phase 16 — Advanced Order Types",
       "owner_phase_tags": [
@@ -10174,7 +10174,7 @@
     {
       "id": 253,
       "criterion": "Interactive WebSocket Trading API: persistent `/ws/v1` session handles `order.place`, `order.cancel`, `order.modify`, `order.batch`, `order.status` with correlated `request_id` responses",
-      "spec_line": 3795,
+      "spec_line": 3797,
       "subsection": "24.2",
       "owner_phase": "Phase 5 — Order Gateway API (Go) / Phase 6 — Market Data Distribution",
       "owner_phase_tags": [
@@ -10227,7 +10227,7 @@
     {
       "id": 254,
       "criterion": "REST Batch Orders: `POST /api/v1/orders/batch` (up to 10 orders) and `DELETE /api/v1/orders/batch` (up to 20 orders) with atomic index-mapped result array and Redis batch rate limiting",
-      "spec_line": 3796,
+      "spec_line": 3798,
       "subsection": "24.2",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
       "owner_phase_tags": [
@@ -10263,7 +10263,7 @@
     {
       "id": 255,
       "criterion": "Dual-price conditional triggers: Stop-Loss, Take-Profit, Trailing Stop, Bracket orders evaluate against `LAST_PRICE`, `MARK_PRICE`, or `INDEX_PRICE`; fail-closed on oracle staleness \u003e 5s",
-      "spec_line": 3797,
+      "spec_line": 3799,
       "subsection": "24.2",
       "owner_phase": "Phase 16 — Advanced Order Types",
       "owner_phase_tags": [
@@ -10306,7 +10306,7 @@
     {
       "id": 256,
       "criterion": "Scalable sub-account hierarchy: tiered ceilings (default 20 retail, 100 corporate, up to 1,000 institutional via admin adjustment); programmatic sub-account API key provisioning",
-      "spec_line": 3798,
+      "spec_line": 3800,
       "subsection": "24.2",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
       "owner_phase_tags": [
@@ -10342,7 +10342,7 @@
     {
       "id": 257,
       "criterion": "Dead-man switch/countdown cancel-all shares one account timer across REST, WS, and FIX; expiry atomically cancels resting orders",
-      "spec_line": 3799,
+      "spec_line": 3801,
       "subsection": "24.2",
       "owner_phase": "Phase 5 — Order Gateway API (Go) / Phase 18 — FIX Protocol Gateway",
       "owner_phase_tags": [
@@ -10409,7 +10409,7 @@
     {
       "id": 258,
       "criterion": "Repeated requests after HTTP 429 escalate to timed HTTP 418 IP bans with Retry-After, expiry, admin override, and audit",
-      "spec_line": 3800,
+      "spec_line": 3802,
       "subsection": "24.2",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
       "owner_phase_tags": [
@@ -10453,7 +10453,7 @@
     {
       "id": 259,
       "criterion": "Instrument reference responses expose structured price, lot, notional, order-count, price-band, and spread filters",
-      "spec_line": 3801,
+      "spec_line": 3803,
       "subsection": "24.2",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
       "owner_phase_tags": [
@@ -10500,7 +10500,7 @@
     {
       "id": 260,
       "criterion": "Close-all positions uses scoped mass cancel plus reduce-only slippage-protected closes and reports partial failure",
-      "spec_line": 3802,
+      "spec_line": 3804,
       "subsection": "24.2",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
       "owner_phase_tags": [
@@ -10547,7 +10547,7 @@
     {
       "id": 261,
       "criterion": "Zero-conflation BBO stream emits every top-of-book change over WS and institutional SBE",
-      "spec_line": 3803,
+      "spec_line": 3805,
       "subsection": "24.2",
       "owner_phase": "Phase 6 — Market Data Distribution",
       "owner_phase_tags": [
@@ -10591,7 +10591,7 @@
     {
       "id": 262,
       "criterion": "Aggregated-trade stream groups fills from one taker at one price while preserving first/last trade lineage",
-      "spec_line": 3804,
+      "spec_line": 3806,
       "subsection": "24.2",
       "owner_phase": "Phase 6 — Market Data Distribution",
       "owner_phase_tags": [
@@ -10635,7 +10635,7 @@
     {
       "id": 263,
       "criterion": "Public liquidation stream is delayed by 2 seconds and cannot front-run active auctions",
-      "spec_line": 3805,
+      "spec_line": 3807,
       "subsection": "24.2",
       "owner_phase": "Phase 6 — Market Data Distribution",
       "owner_phase_tags": [
@@ -10679,7 +10679,7 @@
     {
       "id": 264,
       "criterion": "Canonical OHLCV set contains 13 intervals: 1s, 1m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 8h, 1D, 1W, 1M",
-      "spec_line": 3806,
+      "spec_line": 3808,
       "subsection": "24.2",
       "owner_phase": "Phase 6 — Market Data Distribution",
       "owner_phase_tags": [
@@ -10723,7 +10723,7 @@
     {
       "id": 265,
       "criterion": "WS depth supports 5/10/20 levels and 100/250/1000ms cadence; connection subscription cap is documented and enforced",
-      "spec_line": 3807,
+      "spec_line": 3809,
       "subsection": "24.2",
       "owner_phase": "Phase 6 — Market Data Distribution",
       "owner_phase_tags": [
@@ -10773,7 +10773,7 @@
     {
       "id": 266,
       "criterion": "Isolated demo environment mirrors production REST/WS/FIX with virtual funds, no real banking, and account expiry",
-      "spec_line": 3808,
+      "spec_line": 3810,
       "subsection": "24.2",
       "owner_phase": "Phase 8 — Integration Validation \u0026 Performance Tuning",
       "owner_phase_tags": [
@@ -10818,7 +10818,7 @@
     {
       "id": 267,
       "criterion": "User calculators cover P\u0026L, pip value, margin, liquidation price, and swap using live marks/account leverage",
-      "spec_line": 3809,
+      "spec_line": 3811,
       "subsection": "24.2",
       "owner_phase": "Phase 10 — Trader UI (React + TypeScript)",
       "owner_phase_tags": [
@@ -10862,7 +10862,7 @@
     {
       "id": 268,
       "criterion": "Lite/Pro modes, confirmed reverse/flatten/close-all, percentage sizing, and interactive depth chart are functional",
-      "spec_line": 3810,
+      "spec_line": 3812,
       "subsection": "24.2",
       "owner_phase": "Phase 10 — Trader UI (React + TypeScript)",
       "owner_phase_tags": [
@@ -10924,7 +10924,7 @@
     {
       "id": 269,
       "criterion": "Five-level ADL rank is recomputed and published through REST/private WS and explained in the UI",
-      "spec_line": 3811,
+      "spec_line": 3813,
       "subsection": "24.2",
       "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin / Phase 10 — Trader UI (React + TypeScript)",
       "owner_phase_tags": [
@@ -10980,7 +10980,7 @@
           },
           {
             "id": "P19-T19.3.19-C1",
-            "implemented": false,
+            "implemented": true,
             "checked": false,
             "text": "ADL priority is recomputed and published at the liquidation cadence (§24 #269)"
           }
@@ -10991,7 +10991,7 @@
     {
       "id": 270,
       "criterion": "WebAuthn/passkeys verify challenge, origin, signature, and counter for passwordless or second-factor login",
-      "spec_line": 3812,
+      "spec_line": 3814,
       "subsection": "24.2",
       "owner_phase": "Phase 12 — User Self-Service \u0026 Notifications",
       "owner_phase_tags": [
@@ -11035,7 +11035,7 @@
     {
       "id": 271,
       "criterion": "Anti-phishing codes, login/device history, session revocation, and emergency self-freeze are complete",
-      "spec_line": 3813,
+      "spec_line": 3815,
       "subsection": "24.2",
       "owner_phase": "Phase 12 — User Self-Service \u0026 Notifications",
       "owner_phase_tags": [
@@ -11091,7 +11091,7 @@
     {
       "id": 272,
       "criterion": "Non-IP-allowlisted privileged API keys auto-expire after 90 days with warning, audit, and controlled restoration",
-      "spec_line": 3814,
+      "spec_line": 3816,
       "subsection": "24.2",
       "owner_phase": "Phase 13 — Production Hardening \u0026 Reconciliation",
       "owner_phase_tags": [
@@ -11138,7 +11138,7 @@
     {
       "id": 273,
       "criterion": "Responsible-trading cooling-off is irrevocable for its term, closes leveraged exposure, and blocks new leveraged trading",
-      "spec_line": 3815,
+      "spec_line": 3817,
       "subsection": "24.2",
       "owner_phase": "Phase 14 — Extended Production Features",
       "owner_phase_tags": [
@@ -11182,7 +11182,7 @@
     {
       "id": 274,
       "criterion": "STP NONE is available only to Professional/ECP accounts and all self-trades emit surveillance signals",
-      "spec_line": 3816,
+      "spec_line": 3818,
       "subsection": "24.2",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
       "owner_phase_tags": [
@@ -11229,7 +11229,7 @@
     {
       "id": 275,
       "criterion": "VP and grid algorithms enforce parent risk/lifecycle, child accounting, anti-gaming, and strategy P\u0026L",
-      "spec_line": 3817,
+      "spec_line": 3819,
       "subsection": "24.2",
       "owner_phase": "Phase 16 — Advanced Order Types",
       "owner_phase_tags": [
@@ -11283,7 +11283,7 @@
     {
       "id": 276,
       "criterion": "Tax calculator and anonymized sentiment analytics expose reproducible outputs with privacy/delay controls",
-      "spec_line": 3818,
+      "spec_line": 3820,
       "subsection": "24.2",
       "owner_phase": "Phase 20 — Analytics \u0026 Reporting (ClickHouse) / Phase 23 — Market Data Products",
       "owner_phase_tags": [
@@ -11350,7 +11350,7 @@
     {
       "id": 277,
       "criterion": "Reference-price execution collars are snapshotted for the full taker phase; out-of-range remainder expires with a persisted reason",
-      "spec_line": 3819,
+      "spec_line": 3821,
       "subsection": "24.2",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
       "owner_phase_tags": [
@@ -11398,7 +11398,7 @@
     {
       "id": 278,
       "criterion": "Execution rules, reference price, calculation provenance, real-time stream, and expiry reasons are exposed consistently",
-      "spec_line": 3820,
+      "spec_line": 3822,
       "subsection": "24.2",
       "owner_phase": "Phase 6 — Market Data Distribution",
       "owner_phase_tags": [
@@ -11442,7 +11442,7 @@
     {
       "id": 279,
       "criterion": "STP applies across institutional trade groups and supports mutually requested TRANSFER with balanced prevented-notional movement",
-      "spec_line": 3821,
+      "spec_line": 3823,
       "subsection": "24.2",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
       "owner_phase_tags": [
@@ -11489,7 +11489,7 @@
     {
       "id": 280,
       "criterion": "Immutable prevented-match records and cumulative prevented quantities are client-queryable and replay exactly",
-      "spec_line": 3822,
+      "spec_line": 3824,
       "subsection": "24.2",
       "owner_phase": "Phase 2 — Matching Engine Core (C++) / Phase 5 — Order Gateway API (Go)",
       "owner_phase_tags": [
@@ -11553,7 +11553,7 @@
     {
       "id": 281,
       "criterion": "Atomic cancel-replace exposes STOP_ON_FAILURE/ALLOW_FAILURE and distinct cancel/new outcomes on partial success",
-      "spec_line": 3823,
+      "spec_line": 3825,
       "subsection": "24.2",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
       "owner_phase_tags": [
@@ -11597,7 +11597,7 @@
     {
       "id": 282,
       "criterion": "Quantity-down keep-priority amendment preserves order ID/timestamp and emits client-visible history/events across REST/WS/FIX",
-      "spec_line": 3824,
+      "spec_line": 3826,
       "subsection": "24.2",
       "owner_phase": "Phase 5 — Order Gateway API (Go) / Phase 18 — FIX Protocol Gateway",
       "owner_phase_tags": [
@@ -11661,7 +11661,7 @@
     {
       "id": 283,
       "criterion": "REST/WS accept Ed25519 and RSA signatures; FIX requires Ed25519; asymmetric private keys never enter the platform",
-      "spec_line": 3825,
+      "spec_line": 3827,
       "subsection": "24.2",
       "owner_phase": "Phase 5 — Order Gateway API (Go) / Phase 12 — User Self-Service \u0026 Notifications",
       "owner_phase_tags": [
@@ -11707,7 +11707,7 @@
     {
       "id": 284,
       "criterion": "REST, interactive WS, private streams, and FIX negotiate SBE with machine-readable six-month deprecation/retirement lifecycle",
-      "spec_line": 3826,
+      "spec_line": 3828,
       "subsection": "24.2",
       "owner_phase": "Phase 6 — Market Data Distribution / Phase 18 — FIX Protocol Gateway",
       "owner_phase_tags": [
@@ -11774,7 +11774,7 @@
     {
       "id": 285,
       "criterion": "Institutional delegated human logins enforce scoped client roles and M-of-N multi-validator policies with anti-self-approval",
-      "spec_line": 3827,
+      "spec_line": 3829,
       "subsection": "24.2",
       "owner_phase": "Phase 12 — User Self-Service \u0026 Notifications",
       "owner_phase_tags": [
@@ -11818,7 +11818,7 @@
     {
       "id": 286,
       "criterion": "Quote-denominated market orders and side-effect-free previews obey filters, margin, price rules, and disclose estimated costs",
-      "spec_line": 3828,
+      "spec_line": 3830,
       "subsection": "24.2",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
       "owner_phase_tags": [
@@ -11862,7 +11862,7 @@
     {
       "id": 287,
       "criterion": "OPO/OPOCO sizes pending SELL legs from locked net working-order proceeds after fees/rounding and recovers atomically",
-      "spec_line": 3829,
+      "spec_line": 3831,
       "subsection": "24.2",
       "owner_phase": "Phase 16 — Advanced Order Types",
       "owner_phase_tags": [
@@ -11909,7 +11909,7 @@
     {
       "id": 288,
       "criterion": "Weighted multi-interval rate usage and effective filters/commissions/amendments/prevented matches/SOR allocations are queryable",
-      "spec_line": 3830,
+      "spec_line": 3832,
       "subsection": "24.2",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
       "owner_phase_tags": [
@@ -11956,7 +11956,7 @@
     {
       "id": 289,
       "criterion": "Planned endpoint shutdown emits WS/SBE and FIX News drain advisories while cancels and in-flight responses remain available",
-      "spec_line": 3831,
+      "spec_line": 3833,
       "subsection": "24.2",
       "owner_phase": "Phase 6 — Market Data Distribution / Phase 18 — FIX Protocol Gateway",
       "owner_phase_tags": [
@@ -12023,7 +12023,7 @@
     {
       "id": 290,
       "criterion": "Persistent CANCEL_ONLY rejects new/replace/amend, preserves resting orders, and keeps every cancellation path available",
-      "spec_line": 3832,
+      "spec_line": 3834,
       "subsection": "24.2",
       "owner_phase": "Phase 15 — Market Admin Lifecycle",
       "owner_phase_tags": [
@@ -12076,7 +12076,7 @@
     {
       "id": 291,
       "criterion": "All-market rolling statistics plus live/historical anonymous delayed block-trade tape preserve correction/bust lineage",
-      "spec_line": 3833,
+      "spec_line": 3835,
       "subsection": "24.2",
       "owner_phase": "Phase 6 — Market Data Distribution / Phase 23 — Market Data Products",
       "owner_phase_tags": [
@@ -12143,7 +12143,7 @@
     {
       "id": 292,
       "criterion": "Users can save/reset accessible layouts and safely inspect/drag orders and overlays with explicit priority semantics",
-      "spec_line": 3834,
+      "spec_line": 3836,
       "subsection": "24.2",
       "owner_phase": "Phase 10 — Trader UI (React + TypeScript)",
       "owner_phase_tags": [
@@ -12201,7 +12201,7 @@
     {
       "id": 293,
       "criterion": "Built-in technical indicators and sandboxed cost-aware backtests are reproducible and cannot place live orders",
-      "spec_line": 3835,
+      "spec_line": 3837,
       "subsection": "24.2",
       "owner_phase": "Phase 10 — Trader UI (React + TypeScript)",
       "owner_phase_tags": [
@@ -12245,7 +12245,7 @@
     {
       "id": 294,
       "criterion": "FX top movers, heatmaps, watchlists, and rate alerts consume canonical market data and user notification preferences",
-      "spec_line": 3836,
+      "spec_line": 3838,
       "subsection": "24.2",
       "owner_phase": "Phase 10 — Trader UI (React + TypeScript)",
       "owner_phase_tags": [
@@ -12290,7 +12290,7 @@
     {
       "id": 295,
       "criterion": "Client equity/P\u0026L/drawdown/attribution/cost dashboard reconciles to ledger-backed statements and reporting currency",
-      "spec_line": 3837,
+      "spec_line": 3839,
       "subsection": "24.2",
       "owner_phase": "Phase 10 — Trader UI (React + TypeScript) / Phase 20 — Analytics \u0026 Reporting (ClickHouse)",
       "owner_phase_tags": [
@@ -12351,7 +12351,7 @@
     {
       "id": 296,
       "criterion": "Recurring conversion, rebalancing, and approved strategy replication remain firm-CLOB, suitability-gated, pausable, and cost-transparent",
-      "spec_line": 3838,
+      "spec_line": 3840,
       "subsection": "24.2",
       "owner_phase": "Phase 16 — Advanced Order Types",
       "owner_phase_tags": [
@@ -12395,7 +12395,7 @@
     {
       "id": 297,
       "criterion": "C++ core memory-aligned ring buffers and checked arithmetic overflow defenses reject corrupt or out-of-capacity mutations",
-      "spec_line": 3839,
+      "spec_line": 3841,
       "subsection": "24.2",
       "owner_phase": "Phase 1 — C++ Core Foundation",
       "owner_phase_tags": [
@@ -12442,7 +12442,7 @@
     {
       "id": 298,
       "criterion": "CI negative test suite and fault injection harness validates deterministic rejection of malformed or invalid inputs",
-      "spec_line": 3840,
+      "spec_line": 3842,
       "subsection": "24.2",
       "owner_phase": "Phase 1.5 — CI/CD Validation Harness",
       "owner_phase_tags": [
@@ -12486,7 +12486,7 @@
     {
       "id": 299,
       "criterion": "Matching engine sheds load at 80% watermark and pauses ingress at 95% critical backpressure without message loss",
-      "spec_line": 3841,
+      "spec_line": 3843,
       "subsection": "24.2",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
       "owner_phase_tags": [
@@ -12533,7 +12533,7 @@
     {
       "id": 300,
       "criterion": "72-hour soak test verifies crash-free engine resilience under continuous fault injection and poison-pill order attempts",
-      "spec_line": 3842,
+      "spec_line": 3844,
       "subsection": "24.2",
       "owner_phase": "Phase 2.5 — Engine Soak \u0026 Chaos Testing",
       "owner_phase_tags": [
@@ -12577,7 +12577,7 @@
     {
       "id": 301,
       "criterion": "Double-entry ledger enforces zero-sum debits/credits invariant and aborts transaction on any imbalance",
-      "spec_line": 3843,
+      "spec_line": 3845,
       "subsection": "24.2",
       "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
       "owner_phase_tags": [
@@ -12621,7 +12621,7 @@
     {
       "id": 302,
       "criterion": "Graduated WAL recovery ladder executes CRC repair, snapshot rebase, or fail-closed halt with recovery report",
-      "spec_line": 3844,
+      "spec_line": 3846,
       "subsection": "24.2",
       "owner_phase": "Phase 4 — Persistence \u0026 Recovery",
       "owner_phase_tags": [
@@ -12665,7 +12665,7 @@
     {
       "id": 303,
       "criterion": "Chaos validation verifies resilience against PostgreSQL serialization failures (40001) and Redis Sentinel split-brain",
-      "spec_line": 3845,
+      "spec_line": 3847,
       "subsection": "24.2",
       "owner_phase": "Phase 4.5 — Chaos Engineering \u0026 Failure Injection",
       "owner_phase_tags": [
@@ -12709,7 +12709,7 @@
     {
       "id": 304,
       "criterion": "Gateway maps errors to RFC 7807 problem details, enforces HMAC replay defense, and handles 504 engine timeouts",
-      "spec_line": 3846,
+      "spec_line": 3848,
       "subsection": "24.2",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
       "owner_phase_tags": [
@@ -12753,7 +12753,7 @@
     {
       "id": 305,
       "criterion": "Market data distribution evicts slow WebSocket consumers (code 4008) and fails over between SBE A/B feeds",
-      "spec_line": 3847,
+      "spec_line": 3849,
       "subsection": "24.2",
       "owner_phase": "Phase 6 — Market Data Distribution",
       "owner_phase_tags": [
@@ -12797,7 +12797,7 @@
     {
       "id": 306,
       "criterion": "Monitoring system alerts on elevated error rates, manages dead-letter queues, and tracks degraded mode transitions",
-      "spec_line": 3848,
+      "spec_line": 3850,
       "subsection": "24.2",
       "owner_phase": "Phase 7 — Admin \u0026 Monitoring (Go)",
       "owner_phase_tags": [
@@ -12841,7 +12841,7 @@
     {
       "id": 307,
       "criterion": "End-to-end integration tests validate end-to-end error propagation across REST, WS, FIX, Aeron, and PostgreSQL",
-      "spec_line": 3849,
+      "spec_line": 3851,
       "subsection": "24.2",
       "owner_phase": "Phase 8 — Integration Validation \u0026 Performance Tuning",
       "owner_phase_tags": [
@@ -12885,7 +12885,7 @@
     {
       "id": 308,
       "criterion": "Pre-production load tests verify platform stability during high-stress error injection and circuit-breaker tripping",
-      "spec_line": 3850,
+      "spec_line": 3852,
       "subsection": "24.2",
       "owner_phase": "Phase 8.5 — Pre-Production Load Testing \u0026 Soak Testing",
       "owner_phase_tags": [
@@ -12929,7 +12929,7 @@
     {
       "id": 309,
       "criterion": "Canary health check failures trigger automated blue-green deployment rollback within 5 minutes",
-      "spec_line": 3851,
+      "spec_line": 3853,
       "subsection": "24.2",
       "owner_phase": "Phase 9 — Deployment \u0026 Operations",
       "owner_phase_tags": [
@@ -12973,7 +12973,7 @@
     {
       "id": 310,
       "criterion": "Trader UI handles WebSocket disconnects with exponential backoff, optimistic rollback, and stale feed alerts",
-      "spec_line": 3852,
+      "spec_line": 3854,
       "subsection": "24.2",
       "owner_phase": "Phase 10 — Trader UI (React + TypeScript)",
       "owner_phase_tags": [
@@ -13017,7 +13017,7 @@
     {
       "id": 311,
       "criterion": "Banking rails return codes (AC01/AM04/RR04) map to structured errors and third-party deposit fraud is blocked",
-      "spec_line": 3853,
+      "spec_line": 3855,
       "subsection": "24.2",
       "owner_phase": "Phase 11 — Funding via Banking Rails, Suspension, Stats",
       "owner_phase_tags": [
@@ -13061,7 +13061,7 @@
     {
       "id": 312,
       "criterion": "Account lockout trips after 5 failed auths, passkey clone detection flags sign count regressions, and freeze handles partial cancels",
-      "spec_line": 3854,
+      "spec_line": 3856,
       "subsection": "24.2",
       "owner_phase": "Phase 12 — User Self-Service \u0026 Notifications",
       "owner_phase_tags": [
@@ -13105,7 +13105,7 @@
     {
       "id": 313,
       "criterion": "Five-tier circuit breaker enforces automated half-open probing and prevents state flapping under hysteresis",
-      "spec_line": 3855,
+      "spec_line": 3857,
       "subsection": "24.2",
       "owner_phase": "Phase 13 — Production Hardening \u0026 Reconciliation",
       "owner_phase_tags": [
@@ -13149,7 +13149,7 @@
     {
       "id": 314,
       "criterion": "Penetration testing validates security failure handling and fault injection defenses against privilege escalation",
-      "spec_line": 3856,
+      "spec_line": 3858,
       "subsection": "24.2",
       "owner_phase": "Phase 13.5 — Security \u0026 Compliance Audit",
       "owner_phase_tags": [
@@ -13193,7 +13193,7 @@
     {
       "id": 315,
       "criterion": "Irrevocable cooling-off exclusions reject leveraged order entry and webhook delivery retries with exponential backoff",
-      "spec_line": 3857,
+      "spec_line": 3859,
       "subsection": "24.2",
       "owner_phase": "Phase 14 — Extended Production Features",
       "owner_phase_tags": [
@@ -13237,7 +13237,7 @@
     {
       "id": 316,
       "criterion": "Reopening auction clearing failures trigger automated 30s extensions and transition to SUSPENDED on exhaustion",
-      "spec_line": 3858,
+      "spec_line": 3860,
       "subsection": "24.2",
       "owner_phase": "Phase 15 — Market Admin Lifecycle",
       "owner_phase_tags": [
@@ -13284,7 +13284,7 @@
     {
       "id": 317,
       "criterion": "Complex order cancellation races resolve deterministically and conditional triggers suspend on stale oracles (\u003e5s)",
-      "spec_line": 3859,
+      "spec_line": 3861,
       "subsection": "24.2",
       "owner_phase": "Phase 16 — Advanced Order Types",
       "owner_phase_tags": [
@@ -13332,7 +13332,7 @@
     {
       "id": 318,
       "criterion": "Monotonic L3 stream sequence gaps trigger TCP snapshot recovery and slow consumers drop without engine backpressure",
-      "spec_line": 3860,
+      "spec_line": 3862,
       "subsection": "24.2",
       "owner_phase": "Phase 17 — L3 Order-Level Data",
       "owner_phase_tags": [
@@ -13376,7 +13376,7 @@
     {
       "id": 319,
       "criterion": "FIX gateway resolves sequence gaps via ResendRequest/SequenceReset and purges resting orders on disconnect (CoD)",
-      "spec_line": 3861,
+      "spec_line": 3863,
       "subsection": "24.2",
       "owner_phase": "Phase 18 — FIX Protocol Gateway",
       "owner_phase_tags": [
@@ -13420,7 +13420,7 @@
     {
       "id": 320,
       "criterion": "Cross-shard margin 2PC reservation timeout releases locks and retail negative balance deficits restore from insurance fund",
-      "spec_line": 3862,
+      "spec_line": 3864,
       "subsection": "24.2",
       "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
       "owner_phase_tags": [
@@ -13453,7 +13453,7 @@
         "checkpoints": [
           {
             "id": "P19-T19.3.20-C1",
-            "implemented": false,
+            "implemented": true,
             "checked": false,
             "text": "Cross-shard margin 2PC timeout and retail NBP restitution fail closed (§24 #320)"
           }
@@ -13467,7 +13467,7 @@
     {
       "id": 321,
       "criterion": "Multi-provider price oracles fail closed on staleness \u003e5s and flag divergence across independent data sources",
-      "spec_line": 3863,
+      "spec_line": 3865,
       "subsection": "24.2",
       "owner_phase": "Phase 19.5 — Price Oracle \u0026 Mark Price Engine",
       "owner_phase_tags": [
@@ -13511,7 +13511,7 @@
     {
       "id": 322,
       "criterion": "ClickHouse ingestion backpressure spools ticks to local RocksDB queue and ReplacingMergeTree prevents replay duplicates",
-      "spec_line": 3864,
+      "spec_line": 3866,
       "subsection": "24.2",
       "owner_phase": "Phase 20 — Analytics \u0026 Reporting (ClickHouse)",
       "owner_phase_tags": [
@@ -13555,7 +13555,7 @@
     {
       "id": 323,
       "criterion": "Sanctions provider downtime quarantines outbound funding under scoped degradation and rejected ARM reports resubmit within 2h",
-      "spec_line": 3865,
+      "spec_line": 3867,
       "subsection": "24.2",
       "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
       "owner_phase_tags": [
@@ -13599,7 +13599,7 @@
     {
       "id": 324,
       "criterion": "Option pricing solvers fail gracefully on numerical non-convergence and exercise shortfalls trigger liquidation",
-      "spec_line": 3866,
+      "spec_line": 3868,
       "subsection": "24.2",
       "owner_phase": "Phase 22 — FX Derivatives Foundation",
       "owner_phase_tags": [
@@ -13643,7 +13643,7 @@
     {
       "id": 325,
       "criterion": "Historical market data queries enforce query timeouts, cache frequent requests, and mask pre-open participant data",
-      "spec_line": 3867,
+      "spec_line": 3869,
       "subsection": "24.2",
       "owner_phase": "Phase 23 — Market Data Products",
       "owner_phase_tags": [
@@ -13687,7 +13687,7 @@
     {
       "id": 326,
       "criterion": "CLS settlement match discrepancies quarantine batches and client-money segregation shortfalls trigger mandatory 1h top-up",
-      "spec_line": 3868,
+      "spec_line": 3870,
       "subsection": "24.2",
       "owner_phase": "Phase 24 — Backoffice \u0026 Settlement (Nostro/Vostro)",
       "owner_phase_tags": [
@@ -13731,7 +13731,7 @@
     {
       "id": 327,
       "criterion": "Employees trade restricted instruments only under pre-clearance; restricted lists and blackout windows are server-enforced and staff accounts are excluded from liquidity, STP and rebates",
-      "spec_line": 3869,
+      "spec_line": 3871,
       "subsection": "24.2",
       "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
       "owner_phase_tags": [
@@ -13775,7 +13775,7 @@
     {
       "id": 328,
       "criterion": "Regulatory changes are tracked, triaged within SLA and impact-assessed against spec sections, phases, migrations and reporting endpoints before implementation",
-      "spec_line": 3870,
+      "spec_line": 3872,
       "subsection": "24.2",
       "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
       "owner_phase_tags": [
@@ -13819,7 +13819,7 @@
     {
       "id": 329,
       "criterion": "Venue own funds, contingent-capital commitments, insurance cover and stressed 5-day liquidity buffer are funded and monitored; insurance-fund depletion terminates in a committed backstop",
-      "spec_line": 3871,
+      "spec_line": 3873,
       "subsection": "24.2",
       "owner_phase": "Phase 24 — Backoffice \u0026 Settlement (Nostro/Vostro)",
       "owner_phase_tags": [
@@ -13863,7 +13863,7 @@
     {
       "id": 330,
       "criterion": "An independent client-money audit and segregation certification with a system-exported evidence pack cover every operating period; `EXTERNAL_AUDITOR` access is read-only and time-bounded",
-      "spec_line": 3872,
+      "spec_line": 3874,
       "subsection": "24.2",
       "owner_phase": "Phase 24 — Backoffice \u0026 Settlement (Nostro/Vostro)",
       "owner_phase_tags": [
@@ -13907,7 +13907,7 @@
     {
       "id": 331,
       "criterion": "A documented BCP with stand-down vs go-forward criteria, tested alternate-site/go-forward modes, financial-impact estimates and regulator notification tree is current and exercised annually",
-      "spec_line": 3873,
+      "spec_line": 3875,
       "subsection": "24.2",
       "owner_phase": "Phase 9 — Deployment \u0026 Operations",
       "owner_phase_tags": [
@@ -13951,7 +13951,7 @@
     {
       "id": 332,
       "criterion": "A standing vulnerability disclosure program with published scope, safe harbor and SLAs is enforced by automated SLA breach alerting and coordinated patching",
-      "spec_line": 3874,
+      "spec_line": 3876,
       "subsection": "24.2",
       "owner_phase": "Phase 13 — Production Hardening \u0026 Reconciliation",
       "owner_phase_tags": [
@@ -13996,7 +13996,7 @@
     {
       "id": 333,
       "criterion": "Financial promotions are pre-approved with bounded expiry and refused when stale; complaints route to external ADR on request against the statutory acknowledgment deadline",
-      "spec_line": 3875,
+      "spec_line": 3877,
       "subsection": "24.2",
       "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
       "owner_phase_tags": [
@@ -14041,7 +14041,7 @@
     {
       "id": 334,
       "criterion": "Multi-tier watchdog architecture supervises hardware, systemd units, in-process loop liveness, and platform daemons with deterministic fail-closed recovery",
-      "spec_line": 3876,
+      "spec_line": 3878,
       "subsection": "24.2",
       "owner_phase": "Phase 9 — Deployment \u0026 Operations",
       "owner_phase_tags": [
@@ -14085,7 +14085,7 @@
     {
       "id": 335,
       "criterion": "End-to-End Crash \u0026 Disaster Recovery Workflow Engine",
-      "spec_line": 3877,
+      "spec_line": 3879,
       "subsection": "24.2",
       "owner_phase": "Phase 4 — Persistence \u0026 Recovery",
       "owner_phase_tags": [
@@ -14129,7 +14129,7 @@
     {
       "id": 336,
       "criterion": "Cancel-replace is atomic per order_seq with STALE_MODIFY for losers; amend priority follows field class; amend-in-auction rejected; FIFO tie-break on (price, timestamp_ns, ingress_seq)",
-      "spec_line": 3878,
+      "spec_line": 3880,
       "subsection": "24.2",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
       "owner_phase_tags": [
@@ -14177,7 +14177,7 @@
     {
       "id": 337,
       "criterion": "Full chart of accounts seeded per currency with client/house segregation; swap posts interbank-plus-markup with per-currency day-count; negative-rate, swap-free and non-trading-fee rules enforced",
-      "spec_line": 3879,
+      "spec_line": 3881,
       "subsection": "24.2",
       "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
       "owner_phase_tags": [
@@ -14221,7 +14221,7 @@
     {
       "id": 338,
       "criterion": "Unified list envelope on all paginated endpoints; cross-endpoint idempotency with mismatch rejection; auth/session/key lifecycle; tabulated per-route weights",
-      "spec_line": 3880,
+      "spec_line": 3882,
       "subsection": "24.2",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
       "owner_phase_tags": [
@@ -14265,7 +14265,7 @@
     {
       "id": 339,
       "criterion": "WS sequence survives restarts with gap journal; order-action retries dedup 60s; symbol-level market-data entitlements enforced",
-      "spec_line": 3881,
+      "spec_line": 3883,
       "subsection": "24.2",
       "owner_phase": "Phase 6 — Market Data Distribution",
       "owner_phase_tags": [
@@ -14309,7 +14309,7 @@
     {
       "id": 340,
       "criterion": "Observability cardinality/retention/sampling budgets enforced; HPA and pool sizing with 5x burst proof; residency-gated failover; per-secret inventory with emergency rotation",
-      "spec_line": 3882,
+      "spec_line": 3884,
       "subsection": "24.2",
       "owner_phase": "Phase 9 — Deployment \u0026 Operations",
       "owner_phase_tags": [
@@ -14353,7 +14353,7 @@
     {
       "id": 341,
       "criterion": "KYC vendor-by-jurisdiction matrix with review SLAs; self-cert/TIN ownership feeding CRS/FATCA; FIFO book of record for filed lots",
-      "spec_line": 3883,
+      "spec_line": 3885,
       "subsection": "24.2",
       "owner_phase": "Phase 12 — User Self-Service \u0026 Notifications",
       "owner_phase_tags": [
@@ -14397,7 +14397,7 @@
     {
       "id": 342,
       "criterion": "Full-surface pentest with CVSS and severity fix ETAs; per-table GDPR erasure runbook with 30-day DSR SLA",
-      "spec_line": 3884,
+      "spec_line": 3886,
       "subsection": "24.2",
       "owner_phase": "Phase 13.5 — Security \u0026 Compliance Audit",
       "owner_phase_tags": [
@@ -14441,7 +14441,7 @@
     {
       "id": 343,
       "criterion": "Seeded per-symbol reference with tick/lot/notional/decimals; DST/holiday-aware sessions with value-date blocking; tenor grid; no corporate actions in spot FX",
-      "spec_line": 3885,
+      "spec_line": 3887,
       "subsection": "24.2",
       "owner_phase": "Phase 15 — Market Admin Lifecycle",
       "owner_phase_tags": [
@@ -14491,7 +14491,7 @@
     {
       "id": 344,
       "criterion": "Margin changes require independent validation; insurance target tied to stress metric with per-currency custody; 105% intraday buffer with transfer-timing rule",
-      "spec_line": 3886,
+      "spec_line": 3888,
       "subsection": "24.2",
       "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
       "owner_phase_tags": [
@@ -14524,7 +14524,7 @@
         "checkpoints": [
           {
             "id": "P19-T19.3.21-C1",
-            "implemented": false,
+            "implemented": true,
             "checked": false,
             "text": "independent margin validation with floors, calibrated segmented insurance custody, and intraday client-money guard (§24 #344)"
           }
@@ -14535,7 +14535,7 @@
     {
       "id": 345,
       "criterion": "CFTC limits and thresholds tabulated with LEI/UTI validation and APA/ARM buffering; per-signal tuning with backtest and STOR; searchable WORM audit API",
-      "spec_line": 3887,
+      "spec_line": 3889,
       "subsection": "24.2",
       "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
       "owner_phase_tags": [
@@ -14579,7 +14579,7 @@
     {
       "id": 346,
       "criterion": "American options priced on lattice with exercise boundary; built IV surface with fallback hierarchy; pro-rata assignment; discrete barrier evaluation; coordinated expiry/roll",
-      "spec_line": 3888,
+      "spec_line": 3890,
       "subsection": "24.2",
       "owner_phase": "Phase 22 — FX Derivatives Foundation",
       "owner_phase_tags": [
@@ -14623,7 +14623,7 @@
     {
       "id": 347,
       "criterion": "Break aging with suspense SLA and dual-control write-offs; funded nostro with backup routing; cut-off matrix; CLS pre-funding/outage rules; FX fail economics superseding CSDR",
-      "spec_line": 3889,
+      "spec_line": 3891,
       "subsection": "24.2",
       "owner_phase": "Phase 24 — Backoffice \u0026 Settlement (Nostro/Vostro)",
       "owner_phase_tags": [
@@ -14667,7 +14667,7 @@
     {
       "id": 348,
       "criterion": "Scoped RBAC bindings with grant-time intersection; disjoint venue/client/auditor role systems; stubs removed; route metadata complete",
-      "spec_line": 3890,
+      "spec_line": 3892,
       "subsection": "24.2",
       "owner_phase": "Phase 7 — Admin \u0026 Monitoring (Go)",
       "owner_phase_tags": [
@@ -14711,7 +14711,7 @@
     {
       "id": 349,
       "criterion": "Binding expiry with session kill; quarterly recertification; 4h incident-confined break-glass with mandatory post-review",
-      "spec_line": 3891,
+      "spec_line": 3893,
       "subsection": "24.2",
       "owner_phase": "Phase 7 — Admin \u0026 Monitoring (Go)",
       "owner_phase_tags": [
@@ -14755,7 +14755,7 @@
     {
       "id": 350,
       "criterion": "Environment-scoped fleet inventory with dual-controlled server actions and direction-enforced promotion gates; per-env config/secrets",
-      "spec_line": 3892,
+      "spec_line": 3894,
       "subsection": "24.2",
       "owner_phase": "Phase 9 — Deployment \u0026 Operations",
       "owner_phase_tags": [
@@ -14799,7 +14799,7 @@
     {
       "id": 351,
       "criterion": "Environment switcher with context-bound client; fleet/release/ops-board UI with dual-control surfacing and axe audit",
-      "spec_line": 3893,
+      "spec_line": 3895,
       "subsection": "24.2",
       "owner_phase": "Phase 10 — Trader UI (React + TypeScript)",
       "owner_phase_tags": [
@@ -14843,7 +14843,7 @@
     {
       "id": 352,
       "criterion": "Listing proposals with auto-checks; impact-previewed delisting ladder; approval-paired ops-board transitions",
-      "spec_line": 3894,
+      "spec_line": 3896,
       "subsection": "24.2",
       "owner_phase": "Phase 15 — Market Admin Lifecycle",
       "owner_phase_tags": [
@@ -14891,7 +14891,7 @@
     {
       "id": 353,
       "criterion": "Audit stages time-boxed inside RTO with running digests and snapshot checksums; overrun fails closed with P1",
-      "spec_line": 3895,
+      "spec_line": 3897,
       "subsection": "24.2",
       "owner_phase": "Phase 4 — Persistence \u0026 Recovery",
       "owner_phase_tags": [
@@ -14935,7 +14935,7 @@
     {
       "id": 354,
       "criterion": "Per-shard audit verdicts with independent reopen; feed-outage fallback with suspense flags and post-open reconcile; zero-sum exempt",
-      "spec_line": 3896,
+      "spec_line": 3898,
       "subsection": "24.2",
       "owner_phase": "Phase 4 — Persistence \u0026 Recovery",
       "owner_phase_tags": [
@@ -14979,7 +14979,7 @@
     {
       "id": 355,
       "criterion": "Public PTP-sourced server-time endpoint for HMAC clock sync",
-      "spec_line": 3897,
+      "spec_line": 3899,
       "subsection": "24.2",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
       "owner_phase_tags": [
@@ -15023,7 +15023,7 @@
     {
       "id": 356,
       "criterion": "Unified venue-info document with per-symbol filters/permissions, rate limits and ETag refresh signaling",
-      "spec_line": 3898,
+      "spec_line": 3900,
       "subsection": "24.2",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
       "owner_phase_tags": [
@@ -15067,7 +15067,7 @@
     {
       "id": 357,
       "criterion": "Public open-interest stream and history from position aggregates with staleness flags",
-      "spec_line": 3899,
+      "spec_line": 3901,
       "subsection": "24.2",
       "owner_phase": "Phase 6 — Market Data Distribution",
       "owner_phase_tags": [
@@ -15111,7 +15111,7 @@
     {
       "id": 358,
       "criterion": "Per-pair swap-rate history reconciled to accrual journals with triple-Wednesday flags",
-      "spec_line": 3900,
+      "spec_line": 3902,
       "subsection": "24.2",
       "owner_phase": "Phase 23 — Market Data Products",
       "owner_phase_tags": [
@@ -15155,7 +15155,7 @@
     {
       "id": 359,
       "criterion": "Taker buy/sell ratios and positioning bands with delay/cohort guards and no account leakage",
-      "spec_line": 3901,
+      "spec_line": 3903,
       "subsection": "24.2",
       "owner_phase": "Phase 23 — Market Data Products",
       "owner_phase_tags": [
@@ -15199,7 +15199,7 @@
     {
       "id": 360,
       "criterion": "Per-account liquidation history with economics, margin-call links and audit references",
-      "spec_line": 3902,
+      "spec_line": 3904,
       "subsection": "24.2",
       "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
       "owner_phase_tags": [
@@ -15232,7 +15232,7 @@
         "checkpoints": [
           {
             "id": "P19-T19.3.22-C1",
-            "implemented": false,
+            "implemented": true,
             "checked": false,
             "text": "per-account liquidation history with economics and audit links (§24 #360)"
           }
@@ -15243,7 +15243,7 @@
     {
       "id": 361,
       "criterion": "Income ledger by type/symbol/time with GL linkage reconciled to statements",
-      "spec_line": 3903,
+      "spec_line": 3905,
       "subsection": "24.2",
       "owner_phase": "Phase 20 — Analytics \u0026 Reporting (ClickHouse)",
       "owner_phase_tags": [
@@ -15287,7 +15287,7 @@
     {
       "id": 362,
       "criterion": "Daily hash-chained account snapshots with history API feeding auditor evidence",
-      "spec_line": 3904,
+      "spec_line": 3906,
       "subsection": "24.2",
       "owner_phase": "Phase 20 — Analytics \u0026 Reporting (ClickHouse)",
       "owner_phase_tags": [
@@ -15331,7 +15331,7 @@
     {
       "id": 363,
       "criterion": "Paginated transfer history with GL linkage and actor identity",
-      "spec_line": 3905,
+      "spec_line": 3907,
       "subsection": "24.2",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
       "owner_phase_tags": [
@@ -15375,7 +15375,7 @@
     {
       "id": 364,
       "criterion": "Dust-balance conversion at disclosed spread with balanced GL posting",
-      "spec_line": 3906,
+      "spec_line": 3908,
       "subsection": "24.2",
       "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
       "owner_phase_tags": [
@@ -15419,7 +15419,7 @@
     {
       "id": 365,
       "criterion": "Algo open-orders query with child progress; cancel-all with zero orphan slices",
-      "spec_line": 3907,
+      "spec_line": 3909,
       "subsection": "24.2",
       "owner_phase": "Phase 16 — Advanced Order Types",
       "owner_phase_tags": [
@@ -15467,7 +15467,7 @@
     {
       "id": 366,
       "criterion": "Runtime leverage and margin-mode change within caps and compatibility guards",
-      "spec_line": 3908,
+      "spec_line": 3910,
       "subsection": "24.2",
       "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
       "owner_phase_tags": [
@@ -15500,7 +15500,7 @@
         "checkpoints": [
           {
             "id": "P19-T19.3.23-C1",
-            "implemented": false,
+            "implemented": true,
             "checked": false,
             "text": "runtime leverage and margin-mode change within caps and compatibility guards (§24 #366)"
           }
@@ -15511,7 +15511,7 @@
     {
       "id": 367,
       "criterion": "Composite-list open/history/detail queries with unified envelope",
-      "spec_line": 3909,
+      "spec_line": 3911,
       "subsection": "24.2",
       "owner_phase": "Phase 16 — Advanced Order Types",
       "owner_phase_tags": [
@@ -15558,7 +15558,7 @@
     {
       "id": 368,
       "criterion": "Account-default STP with category gating and per-fill persistence",
-      "spec_line": 3910,
+      "spec_line": 3912,
       "subsection": "24.2",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
       "owner_phase_tags": [
@@ -15605,7 +15605,7 @@
     {
       "id": 369,
       "criterion": "Account product profiles gate pricing, product scope and unit denomination with guarded switching",
-      "spec_line": 3911,
+      "spec_line": 3913,
       "subsection": "24.2",
       "owner_phase": "Phase 14 — Extended Production Features",
       "owner_phase_tags": [
@@ -15649,7 +15649,7 @@
     {
       "id": 370,
       "criterion": "Cent-denominated balances post and read in minor units with zero-balance profile switching",
-      "spec_line": 3912,
+      "spec_line": 3914,
       "subsection": "24.2",
       "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
       "owner_phase_tags": [
@@ -15693,7 +15693,7 @@
     {
       "id": 371,
       "criterion": "Entity-level leverage caps enforced most-restrictive-wins across entity, category and tier bands",
-      "spec_line": 3913,
+      "spec_line": 3915,
       "subsection": "24.2",
       "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
       "owner_phase_tags": [
@@ -15726,7 +15726,7 @@
         "checkpoints": [
           {
             "id": "P19-T19.3.24-C1",
-            "implemented": false,
+            "implemented": true,
             "checked": false,
             "text": "entity leverage matrix with most-restrictive-wins enforcement (§24 #371)"
           }
@@ -15737,7 +15737,7 @@
     {
       "id": 372,
       "criterion": "Copy-trading discovery, follows with safety mode and HWM profit-share settle via the PAMM engine",
-      "spec_line": 3914,
+      "spec_line": 3916,
       "subsection": "24.2",
       "owner_phase": "Phase 14 — Extended Production Features",
       "owner_phase_tags": [
@@ -15781,7 +15781,7 @@
     {
       "id": 373,
       "criterion": "Swap-free verification lifecycle gates zero-financing treatment with revocation and abuse guards",
-      "spec_line": 3915,
+      "spec_line": 3917,
       "subsection": "24.2",
       "owner_phase": "Phase 14 — Extended Production Features",
       "owner_phase_tags": [
@@ -15825,7 +15825,7 @@
     {
       "id": 374,
       "criterion": "Ex-ante cost preview and annual ex-post statement reconcile to ledger with no-inducement declaration",
-      "spec_line": 3916,
+      "spec_line": 3918,
       "subsection": "24.2",
       "owner_phase": "Phase 20 — Analytics \u0026 Reporting (ClickHouse)",
       "owner_phase_tags": [
@@ -15869,7 +15869,7 @@
     {
       "id": 375,
       "criterion": "Retail leveraged-position −10% multiples notify same business day with episode dedupe",
-      "spec_line": 3917,
+      "spec_line": 3919,
       "subsection": "24.2",
       "owner_phase": "Phase 20 — Analytics \u0026 Reporting (ClickHouse)",
       "owner_phase_tags": [
@@ -15913,7 +15913,7 @@
     {
       "id": 376,
       "criterion": "Per-profile retail target markets dual-gate order entry with periodic review",
-      "spec_line": 3918,
+      "spec_line": 3920,
       "subsection": "24.2",
       "owner_phase": "Phase 14 — Extended Production Features",
       "owner_phase_tags": [
@@ -15957,7 +15957,7 @@
     {
       "id": 377,
       "criterion": "Published execution policy with consent gate and annual evidence review",
-      "spec_line": 3919,
+      "spec_line": 3921,
       "subsection": "24.2",
       "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
       "owner_phase_tags": [
@@ -16001,7 +16001,7 @@
     {
       "id": 378,
       "criterion": "Daily CEO roll-up assembles from live sources with STALE marking and hash retention",
-      "spec_line": 3920,
+      "spec_line": 3922,
       "subsection": "24.2",
       "owner_phase": "Phase 7 — Admin \u0026 Monitoring (Go)",
       "owner_phase_tags": [
@@ -16045,7 +16045,7 @@
     {
       "id": 379,
       "criterion": "Quarterly board pack assembles eight governance sections with dual-controlled immutable release",
-      "spec_line": 3921,
+      "spec_line": 3923,
       "subsection": "24.2",
       "owner_phase": "Phase 7 — Admin \u0026 Monitoring (Go)",
       "owner_phase_tags": [
@@ -16089,7 +16089,7 @@
     {
       "id": 380,
       "criterion": "Public spreads/latency/fill-rate/uptime aggregates reconcile to TCA/SLO with session delay",
-      "spec_line": 3922,
+      "spec_line": 3924,
       "subsection": "24.2",
       "owner_phase": "Phase 23 — Market Data Products",
       "owner_phase_tags": [
@@ -16133,7 +16133,7 @@
     {
       "id": 381,
       "criterion": "Promo inventory with SLA flags and counts-only consent cohorts with 100 floor",
-      "spec_line": 3923,
+      "spec_line": 3925,
       "subsection": "24.2",
       "owner_phase": "Phase 20 — Analytics \u0026 Reporting (ClickHouse)",
       "owner_phase_tags": [
@@ -16177,7 +16177,7 @@
     {
       "id": 382,
       "criterion": "Login, registration, 2FA setup/verify/disable, and session-list screens gate the SPA; route guards redirect unauthenticated users; silent token refresh until refresh fails",
-      "spec_line": 3924,
+      "spec_line": 3926,
       "subsection": "24.2",
       "owner_phase": "Phase 10 — Trader UI (React 18 + TypeScript)",
       "owner_phase_tags": [
@@ -16221,7 +16221,7 @@
     {
       "id": 383,
       "criterion": "Account-security center covers profile, WebAuthn/passkeys, anti-phishing code, device management, emergency freeze, cooling-off, account closure, GDPR export/erase, consent, and notification preferences with confirmation modals on destructive actions",
-      "spec_line": 3925,
+      "spec_line": 3927,
       "subsection": "24.2",
       "owner_phase": "Phase 10 — Trader UI (React 18 + TypeScript)",
       "owner_phase_tags": [
@@ -16265,7 +16265,7 @@
     {
       "id": 384,
       "criterion": "Deposit instructions, withdrawal with beneficiary/2FA/15-min confirm, internal transfers, fee estimator, and unified funding history are functional",
-      "spec_line": 3926,
+      "spec_line": 3928,
       "subsection": "24.2",
       "owner_phase": "Phase 10 — Trader UI (React 18 + TypeScript)",
       "owner_phase_tags": [
@@ -16309,7 +16309,7 @@
     {
       "id": 385,
       "criterion": "KYC status tracker, multi-step document upload wizard with file validation, and re-verification prompts on expiry are functional",
-      "spec_line": 3927,
+      "spec_line": 3929,
       "subsection": "24.2",
       "owner_phase": "Phase 10 — Trader UI (React 18 + TypeScript)",
       "owner_phase_tags": [
@@ -16353,7 +16353,7 @@
     {
       "id": 386,
       "criterion": "Support-ticket submission with attachments, conversation thread with status lifecycle, and staff-side queue are functional",
-      "spec_line": 3928,
+      "spec_line": 3930,
       "subsection": "24.2",
       "owner_phase": "Phase 10 — Trader UI (React 18 + TypeScript)",
       "owner_phase_tags": [
@@ -16397,7 +16397,7 @@
     {
       "id": 387,
       "criterion": "Copy-trading strategy browser/follow and grid-bot wizard/management UI enforce limits and display risk disclosures",
-      "spec_line": 3929,
+      "spec_line": 3931,
       "subsection": "24.2",
       "owner_phase": "Phase 10 — Trader UI (React 18 + TypeScript)",
       "owner_phase_tags": [
@@ -16441,7 +16441,7 @@
     {
       "id": 388,
       "criterion": "Order history, algo management, OPO lists, dead-man switch, and test/preview are functional; BBO/aggTrades/liquidations/OI/referencePrice/configurable-depth WS channels are consumed",
-      "spec_line": 3930,
+      "spec_line": 3932,
       "subsection": "24.2",
       "owner_phase": "Phase 10 — Trader UI (React 18 + TypeScript)",
       "owner_phase_tags": [
@@ -16485,7 +16485,7 @@
     {
       "id": 389,
       "criterion": "Tax report, account statements, trade confirmations, TCA report, solvency proof viewer, fee schedule, account snapshots, income history, and system-info panel are functional; announcement banners render globally",
-      "spec_line": 3931,
+      "spec_line": 3933,
       "subsection": "24.2",
       "owner_phase": "Phase 10 — Trader UI (React 18 + TypeScript)",
       "owner_phase_tags": [
@@ -16529,7 +16529,7 @@
     {
       "id": 390,
       "criterion": "Centralized input-helper framework with OpenAPI-synced validation schemas, instrument-aware formatting, real-time preview engine, smart defaults, autocomplete, keyboard shortcuts, contextual help, unified confirmation/risk-warning modals, bulk/paste import, and unit converters is shared across all UI surfaces",
-      "spec_line": 3932,
+      "spec_line": 3934,
       "subsection": "24.2",
       "owner_phase": "Phase 10 — Trader UI (React 18 + TypeScript)",
       "owner_phase_tags": [
@@ -16573,7 +16573,7 @@
     {
       "id": 391,
       "criterion": "Withdrawal whitelist mode: whitelisted beneficiaries only, 24h addition timelock, account-scoped 24h deactivation safety lock (migration 078)",
-      "spec_line": 3933,
+      "spec_line": 3935,
       "subsection": "24.2",
       "owner_phase": "Phase 11 — Funding via Banking Rails, Suspension, Stats",
       "owner_phase_tags": [
@@ -16618,7 +16618,7 @@
     {
       "id": 392,
       "criterion": "Surveillance consumer lag \u003e10,000 events raises `SURVEILLANCE_LAG_WARNING` with auto-scaling; detection-latency SLA and degraded-detection policy defined",
-      "spec_line": 3934,
+      "spec_line": 3936,
       "subsection": "24.2",
       "owner_phase": "Phase 21 — Compliance \u0026 AML (MiFID/EMIR/FinCEN)",
       "owner_phase_tags": [
@@ -16655,7 +16655,7 @@
     {
       "id": 393,
       "criterion": "Option premium settlement failure rejects with `PREMIUM_INSUFFICIENT` and queues into the margin-call workflow; GL reversal rules defined",
-      "spec_line": 3935,
+      "spec_line": 3937,
       "subsection": "24.2",
       "owner_phase": "Phase 22 — FX Derivatives Foundation",
       "owner_phase_tags": [
@@ -16691,7 +16691,7 @@
     {
       "id": 394,
       "criterion": "TIME_TICK determinism: matching thread stamps/appends TIME_TICK WAL events from IPC commands; zero gateway WAL writes, zero `clock_gettime` on the matching thread",
-      "spec_line": 3936,
+      "spec_line": 3938,
       "subsection": "24.2",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
       "owner_phase_tags": [
@@ -16731,7 +16731,7 @@
     {
       "id": 395,
       "criterion": "Pegged orders (Peg-to-Mid/Primary/Market) re-price per book update with bounded re-peg cost; re-priced peg joins the back of its level per FIFO",
-      "spec_line": 3937,
+      "spec_line": 3939,
       "subsection": "24.2",
       "owner_phase": "Phase 16 — Advanced Order Types",
       "owner_phase_tags": [
@@ -16770,7 +16770,7 @@
     {
       "id": 396,
       "criterion": "Per-currency day-count convention (ACT/360 vs ACT/365) applied correctly in all forward/swap/NDF pricing",
-      "spec_line": 3938,
+      "spec_line": 3940,
       "subsection": "24.2",
       "owner_phase": "Phase 22 — FX Derivatives Foundation",
       "owner_phase_tags": [
@@ -16806,7 +16806,7 @@
     {
       "id": 397,
       "criterion": "Stale-price liquidation fallback: liquidation continues on stale mark with tiered haircuts; new-order flow halts per instrument; one staleness state machine",
-      "spec_line": 3939,
+      "spec_line": 3941,
       "subsection": "24.2",
       "owner_phase": "Phase 19.5 — Price Oracle \u0026 Mark Price Service",
       "owner_phase_tags": [
@@ -16842,7 +16842,7 @@
     {
       "id": 398,
       "criterion": "Option-delta margin linkage and option spread offsets integrated into the margin engine post-Phase-22 (delta-adjusted equity; offsets pre-SIMM)",
-      "spec_line": 3940,
+      "spec_line": 3942,
       "subsection": "24.2",
       "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
       "owner_phase_tags": [
@@ -16878,7 +16878,7 @@
     {
       "id": 399,
       "criterion": "MOO/MOC order types: market-on-open and market-on-close orders queue pre-session and execute at the call-auction uncross price with pro-rata allocation (§6.2b)",
-      "spec_line": 3941,
+      "spec_line": 3943,
       "subsection": "24.2",
       "owner_phase": "Phase 16 — Advanced Order Types",
       "owner_phase_tags": [
@@ -16922,7 +16922,7 @@
     {
       "id": 400,
       "criterion": "Trade-through protection: aggressive orders rejected or clipped when they would match at a price worse than the protected quote; price-improvement delta recorded for TCA (§6.6b)",
-      "spec_line": 3942,
+      "spec_line": 3944,
       "subsection": "24.2",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
       "owner_phase_tags": [
@@ -16972,7 +16972,7 @@
     {
       "id": 401,
       "criterion": "Daily closing-auction calendar: per-instrument configurable auction schedule with DST-aware recurrence; MOC orders execute at daily close uncross; FIXING orders at benchmark times (§7.1)",
-      "spec_line": 3943,
+      "spec_line": 3945,
       "subsection": "24.2",
       "owner_phase": "Phase 15 — Market Admin Lifecycle",
       "owner_phase_tags": [
@@ -17019,7 +17019,7 @@
     {
       "id": 402,
       "criterion": "Pipette fixed-point integer scaling ($10^8$ ticks) and pip factor eliminate float roundoff in hot path matching engine calculations",
-      "spec_line": 3944,
+      "spec_line": 3946,
       "subsection": "24.2",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
       "owner_phase_tags": [
@@ -17066,7 +17066,7 @@
     {
       "id": 403,
       "criterion": "In-memory bilateral credit matrix screens counterparties in matching loop, skipping credit-depleted orders without FIFO distortion",
-      "spec_line": 3945,
+      "spec_line": 3947,
       "subsection": "24.2",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
       "owner_phase_tags": [
@@ -17110,7 +17110,7 @@
     {
       "id": 404,
       "criterion": "Optimistic cross-shard routing executes with 500µs timeout and automated compensating unwinds without resting 2PC locks",
-      "spec_line": 3946,
+      "spec_line": 3948,
       "subsection": "24.2",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
       "owner_phase_tags": [
@@ -17157,7 +17157,7 @@
     {
       "id": 405,
       "criterion": "Discretionary offset orders execute aggressively within discretionary band while displaying only passive limit price",
-      "spec_line": 3947,
+      "spec_line": 3949,
       "subsection": "24.2",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
       "owner_phase_tags": [
@@ -17204,7 +17204,7 @@
     {
       "id": 406,
       "criterion": "Physical delivery accounts segregated from rolling spot; excluded from Tom-Next swap financing; delivery balances locked to settlement sub-ledger",
-      "spec_line": 3948,
+      "spec_line": 3950,
       "subsection": "24.2",
       "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
       "owner_phase_tags": [
@@ -17248,7 +17248,7 @@
     {
       "id": 407,
       "criterion": "Islamic swap-free positions accrue zero interest swap points but assess flat administrative holding fees after grace period with balanced GL entries",
-      "spec_line": 3949,
+      "spec_line": 3951,
       "subsection": "24.2",
       "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
       "owner_phase_tags": [
@@ -17292,7 +17292,7 @@
     {
       "id": 408,
       "criterion": "WebSocket L2 depth feed emits contiguous sequences with prev_last_seq; client snapshot/delta resync protocol prevents crossed order books",
-      "spec_line": 3950,
+      "spec_line": 3952,
       "subsection": "24.2",
       "owner_phase": "Phase 6 — Market Data Distribution",
       "owner_phase_tags": [
@@ -17336,7 +17336,7 @@
     {
       "id": 409,
       "criterion": "Multi-dimensional scoped kill-switches halt counterparty, LP quoting, or specific banking rail without global venue interruption",
-      "spec_line": 3951,
+      "spec_line": 3953,
       "subsection": "24.2",
       "owner_phase": "Phase 11 — Funding via Banking Rails, Suspension, Stats",
       "owner_phase_tags": [
@@ -17380,7 +17380,7 @@
     {
       "id": 410,
       "criterion": "Event-driven mark price margin engine evaluates margin on tick arrival and dispatches liquidations immediately, superseding 2s polling for stop-outs",
-      "spec_line": 3952,
+      "spec_line": 3954,
       "subsection": "24.2",
       "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
       "owner_phase_tags": [
@@ -17413,7 +17413,7 @@
         "checkpoints": [
           {
             "id": "P19-T19.3.26-C1",
-            "implemented": false,
+            "implemented": true,
             "checked": false,
             "text": "event-driven mark price margin engine and priority queue liquidation (§24 #410)"
           }
@@ -17424,7 +17424,7 @@
     {
       "id": 411,
       "criterion": "Isolated margin mode confines position risk to allocated margin without draining general account balance",
-      "spec_line": 3953,
+      "spec_line": 3955,
       "subsection": "24.2",
       "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
       "owner_phase_tags": [
@@ -17457,7 +17457,7 @@
         "checkpoints": [
           {
             "id": "P19-T19.3.27-C1",
-            "implemented": false,
+            "implemented": true,
             "checked": false,
             "text": "isolated margin position sub-allocation and balance protection (§24 #411)"
           }
@@ -17468,7 +17468,7 @@
     {
       "id": 412,
       "criterion": "Intraday dynamic collateral haircut re-evaluation recalculates effective equity on \u003e100bps currency moves, preventing unauthorized collateral inflation",
-      "spec_line": 3954,
+      "spec_line": 3956,
       "subsection": "24.2",
       "owner_phase": "Phase 19 — Multi-Asset \u0026 Portfolio Margin",
       "owner_phase_tags": [
@@ -17501,7 +17501,7 @@
         "checkpoints": [
           {
             "id": "P19-T19.3.28-C1",
-            "implemented": false,
+            "implemented": true,
             "checked": false,
             "text": "intraday dynamic collateral haircut re-evaluation and volatility scaling (§24 #412)"
           }
@@ -17512,7 +17512,7 @@
     {
       "id": 413,
       "criterion": "Banking rail cut-off engine automatically rolls settlement value dates forward for post-cut-off instructions, preventing overdraft and CSDR fails",
-      "spec_line": 3955,
+      "spec_line": 3957,
       "subsection": "24.2",
       "owner_phase": "Phase 24 — Backoffice \u0026 Settlement (Nostro/Vostro)",
       "owner_phase_tags": [
@@ -17556,7 +17556,7 @@
     {
       "id": 414,
       "criterion": "Unmatched bank deposits route to designated GL suspense liability accounts with automated compliance quarantine",
-      "spec_line": 3956,
+      "spec_line": 3958,
       "subsection": "24.2",
       "owner_phase": "Phase 24 — Backoffice \u0026 Settlement (Nostro/Vostro)",
       "owner_phase_tags": [
@@ -17600,7 +17600,7 @@
     {
       "id": 415,
       "criterion": "Multi-asset auto-exchange converts negative balances at index price + 0.1% buffer with balanced multi-currency GL journal, clearing deficits without external banking rails",
-      "spec_line": 3957,
+      "spec_line": 3959,
       "subsection": "24.2",
       "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
       "owner_phase_tags": [
@@ -17644,7 +17644,7 @@
     {
       "id": 416,
       "criterion": "Carry-trade swap yield tracked per allocation with net-yield legs and settled daily during the 17:00 ET rollover, cumulative yield recorded",
-      "spec_line": 3958,
+      "spec_line": 3960,
       "subsection": "24.2",
       "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
       "owner_phase_tags": [
@@ -17688,7 +17688,7 @@
     {
       "id": 417,
       "criterion": "VIP 0–9 tier engine recalculates 30-day volume and equity at 00:00 UTC daily with auditable tier history (migration 086)",
-      "spec_line": 3959,
+      "spec_line": 3961,
       "subsection": "24.2",
       "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
       "owner_phase_tags": [
@@ -17732,7 +17732,7 @@
     {
       "id": 418,
       "criterion": "Negative maker fees are credited as cash rebates to the client balance with an offsetting debit to the liquidity-expense GL account",
-      "spec_line": 3960,
+      "spec_line": 3962,
       "subsection": "24.2",
       "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
       "owner_phase_tags": [
@@ -17776,7 +17776,7 @@
     {
       "id": 419,
       "criterion": "Automated daily ClickHouse→S3 batch export at 01:00 UTC produces compressed tick/aggTrade/kline/book-snapshot artifacts with a SHA256 manifest verified on upload (§16.1)",
-      "spec_line": 3961,
+      "spec_line": 3963,
       "subsection": "24.2",
       "owner_phase": "Phase 4 — Persistence \u0026 Recovery",
       "owner_phase_tags": [

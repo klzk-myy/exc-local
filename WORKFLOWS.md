@@ -61,10 +61,10 @@ Internal transfers between master and sub-accounts or between sub-accounts route
 ## C. Risk & Market Integrity
 
 ### C1. Margin Call → Liquidation (Phase-19)
-1. `margin_utilization ≥ 0.90` → `MarginCallNotified` + email/in-app; Redis `margin_call:{account_id}` 15-min deposit window.
+1. `margin_level_pct ≤ 111.1%` (canonical §13.6d metric; supersedes `margin_utilization ≥ 0.90`) → `MarginCallNotified` + email/in-app; Redis `margin_call:{account_id}` 15-min deposit window; position-increasing orders rejected `MARGIN_CALL_EXCEEDED` (reduce-only bypass).
 2. Unrestored after 15 min → position queued for liquidation (not immediate close); the margin-call order block persists until cure (margin level back above the call threshold) or audited Risk Manager re-enable — spec §13.3 precedence (stop-out voids any open window).
-3. **Scanner (2s cadence)** sweeps CROSS/PORTFOLIO accounts (state in `liquidation:scanner:state:{shard}`).
-4. Position ≤ 1% of symbol OI → direct close; **> 1% → auction**.
+3. **Scanner (2s cadence)** sweeps CROSS/PORTFOLIO accounts (state in `liquidation:scanner:state:{shard}`); event-driven engine (`margin_engine.go` priority queue) dispatches stop-out sub-ms on mark ticks.
+4. Position ≤ 1% of symbol OI → direct close; **> 1% → auction**; positions > 5% of ADV are tranche-sliced at ≤ 10% ADV with 2s inter-slice delay and early halt on recovery (Task 19.3.16 6a).
 5. Auction: CALL **5s** (LP broadcast) → FILL best bid/offer within floor (×0.98/×1.02 of `liquidation_price`) → EXTEND ≤ 60s total in 5s steps when unfilled > 50%, floor decays 0.5%/step → still unfilled: FORCE_CASH at mark ×0.95/×1.05, deficiency to **insurance fund**; LP filler earns **0.05% rebate from insurance fund**.
 6. Insurance fund depleted → **ADL** by profits/leverage ranking.
 7. Retail: NBP floor at zero equity — residual absorbed by fund, never debited (`NEGATIVE_BALANCE_PROTECTED`, Task 19.3.9).

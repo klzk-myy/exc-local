@@ -113,20 +113,18 @@ func (s *Service) SubmitBracket(ctx context.Context, acct *Account,
 				"%s client_order_id exceeds 64 chars", name)
 		}
 	}
-	if s.limits != nil {
-		evalPrice := decimal.Zero
-		if p.Price != nil {
-			evalPrice = *p.Price
-		} else if ref != nil {
-			evalPrice = *ref
-		}
-		if err := s.limits.CheckOrder(ctx, risk.OrderRequest{
-			AccountID: acct.ID, KycTier: acct.KycTier, Symbol: inst.Symbol,
-			Side: p.Side, Quantity: *p.Quantity, Price: evalPrice,
-			ReduceOnly: p.ReduceOnly,
-		}); err != nil {
-			return nil, err
-		}
+	evalPrice := decimal.Zero
+	if p.Price != nil {
+		evalPrice = *p.Price
+	} else if ref != nil {
+		evalPrice = *ref
+	}
+	if err := s.checkOrderRisk(ctx, risk.OrderRequest{
+		AccountID: acct.ID, KycTier: acct.KycTier, Symbol: inst.Symbol,
+		Side: p.Side, Quantity: *p.Quantity, Price: evalPrice,
+		ReduceOnly: p.ReduceOnly,
+	}); err != nil {
+		return nil, err
 	}
 	if err := s.checkBalance(ctx, acct, inst, p, ref); err != nil {
 		return nil, err

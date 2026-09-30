@@ -8,15 +8,17 @@ import (
 )
 
 func TestSpecTableSizeAndUniqueness(t *testing.T) {
-	// 198 = 185 + 6 concurrent Phase-16 sibling registrations +
+	// 199 = 185 + 6 concurrent Phase-16 sibling registrations +
 	// GSLO_EXPOSURE_EXCEEDED (Phase-16 Task 16.3.16 — §24 matrix code
 	// tabled 2026-09-29 during implementation) + 3 Phase-18 quoting/MMP
 	// codes (Tasks 18.3.7/18.3.10: QUOTE_REQUEST_REJECTED, MMP_TRIGGERED,
 	// MMP_LOCKED_OUT) + 2 Phase-18 allocation codes (Task 18.3.13:
 	// ALLOCATION_SUM_MISMATCH, ALLOCATION_INVALID) + 1 Phase-18 SOR code
-	// (Task 18.3.14: ROUTING_REJECTED).
-	if got := len(specCodes); got != 198 {
-		t.Fatalf("spec §23 table must carry 198 codes, got %d", got)
+	// (Task 18.3.14: ROUTING_REJECTED) + 2 Phase-19 margin codes
+	// (Task 19.3.1/19.3.23: MARGIN_MODE_SWITCH_BLOCKED; Task 19.3.3
+	// §13.6d order-entry block: MARGIN_CALL_EXCEEDED).
+	if got := len(specCodes); got != 200 {
+		t.Fatalf("spec §23 table must carry 200 codes, got %d", got)
 	}
 	seen := map[string]bool{}
 	for _, d := range specCodes {

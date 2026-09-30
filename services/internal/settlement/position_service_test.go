@@ -17,19 +17,27 @@ import (
 
 type memPositionStore struct {
 	mu        sync.Mutex
-	positions map[[2]int64]*Position // [account, instrument]
+	positions map[posKey]*Position // side-scoped key (hedging-capable)
 	fills     map[string]decimal.Decimal
 	nextID    int64
-	maxOpen   map[int64]int // per-account override
-	maxOK     bool
+	maxOpen   map[int64]int    // per-account override
+	modes     map[int64]string // account position_mode override
 	txErr     error
+}
+
+// posKey mirrors the migration-233 (account, instrument, side) unique
+// index. NETTING accounts keep a single row by side-flipping in place.
+type posKey struct {
+	acct, instr int64
+	side        string
 }
 
 func newMemPositionStore() *memPositionStore {
 	return &memPositionStore{
-		positions: map[[2]int64]*Position{},
+		positions: map[posKey]*Position{},
 		fills:     map[string]decimal.Decimal{},
 		maxOpen:   map[int64]int{},
+		modes:     map[int64]string{},
 		nextID:    1,
 	}
 }
@@ -63,13 +71,44 @@ func (t *memPositionTx) RecordFill(_ context.Context, f PositionFill, realized d
 	return nil
 }
 
+// GetPositionForUpdate returns the netting row: the open row if any,
+// else the most recent row for the pair (side is flipped in place on
+// reversal — NETTING keeps one row).
 func (t *memPositionTx) GetPositionForUpdate(_ context.Context, accountID, instrumentID int64) (*Position, error) {
-	p := t.m.positions[[2]int64{accountID, instrumentID}]
+	var best *Position
+	for k, p := range t.m.positions {
+		if k.acct != accountID || k.instr != instrumentID {
+			continue
+		}
+		if best == nil || (!p.Quantity.IsZero() && best.Quantity.IsZero()) ||
+			(best.Quantity.IsZero() == p.Quantity.IsZero() && p.ID > best.ID) {
+			best = p
+		}
+	}
+	if best == nil {
+		return nil, nil
+	}
+	cp := *best
+	return &cp, nil
+}
+
+func (t *memPositionTx) GetSidePositionForUpdate(_ context.Context, accountID, instrumentID int64, side string) (*Position, error) {
+	p := t.m.positions[posKey{accountID, instrumentID, side}]
 	if p == nil {
 		return nil, nil
 	}
 	cp := *p
 	return &cp, nil
+}
+
+func (t *memPositionTx) GetPositionByIDForUpdate(_ context.Context, positionID int64) (*Position, error) {
+	for _, p := range t.m.positions {
+		if p.ID == positionID {
+			cp := *p
+			return &cp, nil
+		}
+	}
+	return nil, nil
 }
 
 func (t *memPositionTx) UpsertPosition(_ context.Context, p *Position) error {
@@ -79,14 +118,21 @@ func (t *memPositionTx) UpsertPosition(_ context.Context, p *Position) error {
 		t.m.nextID++
 		p.ID = cp.ID
 	}
-	t.m.positions[[2]int64{cp.AccountID, cp.InstrumentID}] = &cp
+	// Re-key on side flip: a NETTING reversal rewrites the row's side —
+	// the (acct,instr,side) map key must track it.
+	for k, old := range t.m.positions {
+		if old.ID == cp.ID && k.side != cp.Side {
+			delete(t.m.positions, k)
+		}
+	}
+	t.m.positions[posKey{cp.AccountID, cp.InstrumentID, cp.Side}] = &cp
 	return nil
 }
 
 func (t *memPositionTx) CountOpenPositions(_ context.Context, accountID int64) (int, error) {
 	n := 0
 	for k, p := range t.m.positions {
-		if k[0] == accountID && !p.Quantity.IsZero() {
+		if k.acct == accountID && !p.Quantity.IsZero() {
 			n++
 		}
 	}
@@ -96,6 +142,13 @@ func (t *memPositionTx) CountOpenPositions(_ context.Context, accountID int64) (
 func (t *memPositionTx) MaxOpenPositions(_ context.Context, accountID int64) (int, bool, error) {
 	v, ok := t.m.maxOpen[accountID]
 	return v, ok, nil
+}
+
+func (t *memPositionTx) AccountPositionMode(_ context.Context, accountID int64) (string, error) {
+	if m, ok := t.m.modes[accountID]; ok {
+		return m, nil
+	}
+	return posModeNetting, nil
 }
 
 // stub oracle
@@ -147,7 +200,7 @@ func TestPositionOpenLong(t *testing.T) {
 func TestPositionIncreaseVWAP(t *testing.T) {
 	st := newMemPositionStore()
 	s := svc(st, nil)
-	s.ProcessFill(context.Background(), PositionFill{1, 10, 100, FillBuy, d("1.1000"), d("10000")})
+	s.ProcessFill(context.Background(), PositionFill{1, 10, 100, FillBuy, d("1.1000"), d("10000"), false, 0})
 	upd, err := s.ProcessFill(context.Background(), PositionFill{
 		TradeID: 2, AccountID: 10, InstrumentID: 100,
 		Side: FillBuy, Price: d("1.1100"), Quantity: d("10000"),
@@ -171,7 +224,7 @@ func TestPositionIncreaseVWAP(t *testing.T) {
 func TestPositionPartialCloseRealized(t *testing.T) {
 	st := newMemPositionStore()
 	s := svc(st, nil)
-	s.ProcessFill(context.Background(), PositionFill{1, 10, 100, FillBuy, d("1.1000"), d("10000")})
+	s.ProcessFill(context.Background(), PositionFill{1, 10, 100, FillBuy, d("1.1000"), d("10000"), false, 0})
 	upd, err := s.ProcessFill(context.Background(), PositionFill{
 		TradeID: 2, AccountID: 10, InstrumentID: 100,
 		Side: FillSell, Price: d("1.1200"), Quantity: d("4000"),
@@ -194,7 +247,7 @@ func TestPositionPartialCloseRealized(t *testing.T) {
 func TestPositionFullClose(t *testing.T) {
 	st := newMemPositionStore()
 	s := svc(st, nil)
-	s.ProcessFill(context.Background(), PositionFill{1, 10, 100, FillSell, d("1.1000"), d("5000")})
+	s.ProcessFill(context.Background(), PositionFill{1, 10, 100, FillSell, d("1.1000"), d("5000"), false, 0})
 	upd, err := s.ProcessFill(context.Background(), PositionFill{
 		TradeID: 2, AccountID: 10, InstrumentID: 100,
 		Side: FillBuy, Price: d("1.0800"), Quantity: d("5000"),
@@ -220,7 +273,7 @@ func TestPositionFullClose(t *testing.T) {
 func TestPositionReversal(t *testing.T) {
 	st := newMemPositionStore()
 	s := svc(st, nil)
-	s.ProcessFill(context.Background(), PositionFill{1, 10, 100, FillBuy, d("1.1000"), d("10000")})
+	s.ProcessFill(context.Background(), PositionFill{1, 10, 100, FillBuy, d("1.1000"), d("10000"), false, 0})
 	upd, err := s.ProcessFill(context.Background(), PositionFill{
 		TradeID: 2, AccountID: 10, InstrumentID: 100,
 		Side: FillSell, Price: d("1.0500"), Quantity: d("15000"),
@@ -265,7 +318,7 @@ func TestPositionMarkStaleFallback(t *testing.T) {
 	st := newMemPositionStore()
 	oracle := stubOracle{err: errors.New("oracle down")}
 	s := svc(st, oracle)
-	s.ProcessFill(context.Background(), PositionFill{1, 10, 100, FillBuy, d("1.1000"), d("10000")})
+	s.ProcessFill(context.Background(), PositionFill{1, 10, 100, FillBuy, d("1.1000"), d("10000"), false, 0})
 	upd, err := s.ProcessFill(context.Background(), PositionFill{
 		TradeID: 2, AccountID: 10, InstrumentID: 100,
 		Side: FillBuy, Price: d("1.1100"), Quantity: d("10000"),
@@ -286,23 +339,23 @@ func TestPositionLimitEnforced(t *testing.T) {
 	st := newMemPositionStore()
 	st.maxOpen[10] = 1
 	s := svc(st, nil)
-	if _, err := s.ProcessFill(context.Background(), PositionFill{1, 10, 100, FillBuy, d("1.1"), d("1000")}); err != nil {
+	if _, err := s.ProcessFill(context.Background(), PositionFill{1, 10, 100, FillBuy, d("1.1"), d("1000"), false, 0}); err != nil {
 		t.Fatal(err)
 	}
-	_, err := s.ProcessFill(context.Background(), PositionFill{2, 10, 200, FillBuy, d("1.2"), d("1000")})
+	_, err := s.ProcessFill(context.Background(), PositionFill{2, 10, 200, FillBuy, d("1.2"), d("1000"), false, 0})
 	var e *excerrors.Error
 	if !errors.As(err, &e) || e.Code != CodePositionLimitExceeded {
 		t.Fatalf("want POSITION_LIMIT_EXCEEDED, got %v", err)
 	}
 	// same-instrument increase must NOT trip the limit
-	if _, err := s.ProcessFill(context.Background(), PositionFill{3, 10, 100, FillBuy, d("1.1"), d("1000")}); err != nil {
+	if _, err := s.ProcessFill(context.Background(), PositionFill{3, 10, 100, FillBuy, d("1.1"), d("1000"), false, 0}); err != nil {
 		t.Fatalf("increase on existing position must not be limited: %v", err)
 	}
 	// close then reopen is allowed (flat doesn't count)
-	if _, err := s.ProcessFill(context.Background(), PositionFill{4, 10, 100, FillSell, d("1.1"), d("2000")}); err != nil {
+	if _, err := s.ProcessFill(context.Background(), PositionFill{4, 10, 100, FillSell, d("1.1"), d("2000"), false, 0}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.ProcessFill(context.Background(), PositionFill{5, 10, 200, FillBuy, d("1.2"), d("1000")}); err != nil {
+	if _, err := s.ProcessFill(context.Background(), PositionFill{5, 10, 200, FillBuy, d("1.2"), d("1000"), false, 0}); err != nil {
 		t.Fatalf("reopen after close should pass: %v", err)
 	}
 }
@@ -351,11 +404,11 @@ func TestInvalidFillRejected(t *testing.T) {
 	st := newMemPositionStore()
 	s := svc(st, nil)
 	for _, f := range []PositionFill{
-		{0, 10, 100, FillBuy, d("1.1"), d("100")},  // no trade id
-		{1, 0, 100, FillBuy, d("1.1"), d("100")},   // no account
-		{1, 10, 100, "HOLD", d("1.1"), d("100")},   // bad side
-		{1, 10, 100, FillBuy, d("0"), d("100")},    // zero price
-		{1, 10, 100, FillBuy, d("1.1"), d("-100")}, // negative qty
+		{0, 10, 100, FillBuy, d("1.1"), d("100"), false, 0},  // no trade id
+		{1, 0, 100, FillBuy, d("1.1"), d("100"), false, 0},   // no account
+		{1, 10, 100, "HOLD", d("1.1"), d("100"), false, 0},   // bad side
+		{1, 10, 100, FillBuy, d("0"), d("100"), false, 0},    // zero price
+		{1, 10, 100, FillBuy, d("1.1"), d("-100"), false, 0}, // negative qty
 	} {
 		if _, err := s.ProcessFill(context.Background(), f); err == nil {
 			t.Fatalf("fill %+v should be rejected", f)

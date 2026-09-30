@@ -129,6 +129,35 @@ type ProductGate interface {
 		symbol, instrumentClass string, reduceOnly bool) error
 }
 
+// ExposureGate is the Phase-19 Task 19.3.5 exposure-cap seam —
+// *risk.ExposureService satisfies it in production. Consulted in the
+// pre-trade risk block (alongside RiskChecker) for every order that can
+// add exposure: the gate recomputes the account's mode-aware notional
+// increment (NETTING consumes the opposing side first; HEDGING adds
+// gross) against the risk_limits exposure caps and rejects with
+// MAX_EXPOSURE_EXCEEDED. nil skips the gate — LimitsService.CheckOrder
+// still enforces the same caps with the same mode-aware math when its
+// own position-mode source is bound (both are wired in production).
+type ExposureGate interface {
+	CheckExposure(ctx context.Context, req risk.OrderRequest) error
+}
+
+// MarginCallGate is the Phase-19 Task 19.3.3 §13.6d margin-call
+// order-entry block seam — *risk.MarginCallService satisfies it via
+// HasMarginCallBlock. Consulted inside checkAdmission for every order
+// that can add exposure: while margin_call:block:{account_id} stands
+// the order rejects with MARGIN_CALL_EXCEEDED (409). The block covers
+// the entire episode — the 15-minute deposit window cures the
+// shortfall but does not itself restore trading (spec §13.3
+// precedence); the block lifts only on automatic recovery above the
+// margin-call threshold or an audited Risk Manager re-enable.
+// reduce_only bypasses the gate — closing exposure must stay possible
+// mid-episode. nil skips the gate (unwired test/dev construction); a
+// probe error fails closed.
+type MarginCallGate interface {
+	HasMarginCallBlock(ctx context.Context, accountID int64) (bool, error)
+}
+
 // AdmissionObserver is the Phase-14 Task 14.3.2 auto-halt telemetry
 // seam — one call per Submit verdict carrying the admission-path
 // latency and the systemic-error classification
@@ -166,6 +195,8 @@ type Service struct {
 	breakers    BreakerGate
 	products    ProductGate
 	coolingOff  CoolingOffGate
+	exposure    ExposureGate
+	marginCall  MarginCallGate
 	batch       BatchRateLimiter
 	commission  CommissionEstimator
 	admission   AdmissionObserver
@@ -197,6 +228,8 @@ type Options struct {
 	Admission  AdmissionObserver   // optional — Task 14.3.2 anomaly feeds
 	Product    AppropriatenessGate // nil → admission fails closed (Task 14.3.7)
 	CoolingOff CoolingOffGate      // nil → self-exclusion gate skipped (unwired)
+	Exposure   ExposureGate        // nil → exposure gate skipped (Limits still enforces)
+	MarginCall MarginCallGate      // nil → margin-call order block skipped (unwired)
 	Fixing     FixingHooks         // nil → FIXING submissions rejected (Task 16.3.9)
 	GSLO       GSLOHooks           // nil → gslo submissions rejected (Task 16.3.16)
 	Composite  CompositeStore      // nil → bracket/list submissions rejected (16.3.14/.20)
@@ -224,6 +257,8 @@ func NewService(o Options) (*Service, error) {
 		breakers:   o.Breakers,
 		products:   o.Products,
 		coolingOff: o.CoolingOff,
+		exposure:   o.Exposure,
+		marginCall: o.MarginCall,
 		batch:      o.BatchRL,
 		commission: o.Commission,
 		admission:  o.Admission,
@@ -261,6 +296,12 @@ func (s *Service) WithAdmission(o AdmissionObserver) { s.admission = o }
 // after the order dispatcher it needs for the activation saga, so the
 // gate attaches here (same pattern as WithAdmission).
 func (s *Service) WithCoolingOff(g CoolingOffGate) { s.coolingOff = g }
+
+// WithMarginCall binds the Task 19.3.3 §13.6d margin-call order-entry
+// block post-construction — cmd/gateway builds MarginCallService after
+// the order pipeline (it needs the dispatcher for liquidation closes),
+// so the seam attaches here (same pattern as WithCoolingOff).
+func (s *Service) WithMarginCall(g MarginCallGate) { s.marginCall = g }
 
 // WithFixing binds the Phase-16 Task 16.3.9 fixing-order hooks — the
 // algo.FixingService is built from the pool + ledger poster after the
@@ -306,6 +347,26 @@ func (s *Service) InstrumentBySymbol(ctx context.Context, symbol string) (*Instr
 
 func (s *Service) shardFor(symbol string) uint16 {
 	return uint16(s.shards.GetShard(symbol))
+}
+
+// checkOrderRisk runs the pre-trade risk pipeline once per candidate
+// order: the Task 19.3.5 exposure gate first (mode-aware cap math,
+// MAX_EXPOSURE_EXCEEDED), then the limits check for everything else
+// (qty/daily-volume/open-orders + — when the gate was not consulted —
+// the same exposure caps). ExposureChecked suppresses the duplicate
+// exposure evaluation inside CheckOrder; a nil gate leaves the whole
+// check with LimitsService (pre-Phase-19 constructions stay enforced).
+func (s *Service) checkOrderRisk(ctx context.Context, req risk.OrderRequest) error {
+	if s.exposure != nil && !req.ReduceOnly {
+		if err := s.exposure.CheckExposure(ctx, req); err != nil {
+			return err
+		}
+		req.ExposureChecked = true
+	}
+	if s.limits != nil {
+		return s.limits.CheckOrder(ctx, req)
+	}
+	return nil
 }
 
 // submitHash is the canonical payload fingerprint persisted in
@@ -420,6 +481,22 @@ func (s *Service) checkAdmission(ctx context.Context, acct *Account,
 			return err // COOLING_OFF_ACTIVE / SERVICE_DEGRADED
 		}
 	}
+	// Phase-19 Task 19.3.3 §13.6d — margin-call order-entry block: a
+	// live margin_call:block flag rejects position-increasing orders for
+	// the whole episode (MARGIN_CALL_EXCEEDED). reduce_only bypasses it
+	// — closing exposure must stay possible mid-episode. A probe error
+	// fails closed: unverifiable block state cannot admit new risk.
+	if !reduceOnly && s.marginCall != nil {
+		blocked, err := s.marginCall.HasMarginCallBlock(ctx, acct.ID)
+		if err != nil {
+			return codeErr("SERVICE_DEGRADED",
+				"margin-call block probe failed — new orders rejected (fail closed): %v", err)
+		}
+		if blocked {
+			return codeErr("MARGIN_CALL_EXCEEDED",
+				"margin call active — position-increasing orders blocked (spec §13.6d)")
+		}
+	}
 	// Phase-14 Tasks 14.3.13/14.3.16 — product-profile instrument_scope +
 	// RETAIL target-market gate (*accounts.ProductGateService). Out-of-
 	// scope or out-of-target opens reject PRODUCT_NOT_PERMITTED;
@@ -500,24 +577,22 @@ func (s *Service) Submit(ctx context.Context, acct *Account, req *SubmitRequest)
 	}
 
 	// Pre-trade risk limits (2.3.3/Phase-19 seam).
-	if s.limits != nil {
-		evalPrice := decimal.Zero
-		if req.Price != nil {
-			evalPrice = *req.Price
-		} else if ref != nil {
-			evalPrice = *ref
-		}
-		if err := s.limits.CheckOrder(ctx, risk.OrderRequest{
-			AccountID:  acct.ID,
-			KycTier:    acct.KycTier,
-			Symbol:     inst.Symbol,
-			Side:       req.Side,
-			Quantity:   *req.Quantity,
-			Price:      evalPrice,
-			ReduceOnly: req.ReduceOnly,
-		}); err != nil {
-			return nil, err
-		}
+	evalPrice := decimal.Zero
+	if req.Price != nil {
+		evalPrice = *req.Price
+	} else if ref != nil {
+		evalPrice = *ref
+	}
+	if err := s.checkOrderRisk(ctx, risk.OrderRequest{
+		AccountID:  acct.ID,
+		KycTier:    acct.KycTier,
+		Symbol:     inst.Symbol,
+		Side:       req.Side,
+		Quantity:   *req.Quantity,
+		Price:      evalPrice,
+		ReduceOnly: req.ReduceOnly,
+	}); err != nil {
+		return nil, err
 	}
 
 	// Balance sufficiency (read-only — the §8.4 layer boundary forbids

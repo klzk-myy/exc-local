@@ -57,6 +57,8 @@ const (
 	OpInstrumentListing     = "instrument-listing"     // Phase-15 Task 15.3.12 (spec §7.2/§7.5) — listing-proposal approval → DRAFT
 	OpInstrumentCalendar    = "instrument-calendar"    // Phase-15 Task 15.3.13 (spec §7.1) — auction-calendar edit
 	OpTradeBust             = "trade-bust"             // Phase-15 Task 15.3.5 (spec §7.2/§5.29)
+	OpMarginParamChange     = "margin-param-change"    // Phase-19 Task 19.3.21 (spec §13.12)
+	OpEntityLeveragePolicy  = "entity-leverage-policy" // Phase-19 Task 19.3.24 (spec §13.14)
 )
 
 // Request statuses.
@@ -79,7 +81,7 @@ func SensitiveOperation(op string) bool {
 		OpProductProfileChange,
 		OpInstrumentCreate, OpInstrumentResume, OpInstrumentDelist,
 		OpInstrumentListing, OpInstrumentCalendar,
-		OpTradeBust:
+		OpTradeBust, OpMarginParamChange, OpEntityLeveragePolicy:
 		return true
 	}
 	return false

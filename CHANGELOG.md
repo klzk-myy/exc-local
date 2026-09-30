@@ -1293,3 +1293,87 @@ Honest seams in spec §27: SOR external venues env-blocked
 (`SOR_EXTERNAL_VENUES`), Traiana dialect/credentials operator wiring,
 allocation production bindings + Phase-24 settlement propagation, failover
 `<5s` chaos drill, `EXC_FIX_MD_SOURCE=none` parks delta feed.
+
+## [2026-09-30] — PHASE-19 SETTLE (multi-asset & portfolio margin — all 28 tasks)
+
+**32/32 P19 spec checkpoints bound and green** (`tests/spec/checks/phase19.go`
+— 32 bound vs 28 tasks; 19.3.3 declares four and 19.3.16/19.3.25 two SDD rows).
+180 DoD/SDD rows ticked, **3 honestly deferred** (19.3.25 option-delta/spread
+linkage — post-Phase-22 back-fit per its own header; seam stubs + tests landed).
+§19.7's AC table verified green via the checkpoint corpus.
+
+- **Margin core (`internal/risk`, migs 098/106/230/233/234/235):** CROSS /
+  ISOLATED / PORTFOLIO modes with USD-numeraire normalization and Redis MGET
+  mark batching (`margin.go`, `isolated_margin.go`); margin level +
+  per-tier thresholds + Redis publish + watcher (`margin_level.go`,
+  `margin_level_reader.go`); ESMA/CFTC/professional leverage with tiered
+  notional bands (`leverage.go`, `leverage_tiers.go`) and entity × category ×
+  instrument-group policy matrix — effective cap = min(entity, category, tier,
+  instrument, chosen), missing policy fails closed to strictest seed.
+- **Margin-call lifecycle & order gate:** `margin_call.go` episode store
+  (`margin_call:{account}` 15min Redis window + PG), stop-out precedence,
+  **position-increasing orders rejected `MARGIN_CALL_EXCEEDED` (409)** via
+  `orders.MarginCallGate` — reduce-only bypass; liquidation engine with 2s
+  scanner, auction CALL 5s / EXTEND ≤60s / 0.5% floor decay / FORCE_CASH
+  ×0.95/×1.05 / LP rebate 0.05% from insurance fund (`auction.go`,
+  `liquidation.go`, `insurance_fund.go`); ADL on fund depletion (`adl.go`
+  + `ADLIndicatorPublisher`).
+- **ADV liquidation slicing:** `closeTranches` slices positions >5% of ADV into
+  ≤10%-ADV tranches with 2s inter-slice delay and early halt on recovery;
+  `adv_source.go` chains Redis `instrument:adv:{id}` → PG trailing-7d trades
+  mean (1min cached) — no permanent pessimistic fallback.
+- **Margin add-ons:** `ConcentrationAddon` (>25% instrument OI → 50% of excess
+  share) and `LiquidityAddon` (>1 ADV unwind day → 10%/day, cap 50%) now
+  actually charged in CROSS/PORTFOLIO evaluation after aggregation — never
+  eroded by correlation offsets; nil sources keep the feature unprovisioned,
+  provisioned-but-missing/erroring data stays pessimistic (fail closed).
+- **Institutional credit:** PB NOP/DSL pre-trade gates
+  (`PB_NOP_LIMIT_EXCEEDED`/`PB_DSL_LIMIT_EXCEEDED`, `pb_credit.go`,
+  mig 232 reservations); bilateral mutual credit + atomic reservations +
+  credit-screened liquidity (`bilateral_credit.go`, mig 053, C++
+  `CreditScreen.cpp`); exposure limits (`exposure.go`).
+- **Collateral & NBP:** haircut/concentration collateral valuation
+  (`collateral.go`, mig 041) + intraday >100bps re-haircut monitor
+  (`collateral_service.go`) + volatility scaler (>2× baseline → IM up to 1.5×,
+  `volatility_scaler.go`); retail NBP with insurance-fund absorption, GL legs,
+  `nbp_events` + 17:00 ET sweep (`nbp.go`).
+- **Coordination & structure:** cross-shard 2PC margin coordinator
+  (`margin_coordinator.go`, mig 058, `cmd/risk` Aeron host); netting/hedging
+  position modes (`position_mode.go` + fill semantics); position transfers at
+  mark with atomic `balances.locked` rebalance + GL
+  (`settlement/position_transfer.go`, `accounting/transfer_ledger.go`,
+  mig 061); GROSS/NET settlement (`settlement/gross_net.go`, mig 031).
+- **Model governance:** stress engine + weekly scheduler + daily backtester
+  (`stress_engine.go`, mig 064 `margin_model_runs`); `ParamChangeGate`
+  (owner≠validator, fresh PASS run, scope match → `MARGIN_MODEL_UNVALIDATED`
+  503) bound to **dual-control** via new `OpMarginParamChange` +
+  `POST /admin/margin-param-changes`; entity-policy CRUD via
+  `OpEntityLeveragePolicy` + `POST|GET /admin/entity-leverage-policy`;
+  venue-info `leverage_policies` section publishes effective ceilings.
+- **Event-driven engine:** `margin_engine.go` + `priority_queue.go` +
+  `liquidation_dispatcher.go` — tick-driven sub-ms evaluation dispatches
+  stop-out straight to core; 2s scanner remains the watchdog.
+
+Settle fixes: merged duplicate `LiquidationQueue` files into one scoped-dedup
+queue; created `auction.go`/`AuctionRow` + `CloseOrderRequest.LimitPrice`;
+added `PgMarginCallStore`; runtime wiring in `cmd/gateway` (mark cache, fill
+hook for `liq-`/`auc-`/`adl-` client IDs, NBP post-liquidation + daily sweep,
+stress/backtest schedulers, margin engine + isolated + collateral monitor +
+ADL publisher + bilateral hooks); **two real enforcement gaps closed** —
+`HasMarginCallBlock` was defined but never called (now the admission gate),
+and `ConcentrationAddon`/`LiquidityAddon` were dead code (now charged);
+`admin` import cycle broken via external `admin_test` package; algo IT
+fixed — `pgFakeExec` now inserts real `orders` rows so child `order_id` FK
+holds (was silently swallowed by `logf2`).
+
+Counts: error registry 198 → **200** emitted (**195** §23-table rows + 5
+matrix-resident — `MARGIN_MODE_SWITCH_BLOCKED` + `MARGIN_CALL_EXCEEDED`
+tabled) · migrations 137 → **150** pairs (031/041/053/058/061/064/098/106/
+230/232/233/234/235 round-tripped on dev PG) · openapi **443** ops / 373
+paths · routes.json 416 → **443** · PII inventory **149** cols / **207**
+tables · §24 419 / tasks 479 / checkpoints 543 unchanged · traceability
+**419/419 mapped, 0 defects**. Honest seams: `DispatchDue` settlement
+scheduler lands with Phase-24 cycles; mark-price oracle is the stub provider
+until Phase-19.5; option-margin linkage (19.3.25) is a documented
+post-Phase-22 back-fit; `127.0.0.1:55433` scratch-PG ITs env-gated in this
+shell (all gated suites green on the dev instance).
