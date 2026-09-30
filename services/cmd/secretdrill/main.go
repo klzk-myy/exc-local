@@ -40,17 +40,17 @@ func (a *captureAlerter) Raise(_ context.Context, severity, code, _ string) erro
 }
 
 type report struct {
-	Secret         string   `json:"secret"`
-	OverdueSeen    bool     `json:"overdue_detected"`
-	AlertRaised    bool     `json:"secret_rotation_overdue_raised"`
-	AlertPayload   []string `json:"alerts"`
-	ListedOverdue  bool     `json:"listed_in_overdue_view"`
-	MarkedClean    bool     `json:"emergency_mark_cleared"`
-	EvalCleared    bool     `json:"evaluator_cleared"`
-	AuditRows      int      `json:"audit_rows"`
-	VaultLegNote   string   `json:"vault_leg"`
-	Pass           bool     `json:"pass"`
-	Fail           []string `json:"failures,omitempty"`
+	Secret        string   `json:"secret"`
+	OverdueSeen   bool     `json:"overdue_detected"`
+	AlertRaised   bool     `json:"secret_rotation_overdue_raised"`
+	AlertPayload  []string `json:"alerts"`
+	ListedOverdue bool     `json:"listed_in_overdue_view"`
+	MarkedClean   bool     `json:"emergency_mark_cleared"`
+	EvalCleared   bool     `json:"evaluator_cleared"`
+	AuditRows     int      `json:"audit_rows"`
+	VaultLegNote  string   `json:"vault_leg"`
+	Pass          bool     `json:"pass"`
+	Fail          []string `json:"failures,omitempty"`
 }
 
 func fail(rep *report, f string, args ...any) {

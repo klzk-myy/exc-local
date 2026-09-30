@@ -224,8 +224,24 @@ func HealthReady(mode func(ctx context.Context) (string, error),
 	}
 }
 
+// HealthMux builds the R9 endpoint set for a worker daemon on its health
+// port: /health/live (liveness), /health/ready (dependency-gated
+// readiness) and /healthz (legacy alias to liveness for pre-R9 probes).
+// Worker daemons pass their boot-required dependencies; an empty deps
+// list yields readiness = liveness until deeper wiring lands.
+func HealthMux(deps []Dependency) *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health/live", Health)
+	mux.HandleFunc("/healthz", Health)
+	mux.HandleFunc("/health/ready", HealthReady(nil, deps, nil, ""))
+	return mux
+}
+
 // DependencyErr builds a probe error with the dependency name attached —
 // the payload's error field then reads self-describing.
 func DependencyErr(name string, err error) error {
+	if err == nil {
+		return nil
+	}
 	return fmt.Errorf("%s: %w", name, err)
 }

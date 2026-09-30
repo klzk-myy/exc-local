@@ -67,4 +67,14 @@ CREATE INDEX nostro_movements_pending_ix
     ON nostro_movements (created_at)
     WHERE status = 'PENDING';
 
+-- statement_entries (057) declares reconciled_payment_id /
+-- reconciled_movement_id without FK clauses because it is numbered ahead
+-- of 108 (rail_payments) and this file; both constraints land here.
+ALTER TABLE statement_entries
+    ADD CONSTRAINT statement_entries_payment_fk
+    FOREIGN KEY (reconciled_payment_id) REFERENCES rail_payments (id);
+ALTER TABLE statement_entries
+    ADD CONSTRAINT statement_entries_movement_fk
+    FOREIGN KEY (reconciled_movement_id) REFERENCES nostro_movements (id);
+
 COMMIT;

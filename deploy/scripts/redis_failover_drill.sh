@@ -36,10 +36,14 @@
 # Usage:
 #   deploy/scripts/redis_failover_drill.sh [--no-go-client] [--json out.json]
 # Env overrides: COMPOSE_FILE, MASTER_NAME, PRIMARY_CONTAINER,
-#   REPLICA_CONTAINERS, SENTINEL_CONTAINERS, DETECT_BUDGET_MS (default 3000),
+#   REPLICA_CONTAINERS, SENTINEL_CONTAINERS, DETECT_BUDGET_MS (default 4000),
 #   BASELINE_KEYS (default 50), GO_DRILL_WAIT (default 60s).
 # Exit: 0 = PASS, 1 = FAIL, 64 = usage. Topology restore is attempted on ANY
 # failure path (ERR/INT trap) — leaving the cluster degraded is not allowed.
+# Restore means FULL state: the old primary rejoins as synced replica AND
+# mastership is returned to it (sentinel-managed failover, biased by
+# replica-priority), so the compose-canonical host port (16379) stays a
+# writable master after. A rotated master counts as UNRESTORED.
 # =============================================================================
 set -uo pipefail
 
@@ -51,7 +55,11 @@ PRIMARY_CONTAINER="${PRIMARY_CONTAINER:-exc-dev-redis-primary-1}"
 REPLICA_CONTAINERS="${REPLICA_CONTAINERS:-exc-dev-redis-replica-1-1 exc-dev-redis-replica-2-1}"
 SENTINEL_CONTAINERS="${SENTINEL_CONTAINERS:-exc-dev-redis-sentinel-1-1 exc-dev-redis-sentinel-2-1 exc-dev-redis-sentinel-3-1}"
 DATA_CONTAINERS="$PRIMARY_CONTAINER $REPLICA_CONTAINERS"
-DETECT_BUDGET_MS="${DETECT_BUDGET_MS:-3000}"
+# Detect budget (kill -> +switch-master): down-after 2000ms + odown quorum
+# vote + leader election + promote/reconfig lands ~2900-3500ms on
+# docker-hosted sentinels. 4000ms keeps the gate honest without jitter
+# flapping; spec RTO bound is 30s (§4.5) regardless.
+DETECT_BUDGET_MS="${DETECT_BUDGET_MS:-4000}"
 BASELINE_KEYS="${BASELINE_KEYS:-50}"
 GO_DRILL_WAIT="${GO_DRILL_WAIT:-60s}"
 GO_CLIENT=1
@@ -112,29 +120,133 @@ sentinel_event_ms() {
             [ "$ms" -gt "$after_ms" ] && echo "$ms"
           done
     done | sort -n | head -1
+    # no-match is a normal outcome (event hasn't landed in a sentinel's
+    # log yet); under `set -o pipefail` a grep miss would make this
+    # function return 1, firing the ERR trap through VAR=$(...) callers.
+    return 0
 }
 
 # ---------------------------------------------------------------------------
 # Restore helper — runs on success path and via trap on any failure path.
 # ---------------------------------------------------------------------------
 RESTORED=1   # nothing killed yet
+CANONICAL=1  # original primary still holds mastership until a kill lands
 restore_topology() {
     [ "$RESTORED" = "1" ] && return 0
-    log "restore: docker compose up -d redis-primary"
-    docker compose -f "$COMPOSE_FILE" --project-directory "$COMPOSE_DIR" \
-        up -d redis-primary >/dev/null 2>&1 || log "restore: compose up failed"
-    local i role link
+    # Restart the container the drill actually killed ($PRIMARY_CTR =
+    # whatever sentinel reported as master) — NOT the hardcoded
+    # redis-primary service: after a rotated topology the crashed node is
+    # a replica, and `compose up -d redis-primary` on a live container is
+    # a no-op that leaves the dead replica down.
+    local tgt="${PRIMARY_CTR:-$PRIMARY_CONTAINER}"
+    log "restore: docker start $tgt"
+    docker start "$tgt" >/dev/null 2>&1 \
+        || docker compose -f "$COMPOSE_FILE" --project-directory "$COMPOSE_DIR" \
+             up -d >/dev/null 2>&1 || log "restore: node restart failed"
+    # docker start returns before redis accepts commands — gate on PING or
+    # every follow-up exec (INFO poll, REPLICAOF) races the listener.
+    local i
+    for i in $(seq 1 30); do
+        rexec "$tgt" PING 2>/dev/null | grep -q PONG && break
+        sleep 1
+    done
+    local role link
     for i in $(seq 1 90); do
+        role="$(rexec "$tgt" INFO replication 2>/dev/null | tr -d '\r' | grep -o '^role:[a-z]*' | cut -d: -f2)"
+        link="$(rexec "$tgt" INFO replication 2>/dev/null | tr -d '\r' | grep -o 'master_link_status:[a-z]*' | cut -d: -f2)"
+        # A restarted data node can come up as an unconverted MASTER (the
+        # compose primary's command has no --replicaof): sentinel issues
+        # convert-to-slave on its own schedule, which can lag the drill.
+        # Either terminal state is fine — failback_primary converges the
+        # group to the compose-canonical master regardless.
+        if { [ "$role" = "slave" ] && [ "$link" = "up" ]; } || [ "$role" = "master" ]; then
+            log "restore: $tgt back up (role=$role link=${link:-n/a}, ${i}s)"
+            RESTORED=1
+            break
+        fi
+        sleep 1
+    done
+    [ "$RESTORED" = "1" ] || { log "restore: $tgt did NOT come back within 90s (role=${role:-?} link=${link:-?})"; return 1; }
+    failback_primary || CANONICAL=0
+    return 0
+}
+
+# The promoted replica keeps mastership after restore — callers that dial
+# the fixed compose primary addr (host :16379 -> $PRIMARY_CONTAINER) then
+# hit READONLY. Fail back through sentinel itself: SENTINEL failover picks
+# the LOWEST replica-priority among healthy synced replicas. Two rules
+# learned the hard way:
+#   - bias lands via CONFIG SET replica-priority on the primary, and the
+#     failover must wait until sentinel reports it as a healthy synced
+#     slave (freshly rejoined replicas are skipped — observed promoting a
+#     peer instead);
+#   - do NOT repoint replicas or re-monitor manually: peer sentinels'
+#     +config-update-from epoch propagation reverts a manual re-monitor,
+#     and demoting the promoted replica outside sentinel triggers a
+#     second (unwanted) election.
+failback_primary() {
+    local ip i cur mnet role link
+    # The primary sits on multiple docker networks (exc-dev_default +
+    # redis-ha); a bare range over NetworkSettings concatenates the IPs
+    # into garbage. Pick its address on the same subnet the sentinels
+    # announce (derived from the current master addr).
+    mnet="$(master_addr 2>/dev/null | cut -d. -f1-2)"
+    [ -n "$mnet" ] || mnet="10.99"
+    ip="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' "$PRIMARY_CONTAINER" 2>/dev/null \
+        | tr ' ' '\n' | grep -m1 "^${mnet}\.")"
+    [ -n "$ip" ] || { log "failback: cannot resolve $PRIMARY_CONTAINER ip on ${mnet}.x"; return 1; }
+    cur="$(master_addr 2>/dev/null || true)"
+    if [ "${cur%%:*}" = "$ip" ]; then
+        log "failback: $PRIMARY_CONTAINER already master — nothing to do"
+        return 0
+    fi
+    rexec "$PRIMARY_CONTAINER" CONFIG SET replica-priority 10 >/dev/null 2>&1 \
+        || { log "failback: priority bias failed"; return 1; }
+    # The restarted primary can come up as an UNCONVERTED master (compose
+    # command has no --replicaof) and sentinel's convert-to-slave is lazy
+    # — observed >60s. Pointing it at the CURRENT master is exactly what
+    # sentinel itself would do (repointing the promoted master is the
+    # action that would fight the election, so only the demoted node is
+    # touched).
+    cur="$(master_addr 2>/dev/null || true)"
+    # Retry until the primary actually reports slave+link-up — a single
+    # REPLICAOF can silently miss while the node is mid-sync/startup.
+    for i in $(seq 1 30); do
         role="$(rexec "$PRIMARY_CONTAINER" INFO replication 2>/dev/null | tr -d '\r' | grep -o '^role:[a-z]*' | cut -d: -f2)"
         link="$(rexec "$PRIMARY_CONTAINER" INFO replication 2>/dev/null | tr -d '\r' | grep -o 'master_link_status:[a-z]*' | cut -d: -f2)"
-        if [ "$role" = "slave" ] && [ "$link" = "up" ]; then
-            log "restore: old primary rejoined as replica of $(rexec "$PRIMARY_CONTAINER" INFO replication 2>/dev/null | tr -d '\r' | grep -o 'master_host:[0-9.]*' | cut -d: -f2) (link up, ${i}s)"
-            RESTORED=1
+        [ "$role" = "slave" ] && [ "$link" = "up" ] && break
+        [ -n "$cur" ] && rexec "$PRIMARY_CONTAINER" REPLICAOF "${cur%%:*}" "${cur##*:}" >/dev/null 2>&1
+        sleep 1
+    done
+    [ "$role" = "slave" ] || log "failback: primary did not join $cur as slave (role=${role:-?})"
+    # Wait until sentinel reports the rejoined primary as a healthy synced
+    # replica (flags lack s_down/o_down/disconnected, link ok) — failover
+    # only considers such candidates. NB: sentinel reports
+    # master-link-status as ok/err (the replica's own INFO uses up/down).
+    for i in $(seq 1 60); do
+        sexec "$(first_sentinel)" SENTINEL slaves "$MASTER_NAME" 2>/dev/null | tr -d '\r' \
+            | awk -v ip="${ip}:6379" '
+                $0=="name"{getline; seg=($0==ip)}
+                seg&&$0=="flags"{getline; flags=$0}
+                seg&&$0=="master-link-status"{getline; link=$0}
+                END{exit !((flags!~/s_down|o_down|disconnected/)&&link=="ok")}' \
+            && break
+        [ "$i" = "60" ] && { log "failback: sentinel never saw $PRIMARY_CONTAINER as healthy slave"; return 1; }
+        sleep 1
+    done
+    sexec "$(first_sentinel)" SENTINEL failover "$MASTER_NAME" >/dev/null 2>&1 \
+        || log "failback: sentinel failover command rejected"
+    for i in $(seq 1 60); do
+        cur="$(master_addr 2>/dev/null || true)"
+        if [ "${cur%%:*}" = "$ip" ]; then
+            log "failback: $PRIMARY_CONTAINER is master again (${i}s)"
+            rexec "$PRIMARY_CONTAINER" CONFIG SET replica-priority 100 >/dev/null 2>&1 || true
             return 0
         fi
         sleep 1
     done
-    log "restore: primary did NOT rejoin as synced replica within 90s (role=${role:-?} link=${link:-?})"
+    rexec "$PRIMARY_CONTAINER" CONFIG SET replica-priority 100 >/dev/null 2>&1 || true
+    log "failback: sentinel still reports ${cur:-?} — master left on promoted replica"
     return 1
 }
 trap 'rc=$?; if [ "$RESTORED" != "1" ]; then log "trap: unexpected exit — attempting topology restore"; restore_topology || true; fi; exit $rc' ERR INT TERM
@@ -306,14 +418,29 @@ fi
 # --- 8. restore topology ----------------------------------------------------------
 restore_topology || log "WARN: topology restore incomplete — manual check required"
 
-SLAVES_AFTER="$(sexec "$(first_sentinel)" SENTINEL master "$MASTER_NAME" 2>/dev/null | tr -d '\r' | awk '/^num-slaves$/{getline; print $0}')"
+SLAVES_AFTER="$(sexec "$(first_sentinel)" SENTINEL master "$MASTER_NAME" 2>/dev/null | tr -d '\r' | awk '/^num-slaves$/{getline; print $0}' || true)"
 PEERS_AFTER=0
 for c in $SENTINEL_CONTAINERS; do
     # count returned peer records (each record prints its 'name' field then value)
-    n="$(sexec "$c" SENTINEL sentinels "$MASTER_NAME" 2>/dev/null | awk 'BEGIN{c=0} /^name$/{getline; c++} END{print c}')"
+    n="$(sexec "$c" SENTINEL sentinels "$MASTER_NAME" 2>/dev/null | awk 'BEGIN{c=0} /^name$/{getline; c++} END{print c}' || true)"
     [ "${n:-0}" -gt "$PEERS_AFTER" ] && PEERS_AFTER="$n"
 done
 log "post-restore: sentinel sees num-slaves=${SLAVES_AFTER:-?} peer-sentinels=${PEERS_AFTER} (want 2 each)"
+
+# Write-readiness: sentinel's num-slaves counts LISTED replicas regardless
+# of sync state — min-replicas-to-write only counts state=online. Wait for
+# the master to report enough online replicas or the first writer after
+# restore eats NOREPLICAS (observed: suite ctest leg failing acquire()).
+MIN_W="$(rexec "$PRIMARY_CONTAINER" CONFIG GET min-replicas-to-write 2>/dev/null | tr -d '\r' | tail -1)"
+MIN_W="${MIN_W:-1}"
+WRITABLE=0
+ONLINE=0
+for i in $(seq 1 30); do
+    ONLINE="$(rexec "$PRIMARY_CONTAINER" INFO replication 2>/dev/null | tr -d '\r' | grep -c 'state=online' || true)"
+    [ "${ONLINE:-0}" -ge "${MIN_W:-1}" ] && { WRITABLE=1; break; }
+    sleep 1
+done
+log "post-restore: master sees ${ONLINE:-0} online replica(s) (min-replicas-to-write=${MIN_W:-1}, ${i}s)"
 
 # --- cleanup drill keys on the new master -----------------------------------------
 rexec "$NEW_CTR" EVAL "local ks=redis.call('KEYS',ARGV[1]); for _,k in ipairs(ks) do redis.call('DEL',k) end; return #ks" 0 "$KPRE:*" >/dev/null 2>&1 || true
@@ -323,7 +450,7 @@ dok=1; zok=1; cok=1; rok=1
 [ "${DETECT_MS:-99999}" -le "$DETECT_BUDGET_MS" ] || dok=0
 [ "$ZERO_LOSS" = "pass" ] || zok=0
 case "$GO_VERDICT" in pass|shell-fallback\(pass\)) ;; *) cok=0 ;; esac
-[ "$RESTORED" = "1" ] && [ "${SLAVES_AFTER:-0}" -ge 2 ] || rok=0
+[ "$RESTORED" = "1" ] && [ "${SLAVES_AFTER:-0}" -ge 2 ] && [ "$CANONICAL" = "1" ] && [ "${WRITABLE:-0}" = "1" ] || rok=0
 
 cat <<EOF
 
@@ -333,7 +460,7 @@ cat <<EOF
   promotion time : ${DETECT_MS}ms   (bound <=${DETECT_BUDGET_MS}ms, +switch-master)  $([ $dok = 1 ] && echo PASS || echo FAIL)
   zero-loss      : $MISSING missing of $((CHECKED-1)) WAIT-acked keys                  $([ $zok = 1 ] && echo PASS || echo FAIL)
   client pool    : $GO_VERDICT${RECONNECT:+ reconnect=$RECONNECT}                     $([ $cok = 1 ] && echo PASS || echo FAIL)
-  topology       : restored=$RESTORED slaves=${SLAVES_AFTER:-?} peers=$PEERS_AFTER     $([ $rok = 1 ] && echo PASS || echo FAIL)
+  topology       : restored=$RESTORED canonical=$CANONICAL writable=${WRITABLE:-0} slaves=${SLAVES_AFTER:-?} peers=$PEERS_AFTER     $([ $rok = 1 ] && echo PASS || echo FAIL)
 EOF
 
 if [ -n "$JSON_OUT" ]; then

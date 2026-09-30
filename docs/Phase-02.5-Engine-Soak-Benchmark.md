@@ -38,7 +38,7 @@
 
 **Definition of Done (Acceptance Criteria):**
 * [ ] Load generator sustains 50k orders/sec for 72h *(env-bound: 72h soak window not executed; harness + crash-injection monitor landed and exercised on bounded runs — see Task 2.5.3.2 note)*
-* [ ] Grafana dashboard shows real-time metrics *(env-bound: metrics + dashboard definitions landed; live scrape not run in this environment)*
+* [x] Grafana dashboard shows real-time metrics *(verified 2026-09-30 — `deploy/scripts/grafana_live_drill.sh`: grafana 13.2.3 + prometheus v2.53.0 containers on a drill network; all 5 dashboards provisioned via canonical mounts (`/api/search` → exc-ipc-backbone/shard-health/slo/system-overview/trading); live scrape through the Grafana datasource proxy returns `redis_master_up=1` + recorded SLI series (`exchange_sli:redis_master_availability:rate5m=1` etc.); exact slo.json panel exprs via `/api/ds/query` → timeseries frames w/ real values; DRILL PASS. Also fixed `provisioning/datasources/prometheus.yaml` — added explicit `uid: Prometheus` (panels referenced that uid but provisioning auto-generated one; every panel would have broken). Scope: sentinel-exporter is the only live scrape target here — other jobs' panels show no data (environmental, not a definition defect))*
 * [x] Crash injection triggers recovery automatically (monitor.sh: 2 kills → auto-recovery 370/579ms)
 * [x] Reconciliation job runs every 1h (WAL-integrity substitute per dependency note: wal_audit on --audit-interval + final recover scan, all clean)
 

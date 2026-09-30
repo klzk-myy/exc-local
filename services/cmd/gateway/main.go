@@ -5664,7 +5664,7 @@ func run() error {
 		// --- Phase-09 Task 9.3.29 item 4: secrets inventory ---
 		"GET /api/v1/admin/security/secrets-inventory": http.HandlerFunc(
 			api.AdminSecretsInventoryList(secretsInvSvc)),
-		"PUT /api/v1/admin/security/secrets-inventory": api.AdminSecretsInventoryUpsert(secretsInvSvc, true),
+		"PUT /api/v1/admin/security/secrets-inventory":                      api.AdminSecretsInventoryUpsert(secretsInvSvc, true),
 		"POST /api/v1/admin/security/secrets-inventory/{name}/mark-rotated": api.AdminSecretsInventoryMarkRotated(secretsInvSvc, true),
 		// --- Phase-07 Task 7.3.9: LP management ---
 		"GET /api/v1/admin/liquidity-providers":                http.HandlerFunc(api.AdminLPList(lpSvc, true)),
@@ -5704,8 +5704,11 @@ func run() error {
 		// Phase-17 Task 17.3.2 — dedicated premium L3 order-level stream
 		// + WAL-reconstructed point-in-time snapshot.
 		"WS /ws/v1/l3/{symbol}": l3Srv,
-		"GET /api/v1/market-data/l3-snapshot/{symbol}": http.HandlerFunc(
-			api.MarketDataL3Snapshot(l3SnapDeps)),
+		// Registry declares auth.required + scope=read (authRead) — the
+		// handler does not consult claims, so the scope gate wraps the
+		// mount (F-L3-AUTH-1: premium L3 book was served anonymously).
+		"GET /api/v1/market-data/l3-snapshot/{symbol}": auth.RequireScope("read")(
+			http.HandlerFunc(api.MarketDataL3Snapshot(l3SnapDeps))),
 		// Task 5.3.30: dual-control manual liquidation.
 		"POST /api/v1/admin/liquidation/manual": api.ManualLiquidationHandler(manLiqSvc, true),
 		// Phase-19 Tasks 19.3.8/19.3.14 — insurance-fund admin view and

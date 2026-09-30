@@ -26,6 +26,7 @@ import (
 
 	gonats "github.com/nats-io/nats.go"
 
+	"exchange/internal/api"
 	"exchange/internal/config"
 	excnats "exchange/internal/nats"
 	"exchange/internal/observability"
@@ -165,6 +166,18 @@ func run() error {
 		fmt.Fprintf(w, `{"status":"ok","nats_connected":%v}`,
 			nc != nil && nc.Connected())
 	})
+	// R9 probe surface (Task 7.3.6) — deploy/k8s/admin probes
+	// /health/live + /health/ready on this port. NATS is optional for
+	// admin (alerts degrade, API keeps serving).
+	mux.HandleFunc("/health/live", api.Health)
+	mux.HandleFunc("/health/ready", api.HealthReady(nil, []api.Dependency{
+		{Name: "nats", Required: false, Probe: func(context.Context) error {
+			if nc == nil || !nc.Connected() {
+				return api.DependencyErr("nats", errors.New("disconnected"))
+			}
+			return nil
+		}},
+	}, nil, ""))
 	mux.HandleFunc("GET /api/v1/admin/dlq", observability.DLQHandler(dlqStore))
 	mux.HandleFunc("POST /api/v1/admin/dlq/replay",
 		observability.DLQActionHandler(dlqStore, "replay"))

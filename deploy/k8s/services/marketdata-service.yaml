@@ -42,8 +42,9 @@ spec:
               valueFrom: {secretKeyRef: {name: exchange-secrets, key: data-key}}
             - name: EXC_JWT_HS256_KEY_B64
               valueFrom: {secretKeyRef: {name: exchange-secrets, key: jwt-hs256-key-b64}}
-          # R9 schema. Current binary also exposes /healthz + /readyz on :8081
-          # (keep both until R9 aliases land — see deploy/k8s/README.md).
+          # R9 schema — served by cmd/marketdata on :8081 since the
+          # probe-coverage fix (2026-09-30); /healthz + /readyz kept for
+          # compat (see deploy/k8s/README.md).
           readinessProbe:
             httpGet: {path: /health/ready, port: ws}
             periodSeconds: 5

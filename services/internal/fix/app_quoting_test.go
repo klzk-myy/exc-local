@@ -247,4 +247,3 @@ func TestFromApp_QuoteCancelCancelsSet(t *testing.T) {
 		t.Fatal("cancel must reach the order pipeline")
 	}
 }
-

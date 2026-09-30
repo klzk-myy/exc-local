@@ -38,10 +38,10 @@ import (
 	"sync"
 	"time"
 
-	"exchange/internal/tracing"
 	"exchange/internal/ipc"
 	"exchange/internal/ipc/wire"
 	excnats "exchange/internal/nats"
+	"exchange/internal/tracing"
 	"exchange/pkg/decimal"
 )
 

@@ -40,10 +40,13 @@ if [ -z "$STUB" ]; then
     STUB="python3 stub_server.py"
 fi
 echo "stub backend: $STUB"
-$STUB BLUE-1 18081 2>run/blue1.log  & echo $! > run/blue1.pid
-$STUB BLUE-2 18082 2>run/blue2.log  & echo $! > run/blue2.pid
-$STUB GREEN-1 18083 2>run/green1.log & echo $! > run/green1.pid
-$STUB GREEN-2 18084 2>run/green2.log & echo $! > run/green2.pid
+# stdout must be redirected too — a surviving stub holding the inherited
+# stdout pipe blocks any caller that captures output (go exec
+# CombinedOutput, `| tail`) forever after the script exits.
+$STUB BLUE-1 18081 >run/blue1.log 2>&1  & echo $! > run/blue1.pid
+$STUB BLUE-2 18082 >run/blue2.log 2>&1  & echo $! > run/blue2.pid
+$STUB GREEN-1 18083 >run/green1.log 2>&1 & echo $! > run/green1.pid
+$STUB GREEN-2 18084 >run/green2.log 2>&1 & echo $! > run/green2.pid
 sleep 0.5
 
 # --- config check --------------------------------------------------------

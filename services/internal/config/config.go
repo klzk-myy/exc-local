@@ -241,6 +241,9 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("fix.reset_on_logon", false)
 	v.SetDefault("fix.max_latency_ms", 0)
 	v.SetDefault("fix.tls_enabled", false)
+	v.SetDefault("fix.tls_cert", "")
+	v.SetDefault("fix.tls_key", "")
+	v.SetDefault("fix.tls_ca", "")
 	v.SetDefault("fix.aeron_dir", "")
 	v.SetDefault("fix.aeron_driver_timeout_ms", 5000)
 	v.SetDefault("settlement.host", "127.0.0.1")
@@ -254,9 +257,17 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("postgres.max_conns", 20)
 
 	v.SetDefault("redis.addr", "127.0.0.1:16379")
+	v.SetDefault("redis.password", "")
 	v.SetDefault("redis.db", 0)
 
 	v.SetDefault("nats.urls", "nats://127.0.0.1:4222,nats://127.0.0.1:4223,nats://127.0.0.1:4224")
+
+	// Every scalar key needs a registered default or AutomaticEnv cannot
+	// bind its EXC_ variable during Unmarshal — viper only resolves env
+	// for keys present in AllKeys. Without these, env-only deployments
+	// (the shipped k8s manifests inject EXC_SECRETS_DATA_KEY and
+	// EXC_REDIS_PASSWORD via secretKeyRef) silently drop the values.
+	v.SetDefault("secrets.data_key", "")
 }
 
 // Validate rejects out-of-range or malformed settings. Every service port

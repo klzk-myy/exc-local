@@ -39,6 +39,8 @@ spec:
               valueFrom: {secretKeyRef: {name: exchange-secrets, key: data-key}}
             - name: EXC_SETTLEMENT_HOST
               value: "0.0.0.0"
+          # R9 schema — served via observability.ServeMetrics on :8083 since
+          # the probe-coverage fix (2026-09-30); legacy /healthz kept.
           readinessProbe:
             httpGet: {path: /health/ready, port: health}
             periodSeconds: 5

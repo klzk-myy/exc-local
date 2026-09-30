@@ -61,6 +61,11 @@ CREATE UNIQUE INDEX journal_entries_idem_ux
     WHERE idempotency_key IS NOT NULL;
 CREATE INDEX journal_entries_ref_ix ON journal_entries (entry_type, reference_id);
 
+-- NB: variation_margin (034) declares journal_entry_id without the FK
+-- clause because it is numbered ahead of journal_entries. The constraint
+-- lands in 276_deferred_variation_margin_journal_fk (trailing file —
+-- test fixtures apply 036 inside subsets that lack variation_margin).
+
 CREATE TABLE ledger_lines (
     id               BIGSERIAL PRIMARY KEY,
     journal_entry_id BIGINT       NOT NULL REFERENCES journal_entries (id),

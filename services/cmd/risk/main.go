@@ -16,11 +16,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"sort"
 	"time"
 
+	"exchange/internal/api"
 	"exchange/internal/config"
 	"exchange/internal/db"
 	"exchange/internal/ipc"
@@ -209,6 +212,41 @@ func run() error {
 
 	// Expiry sweeper — RELEASE frames for reservations past TTL.
 	go coord.RunSweeper(ctx, emitter)
+
+	// R9 health surface (Task 7.3.6) — the K8s pod probes /health/live +
+	// /health/ready on EXC_RISK_HEALTH_ADDR (deploy/k8s/risk-coordinator).
+	// Empty addr leaves the listener off (bare-metal/supervisord default).
+	if addr := os.Getenv("EXC_RISK_HEALTH_ADDR"); addr != "" {
+		mux := api.HealthMux([]api.Dependency{
+			{Name: "postgres", Required: true, Probe: func(ctx context.Context) error {
+				return api.DependencyErr("postgres", pool.Ping(ctx))
+			}},
+			{Name: "redis", Required: true, Probe: func(ctx context.Context) error {
+				return api.DependencyErr("redis", rdb.Ping(ctx))
+			}},
+			{Name: "nats", Required: true, Probe: func(context.Context) error {
+				if !nats.Connected() {
+					return api.DependencyErr("nats", errors.New("disconnected"))
+				}
+				return nil
+			}},
+		})
+		srv := &http.Server{Addr: addr, Handler: mux,
+			ReadHeaderTimeout: 5 * time.Second}
+		go func() {
+			<-ctx.Done()
+			sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = srv.Shutdown(sctx)
+		}()
+		go func() {
+			if err := srv.ListenAndServe(); err != nil &&
+				!errors.Is(err, http.ErrServerClosed) {
+				log.Error("risk: health listener died", "err", err)
+			}
+		}()
+		log.Info("risk: health endpoint", "addr", addr)
+	}
 
 	log.Info("risk coordinator started",
 		"shards", shards, "shard_map_source", shardSrc.String(),

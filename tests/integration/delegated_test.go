@@ -101,8 +101,12 @@ func runDelegated(ctx context.Context, b itest.Binding) (string, string) {
 			}
 			return "PASS", trunc(out, 400)
 		case "haproxy-topology":
+			// run_drill.sh is an interactive drill: it starts the proxy +
+			// stub backends and exits, expecting a later `stop`. Without
+			// the chained stop the suite leaks a bound :8080/:8443
+			// container plus the stub processes on every run.
 			out, err := env.RunBin(ctx, env.Root,
-				"bash", "deploy/haproxy/test/run_drill.sh")
+				"bash", "-c", "bash deploy/haproxy/test/run_drill.sh; rc=$?; bash deploy/haproxy/test/run_drill.sh stop >/dev/null 2>&1 || true; exit $rc")
 			if err != nil {
 				return "FAIL", "haproxy topology: " + err.Error() + "\n" + trunc(out, 400)
 			}

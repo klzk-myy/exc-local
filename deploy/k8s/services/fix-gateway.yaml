@@ -42,9 +42,14 @@ spec:
               valueFrom: {secretKeyRef: {name: exchange-secrets, key: data-key}}
             - name: EXC_FIX_MTLS_KEYSTORE
               valueFrom: {secretKeyRef: {name: exchange-secrets, key: fix-mtls-keystore}}
-          # R9 schema endpoints. Liveness checks the process; readiness must
-          # additionally verify the FIX acceptor — today /healthz on :8082
-          # (alias to /health/ready lands with Task 7.3.6 rollout).
+            # spec §19.13 publishes FIX on 9800; config default
+            # fix.acceptor_port is 9879 — override so the acceptor binds
+            # the Service's targetPort.
+            - {name: EXC_FIX_ACCEPTOR_PORT, value: "9800"}
+          # R9 schema endpoints — served via observability.ServeMetrics on
+          # :8082 since the probe-coverage fix (2026-09-30). Liveness checks
+          # the process; readiness is process-level — an acceptor-level
+          # ready gate remains open work.
           readinessProbe:
             httpGet: {path: /health/ready, port: health}
             periodSeconds: 5

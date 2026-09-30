@@ -51,13 +51,16 @@ binary (`services/cmd/archiver`).
   engine IPC rings required → 503; NATS optional → degraded/200; Maintenance
   mode → 503 pulls the pod).
 
-Current binary support: `order-gateway` implements the full R9 schema plus
-`/health` + `/ready` aliases. `marketdata` serves `/healthz` + `/readyz`;
-`fix`/`settlement`/`compliance` serve `/healthz`; `admin` serves `/health`.
-Unbuilt inventory services must implement R9 at image build time. Until the
-R9 aliases land on the worker binaries, swap the probe paths to the listed
-legacy endpoints (marked in each file) or deploy-time patching via
-`kubectl patch` — the manifests pin the target contract.
+Current binary support (2026-09-30): `order-gateway` implements the full
+R9 schema plus `/health` + `/ready` aliases. Every other built daemon now
+serves `/health/live` + `/health/ready` too — `oracle` + `risk` via
+env-gated listeners (`EXC_ORACLE_HEALTH_ADDR` / `EXC_RISK_HEALTH_ADDR`
+with real dependency probes), `bridge`/`marketdata`/`admin` on their
+existing muxes, `fix`/`settlement`/`compliance` via
+`observability.ServeMetrics`. Unbuilt inventory services
+(liquidation-scanner, banking-rails, regulatory-reporter, status-exporter,
+analytics-spooler — `:CHANGE_ME` images) must implement R9 at image build
+time; their manifests pin the `EXC_*_HEALTH_ADDR` contract.
 
 ## Secrets
 

@@ -23,10 +23,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"exchange/internal/tracing"
 	"exchange/internal/ipc"
 	"exchange/internal/ipc/aeron"
 	"exchange/internal/ipc/wire"
+	"exchange/internal/tracing"
 	"exchange/pkg/decimal"
 )
 

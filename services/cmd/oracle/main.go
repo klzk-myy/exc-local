@@ -21,12 +21,15 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
+	"net/http"
 	"os"
 	"strings"
 	"time"
 
+	"exchange/internal/api"
 	"exchange/internal/config"
 	"exchange/internal/db"
 	ipcaeron "exchange/internal/ipc/aeron"
@@ -117,6 +120,33 @@ func run() error {
 	if err != nil {
 		return err
 	}
+
+	// R9 health surface (Task 7.3.6) — the K8s pod probes /health/live +
+	// /health/ready on EXC_ORACLE_HEALTH_ADDR (deploy/k8s/oracle-service).
+	// Empty addr leaves the listener off (bare-metal/supervisord default).
+	if addr := os.Getenv("EXC_ORACLE_HEALTH_ADDR"); addr != "" {
+		mux := api.HealthMux([]api.Dependency{
+			{Name: "redis", Required: true, Probe: func(ctx context.Context) error {
+				return api.DependencyErr("redis", rdb.Ping(ctx))
+			}},
+		})
+		srv := &http.Server{Addr: addr, Handler: mux,
+			ReadHeaderTimeout: 5 * time.Second}
+		go func() {
+			<-ctx.Done()
+			sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = srv.Shutdown(sctx)
+		}()
+		go func() {
+			if err := srv.ListenAndServe(); err != nil &&
+				!errors.Is(err, http.ErrServerClosed) {
+				log.Error("oracle: health listener died", "err", err)
+			}
+		}()
+		log.Info("oracle: health endpoint", "addr", addr)
+	}
+
 	log.Info("oracle: running", "symbols", len(symbols), "feeds", len(fd))
 	svc.Run(ctx)
 	return nil

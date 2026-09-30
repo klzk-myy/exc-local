@@ -32,6 +32,9 @@ spec:
         - name: analytics
           image: registry.internal/exchange/analytics-etl:CHANGE_ME
           imagePullPolicy: IfNotPresent
+          # -metrics-addr defaults to 127.0.0.1:9200 in cmd/analytics —
+          # loopback is unreachable by kubelet probes; bind the pod iface.
+          args: ["-metrics-addr=0.0.0.0:9200"]
           ports:
             - {name: metrics, containerPort: 9200}
           envFrom:

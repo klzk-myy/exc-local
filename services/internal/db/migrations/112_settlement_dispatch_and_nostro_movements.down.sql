@@ -2,6 +2,9 @@
 
 BEGIN;
 
+ALTER TABLE IF EXISTS statement_entries
+    DROP CONSTRAINT IF EXISTS statement_entries_payment_fk,
+    DROP CONSTRAINT IF EXISTS statement_entries_movement_fk;
 DROP TABLE IF EXISTS nostro_movements;
 DROP TYPE IF EXISTS nostro_movement_status_enum;
 DROP TYPE IF EXISTS nostro_movement_direction_enum;

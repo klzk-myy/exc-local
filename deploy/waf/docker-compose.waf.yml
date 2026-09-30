@@ -1,0 +1,77 @@
+# deploy/waf/docker-compose.waf.yml — OWASP CRS front layer (Task 9.3.13,
+# spec §19.1, §24 #160).
+#
+# Self-contained WAF stage for local verification and as the deployable
+# unit shape for the "full WAF" tier documented in deploy/edge/README.md:
+# HAProxy's ACLs cover framing/rate/volume; this layer — ModSecurity v3 +
+# OWASP CRS behind nginx — covers payload inspection HAProxy cannot do.
+#
+#   client → CRS/nginx (:8080) → BACKEND → (HAProxy edge → gateway)
+#
+# In this drill topology the backend is the Task 5.3.29 Go stub (honest
+# 101 on WS upgrade); in staging/production BACKEND points at the HAProxy
+# edge listener instead — CRS sits in FRONT of the edge, never behind it.
+#
+# Run:  docker compose -f deploy/waf/docker-compose.waf.yml up
+# Test: curl 'http://127.0.0.1:18080/api/v1/instruments'          → 200
+#       curl 'http://127.0.0.1:18080/?id=1%27%20OR%20%271%27=%271' → 403
+# Automated proof: deploy/scripts/waf_drill.sh
+name: exc-waf
+
+services:
+  # Backend stand-in: the HAProxy validation stub (deploy/haproxy/test/
+  # stub_server.go) — returns its color on any REST path and a real 101
+  # on WS upgrade, so both REST and WS path shapes are exercised.
+  # Bind-mounted canonical source + `go run` in the golang image: no build
+  # context needed (repo-root context would drag in haproxy test run/ state).
+  waf-stub:
+    image: golang:1.23
+    working_dir: /src
+    volumes:
+      - ../haproxy/test/stub_server.go:/src/stub_server.go:ro
+    # Argument style matches stub_server.go: <COLOR> <PORT>
+    command: ["go", "run", "stub_server.go", "BLUE", "8080"]
+
+  waf:
+    # Drill-verified digest (2026-09-30):
+    #   owasp/modsecurity-crs:nginx@sha256:ac057618e2c42e8192c000cb918ae1dff11446cf12beb6b23d4fa0065b0fe5be
+    # Ships OWASP CRS 4.29.0 on ModSecurity v3 + nginx. Pin by digest when
+    # this graduates to a managed deploy (renovate bump = ruleset change).
+    image: owasp/modsecurity-crs:nginx
+    environment:
+      # Where inspected-and-clean traffic is proxied. Drill: the stub.
+      # Staging/prod: the HAProxy edge (https_in frontend).
+      BACKEND: http://waf-stub:8080
+      PORT: "8080"
+      SERVER_NAME: api.exc.local
+      # Paranoia level 1 — the spec/default PL; PL2 for api.* is the
+      # documented target once false-positive tuning lands in
+      # deploy/waf/rules/after-crs/.
+      PARANOIA: "1"
+      ANOMALY_INBOUND: "5"
+      BLOCKING_PARANOIA: "1"
+      # Blocking mode (not DetectionOnly) — the whole point of the tier.
+      MODSEC_RULE_ENGINE: "On"
+      # RelevantOnly logs only requests that triggered rules — the audit
+      # trail the drill greps for rule ids. JSON for machine parsing.
+      MODSEC_AUDIT_ENGINE: "RelevantOnly"
+      MODSEC_AUDIT_LOG_FORMAT: "JSON"
+      MODSEC_AUDIT_LOG: "/dev/stdout"
+    ports:
+      # Host 8080 is occupied on dev machines — repo convention is offset
+      # host ports (5433/16379/18443). Container still serves :8080.
+      - "18080:8080"
+    volumes:
+      # Exchange-specific exclusions/tuning land here — AFTER CRS, so a
+      # rule-disable can't be shadowed by a ruleset update. Comments-only
+      # today: PL1 needs no exemptions for the current path shapes.
+      - ./rules/after-crs:/opt/modsecurity/rules/after-crs:ro
+    depends_on:
+      - waf-stub
+    healthcheck:
+      # /healthz is served by nginx itself (never proxied, never
+      # CRS-inspected) — it proves the front layer is up, not the backend.
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8080/healthz || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20

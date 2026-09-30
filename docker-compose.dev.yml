@@ -142,6 +142,10 @@ services:
       - "9000:9000"   # native
     volumes:
       - clickhouse-data:/var/lib/clickhouse
+      # Schema files are idempotent (IF NOT EXISTS) — the entrypoint applies
+      # them in lexical order on first boot so an ephemeral `down -v` stack
+      # still provisions exchange_analytics tables.
+      - ./deploy/clickhouse/schema:/docker-entrypoint-initdb.d:ro
     healthcheck:
       # 127.0.0.1, not localhost: on IPv6-disabled docker networks `localhost`
       # resolves to ::1 first and ClickHouse (listen_host 0.0.0.0) refuses it.
@@ -182,6 +186,37 @@ services:
       - ./deploy/nats/nats-3.conf:/etc/nats/nats.conf:ro
       - nats3-data:/data
 
+  # Trino federated cold-query layer (Task 9.3.24, docs/ops/data-tiering-policy.md
+  # §5). Catalogs live in deploy/trino/catalog/ — `exchange_pg` (warm tier +
+  # archive ledger on this postgres) and `archive` (Hive + native-S3 over the
+  # exchange-partition-archive bucket). The archive S3 gateway
+  # (exc-archive-s3gw) and the file-metastore volume chmod are provisioned by
+  # deploy/scripts/trino_federation.sh — see deploy/trino/README.md.
+  trino:
+    image: trinodb/trino:476
+    ports:
+      - "18443:8080"
+    volumes:
+      - ./deploy/trino/catalog:/etc/trino/catalog:ro
+      - trino-metastore:/var/trino
+    depends_on: [postgres]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8080/v1/info | grep -q '\"starting\":false' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+  # --------------------------------------------------------------------------
+  # waf — OWASP CRS payload-inspection tier (Task 9.3.13). Intentionally NOT
+  # a service in this stack: the dev core runs bare-metal so there is no
+  # in-compose backend to proxy, and dev behavior must not change. The WAF
+  # stage is self-contained — run it only when verifying edge rules:
+  #   docker compose -f deploy/waf/docker-compose.waf.yml up
+  #   deploy/scripts/waf_drill.sh
+  # (see deploy/waf/README.md)
+  # --------------------------------------------------------------------------
+
 networks:
   # Dedicated HA subnet for the coordination Redis topology (Task 1.3.9):
   # fixed IPs let sentinel monitor by IP — no DNS in the failover path —
@@ -201,3 +236,4 @@ volumes:
   nats1-data:
   nats2-data:
   nats3-data:
+  trino-metastore:

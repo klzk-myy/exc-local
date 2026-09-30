@@ -7,8 +7,8 @@ import (
 	"log/slog"
 	"time"
 
-	"exchange/internal/tracing"
 	"exchange/internal/ipc"
+	"exchange/internal/tracing"
 )
 
 // Publisher abstracts the JetStream/core-NATS sink so the Bridge is

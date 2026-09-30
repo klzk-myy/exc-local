@@ -27,7 +27,11 @@ CREATE TABLE variation_margin (
     vm_amount        DECIMAL(28,8) NOT NULL,          -- signed client delta, MTM_today − MTM_prev
     mtm_value        DECIMAL(28,8) NOT NULL,          -- cumulative MTM watermark at settle
     vm_rate          DECIMAL(20,8),                   -- mark/fixing rate the MTM was computed at
-    journal_entry_id BIGINT       REFERENCES journal_entries (id),
+    -- FK target lives in 036_create_general_ledger (journal_entries) —
+    -- task numbering puts this file first, so the constraint is added by
+    -- 276_deferred_variation_margin_journal_fk once the referenced table
+    -- exists (a trailing file: subset fixtures apply 036 without 034).
+    journal_entry_id BIGINT,
     shortfall        BOOLEAN      NOT NULL DEFAULT FALSE, -- wallet went negative after post
     settled_at       TIMESTAMPTZ,                     -- GL commit time; NULL = claimed only
     created_at       TIMESTAMPTZ  NOT NULL DEFAULT now(),

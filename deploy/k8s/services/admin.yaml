@@ -42,8 +42,8 @@ spec:
               valueFrom: {secretKeyRef: {name: exchange-secrets, key: data-key}}
             - name: EXC_ADMIN_HOST
               value: "0.0.0.0"
-          # Binary serves /health today (Task 7.3.4); R9 aliases land with the
-          # 7.3.6 rollout — probes target the R9 contract.
+          # R9 schema — served by cmd/admin's mux since the probe-coverage
+          # fix (2026-09-30); legacy /health kept for compat.
           readinessProbe:
             httpGet: {path: /health/ready, port: http}
             periodSeconds: 5

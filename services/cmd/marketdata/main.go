@@ -37,6 +37,7 @@ import (
 	"strings"
 	"time"
 
+	"exchange/internal/api"
 	"exchange/internal/auth"
 	"exchange/internal/config"
 	"exchange/internal/db"
@@ -296,6 +297,14 @@ func run() error {
 		}
 		fmt.Fprint(w, `{"status":"ready"}`)
 	})
+	// R9 probe surface (Task 7.3.6) — deploy/k8s/marketdata-service
+	// probes /health/live + /health/ready on the ws port.
+	mux.HandleFunc("/health/live", api.Health)
+	mux.HandleFunc("/health/ready", api.HealthReady(nil, []api.Dependency{
+		{Name: "redis", Required: true, Probe: func(ctx context.Context) error {
+			return api.DependencyErr("redis", rdb.Ping(ctx))
+		}},
+	}, nil, ""))
 
 	httpSrv := &http.Server{
 		Addr: cfg.MarketData.Addr(),

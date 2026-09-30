@@ -1,14 +1,16 @@
 {
   "tool": "exchange-integration/8.3.1",
   "version": "1.0.0",
-  "generated_at": "2026-09-30T18:33:34Z",
-  "elapsed": "1.04857ms",
+  "generated_at": "2026-09-30T23:05:55Z",
+  "elapsed": "2m8.348046791s",
   "summary": {
-    "EXECUTABLE": 145,
+    "BLOCKED": 5,
+    "PASS": 140,
     "PLANNED": 274
   },
   "phase_1_7_counts": {
-    "EXECUTABLE": 145,
+    "BLOCKED": 5,
+    "PASS": 140,
     "PLANNED": 3
   },
   "criteria": [
@@ -16,103 +18,347 @@
       "criterion_id": 1,
       "stable_test_id": "T02-001",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gtest:test_matching_engineMatchingEngine.LimitMatchPriceTimePriority:MatchingEngine.MakerPriceWinsOverTakerPrice:MatchingEngine.DeterministicSameInputSameOutput",
+          "kind": "gtest:test_matching_engineMatchingEngine.LimitMatchPriceTimePriority:MatchingEngine.MakerPriceWinsOverTakerPrice:MatchingEngine.DeterministicSameInputSameOutput",
+          "status": "PASS",
+          "detail": "test_matching_engine MatchingEngine.LimitMatchPriceTimePriority:MatchingEngine.MakerPriceWinsOverTakerPrice:MatchingEngine.DeterministicSameInputSameOutput: [  PASSED  ] 3 tests.",
+          "at": "2026-09-30T23:05:37.994276858Z",
+          "elapsed": "1.489502ms"
+        },
+        {
+          "test": "e2e:pipeline",
+          "kind": "e2e:pipeline",
+          "status": "PASS",
+          "detail": "buy#28 sell#29 filled=true bookBid=true",
+          "at": "2026-09-30T23:05:46.61630937Z",
+          "elapsed": "65.969169ms"
+        }
+      ]
     },
     {
       "criterion_id": 2,
       "stable_test_id": "T02-002",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gtest:test_matching_engineMatchingEngine.LimitRestsWhenNotMarketable:MatchingEngine.MarketWalksLevelsThenStops",
+          "kind": "gtest:test_matching_engineMatchingEngine.LimitRestsWhenNotMarketable:MatchingEngine.MarketWalksLevelsThenStops",
+          "status": "PASS",
+          "detail": "test_matching_engine MatchingEngine.LimitRestsWhenNotMarketable:MatchingEngine.MarketWalksLevelsThenStops: [  PASSED  ] 2 tests.",
+          "at": "2026-09-30T23:05:37.995929636Z",
+          "elapsed": "1.618774ms"
+        },
+        {
+          "test": "e2e:pipeline",
+          "kind": "e2e:pipeline",
+          "status": "PASS",
+          "detail": "buy#28 sell#29 filled=true bookBid=true",
+          "at": "2026-09-30T23:05:46.616310878Z",
+          "elapsed": "65.97087ms"
+        }
+      ]
     },
     {
       "criterion_id": 3,
       "stable_test_id": "T02-003",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gtest:test_matching_engineMatchingEngine.FokAllOrNothing:MatchingEngine.FokRejectedByLimitPrice:MatchingEngine.IocPartialFillCancelsRemainder",
+          "kind": "gtest:test_matching_engineMatchingEngine.FokAllOrNothing:MatchingEngine.FokRejectedByLimitPrice:MatchingEngine.IocPartialFillCancelsRemainder",
+          "status": "PASS",
+          "detail": "test_matching_engine MatchingEngine.FokAllOrNothing:MatchingEngine.FokRejectedByLimitPrice:MatchingEngine.IocPartialFillCancelsRemainder: [  PASSED  ] 3 tests.",
+          "at": "2026-09-30T23:05:37.991035267Z",
+          "elapsed": "1.960829ms"
+        }
+      ]
     },
     {
       "criterion_id": 4,
       "stable_test_id": "T02-004",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gtest:test_matching_engineMatchingEngine.Stp*:MatchingComponents.SelfTradeGuardTable",
+          "kind": "gtest:test_matching_engineMatchingEngine.Stp*:MatchingComponents.SelfTradeGuardTable",
+          "status": "PASS",
+          "detail": "test_matching_engine MatchingEngine.Stp*:MatchingComponents.SelfTradeGuardTable: [  PASSED  ] 3 tests.",
+          "at": "2026-09-30T23:05:37.997569723Z",
+          "elapsed": "1.620391ms"
+        },
+        {
+          "test": "gtest:test_matchingMatchingComponents.SelfTradeGuardTable",
+          "kind": "gtest:test_matchingMatchingComponents.SelfTradeGuardTable",
+          "status": "PASS",
+          "detail": "test_matching MatchingComponents.SelfTradeGuardTable: [  PASSED  ] 1 test.",
+          "at": "2026-09-30T23:05:37.999658182Z",
+          "elapsed": "1.078426ms"
+        }
+      ]
     },
     {
       "criterion_id": 5,
       "stable_test_id": "T02-005",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gtest:test_matching_engineMatchingEngine.Iceberg*",
+          "kind": "gtest:test_matching_engineMatchingEngine.Iceberg*",
+          "status": "PASS",
+          "detail": "test_matching_engine MatchingEngine.Iceberg*: [  PASSED  ] 2 tests.",
+          "at": "2026-09-30T23:05:37.992774997Z",
+          "elapsed": "1.721952ms"
+        },
+        {
+          "test": "gtest:test_matchingMatchingComponents.IcebergSliceMath",
+          "kind": "gtest:test_matchingMatchingComponents.IcebergSliceMath",
+          "status": "PASS",
+          "detail": "test_matching MatchingComponents.IcebergSliceMath: [  PASSED  ] 1 test.",
+          "at": "2026-09-30T23:05:37.998546605Z",
+          "elapsed": "956.579µs"
+        }
+      ]
     },
     {
       "criterion_id": 6,
       "stable_test_id": "T02-006",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gtest:test_recoveryRecoveryManager.*:FileSnapshotSink.*",
+          "kind": "gtest:test_recoveryRecoveryManager.*:FileSnapshotSink.*",
+          "status": "PASS",
+          "detail": "test_recovery RecoveryManager.*:FileSnapshotSink.*: [  PASSED  ] 26 tests.",
+          "at": "2026-09-30T23:05:38.801738226Z",
+          "elapsed": "793.416773ms"
+        },
+        {
+          "test": "e2e:crash-wal",
+          "kind": "e2e:crash-wal",
+          "status": "PASS",
+          "detail": "kill -9 → restart → cancel oid=36: http=200 cancelled=true replayed=true {\"order_id\":36,\"client_order_id\":\"itest-crash-9539\",\"status\":\"CANCELLED\",\"order_seq\":1790809545858551308,\"transact_time\"…",
+          "at": "2026-09-30T23:05:53.603864069Z",
+          "elapsed": "644.946301ms"
+        }
+      ]
     },
     {
       "criterion_id": 7,
       "stable_test_id": "T04-001",
       "owner_phase": "Phase 4 — Persistence \u0026 Recovery",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gtest:test_recoveryRecoveryManager.DuplicateTradeIsIdempotentNoop:RecoveryManager.DuplicateOrderNewIsIdempotentNoop:RecoveryManager.TradeReplayDecrementsResting",
+          "kind": "gtest:test_recoveryRecoveryManager.DuplicateTradeIsIdempotentNoop:RecoveryManager.DuplicateOrderNewIsIdempotentNoop:RecoveryManager.TradeReplayDecrementsResting",
+          "status": "PASS",
+          "detail": "test_recovery RecoveryManager.DuplicateTradeIsIdempotentNoop:RecoveryManager.DuplicateOrderNewIsIdempotentNoop:RecoveryManager.TradeReplayDecrementsResting: [  PASSED  ] 3 tests.",
+          "at": "2026-09-30T23:05:39.092215536Z",
+          "elapsed": "200.673027ms"
+        },
+        {
+          "test": "e2e:crash-wal",
+          "kind": "e2e:crash-wal",
+          "status": "PASS",
+          "detail": "kill -9 → restart → cancel oid=36: http=200 cancelled=true replayed=true {\"order_id\":36,\"client_order_id\":\"itest-crash-9539\",\"status\":\"CANCELLED\",\"order_seq\":1790809545858551308,\"transact_time\"…",
+          "at": "2026-09-30T23:05:53.603865161Z",
+          "elapsed": "644.947618ms"
+        }
+      ]
     },
     {
       "criterion_id": 8,
       "stable_test_id": "T04-002",
       "owner_phase": "Phase 4 — Persistence \u0026 Recovery",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gtest:test_recoveryRecoveryManager.WalOnlyBootReplays:RecoveryManager.SnapshotPlusWalReplaysOnlyTail:RecoveryManager.FullStateByteIdenticalToLiveBook",
+          "kind": "gtest:test_recoveryRecoveryManager.WalOnlyBootReplays:RecoveryManager.SnapshotPlusWalReplaysOnlyTail:RecoveryManager.FullStateByteIdenticalToLiveBook",
+          "status": "PASS",
+          "detail": "test_recovery RecoveryManager.WalOnlyBootReplays:RecoveryManager.SnapshotPlusWalReplaysOnlyTail:RecoveryManager.FullStateByteIdenticalToLiveBook: [  PASSED  ] 3 tests.",
+          "at": "2026-09-30T23:05:39.229629219Z",
+          "elapsed": "137.354177ms"
+        },
+        {
+          "test": "e2e:crash-wal",
+          "kind": "e2e:crash-wal",
+          "status": "PASS",
+          "detail": "kill -9 → restart → cancel oid=36: http=200 cancelled=true replayed=true {\"order_id\":36,\"client_order_id\":\"itest-crash-9539\",\"status\":\"CANCELLED\",\"order_seq\":1790809545858551308,\"transact_time\"…",
+          "at": "2026-09-30T23:05:53.603865409Z",
+          "elapsed": "644.94787ms"
+        }
+      ]
     },
     {
       "criterion_id": 9,
       "stable_test_id": "T03-001",
       "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/settlementTestProcessFillsSingleTxBatch|TestMutexContentionAbortsBeforeTx|TestLocksAcquiredSortedAndReleased",
+          "kind": "gotest:./internal/settlementTestProcessFillsSingleTxBatch|TestMutexContentionAbortsBeforeTx|TestLocksAcquiredSortedAndReleased",
+          "status": "PASS",
+          "detail": "go test ./internal/settlement -run TestProcessFillsSingleTxBatch|TestMutexContentionAbortsBeforeTx|TestLocksAcquiredSortedAndReleased: PASS",
+          "at": "2026-09-30T23:05:18.725820731Z",
+          "elapsed": "524.599777ms"
+        }
+      ]
     },
     {
       "criterion_id": 10,
       "stable_test_id": "T02-007",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gtest:test_amendAmend.ConcurrentAmendExactlyOneWinner",
+          "kind": "gtest:test_amendAmend.ConcurrentAmendExactlyOneWinner",
+          "status": "PASS",
+          "detail": "test_amend Amend.ConcurrentAmendExactlyOneWinner: [  PASSED  ] 1 test.",
+          "at": "2026-09-30T23:05:37.909928013Z",
+          "elapsed": "1.693614ms"
+        },
+        {
+          "test": "gtest:test_matching_engineMatchingEngine.DoubleCancelIsIdempotent",
+          "kind": "gtest:test_matching_engineMatchingEngine.DoubleCancelIsIdempotent",
+          "status": "PASS",
+          "detail": "test_matching_engine MatchingEngine.DoubleCancelIsIdempotent: [  PASSED  ] 1 test.",
+          "at": "2026-09-30T23:05:37.989053997Z",
+          "elapsed": "1.201033ms"
+        }
+      ]
     },
     {
       "criterion_id": 11,
       "stable_test_id": "T025-001",
       "owner_phase": "Phase 2.5 — Engine Soak \u0026 Benchmark Sign-off",
-      "status": "EXECUTABLE"
+      "status": "BLOCKED",
+      "legs": [
+        {
+          "test": "bin:snapbench",
+          "kind": "bin:snapbench",
+          "status": "BLOCKED",
+          "detail": "evidence-only (soak harness absent): build 1000000 orders / 4000 levels: 69.2 ms (14447054 ord/s)\nserialize: 130.4 ms (108128056 bytes)\nparse: 56.9 ms (1000000 orders)\nrestore-insert: 29.4 ms (34034965 ord/s)\nvalidate: 15.8 ms (ok=1 )\n",
+          "at": "2026-09-30T23:03:51.872699499Z",
+          "elapsed": "362.966382ms"
+        }
+      ],
+      "blocked_reason": "evidence-only (soak harness absent): build 1000000 orders / 4000 levels: 69.2 ms (14447054 ord/s)\nserialize: 130.4 ms (108128056 bytes)\nparse: 56.9 ms (1000000 orders)\nrestore-insert: 29.4 ms (34034965 ord/s)\nvalidate: 15.8 ms (ok=1 )\n"
     },
     {
       "criterion_id": 12,
       "stable_test_id": "T025-002",
       "owner_phase": "Phase 2.5 — Engine Soak \u0026 Benchmark Sign-off",
-      "status": "EXECUTABLE"
+      "status": "BLOCKED",
+      "legs": [
+        {
+          "test": "bin:snapbench",
+          "kind": "bin:snapbench",
+          "status": "BLOCKED",
+          "detail": "evidence-only (soak harness absent): build 1000000 orders / 4000 levels: 69.2 ms (14447054 ord/s)\nserialize: 130.4 ms (108128056 bytes)\nparse: 56.9 ms (1000000 orders)\nrestore-insert: 29.4 ms (34034965 ord/s)\nvalidate: 15.8 ms (ok=1 )\n",
+          "at": "2026-09-30T23:03:51.872701257Z",
+          "elapsed": "362.966382ms"
+        }
+      ],
+      "blocked_reason": "evidence-only (soak harness absent): build 1000000 orders / 4000 levels: 69.2 ms (14447054 ord/s)\nserialize: 130.4 ms (108128056 bytes)\nparse: 56.9 ms (1000000 orders)\nrestore-insert: 29.4 ms (34034965 ord/s)\nvalidate: 15.8 ms (ok=1 )\n"
     },
     {
       "criterion_id": 13,
       "stable_test_id": "T05-001",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "e2e:rest-p99",
+          "kind": "e2e:rest-p99",
+          "status": "PASS",
+          "detail": "n=120 errs=0 p99=710.973µs max=1.062673ms",
+          "at": "2026-09-30T23:05:52.958153564Z",
+          "elapsed": "41.840831ms"
+        }
+      ]
     },
     {
       "criterion_id": 14,
       "stable_test_id": "T06-001",
       "owner_phase": "Phase 6 — Market Data Distribution",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/marketdata/ohlcvTestEmitThrottleCoalescesOpenUpdates",
+          "kind": "gotest:./internal/marketdata/ohlcvTestEmitThrottleCoalescesOpenUpdates",
+          "status": "PASS",
+          "detail": "go test ./internal/marketdata/ohlcv -run TestEmitThrottleCoalescesOpenUpdates: PASS",
+          "at": "2026-09-30T23:04:34.63867671Z",
+          "elapsed": "972.054516ms"
+        },
+        {
+          "test": "gotest:./internal/wsTestBackpressureEviction(Synthetic|Bytes)",
+          "kind": "gotest:./internal/wsTestBackpressureEviction(Synthetic|Bytes)",
+          "status": "PASS",
+          "detail": "go test ./internal/ws -run TestBackpressureEviction(Synthetic|Bytes): PASS",
+          "at": "2026-09-30T23:05:31.112293506Z",
+          "elapsed": "584.930162ms"
+        }
+      ]
     },
     {
       "criterion_id": 15,
       "stable_test_id": "T06-002",
       "owner_phase": "Phase 6 — Market Data Distribution",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/marketdataTestConflation(WindowFlush|CountFlush)|TestConflatorSnapshot",
+          "kind": "gotest:./internal/marketdataTestConflation(WindowFlush|CountFlush)|TestConflatorSnapshot",
+          "status": "PASS",
+          "detail": "go test ./internal/marketdata -run TestConflation(WindowFlush|CountFlush)|TestConflatorSnapshot: PASS",
+          "at": "2026-09-30T23:04:49.203095843Z",
+          "elapsed": "895.865684ms"
+        }
+      ]
     },
     {
       "criterion_id": 16,
       "stable_test_id": "T06-003",
       "owner_phase": "Phase 6 — Market Data Distribution",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/marketdataTestEventFanoutAndResume|TestResumeGapTooLarge|TestResumeInvalidSeq|TestPrivateResumeIsolation|TestPrivateSeqRestartContinuity|TestRingReplayGapTooLarge",
+          "kind": "gotest:./internal/marketdataTestEventFanoutAndResume|TestResumeGapTooLarge|TestResumeInvalidSeq|TestPrivateResumeIsolation|TestPrivateSeqRestartContinuity|TestRingReplayGapTooLarge",
+          "status": "PASS",
+          "detail": "go test ./internal/marketdata -run TestEventFanoutAndResume|TestResumeGapTooLarge|TestResumeInvalidSeq|TestPrivateResumeIsolation|TestPrivateSeqRestartContinuity|TestRingReplayGapTooLarge: PASS",
+          "at": "2026-09-30T23:04:50.105309923Z",
+          "elapsed": "902.18177ms"
+        }
+      ]
     },
     {
       "criterion_id": 17,
       "stable_test_id": "T06-004",
       "owner_phase": "Phase 6 — Market Data Distribution",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/marketdataTestSnapshotDepthVariant|TestDepthVariantSlicedEmit|TestDepthCRC32Stable",
+          "kind": "gotest:./internal/marketdataTestSnapshotDepthVariant|TestDepthVariantSlicedEmit|TestDepthCRC32Stable",
+          "status": "PASS",
+          "detail": "go test ./internal/marketdata -run TestSnapshotDepthVariant|TestDepthVariantSlicedEmit|TestDepthCRC32Stable: PASS",
+          "at": "2026-09-30T23:04:58.351458626Z",
+          "elapsed": "884.146604ms"
+        }
+      ]
     },
     {
       "criterion_id": 18,
@@ -166,7 +412,25 @@
       "criterion_id": 26,
       "stable_test_id": "T07-001",
       "owner_phase": "Phase 7 — Admin \u0026 Monitoring (Go)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/adminTestRBACLifecycleIntegration|TestRBACStoreFailsClosed",
+          "kind": "gotest:./internal/adminTestRBACLifecycleIntegration|TestRBACStoreFailsClosed",
+          "status": "PASS",
+          "detail": "go test ./internal/admin -run TestRBACLifecycleIntegration|TestRBACStoreFailsClosed: PASS",
+          "at": "2026-09-30T23:04:24.721372967Z",
+          "elapsed": "608.93463ms"
+        },
+        {
+          "test": "e2e:rbac",
+          "kind": "e2e:rbac",
+          "status": "PASS",
+          "detail": "no-binding admin read → 403; auditor GET /admin/audit → 200; auditor POST → 403 (read-only cannot mutate)",
+          "at": "2026-09-30T23:05:50.445552064Z",
+          "elapsed": "9.706751ms"
+        }
+      ]
     },
     {
       "criterion_id": 27,
@@ -244,19 +508,73 @@
       "criterion_id": 39,
       "stable_test_id": "T02-008",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/middlewareTestDegradationHeader",
+          "kind": "gotest:./internal/middlewareTestDegradationHeader",
+          "status": "PASS",
+          "detail": "go test ./internal/middleware -run TestDegradationHeader: PASS",
+          "at": "2026-09-30T23:04:59.231046617Z",
+          "elapsed": "459.60477ms"
+        },
+        {
+          "test": "gtest:test_mode_managerModeManagerUnit.*:LiveMode.*",
+          "kind": "gtest:test_mode_managerModeManagerUnit.*:LiveMode.*",
+          "status": "PASS",
+          "detail": "test_mode_manager ModeManagerUnit.*:LiveMode.*: [  PASSED  ] 11 tests.",
+          "at": "2026-09-30T23:05:38.002612815Z",
+          "elapsed": "2.93013ms"
+        },
+        {
+          "test": "e2e:degradation",
+          "kind": "e2e:degradation",
+          "status": "PASS",
+          "detail": "ReadOnly POST /orders → 503 DEGRADED_MODE; ReadOnly GET /orders → 200; Maintenance GET /orders → 429; mode cleared → reads 200",
+          "at": "2026-09-30T23:05:46.750235792Z",
+          "elapsed": "5.931576ms"
+        }
+      ]
     },
     {
       "criterion_id": 40,
       "stable_test_id": "T02-009",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "ctest:test_election_live",
+          "kind": "ctest:test_election_live",
+          "status": "PASS",
+          "detail": "ctest -R test_election_live: Total Test time (real) =   2.80 sec",
+          "at": "2026-09-30T23:04:18.784034816Z",
+          "elapsed": "2.806678439s"
+        },
+        {
+          "test": "gtest:test_electionLeaderElectionUnit.*",
+          "kind": "gtest:test_electionLeaderElectionUnit.*",
+          "status": "PASS",
+          "detail": "test_election LeaderElectionUnit.*: [  PASSED  ] 16 tests.",
+          "at": "2026-09-30T23:05:37.98390657Z",
+          "elapsed": "831.473µs"
+        }
+      ]
     },
     {
       "criterion_id": 41,
       "stable_test_id": "T02-010",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gtest:test_cross_shardCrossShard2PC.*",
+          "kind": "gtest:test_cross_shardCrossShard2PC.*",
+          "status": "PASS",
+          "detail": "test_cross_shard CrossShard2PC.*: [  PASSED  ] 10 tests.",
+          "at": "2026-09-30T23:05:37.970804278Z",
+          "elapsed": "6.589183ms"
+        }
+      ]
     },
     {
       "criterion_id": 42,
@@ -268,13 +586,42 @@
       "criterion_id": 43,
       "stable_test_id": "T01-003",
       "owner_phase": "Phase 1 — C++ Core Foundation",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/auditTestAuditChainIntegration",
+          "kind": "gotest:./internal/auditTestAuditChainIntegration",
+          "status": "PASS",
+          "detail": "go test ./internal/audit -run TestAuditChainIntegration: PASS",
+          "at": "2026-09-30T23:04:26.117769623Z",
+          "elapsed": "200.700147ms"
+        },
+        {
+          "test": "bin:verify-audit",
+          "kind": "bin:verify-audit",
+          "status": "PASS",
+          "detail": "exchange verify-audit rc ok=true out=verify-audit: date=2026-09-29 rows_checked=0\nmerkle: date=2026-09-29 root=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 (no stored root for date)\nverify-audit: OK\n",
+          "at": "2026-09-30T23:05:52.916266901Z",
+          "elapsed": "2.456754903s"
+        }
+      ]
     },
     {
       "criterion_id": 44,
       "stable_test_id": "T04-003",
       "owner_phase": "Phase 4 — Persistence \u0026 Recovery",
-      "status": "EXECUTABLE"
+      "status": "BLOCKED",
+      "legs": [
+        {
+          "test": "compose:dr-failover",
+          "kind": "compose:dr-failover",
+          "status": "BLOCKED",
+          "detail": "compose leg unrun (no scenario runner bound for dr-failover)",
+          "at": "2026-09-30T23:03:56.262679199Z",
+          "elapsed": "61.947µs"
+        }
+      ],
+      "blocked_reason": "compose leg unrun (no scenario runner bound for dr-failover)"
     },
     {
       "criterion_id": 45,
@@ -406,7 +753,17 @@
       "criterion_id": 66,
       "stable_test_id": "T20-002",
       "owner_phase": "Phase 6 — Market Data Distribution",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/marketdata/ohlcvTestPG",
+          "kind": "gotest:./internal/marketdata/ohlcvTestPG",
+          "status": "PASS",
+          "detail": "go test ./internal/marketdata/ohlcv -run TestPG: PASS",
+          "at": "2026-09-30T23:04:36.594114166Z",
+          "elapsed": "934.208809ms"
+        }
+      ]
     },
     {
       "criterion_id": 67,
@@ -424,55 +781,161 @@
       "criterion_id": 69,
       "stable_test_id": "T05-017",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/accountsTestIntegration|TestSubAccount|TestHierarchy",
+          "kind": "gotest:./internal/accountsTestIntegration|TestSubAccount|TestHierarchy",
+          "status": "PASS",
+          "detail": "go test ./internal/accounts -run TestIntegration|TestSubAccount|TestHierarchy: PASS",
+          "at": "2026-09-30T23:04:20.66545134Z",
+          "elapsed": "1.144097732s"
+        }
+      ]
     },
     {
       "criterion_id": 70,
       "stable_test_id": "T05-002",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/authTest.*Allowlist|TestHMACKeyLifecycleAndVerify",
+          "kind": "gotest:./internal/authTest.*Allowlist|TestHMACKeyLifecycleAndVerify",
+          "status": "PASS",
+          "detail": "go test ./internal/auth -run Test.*Allowlist|TestHMACKeyLifecycleAndVerify: PASS",
+          "at": "2026-09-30T23:04:26.631778838Z",
+          "elapsed": "513.934426ms"
+        },
+        {
+          "test": "e2e:ip-allowlist",
+          "kind": "e2e:ip-allowlist",
+          "status": "PASS",
+          "detail": "allowlisted(192.0.2.0/24) key from loopback → 403 TOKEN_IP_FORBIDDEN",
+          "at": "2026-09-30T23:05:46.550322968Z",
+          "elapsed": "582.903µs"
+        }
+      ]
     },
     {
       "criterion_id": 71,
       "stable_test_id": "T05-003",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/authTestSession|Test.*Session.*",
+          "kind": "gotest:./internal/authTestSession|Test.*Session.*",
+          "status": "PASS",
+          "detail": "go test ./internal/auth -run TestSession|Test.*Session.*: PASS",
+          "at": "2026-09-30T23:04:27.579732338Z",
+          "elapsed": "396.23014ms"
+        }
+      ]
     },
     {
       "criterion_id": 72,
       "stable_test_id": "T05-018",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "e2e:frozen",
+          "kind": "e2e:frozen",
+          "status": "PASS",
+          "detail": "frozen account POST /orders → 403 ACCOUNT_FROZEN",
+          "at": "2026-09-30T23:05:46.760239564Z",
+          "elapsed": "9.860993ms"
+        }
+      ]
     },
     {
       "criterion_id": 73,
       "stable_test_id": "T05-019",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/testenvTestIntegrationResetAccount",
+          "kind": "gotest:./internal/testenvTestIntegrationResetAccount",
+          "status": "PASS",
+          "detail": "go test ./internal/testenv -run TestIntegrationResetAccount: PASS",
+          "at": "2026-09-30T23:05:20.099332086Z",
+          "elapsed": "209.567904ms"
+        },
+        {
+          "test": "e2e:test-reset",
+          "kind": "e2e:test-reset",
+          "status": "PASS",
+          "detail": "POST /test/reset → 200; USD available=0.00000000 after",
+          "at": "2026-09-30T23:05:46.778927266Z",
+          "elapsed": "18.127679ms"
+        }
+      ]
     },
     {
       "criterion_id": 74,
       "stable_test_id": "T05-020",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "e2e:announcements",
+          "kind": "e2e:announcements",
+          "status": "PASS",
+          "detail": "/api/v1/announcements → 200 (54B); /api/v1/maintenance/schedule → 200 (54B)",
+          "at": "2026-09-30T23:05:50.435828677Z",
+          "elapsed": "1.383815ms"
+        }
+      ]
     },
     {
       "criterion_id": 75,
       "stable_test_id": "T05-004",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/promosTestPromo|TestIntegration|TestPG",
+          "kind": "gotest:./internal/promosTestPromo|TestIntegration|TestPG",
+          "status": "PASS",
+          "detail": "go test ./internal/promos -run TestPromo|TestIntegration|TestPG: PASS",
+          "at": "2026-09-30T23:05:07.030619392Z",
+          "elapsed": "356.644534ms"
+        }
+      ]
     },
     {
       "criterion_id": 76,
       "stable_test_id": "T05-005",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "e2e:openapi",
+          "kind": "e2e:openapi",
+          "status": "PASS",
+          "detail": "openapi.json → 200, 546 paths declared",
+          "at": "2026-09-30T23:05:46.79210179Z",
+          "elapsed": "10.351912ms"
+        }
+      ]
     },
     {
       "criterion_id": 77,
       "stable_test_id": "T05-006",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/webhooksTest",
+          "kind": "gotest:./internal/webhooksTest",
+          "status": "PASS",
+          "detail": "go test ./internal/webhooks -run Test: PASS",
+          "at": "2026-09-30T23:05:20.480794428Z",
+          "elapsed": "381.41527ms"
+        }
+      ]
     },
     {
       "criterion_id": 78,
@@ -496,43 +959,123 @@
       "criterion_id": 81,
       "stable_test_id": "T05-021",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "e2e:amend",
+          "kind": "e2e:amend",
+          "status": "PASS",
+          "detail": "qty-down keep-priority amend → 200; stale seq → 409 STALE_MODIFY; amendments endpoint=429 audit_rows=1",
+          "at": "2026-09-30T23:05:46.657659075Z",
+          "elapsed": "19.631923ms"
+        }
+      ]
     },
     {
       "criterion_id": 82,
       "stable_test_id": "T05-022",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gtest:test_amendAmend.FenceResetsAfterOrderDeath:Amend.UnknownOrderRejected",
+          "kind": "gtest:test_amendAmend.FenceResetsAfterOrderDeath:Amend.UnknownOrderRejected",
+          "status": "PASS",
+          "detail": "test_amend Amend.FenceResetsAfterOrderDeath:Amend.UnknownOrderRejected: [  PASSED  ] 2 tests.",
+          "at": "2026-09-30T23:05:37.91120125Z",
+          "elapsed": "1.252558ms"
+        },
+        {
+          "test": "e2e:amend",
+          "kind": "e2e:amend",
+          "status": "PASS",
+          "detail": "qty-down keep-priority amend → 200; stale seq → 409 STALE_MODIFY; amendments endpoint=429 audit_rows=1",
+          "at": "2026-09-30T23:05:46.657660026Z",
+          "elapsed": "19.633092ms"
+        }
+      ]
     },
     {
       "criterion_id": 83,
       "stable_test_id": "T06-005",
       "owner_phase": "Phase 6 — Market Data Distribution",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/marketdataTest.*Checksum|TestCRC|TestDepth",
+          "kind": "gotest:./internal/marketdataTest.*Checksum|TestCRC|TestDepth",
+          "status": "PASS",
+          "detail": "go test ./internal/marketdata -run Test.*Checksum|TestCRC|TestDepth: PASS",
+          "at": "2026-09-30T23:04:37.794336395Z",
+          "elapsed": "1.200177239s"
+        }
+      ]
     },
     {
       "criterion_id": 84,
       "stable_test_id": "T06-006",
       "owner_phase": "Phase 6 — Market Data Distribution",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/wsTest",
+          "kind": "gotest:./internal/wsTest",
+          "status": "PASS",
+          "detail": "go test ./internal/ws -run Test: PASS",
+          "at": "2026-09-30T23:05:37.906066075Z",
+          "elapsed": "4.992605462s"
+        }
+      ]
     },
     {
       "criterion_id": 85,
       "stable_test_id": "T04-004",
       "owner_phase": "Phase 4 — Persistence \u0026 Recovery",
-      "status": "EXECUTABLE"
+      "status": "BLOCKED",
+      "legs": [
+        {
+          "test": "compose:pg-pitr",
+          "kind": "compose:pg-pitr",
+          "status": "BLOCKED",
+          "detail": "compose leg unrun (no scenario runner bound for pg-pitr)",
+          "at": "2026-09-30T23:03:58.998600594Z",
+          "elapsed": "92.321µs"
+        }
+      ],
+      "blocked_reason": "compose leg unrun (no scenario runner bound for pg-pitr)"
     },
     {
       "criterion_id": 86,
       "stable_test_id": "T04-005",
       "owner_phase": "Phase 4 — Persistence \u0026 Recovery",
-      "status": "EXECUTABLE"
+      "status": "BLOCKED",
+      "legs": [
+        {
+          "test": "compose:pg-rpo-rto",
+          "kind": "compose:pg-rpo-rto",
+          "status": "BLOCKED",
+          "detail": "compose leg unrun (no scenario runner bound for pg-rpo-rto)",
+          "at": "2026-09-30T23:03:58.998758261Z",
+          "elapsed": "71.65µs"
+        }
+      ],
+      "blocked_reason": "compose leg unrun (no scenario runner bound for pg-rpo-rto)"
     },
     {
       "criterion_id": 87,
       "stable_test_id": "T04-006",
       "owner_phase": "Phase 4 — Persistence \u0026 Recovery",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "compose:redis-dr",
+          "kind": "compose:redis-dr",
+          "status": "PASS",
+          "detail": "[crash-drill 23:03:59] === Redis Sentinel crash-failover drill (Task 9.3.20) ===\n[crash-drill 23:03:59] compose=/www/wwwroot/exc.local/docker-compose.dev.yml primary=exc-dev-redis-primary-1 sentinels=[exc-dev-redis-sentinel-1-1 exc-dev-redis-sentinel-2-1 exc-dev-redis-sentinel-3-1]\n[crash-drill 23:03:59] current master: 10.99.0.11:6379 (container exc-dev-redis-primary-1)\n[crash-drill 23:03:59] sen…",
+          "at": "2026-09-30T23:04:15.970038397Z",
+          "elapsed": "16.971243743s"
+        }
+      ]
     },
     {
       "criterion_id": 88,
@@ -556,31 +1099,97 @@
       "criterion_id": 91,
       "stable_test_id": "T05-007",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/deprecationTest",
+          "kind": "gotest:./internal/deprecationTest",
+          "status": "PASS",
+          "detail": "go test ./internal/deprecation -run Test: PASS",
+          "at": "2026-09-30T23:04:29.154078175Z",
+          "elapsed": "237.442817ms"
+        },
+        {
+          "test": "e2e:deprecation",
+          "kind": "e2e:deprecation",
+          "status": "PASS",
+          "detail": "api_deprecations rows=0; unauth GET → 401",
+          "at": "2026-09-30T23:05:50.45947505Z",
+          "elapsed": "3.859655ms"
+        }
+      ]
     },
     {
       "criterion_id": 92,
       "stable_test_id": "T05-008",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "e2e:dev-portal",
+          "kind": "e2e:dev-portal",
+          "status": "PASS",
+          "detail": "/developer → 200; GET /developer/api-keys(signed) → 418",
+          "at": "2026-09-30T23:05:46.792655953Z",
+          "elapsed": "538.293µs"
+        }
+      ]
     },
     {
       "criterion_id": 93,
       "stable_test_id": "T05-023",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/fundingTestChargeback|Test.*Chargeback|TestIntegration",
+          "kind": "gotest:./internal/fundingTestChargeback|Test.*Chargeback|TestIntegration",
+          "status": "PASS",
+          "detail": "go test ./internal/funding -run TestChargeback|Test.*Chargeback|TestIntegration: PASS",
+          "at": "2026-09-30T23:04:30.036500741Z",
+          "elapsed": "882.388958ms"
+        }
+      ]
     },
     {
       "criterion_id": 94,
       "stable_test_id": "T05-024",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/taxTest",
+          "kind": "gotest:./internal/taxTest",
+          "status": "PASS",
+          "detail": "go test ./internal/tax -run Test: PASS",
+          "at": "2026-09-30T23:05:19.889718713Z",
+          "elapsed": "227.362548ms"
+        }
+      ]
     },
     {
       "criterion_id": 95,
       "stable_test_id": "T05-009",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/ratelimitTestRedis",
+          "kind": "gotest:./internal/ratelimitTestRedis",
+          "status": "PASS",
+          "detail": "go test ./internal/ratelimit -run TestRedis: PASS",
+          "at": "2026-09-30T23:05:07.835230076Z",
+          "elapsed": "230.051388ms"
+        },
+        {
+          "test": "e2e:rate-limit",
+          "kind": "e2e:rate-limit",
+          "status": "PASS",
+          "detail": "public tier burst: map[200:10 418:29 429:1] retry-after=\"1\"",
+          "at": "2026-09-30T23:05:46.740479372Z",
+          "elapsed": "13.051118ms"
+        }
+      ]
     },
     {
       "criterion_id": 96,
@@ -718,7 +1327,17 @@
       "criterion_id": 118,
       "stable_test_id": "T02-013",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gtest:test_cross_shardCrossShard2PC.*",
+          "kind": "gtest:test_cross_shardCrossShard2PC.*",
+          "status": "PASS",
+          "detail": "test_cross_shard CrossShard2PC.*: [  PASSED  ] 10 tests.",
+          "at": "2026-09-30T23:05:37.97080614Z",
+          "elapsed": "6.589183ms"
+        }
+      ]
     },
     {
       "criterion_id": 119,
@@ -736,19 +1355,49 @@
       "criterion_id": 121,
       "stable_test_id": "T03-002",
       "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/settlementTestLedgerIntegration|TestJournalHash",
+          "kind": "gotest:./internal/settlementTestLedgerIntegration|TestJournalHash",
+          "status": "PASS",
+          "detail": "go test ./internal/settlement -run TestLedgerIntegration|TestJournalHash: PASS",
+          "at": "2026-09-30T23:05:15.818377128Z",
+          "elapsed": "618.018159ms"
+        }
+      ]
     },
     {
       "criterion_id": 122,
       "stable_test_id": "T03-003",
       "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/settlementTestIntegration_Rollover(Tuesday|WednesdayTriple|Weekend)",
+          "kind": "gotest:./internal/settlementTestIntegration_Rollover(Tuesday|WednesdayTriple|Weekend)",
+          "status": "PASS",
+          "detail": "go test ./internal/settlement -run TestIntegration_Rollover(Tuesday|WednesdayTriple|Weekend): PASS",
+          "at": "2026-09-30T23:05:13.680593966Z",
+          "elapsed": "885.75282ms"
+        }
+      ]
     },
     {
       "criterion_id": 123,
       "stable_test_id": "T03-004",
       "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/settlementTestNextWeekdayCutoff_WeekendSkip|TestRolloverCutoff_",
+          "kind": "gotest:./internal/settlementTestNextWeekdayCutoff_WeekendSkip|TestRolloverCutoff_",
+          "status": "PASS",
+          "detail": "go test ./internal/settlement -run TestNextWeekdayCutoff_WeekendSkip|TestRolloverCutoff_: PASS",
+          "at": "2026-09-30T23:05:17.653899624Z",
+          "elapsed": "607.506728ms"
+        }
+      ]
     },
     {
       "criterion_id": 124,
@@ -874,7 +1523,25 @@
       "criterion_id": 144,
       "stable_test_id": "T05-010",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/fundingTestTransfer|TestIntegration",
+          "kind": "gotest:./internal/fundingTestTransfer|TestIntegration",
+          "status": "PASS",
+          "detail": "go test ./internal/funding -run TestTransfer|TestIntegration: PASS",
+          "at": "2026-09-30T23:04:30.837566633Z",
+          "elapsed": "801.012324ms"
+        },
+        {
+          "test": "e2e:transfer",
+          "kind": "e2e:transfer",
+          "status": "PASS",
+          "detail": "POST /transfers → 201 {\"transfer\":{\"id\":2,\"account_id\":151,\"from_account_id\":151,\"to_account_id\":152,\"currency\":\"USD\",\"amount\":\"5000\",\"status\":\"COMPLETED\",\"actor\":\"SELF\",\"actor_id\":134,\"journal_entry_id\":4737,\"idempotency_… | A 100000→95000 B 1000000→1005000 moved=true | GET /transfers → 200",
+          "at": "2026-09-30T23:05:50.426888786Z",
+          "elapsed": "3.634218369s"
+        }
+      ]
     },
     {
       "criterion_id": 145,
@@ -892,13 +1559,49 @@
       "criterion_id": 147,
       "stable_test_id": "T05-011",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/authTestSignedRequestReplayAndWindow|TestHMACKeyLifecycleAndVerify",
+          "kind": "gotest:./internal/authTestSignedRequestReplayAndWindow|TestHMACKeyLifecycleAndVerify",
+          "status": "PASS",
+          "detail": "go test ./internal/auth -run TestSignedRequestReplayAndWindow|TestHMACKeyLifecycleAndVerify: PASS",
+          "at": "2026-09-30T23:04:28.085879935Z",
+          "elapsed": "506.100203ms"
+        },
+        {
+          "test": "e2e:hmac",
+          "kind": "e2e:hmac",
+          "status": "PASS",
+          "detail": "valid HMAC signature accepted; corrupted signature → 401 INVALID_SIGNATURE; stale timestamp → TIMESTAMP_OUT_OF_WINDOW; replayed signature → REPLAY_ATTACK_DETECTED; missing credentials → 401 UNAUTHORIZED; read-scope key on POST /orders → INSUFFICIENT_SCOPE",
+          "at": "2026-09-30T23:05:46.549717374Z",
+          "elapsed": "7.328256ms"
+        }
+      ]
     },
     {
       "criterion_id": 148,
       "stable_test_id": "T05-012",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/middlewareTestPGIdemStoreLifecycle|TestRedisIdemStoreLifecycle",
+          "kind": "gotest:./internal/middlewareTestPGIdemStoreLifecycle|TestRedisIdemStoreLifecycle",
+          "status": "PASS",
+          "detail": "go test ./internal/middleware -run TestPGIdemStoreLifecycle|TestRedisIdemStoreLifecycle: PASS",
+          "at": "2026-09-30T23:04:59.641661413Z",
+          "elapsed": "410.557807ms"
+        },
+        {
+          "test": "e2e:idempotent-submit",
+          "kind": "e2e:idempotent-submit",
+          "status": "PASS",
+          "detail": "replay=true(id=30 c1=202 c2=202 b1={\"order_id\":30,\"client_order_id\":\"itest-idem-9539\",\"status\":\"ACTIVE\",\"order_seq\":1790809545858551291… b2={\"order_id\":30,\"client_order_id\":\"itest-idem-9539\",\"status\":\"ACTIVE\",\"order_seq\":1790809545858551291…) collision=true(409 IDEMPOTENCY_KEY_COLLISION)",
+          "at": "2026-09-30T23:05:46.637997231Z",
+          "elapsed": "21.608025ms"
+        }
+      ]
     },
     {
       "criterion_id": 149,
@@ -928,13 +1631,33 @@
       "criterion_id": 153,
       "stable_test_id": "T05-013",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "e2e:mass-cancel",
+          "kind": "e2e:mass-cancel",
+          "status": "PASS",
+          "detail": "DELETE /orders?symbol=EUR/USD → 200 {\"cancelled\":5,\"per_symbol\":{\"EUR/USD\":5}}",
+          "at": "2026-09-30T23:05:46.690272779Z",
+          "elapsed": "32.532004ms"
+        }
+      ]
     },
     {
       "criterion_id": 154,
       "stable_test_id": "T02-014",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gtest:test_stpStpModes.*",
+          "kind": "gtest:test_stpStpModes.*",
+          "status": "PASS",
+          "detail": "test_stp StpModes.*: [  PASSED  ] 7 tests.",
+          "at": "2026-09-30T23:05:39.243670584Z",
+          "elapsed": "2.733186ms"
+        }
+      ]
     },
     {
       "criterion_id": 155,
@@ -946,13 +1669,49 @@
       "criterion_id": 156,
       "stable_test_id": "T05-014",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/marketapiTestPgStoreInstrumentsIntegration",
+          "kind": "gotest:./internal/marketapiTestPgStoreInstrumentsIntegration",
+          "status": "PASS",
+          "detail": "go test ./internal/marketapi -run TestPgStoreInstrumentsIntegration: PASS",
+          "at": "2026-09-30T23:04:33.666586393Z",
+          "elapsed": "270.561621ms"
+        },
+        {
+          "test": "e2e:instruments",
+          "kind": "e2e:instruments",
+          "status": "PASS",
+          "detail": "exchange-info=200 bytes=39689",
+          "at": "2026-09-30T23:05:46.781734747Z",
+          "elapsed": "2.690995ms"
+        }
+      ]
     },
     {
       "criterion_id": 157,
       "stable_test_id": "T02-015",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gtest:test_pretradePreTrade.TickLot:PreTrade.MinNotional:PreTrade.QtyBounds:PreTrade.PriceBand",
+          "kind": "gtest:test_pretradePreTrade.TickLot:PreTrade.MinNotional:PreTrade.QtyBounds:PreTrade.PriceBand",
+          "status": "PASS",
+          "detail": "test_pretrade PreTrade.TickLot:PreTrade.MinNotional:PreTrade.QtyBounds:PreTrade.PriceBand: [  PASSED  ] 4 tests.",
+          "at": "2026-09-30T23:05:38.008292767Z",
+          "elapsed": "2.137403ms"
+        },
+        {
+          "test": "e2e:validation",
+          "kind": "e2e:validation",
+          "status": "PASS",
+          "detail": "qty=1 → 400 INVALID_REQUEST; off-tick → 400 INVALID_REQUEST; unknown symbol → 400 INVALID_REQUEST",
+          "at": "2026-09-30T23:05:46.510018256Z",
+          "elapsed": "16.045663ms"
+        }
+      ]
     },
     {
       "criterion_id": 158,
@@ -964,7 +1723,17 @@
       "criterion_id": 159,
       "stable_test_id": "T04-008",
       "owner_phase": "Phase 4 — Persistence \u0026 Recovery",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "compose:ch-backup",
+          "kind": "compose:ch-backup",
+          "status": "PASS",
+          "detail": "\u003e\u003e tools: chb=/tmp/ch-restore-drill/bin/clickhouse-backup (Version: 2.8.1)\n\u003e\u003e network=exc-dev_default scratch_image=clickhouse/clickhouse-server:25.8-alpine backup=daily-20260930 bucket=exchange-ch-backup\n\u003e\u003e starting S3 gateway container exc-ch-s3gw (versitygw posix)\n\u003e\u003e creating bucket exchange-ch-backup\n\u003e\u003e starting scratch ClickHouse exc-ch-scratch (clickhouse/clickhouse-server:25.8-alpine)\n\u003e\u003e sa…",
+          "at": "2026-09-30T23:03:56.262585343Z",
+          "elapsed": "4.389848595s"
+        }
+      ]
     },
     {
       "criterion_id": 160,
@@ -988,7 +1757,25 @@
       "criterion_id": 163,
       "stable_test_id": "T07-002",
       "owner_phase": "Phase 7 — Admin \u0026 Monitoring (Go)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/supportTest",
+          "kind": "gotest:./internal/supportTest",
+          "status": "PASS",
+          "detail": "go test ./internal/support -run Test: PASS",
+          "at": "2026-09-30T23:05:19.662301021Z",
+          "elapsed": "407.60384ms"
+        },
+        {
+          "test": "e2e:tickets",
+          "kind": "e2e:tickets",
+          "status": "PASS",
+          "detail": "ticket create → 201; list → 200",
+          "at": "2026-09-30T23:05:50.455604648Z",
+          "elapsed": "2.899754ms"
+        }
+      ]
     },
     {
       "criterion_id": 164,
@@ -1006,7 +1793,17 @@
       "criterion_id": 166,
       "stable_test_id": "T06-008",
       "owner_phase": "Phase 6 — Market Data Distribution",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/sbeTestEndToEnd_ABMulticast_ReplayGapFill|TestEndToEnd_BothFeedsLost_TCPReplayAndSnapshot|TestDeterministicReplayOrdering",
+          "kind": "gotest:./internal/sbeTestEndToEnd_ABMulticast_ReplayGapFill|TestEndToEnd_BothFeedsLost_TCPReplayAndSnapshot|TestDeterministicReplayOrdering",
+          "status": "PASS",
+          "detail": "go test ./internal/sbe -run TestEndToEnd_ABMulticast_ReplayGapFill|TestEndToEnd_BothFeedsLost_TCPReplayAndSnapshot|TestDeterministicReplayOrdering: PASS",
+          "at": "2026-09-30T23:05:09.829885608Z",
+          "elapsed": "145.268296ms"
+        }
+      ]
     },
     {
       "criterion_id": 167,
@@ -1090,13 +1887,33 @@
       "criterion_id": 180,
       "stable_test_id": "T03-005",
       "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/balanceTestIntegration_SettleQuoteAndSweep",
+          "kind": "gotest:./internal/balanceTestIntegration_SettleQuoteAndSweep",
+          "status": "PASS",
+          "detail": "go test ./internal/balance -run TestIntegration_SettleQuoteAndSweep: PASS",
+          "at": "2026-09-30T23:04:28.309871847Z",
+          "elapsed": "223.947997ms"
+        }
+      ]
     },
     {
       "criterion_id": 181,
       "stable_test_id": "T01-001",
       "owner_phase": "Phase 1 — C++ Core Foundation",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/redisTestRedisSentinel|TestSentinel",
+          "kind": "gotest:./internal/redisTestRedisSentinel|TestSentinel",
+          "status": "PASS",
+          "detail": "go test ./internal/redis -run TestRedisSentinel|TestSentinel: PASS",
+          "at": "2026-09-30T23:05:09.684568553Z",
+          "elapsed": "177.187076ms"
+        }
+      ]
     },
     {
       "criterion_id": 182,
@@ -1120,7 +1937,17 @@
       "criterion_id": 185,
       "stable_test_id": "T01-002",
       "owner_phase": "Phase 1 — C++ Core Foundation",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/ipcTestAeronRoundTripCpp",
+          "kind": "gotest:./internal/ipcTestAeronRoundTripCpp",
+          "status": "PASS",
+          "detail": "go test ./internal/ipc -run TestAeronRoundTripCpp: PASS",
+          "at": "2026-09-30T23:04:32.854788687Z",
+          "elapsed": "2.017171624s"
+        }
+      ]
     },
     {
       "criterion_id": 186,
@@ -1132,13 +1959,33 @@
       "criterion_id": 187,
       "stable_test_id": "T05-015",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "e2e:ws-auth",
+          "kind": "e2e:ws-auth",
+          "status": "PASS",
+          "detail": "ws authenticate ACK",
+          "at": "2026-09-30T23:05:52.958898457Z",
+          "elapsed": "721.521µs"
+        }
+      ]
     },
     {
       "criterion_id": 188,
       "stable_test_id": "T02-016",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gtest:test_book_protectionBookProtection.*",
+          "kind": "gtest:test_book_protectionBookProtection.*",
+          "status": "PASS",
+          "detail": "test_book_protection BookProtection.*: [  PASSED  ] 19 tests.",
+          "at": "2026-09-30T23:05:37.92062579Z",
+          "elapsed": "9.406783ms"
+        }
+      ]
     },
     {
       "criterion_id": 189,
@@ -1162,7 +2009,17 @@
       "criterion_id": 192,
       "stable_test_id": "T05-016",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "e2e:rate-headers",
+          "kind": "e2e:rate-headers",
+          "status": "PASS",
+          "detail": "X-Ratelimit-Limit=5; X-Ratelimit-Remaining=2; X-Ratelimit-Reset=1790809547; account/rate-limits=200",
+          "at": "2026-09-30T23:05:46.727399477Z",
+          "elapsed": "4.123856ms"
+        }
+      ]
     },
     {
       "criterion_id": 193,
@@ -1258,19 +2115,49 @@
       "criterion_id": 208,
       "stable_test_id": "T05-028",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/middlewareTestAPIVersion|TestVersion",
+          "kind": "gotest:./internal/middlewareTestAPIVersion|TestVersion",
+          "status": "PASS",
+          "detail": "go test ./internal/middleware -run TestAPIVersion|TestVersion: PASS",
+          "at": "2026-09-30T23:04:58.771399918Z",
+          "elapsed": "419.889187ms"
+        }
+      ]
     },
     {
       "criterion_id": 209,
       "stable_test_id": "T01-011",
       "owner_phase": "Phase 1 — C++ Core Foundation",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/natsTestIntegration(PublishFetchAck|Redelivery|EnsureStreams|Health)",
+          "kind": "gotest:./internal/natsTestIntegration(PublishFetchAck|Redelivery|EnsureStreams|Health)",
+          "status": "PASS",
+          "detail": "go test ./internal/nats -run TestIntegration(PublishFetchAck|Redelivery|EnsureStreams|Health): PASS",
+          "at": "2026-09-30T23:05:06.480811297Z",
+          "elapsed": "6.839093336s"
+        }
+      ]
     },
     {
       "criterion_id": 210,
       "stable_test_id": "T03-006",
       "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/bridgeTestBridgeAgainstLiveNATS",
+          "kind": "gotest:./internal/bridgeTestBridgeAgainstLiveNATS",
+          "status": "PASS",
+          "detail": "go test ./internal/bridge -run TestBridgeAgainstLiveNATS: PASS",
+          "at": "2026-09-30T23:04:28.916598789Z",
+          "elapsed": "395.743603ms"
+        }
+      ]
     },
     {
       "criterion_id": 211,
@@ -1294,13 +2181,33 @@
       "criterion_id": 214,
       "stable_test_id": "T02-017",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gtest:test_cross_shardCrossShard2PC.ReserveTimeoutFullCompensation:CrossShard2PC.ConcurrentLimitExceeded",
+          "kind": "gtest:test_cross_shardCrossShard2PC.ReserveTimeoutFullCompensation:CrossShard2PC.ConcurrentLimitExceeded",
+          "status": "PASS",
+          "detail": "test_cross_shard CrossShard2PC.ReserveTimeoutFullCompensation:CrossShard2PC.ConcurrentLimitExceeded: [  PASSED  ] 2 tests.",
+          "at": "2026-09-30T23:05:37.981223597Z",
+          "elapsed": "2.125236ms"
+        }
+      ]
     },
     {
       "criterion_id": 215,
       "stable_test_id": "T06-009",
       "owner_phase": "Phase 6 — Market Data Distribution",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/wsTest.*Rate|Test.*Throttle|Test",
+          "kind": "gotest:./internal/wsTest.*Rate|Test.*Throttle|Test",
+          "status": "PASS",
+          "detail": "go test ./internal/ws -run Test.*Rate|Test.*Throttle|Test: PASS",
+          "at": "2026-09-30T23:05:25.517404126Z",
+          "elapsed": "5.036563266s"
+        }
+      ]
     },
     {
       "criterion_id": 216,
@@ -1330,25 +2237,65 @@
       "criterion_id": 220,
       "stable_test_id": "T02-018",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gtest:test_book_protectionBookProtection.Slippage*",
+          "kind": "gtest:test_book_protectionBookProtection.Slippage*",
+          "status": "PASS",
+          "detail": "test_book_protection BookProtection.Slippage*: [  PASSED  ] 5 tests.",
+          "at": "2026-09-30T23:05:37.922212776Z",
+          "elapsed": "1.56344ms"
+        }
+      ]
     },
     {
       "criterion_id": 221,
       "stable_test_id": "T03-007",
       "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/settlementTestIntegration_Rollover|TestComputeAdminFee",
+          "kind": "gotest:./internal/settlementTestIntegration_Rollover|TestComputeAdminFee",
+          "status": "PASS",
+          "detail": "go test ./internal/settlement -run TestIntegration_Rollover|TestComputeAdminFee: PASS",
+          "at": "2026-09-30T23:05:14.536265091Z",
+          "elapsed": "855.624234ms"
+        }
+      ]
     },
     {
       "criterion_id": 222,
       "stable_test_id": "T03-008",
       "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/settlementTestPip|TestPipValue|TestPipCalc",
+          "kind": "gotest:./internal/settlementTestPip|TestPipValue|TestPipCalc",
+          "status": "PASS",
+          "detail": "go test ./internal/settlement -run TestPip|TestPipValue|TestPipCalc: PASS",
+          "at": "2026-09-30T23:05:18.201186824Z",
+          "elapsed": "547.254669ms"
+        }
+      ]
     },
     {
       "criterion_id": 223,
       "stable_test_id": "T03-009",
       "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/settlementTestCommission|TestFeeModel|TestRollingFillJournal(FourLegs|ZeroFees|FeeExceeds)",
+          "kind": "gotest:./internal/settlementTestCommission|TestFeeModel|TestRollingFillJournal(FourLegs|ZeroFees|FeeExceeds)",
+          "status": "PASS",
+          "detail": "go test ./internal/settlement -run TestCommission|TestFeeModel|TestRollingFillJournal(FourLegs|ZeroFees|FeeExceeds): PASS",
+          "at": "2026-09-30T23:05:12.093574404Z",
+          "elapsed": "540.582379ms"
+        }
+      ]
     },
     {
       "criterion_id": 224,
@@ -1360,19 +2307,49 @@
       "criterion_id": 225,
       "stable_test_id": "T05-029",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "compose:haproxy-topology",
+          "kind": "compose:haproxy-topology",
+          "status": "PASS",
+          "detail": "stub backend: ./stub_go\n=== haproxy -c ===\nhaproxy-5329-test\n365f0cd4ff9f9c9bc8a1cfbb9b5af3ba7b0762bb656e0a27d439d9a1cade9a90\nproxy:  http://localhost:8080  https://localhost:8443 (-k)\nsocket: /www/wwwroot/exc.local/deploy/haproxy/test/run/admin.sock\n",
+          "at": "2026-09-30T23:03:58.998466162Z",
+          "elapsed": "2.73577112s"
+        }
+      ]
     },
     {
       "criterion_id": 226,
       "stable_test_id": "T06-010",
       "owner_phase": "Phase 6 — Market Data Distribution",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/marketdata/ohlcvTestPG",
+          "kind": "gotest:./internal/marketdata/ohlcvTestPG",
+          "status": "PASS",
+          "detail": "go test ./internal/marketdata/ohlcv -run TestPG: PASS",
+          "at": "2026-09-30T23:04:36.594116745Z",
+          "elapsed": "934.208809ms"
+        }
+      ]
     },
     {
       "criterion_id": 227,
       "stable_test_id": "T07-009",
       "owner_phase": "Phase 7 — Admin \u0026 Monitoring (Go)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/adminTestLPIntegration",
+          "kind": "gotest:./internal/adminTestLPIntegration",
+          "status": "PASS",
+          "detail": "go test ./internal/admin -run TestLPIntegration: PASS",
+          "at": "2026-09-30T23:04:24.112394517Z",
+          "elapsed": "573.334717ms"
+        }
+      ]
     },
     {
       "criterion_id": 228,
@@ -1444,7 +2421,17 @@
       "criterion_id": 239,
       "stable_test_id": "T05-030",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "e2e:manual-liquidation",
+          "kind": "e2e:manual-liquidation",
+          "status": "PASS",
+          "detail": "unauth → 401; risk-manager submit → 400 DUAL_CONTROL_REQUIRED",
+          "at": "2026-09-30T23:05:50.45263451Z",
+          "elapsed": "7.014121ms"
+        }
+      ]
     },
     {
       "criterion_id": 240,
@@ -1480,7 +2467,17 @@
       "criterion_id": 245,
       "stable_test_id": "T06-011",
       "owner_phase": "Phase 6 — Market Data Distribution",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/wsTest",
+          "kind": "gotest:./internal/wsTest",
+          "status": "PASS",
+          "detail": "go test ./internal/ws -run Test: PASS",
+          "at": "2026-09-30T23:05:37.906068647Z",
+          "elapsed": "4.992605462s"
+        }
+      ]
     },
     {
       "criterion_id": 246,
@@ -1528,13 +2525,33 @@
       "criterion_id": 253,
       "stable_test_id": "T05-031",
       "owner_phase": "Phase 5 — Order Gateway API (Go) / Phase 6 — Market Data Distribution",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "e2e:ws-auth",
+          "kind": "e2e:ws-auth",
+          "status": "PASS",
+          "detail": "ws authenticate ACK",
+          "at": "2026-09-30T23:05:52.958900001Z",
+          "elapsed": "723.165µs"
+        }
+      ]
     },
     {
       "criterion_id": 254,
       "stable_test_id": "T05-032",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "e2e:batch",
+          "kind": "e2e:batch",
+          "status": "PASS",
+          "detail": "POST /orders/batch → 200 {\"results\":[{\"index\":0,\"status\":\"ACCEPTED\",\"order_id\":34,\"client_order_id\":\"itest-b1-9539\"},{\"index\":1,\"status\":\"ACCEPTED\",\"order_id\":35,\"client_order_id\":\"itest-b2-9539\"}]}",
+          "at": "2026-09-30T23:05:46.713225139Z",
+          "elapsed": "22.91568ms"
+        }
+      ]
     },
     {
       "criterion_id": 255,
@@ -1546,61 +2563,169 @@
       "criterion_id": 256,
       "stable_test_id": "T05-033",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/accountsTestIntegration|TestSub|TestHierarchy",
+          "kind": "gotest:./internal/accountsTestIntegration|TestSub|TestHierarchy",
+          "status": "PASS",
+          "detail": "go test ./internal/accounts -run TestIntegration|TestSub|TestHierarchy: PASS",
+          "at": "2026-09-30T23:04:21.808247571Z",
+          "elapsed": "1.142744804s"
+        }
+      ]
     },
     {
       "criterion_id": 257,
       "stable_test_id": "TBN-257",
       "owner_phase": "Phase 5 — Order Gateway API (Go) / Phase 18 — FIX Protocol Gateway",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/accountsTestDeadMan|TestCountdown",
+          "kind": "gotest:./internal/accountsTestDeadMan|TestCountdown",
+          "status": "PASS",
+          "detail": "go test ./internal/accounts -run TestDeadMan|TestCountdown: PASS",
+          "at": "2026-09-30T23:04:19.52131127Z",
+          "elapsed": "521.256371ms"
+        }
+      ]
     },
     {
       "criterion_id": 258,
       "stable_test_id": "TBN-258",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/ratelimitTestRedisBanEscalationAndTTL",
+          "kind": "gotest:./internal/ratelimitTestRedisBanEscalationAndTTL",
+          "status": "PASS",
+          "detail": "go test ./internal/ratelimit -run TestRedisBanEscalationAndTTL: PASS",
+          "at": "2026-09-30T23:05:07.605115786Z",
+          "elapsed": "215.516543ms"
+        },
+        {
+          "test": "e2e:ip-ban",
+          "kind": "e2e:ip-ban",
+          "status": "PASS",
+          "detail": "saw429=true saw418=true last=418 {\"type\":\"error\",\"error\":\"IP_BANNED\",\"message\":\"ip banned for repeated post-429 abuse\",\"status\":418,\"request_id\":\"req-a75…",
+          "at": "2026-09-30T23:05:46.744287308Z",
+          "elapsed": "3.784221ms"
+        }
+      ]
     },
     {
       "criterion_id": 259,
       "stable_test_id": "TBN-259",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "e2e:instruments",
+          "kind": "e2e:instruments",
+          "status": "PASS",
+          "detail": "exchange-info=200 bytes=39689",
+          "at": "2026-09-30T23:05:46.78173554Z",
+          "elapsed": "2.691888ms"
+        }
+      ]
     },
     {
       "criterion_id": 260,
       "stable_test_id": "TBN-260",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "e2e:mass-cancel",
+          "kind": "e2e:mass-cancel",
+          "status": "PASS",
+          "detail": "DELETE /orders?symbol=EUR/USD → 200 {\"cancelled\":5,\"per_symbol\":{\"EUR/USD\":5}}",
+          "at": "2026-09-30T23:05:46.690273979Z",
+          "elapsed": "32.533413ms"
+        }
+      ]
     },
     {
       "criterion_id": 261,
       "stable_test_id": "TBN-261",
       "owner_phase": "Phase 6 — Market Data Distribution",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/marketdataTestBBO_(EveryTopChange|OneSidedBook|SymbolFanout)",
+          "kind": "gotest:./internal/marketdataTestBBO_(EveryTopChange|OneSidedBook|SymbolFanout)",
+          "status": "PASS",
+          "detail": "go test ./internal/marketdata -run TestBBO_(EveryTopChange|OneSidedBook|SymbolFanout): PASS",
+          "at": "2026-09-30T23:04:46.824379639Z",
+          "elapsed": "947.364945ms"
+        }
+      ]
     },
     {
       "criterion_id": 262,
       "stable_test_id": "TBN-262",
       "owner_phase": "Phase 6 — Market Data Distribution",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/marketdataTestAggTrades_(GroupsLineage|IDMonotonicPerSymbol|PriceBreakSplits|UnknownTakerSingletons)",
+          "kind": "gotest:./internal/marketdataTestAggTrades_(GroupsLineage|IDMonotonicPerSymbol|PriceBreakSplits|UnknownTakerSingletons)",
+          "status": "PASS",
+          "detail": "go test ./internal/marketdata -run TestAggTrades_(GroupsLineage|IDMonotonicPerSymbol|PriceBreakSplits|UnknownTakerSingletons): PASS",
+          "at": "2026-09-30T23:04:45.876962741Z",
+          "elapsed": "972.030273ms"
+        }
+      ]
     },
     {
       "criterion_id": 263,
       "stable_test_id": "TBN-263",
       "owner_phase": "Phase 6 — Market Data Distribution",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/marketdataTestLiquidations_(InvisibleBeforeTwoSeconds|DelayFloorEnforced|Anonymized)|TestDelayGate_(NeverReleasesEarly|FIFOOrder|AgedEventReleasesEarlier|CancelDropsPending)",
+          "kind": "gotest:./internal/marketdataTestLiquidations_(InvisibleBeforeTwoSeconds|DelayFloorEnforced|Anonymized)|TestDelayGate_(NeverReleasesEarly|FIFOOrder|AgedEventReleasesEarlier|CancelDropsPending)",
+          "status": "PASS",
+          "detail": "go test ./internal/marketdata -run TestLiquidations_(InvisibleBeforeTwoSeconds|DelayFloorEnforced|Anonymized)|TestDelayGate_(NeverReleasesEarly|FIFOOrder|AgedEventReleasesEarlier|CancelDropsPending): PASS",
+          "at": "2026-09-30T23:04:53.192065168Z",
+          "elapsed": "3.086721401s"
+        }
+      ]
     },
     {
       "criterion_id": 264,
       "stable_test_id": "TBN-264",
       "owner_phase": "Phase 6 — Market Data Distribution",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/marketdata/ohlcvTestPG|TestInterval|TestTimeframe",
+          "kind": "gotest:./internal/marketdata/ohlcvTestPG|TestInterval|TestTimeframe",
+          "status": "PASS",
+          "detail": "go test ./internal/marketdata/ohlcv -run TestPG|TestInterval|TestTimeframe: PASS",
+          "at": "2026-09-30T23:04:35.659855174Z",
+          "elapsed": "1.021142791s"
+        }
+      ]
     },
     {
       "criterion_id": 265,
       "stable_test_id": "TBN-265",
       "owner_phase": "Phase 6 — Market Data Distribution",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/marketdataTestParseChannelDepthVariants|TestDepthVariant(CadenceGate|PrevChain|WireEndToEnd)",
+          "kind": "gotest:./internal/marketdataTestParseChannelDepthVariants|TestDepthVariant(CadenceGate|PrevChain|WireEndToEnd)",
+          "status": "PASS",
+          "detail": "go test ./internal/marketdata -run TestParseChannelDepthVariants|TestDepthVariant(CadenceGate|PrevChain|WireEndToEnd): PASS",
+          "at": "2026-09-30T23:04:54.362661383Z",
+          "elapsed": "1.170556674s"
+        }
+      ]
     },
     {
       "criterion_id": 266,
@@ -1654,7 +2779,25 @@
       "criterion_id": 274,
       "stable_test_id": "TBN-274",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gtest:test_pretradePreTrade.StpNoneGatedToProfessionalEcp",
+          "kind": "gtest:test_pretradePreTrade.StpNoneGatedToProfessionalEcp",
+          "status": "PASS",
+          "detail": "test_pretrade PreTrade.StpNoneGatedToProfessionalEcp: [  PASSED  ] 1 test.",
+          "at": "2026-09-30T23:05:38.006133294Z",
+          "elapsed": "1.555742ms"
+        },
+        {
+          "test": "gtest:test_stpStpNone.*",
+          "kind": "gtest:test_stpStpNone.*",
+          "status": "PASS",
+          "detail": "test_stp StpNone.*: [  PASSED  ] 3 tests.",
+          "at": "2026-09-30T23:05:39.246438965Z",
+          "elapsed": "2.749557ms"
+        }
+      ]
     },
     {
       "criterion_id": 275,
@@ -1672,49 +2815,137 @@
       "criterion_id": 277,
       "stable_test_id": "TBN-277",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gtest:test_trade_throughExecutionCollar.*:EngineCollar.*",
+          "kind": "gtest:test_trade_throughExecutionCollar.*:EngineCollar.*",
+          "status": "PASS",
+          "detail": "test_trade_through ExecutionCollar.*:EngineCollar.*: [  PASSED  ] 10 tests.",
+          "at": "2026-09-30T23:05:39.3433018Z",
+          "elapsed": "2.601957ms"
+        }
+      ]
     },
     {
       "criterion_id": 278,
       "stable_test_id": "TBN-278",
       "owner_phase": "Phase 6 — Market Data Distribution",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/marketdataTestRefPriceSnapshot|TestGapJournalBounded|TestTicker_ExpiryEvictsOldTrades",
+          "kind": "gotest:./internal/marketdataTestRefPriceSnapshot|TestGapJournalBounded|TestTicker_ExpiryEvictsOldTrades",
+          "status": "PASS",
+          "detail": "go test ./internal/marketdata -run TestRefPriceSnapshot|TestGapJournalBounded|TestTicker_ExpiryEvictsOldTrades: PASS",
+          "at": "2026-09-30T23:04:55.362644369Z",
+          "elapsed": "999.945274ms"
+        }
+      ]
     },
     {
       "criterion_id": 279,
       "stable_test_id": "TBN-279",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gtest:test_stpStpGroups.*:StpTransfer.*",
+          "kind": "gtest:test_stpStpGroups.*:StpTransfer.*",
+          "status": "PASS",
+          "detail": "test_stp StpGroups.*:StpTransfer.*: [  PASSED  ] 5 tests.",
+          "at": "2026-09-30T23:05:39.240892964Z",
+          "elapsed": "11.212425ms"
+        }
+      ]
     },
     {
       "criterion_id": 280,
       "stable_test_id": "TBN-280",
       "owner_phase": "Phase 2 — Matching Engine Core (C++) / Phase 5 — Order Gateway API (Go)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gtest:test_stpStpTransfer.*:StpWal.*",
+          "kind": "gtest:test_stpStpTransfer.*:StpWal.*",
+          "status": "PASS",
+          "detail": "test_stp StpTransfer.*:StpWal.*: [  PASSED  ] 5 tests.",
+          "at": "2026-09-30T23:05:39.340648908Z",
+          "elapsed": "94.189868ms"
+        }
+      ]
     },
     {
       "criterion_id": 281,
       "stable_test_id": "TBN-281",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "e2e:cancel-replace",
+          "kind": "e2e:cancel-replace",
+          "status": "PASS",
+          "detail": "POST /orders/27/cancel-replace → 200 {\"cancel_outcome\":\"SUPERSEDED\",\"mode\":\"STOP_ON_FAILURE\",\"new_outcome\":\"APPLIED\",\"order\":{\"account_id\":151,\"client_order_id\":\"itest-cr-9539\",\"created_at\":\"2026-0…",
+          "at": "2026-09-30T23:05:46.52640277Z",
+          "elapsed": "16.34479ms"
+        }
+      ]
     },
     {
       "criterion_id": 282,
       "stable_test_id": "TBN-282",
       "owner_phase": "Phase 5 — Order Gateway API (Go) / Phase 18 — FIX Protocol Gateway",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "e2e:amend",
+          "kind": "e2e:amend",
+          "status": "PASS",
+          "detail": "qty-down keep-priority amend → 200; stale seq → 409 STALE_MODIFY; amendments endpoint=429 audit_rows=1",
+          "at": "2026-09-30T23:05:46.657660505Z",
+          "elapsed": "19.633571ms"
+        }
+      ]
     },
     {
       "criterion_id": 283,
       "stable_test_id": "TBN-283",
       "owner_phase": "Phase 5 — Order Gateway API (Go) / Phase 12 — User Self-Service \u0026 Notifications",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/authTestEd25519KeyEndToEnd|TestRSAKeyEndToEnd",
+          "kind": "gotest:./internal/authTestEd25519KeyEndToEnd|TestRSAKeyEndToEnd",
+          "status": "PASS",
+          "detail": "go test ./internal/auth -run TestEd25519KeyEndToEnd|TestRSAKeyEndToEnd: PASS",
+          "at": "2026-09-30T23:04:27.18345858Z",
+          "elapsed": "551.635718ms"
+        },
+        {
+          "test": "e2e:ed25519",
+          "kind": "e2e:ed25519",
+          "status": "PASS",
+          "detail": "Ed25519-signed GET /orders → 200 {\"data\":[{\"account_id\":151,\"client_order_id\":\"itest-cr-9539\",\"created_at\":\"2026-09-30T23:05:46.514672Z\",\"filled_qty\":\"0\"…",
+          "at": "2026-09-30T23:05:46.53693372Z",
+          "elapsed": "10.513713ms"
+        }
+      ]
     },
     {
       "criterion_id": 284,
       "stable_test_id": "TBN-284",
       "owner_phase": "Phase 6 — Market Data Distribution / Phase 18 — FIX Protocol Gateway",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/sbeTestNegotiate(Active|UnknownSchemaAndVersion|DeprecatedWarnsWithinWindow|RetiredFailsExplicitly|REST_HeadersAndErrors|WS)",
+          "kind": "gotest:./internal/sbeTestNegotiate(Active|UnknownSchemaAndVersion|DeprecatedWarnsWithinWindow|RetiredFailsExplicitly|REST_HeadersAndErrors|WS)",
+          "status": "PASS",
+          "detail": "go test ./internal/sbe -run TestNegotiate(Active|UnknownSchemaAndVersion|DeprecatedWarnsWithinWindow|RetiredFailsExplicitly|REST_HeadersAndErrors|WS): PASS",
+          "at": "2026-09-30T23:05:09.971018886Z",
+          "elapsed": "141.076387ms"
+        }
+      ]
     },
     {
       "criterion_id": 285,
@@ -1726,7 +2957,17 @@
       "criterion_id": 286,
       "stable_test_id": "TBN-286",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "e2e:quote-order",
+          "kind": "e2e:quote-order",
+          "status": "PASS",
+          "detail": "POST /orders/test quote_market → 400 {\"type\":\"error\",\"error\":\"QUOTE_QUANTITY_INVALID\",\"message\":\"no reference price for quote conversion\",\"status\":400,\"request_id\":\"req-07f741d5…; rejected by coded validation (oracle-less stack)",
+          "at": "2026-09-30T23:05:46.541617367Z",
+          "elapsed": "4.63844ms"
+        }
+      ]
     },
     {
       "criterion_id": 287,
@@ -1738,13 +2979,33 @@
       "criterion_id": 288,
       "stable_test_id": "TBN-288",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "e2e:rate-headers",
+          "kind": "e2e:rate-headers",
+          "status": "PASS",
+          "detail": "X-Ratelimit-Limit=5; X-Ratelimit-Remaining=2; X-Ratelimit-Reset=1790809547; account/rate-limits=200 | meta:{\"account_id\":151,\"orders\":[{\"interval\":\"1s\",\"count\":0,\"window_start\":1790809546,\"reset_epoch\":1790809547,\"limit\":-1},{\"…",
+          "at": "2026-09-30T23:05:46.727400605Z",
+          "elapsed": "4.125061ms"
+        }
+      ]
     },
     {
       "criterion_id": 289,
       "stable_test_id": "TBN-289",
       "owner_phase": "Phase 6 — Market Data Distribution / Phase 18 — FIX Protocol Gateway",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/wsTestDrainAdvisory(MergesFailoverEndpoints|OrderingAndDeadline)|TestDrainReturnsWhenClientsLeave|TestDrainTwiceFails|TestFeedFailoverAdvisory",
+          "kind": "gotest:./internal/wsTestDrainAdvisory(MergesFailoverEndpoints|OrderingAndDeadline)|TestDrainReturnsWhenClientsLeave|TestDrainTwiceFails|TestFeedFailoverAdvisory",
+          "status": "PASS",
+          "detail": "go test ./internal/ws -run TestDrainAdvisory(MergesFailoverEndpoints|OrderingAndDeadline)|TestDrainReturnsWhenClientsLeave|TestDrainTwiceFails|TestFeedFailoverAdvisory: PASS",
+          "at": "2026-09-30T23:05:32.364560312Z",
+          "elapsed": "1.252221061s"
+        }
+      ]
     },
     {
       "criterion_id": 290,
@@ -1756,7 +3017,17 @@
       "criterion_id": 291,
       "stable_test_id": "TBN-291",
       "owner_phase": "Phase 6 — Market Data Distribution / Phase 23 — Market Data Products",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/marketdataTestBlockTape_(DelayedAndAnonymous|BelowThresholdIgnored|NonUSDUnresolved|CorrectionPrePublication|CorrectionPostPublication)",
+          "kind": "gotest:./internal/marketdataTestBlockTape_(DelayedAndAnonymous|BelowThresholdIgnored|NonUSDUnresolved|CorrectionPrePublication|CorrectionPostPublication)",
+          "status": "PASS",
+          "detail": "go test ./internal/marketdata -run TestBlockTape_(DelayedAndAnonymous|BelowThresholdIgnored|NonUSDUnresolved|CorrectionPrePublication|CorrectionPostPublication): PASS",
+          "at": "2026-09-30T23:04:48.307187399Z",
+          "elapsed": "1.482763531s"
+        }
+      ]
     },
     {
       "criterion_id": 292,
@@ -1792,19 +3063,57 @@
       "criterion_id": 297,
       "stable_test_id": "ERR-297",
       "owner_phase": "Phase 1 — C++ Core Foundation",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "ctest:test_ipc",
+          "kind": "ctest:test_ipc",
+          "status": "PASS",
+          "detail": "ctest -R test_ipc: Total Test time (real) =   0.21 sec",
+          "at": "2026-09-30T23:04:18.999993157Z",
+          "elapsed": "215.916903ms"
+        },
+        {
+          "test": "gotest:./internal/ipcTestRing(ZeroLoss1000|Backpressure)|TestEncodeDecodeIdentities",
+          "kind": "gotest:./internal/ipcTestRing(ZeroLoss1000|Backpressure)|TestEncodeDecodeIdentities",
+          "status": "PASS",
+          "detail": "go test ./internal/ipc -run TestRing(ZeroLoss1000|Backpressure)|TestEncodeDecodeIdentities: PASS",
+          "at": "2026-09-30T23:04:33.073409354Z",
+          "elapsed": "218.562394ms"
+        }
+      ]
     },
     {
       "criterion_id": 298,
       "stable_test_id": "ERR-298",
       "owner_phase": "Phase 1.5 — CI/CD Validation Harness",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "bin:faultinject",
+          "kind": "bin:faultinject",
+          "status": "PASS",
+          "detail": "== building walverify (core WAL harness) ==\n== building exchange CLI (audit verify path) ==\n== building faultinject harness ==\n== running fault-injection suite ==\nwal_corrupt                  \u001b[32mPASS\u001b[0m  (38 checks, 64ms)\nwal_crash_recovery           \u001b[32mPASS\u001b[0m  (10 checks, 10ms)\nclock_jump                   \u001b[32mPASS\u001b[0m  (33 checks, 200ms)\naudit_chain_tamper           \u001b[32mPASS\u001b[0m  (8 che…",
+          "at": "2026-09-30T23:03:51.50968861Z",
+          "elapsed": "4.238685999s"
+        }
+      ]
     },
     {
       "criterion_id": 299,
       "stable_test_id": "ERR-299",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gtest:test_engine_pumpEngineLoop.Watermark*:EnginePump.OutboundBackpressureCountsOverload:EnginePump.PoolExhaustionIsAtomicReject",
+          "kind": "gtest:test_engine_pumpEngineLoop.Watermark*:EnginePump.OutboundBackpressureCountsOverload:EnginePump.PoolExhaustionIsAtomicReject",
+          "status": "PASS",
+          "detail": "test_engine_pump EngineLoop.Watermark*:EnginePump.OutboundBackpressureCountsOverload:EnginePump.PoolExhaustionIsAtomicReject: [  PASSED  ] 4 tests.",
+          "at": "2026-09-30T23:05:37.98480106Z",
+          "elapsed": "877.992µs"
+        }
+      ]
     },
     {
       "criterion_id": 300,
@@ -1816,37 +3125,129 @@
       "criterion_id": 301,
       "stable_test_id": "ERR-301",
       "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/settlementTestLedgerIntegration|TestPostRequiresLockBackend",
+          "kind": "gotest:./internal/settlementTestLedgerIntegration|TestPostRequiresLockBackend",
+          "status": "PASS",
+          "detail": "go test ./internal/settlement -run TestLedgerIntegration|TestPostRequiresLockBackend: PASS",
+          "at": "2026-09-30T23:05:16.424326161Z",
+          "elapsed": "605.902709ms"
+        }
+      ]
     },
     {
       "criterion_id": 302,
       "stable_test_id": "ERR-302",
       "owner_phase": "Phase 4 — Persistence \u0026 Recovery",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gtest:test_recoveryRecoveryManager.Corrupt*:RecoveryManager.SequenceGapFailsClosed:RecoveryManager.MidSegmentCorruptionFailsClosed",
+          "kind": "gtest:test_recoveryRecoveryManager.Corrupt*:RecoveryManager.SequenceGapFailsClosed:RecoveryManager.MidSegmentCorruptionFailsClosed",
+          "status": "PASS",
+          "detail": "test_recovery RecoveryManager.Corrupt*:RecoveryManager.SequenceGapFailsClosed:RecoveryManager.MidSegmentCorruptionFailsClosed: [  PASSED  ] 4 tests.",
+          "at": "2026-09-30T23:05:38.891488283Z",
+          "elapsed": "89.696257ms"
+        },
+        {
+          "test": "gtest:test_walWalCrashRecovery.*:WalRecovery.*:WalRoundTrip.*:WalRotation.*",
+          "kind": "gtest:test_walWalCrashRecovery.*:WalRecovery.*:WalRoundTrip.*:WalRotation.*",
+          "status": "PASS",
+          "detail": "test_wal WalCrashRecovery.*:WalRecovery.*:WalRoundTrip.*:WalRotation.*: [  PASSED  ] 8 tests.",
+          "at": "2026-09-30T23:05:39.395947585Z",
+          "elapsed": "50.682975ms"
+        },
+        {
+          "test": "e2e:crash-wal",
+          "kind": "e2e:crash-wal",
+          "status": "PASS",
+          "detail": "kill -9 → restart → cancel oid=36: http=200 cancelled=true replayed=true {\"order_id\":36,\"client_order_id\":\"itest-crash-9539\",\"status\":\"CANCELLED\",\"order_seq\":1790809545858551308,\"transact_time\"…",
+          "at": "2026-09-30T23:05:53.603865742Z",
+          "elapsed": "644.948204ms"
+        }
+      ]
     },
     {
       "criterion_id": 303,
       "stable_test_id": "ERR-303",
       "owner_phase": "Phase 4.5 — Chaos Engineering \u0026 Failure Injection",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/recoveryTestChaos",
+          "kind": "gotest:./internal/recoveryTestChaos",
+          "status": "PASS",
+          "detail": "go test ./internal/recovery -run TestChaos: PASS",
+          "at": "2026-09-30T23:05:08.601414884Z",
+          "elapsed": "766.119506ms"
+        },
+        {
+          "test": "gotest:./internal/settlementTestChaosContention|Chaos",
+          "kind": "gotest:./internal/settlementTestChaosContention|Chaos",
+          "status": "PASS",
+          "detail": "go test ./internal/settlement -run TestChaosContention|Chaos: PASS",
+          "at": "2026-09-30T23:05:11.552939474Z",
+          "elapsed": "1.031670191s"
+        }
+      ]
     },
     {
       "criterion_id": 304,
       "stable_test_id": "ERR-304",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "e2e:error-envelope",
+          "kind": "e2e:error-envelope",
+          "status": "PASS",
+          "detail": "unauth → 401 envelope{error,request_id}; malformed → 400 INVALID_REQUEST; unknown route → 404 404 page not found\n",
+          "at": "2026-09-30T23:05:50.429050355Z",
+          "elapsed": "2.076573ms"
+        }
+      ]
     },
     {
       "criterion_id": 305,
       "stable_test_id": "ERR-305",
       "owner_phase": "Phase 6 — Market Data Distribution",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/wsTest.*Slow|Test.*Evict|Test",
+          "kind": "gotest:./internal/wsTest.*Slow|Test.*Evict|Test",
+          "status": "PASS",
+          "detail": "go test ./internal/ws -run Test.*Slow|Test.*Evict|Test: PASS",
+          "at": "2026-09-30T23:05:30.527320599Z",
+          "elapsed": "5.009872778s"
+        }
+      ]
     },
     {
       "criterion_id": 306,
       "stable_test_id": "ERR-306",
       "owner_phase": "Phase 7 — Admin \u0026 Monitoring (Go)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/observabilityTestDLQ|Test.*Alert|Test",
+          "kind": "gotest:./internal/observabilityTestDLQ|Test.*Alert|Test",
+          "status": "PASS",
+          "detail": "go test ./internal/observability -run TestDLQ|Test.*Alert|Test: PASS",
+          "at": "2026-09-30T23:05:06.67391016Z",
+          "elapsed": "193.053695ms"
+        },
+        {
+          "test": "e2e:ready",
+          "kind": "e2e:ready",
+          "status": "PASS",
+          "detail": "ready=200 status=ok mode=Normal",
+          "at": "2026-09-30T23:05:46.542370583Z",
+          "elapsed": "744.572µs"
+        }
+      ]
     },
     {
       "criterion_id": 307,
@@ -2020,31 +3421,97 @@
       "criterion_id": 335,
       "stable_test_id": "DR-335",
       "owner_phase": "Phase 4 — Persistence \u0026 Recovery",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/recoveryTestOrch|TestDigest",
+          "kind": "gotest:./internal/recoveryTestOrch|TestDigest",
+          "status": "PASS",
+          "detail": "go test ./internal/recovery -run TestOrch|TestDigest: PASS",
+          "at": "2026-09-30T23:05:09.507339441Z",
+          "elapsed": "307.872656ms"
+        }
+      ]
     },
     {
       "criterion_id": 336,
       "stable_test_id": "MAT-336",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gtest:test_amendAmend.*",
+          "kind": "gtest:test_amendAmend.*",
+          "status": "PASS",
+          "detail": "test_amend Amend.*: [  PASSED  ] 15 tests.",
+          "at": "2026-09-30T23:05:37.908210303Z",
+          "elapsed": "2.096602ms"
+        },
+        {
+          "test": "e2e:amend",
+          "kind": "e2e:amend",
+          "status": "PASS",
+          "detail": "qty-down keep-priority amend → 200; stale seq → 409 STALE_MODIFY; amendments endpoint=429 audit_rows=1",
+          "at": "2026-09-30T23:05:46.657660722Z",
+          "elapsed": "19.633789ms"
+        }
+      ]
     },
     {
       "criterion_id": 337,
       "stable_test_id": "MAT-337",
       "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/settlementTestLedgerIntegration",
+          "kind": "gotest:./internal/settlementTestLedgerIntegration",
+          "status": "PASS",
+          "detail": "go test ./internal/settlement -run TestLedgerIntegration: PASS",
+          "at": "2026-09-30T23:05:17.04634034Z",
+          "elapsed": "621.971731ms"
+        }
+      ]
     },
     {
       "criterion_id": 338,
       "stable_test_id": "MAT-338",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "e2e:list",
+          "kind": "e2e:list",
+          "status": "PASS",
+          "detail": "GET /orders → 200 envelope({\"data\":[],\"next_cursor\":\"\",\"limit\":100,\"total\":0})",
+          "at": "2026-09-30T23:05:50.432966881Z",
+          "elapsed": "3.88413ms"
+        }
+      ]
     },
     {
       "criterion_id": 339,
       "stable_test_id": "MAT-339",
       "owner_phase": "Phase 6 — Market Data Distribution",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/marketdataTestSeq|Test.*Sequen",
+          "kind": "gotest:./internal/marketdataTestSeq|Test.*Sequen",
+          "status": "PASS",
+          "detail": "go test ./internal/marketdata -run TestSeq|Test.*Sequen: PASS",
+          "at": "2026-09-30T23:04:57.467265682Z",
+          "elapsed": "882.800497ms"
+        },
+        {
+          "test": "gotest:./internal/wsTestRedisDedupStoreLifecycle|Test.*Seq|Test.*Gap",
+          "kind": "gotest:./internal/wsTestRedisDedupStoreLifecycle|Test.*Seq|Test.*Gap",
+          "status": "PASS",
+          "detail": "go test ./internal/ws -run TestRedisDedupStoreLifecycle|Test.*Seq|Test.*Gap: PASS",
+          "at": "2026-09-30T23:05:32.913416985Z",
+          "elapsed": "548.807834ms"
+        }
+      ]
     },
     {
       "criterion_id": 340,
@@ -2098,13 +3565,41 @@
       "criterion_id": 348,
       "stable_test_id": "MAT-348",
       "owner_phase": "Phase 7 — Admin \u0026 Monitoring (Go)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/adminTestRBACLifecycleIntegration",
+          "kind": "gotest:./internal/adminTestRBACLifecycleIntegration",
+          "status": "PASS",
+          "detail": "go test ./internal/admin -run TestRBACLifecycleIntegration: PASS",
+          "at": "2026-09-30T23:04:25.346560132Z",
+          "elapsed": "625.136678ms"
+        },
+        {
+          "test": "e2e:rbac",
+          "kind": "e2e:rbac",
+          "status": "PASS",
+          "detail": "no-binding admin read → 403; auditor GET /admin/audit → 200; auditor POST → 403 (read-only cannot mutate)",
+          "at": "2026-09-30T23:05:50.445552735Z",
+          "elapsed": "9.707576ms"
+        }
+      ]
     },
     {
       "criterion_id": 349,
       "stable_test_id": "MAT-349",
       "owner_phase": "Phase 7 — Admin \u0026 Monitoring (Go)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/adminTestCapExpiry|TestMiddleware|TestIntersectScopeNeverWidens|TestAssertScope",
+          "kind": "gotest:./internal/adminTestCapExpiry|TestMiddleware|TestIntersectScopeNeverWidens|TestAssertScope",
+          "status": "PASS",
+          "detail": "go test ./internal/admin -run TestCapExpiry|TestMiddleware|TestIntersectScopeNeverWidens|TestAssertScope: PASS",
+          "at": "2026-09-30T23:04:22.375927517Z",
+          "elapsed": "567.636526ms"
+        }
+      ]
     },
     {
       "criterion_id": 350,
@@ -2128,31 +3623,81 @@
       "criterion_id": 353,
       "stable_test_id": "MAT-353",
       "owner_phase": "Phase 4 — Persistence \u0026 Recovery",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/recoveryTestDigestChainVerification|TestCheckpointerBoundariesAndImbalance",
+          "kind": "gotest:./internal/recoveryTestDigestChainVerification|TestCheckpointerBoundariesAndImbalance",
+          "status": "PASS",
+          "detail": "go test ./internal/recovery -run TestDigestChainVerification|TestCheckpointerBoundariesAndImbalance: PASS",
+          "at": "2026-09-30T23:05:08.896106213Z",
+          "elapsed": "294.649835ms"
+        }
+      ]
     },
     {
       "criterion_id": 354,
       "stable_test_id": "MAT-354",
       "owner_phase": "Phase 4 — Persistence \u0026 Recovery",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/recoveryTestDigest|TestCheckpointer|TestOrch",
+          "kind": "gotest:./internal/recoveryTestDigest|TestCheckpointer|TestOrch",
+          "status": "PASS",
+          "detail": "go test ./internal/recovery -run TestDigest|TestCheckpointer|TestOrch: PASS",
+          "at": "2026-09-30T23:05:09.199416203Z",
+          "elapsed": "303.262546ms"
+        }
+      ]
     },
     {
       "criterion_id": 355,
       "stable_test_id": "MAT-355",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "e2e:time",
+          "kind": "e2e:time",
+          "status": "PASS",
+          "detail": "GET /time → 200 {\"offset_us\":371,\"server_time_ms\":1790809550433,\"synchronized\":true,\"timezone\":\"UTC\"}",
+          "at": "2026-09-30T23:05:50.433255383Z",
+          "elapsed": "272.224µs"
+        }
+      ]
     },
     {
       "criterion_id": 356,
       "stable_test_id": "MAT-356",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "e2e:venue-info",
+          "kind": "e2e:venue-info",
+          "status": "PASS",
+          "detail": "GET /exchange-info → 200 bytes=39689",
+          "at": "2026-09-30T23:05:50.434433598Z",
+          "elapsed": "1.166931ms"
+        }
+      ]
     },
     {
       "criterion_id": 357,
       "stable_test_id": "MAT-357",
       "owner_phase": "Phase 6 — Market Data Distribution",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/marketdataTest.*OI|Test.*OpenInterest|Test",
+          "kind": "gotest:./internal/marketdataTest.*OI|Test.*OpenInterest|Test",
+          "status": "PASS",
+          "detail": "go test ./internal/marketdata -run Test.*OI|Test.*OpenInterest|Test: PASS",
+          "at": "2026-09-30T23:04:44.904887884Z",
+          "elapsed": "7.110505945s"
+        }
+      ]
     },
     {
       "criterion_id": 358,
@@ -2188,13 +3733,33 @@
       "criterion_id": 363,
       "stable_test_id": "MAT-363",
       "owner_phase": "Phase 5 — Order Gateway API (Go)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "e2e:transfer",
+          "kind": "e2e:transfer",
+          "status": "PASS",
+          "detail": "POST /transfers → 201 {\"transfer\":{\"id\":2,\"account_id\":151,\"from_account_id\":151,\"to_account_id\":152,\"currency\":\"USD\",\"amount\":\"5000\",\"status\":\"COMPLETED\",\"actor\":\"SELF\",\"actor_id\":134,\"journal_entry_id\":4737,\"idempotency_… | A 100000→95000 B 1000000→1005000 moved=true | GET /transfers → 200",
+          "at": "2026-09-30T23:05:50.426889943Z",
+          "elapsed": "3.634219682s"
+        }
+      ]
     },
     {
       "criterion_id": 364,
       "stable_test_id": "MAT-364",
       "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/ledgerTestDustSweep",
+          "kind": "gotest:./internal/ledgerTestDustSweep",
+          "status": "PASS",
+          "detail": "go test ./internal/ledger -run TestDustSweep: PASS",
+          "at": "2026-09-30T23:04:33.23118387Z",
+          "elapsed": "157.733686ms"
+        }
+      ]
     },
     {
       "criterion_id": 365,
@@ -2218,7 +3783,17 @@
       "criterion_id": 368,
       "stable_test_id": "MAT-368",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gtest:test_pretradePreTrade.StpModeResolution:PreTrade.StpUnsetResolvesAccountDefaultAndStamps:PreTrade.StpUnknownValueRejected",
+          "kind": "gtest:test_pretradePreTrade.StpModeResolution:PreTrade.StpUnsetResolvesAccountDefaultAndStamps:PreTrade.StpUnknownValueRejected",
+          "status": "PASS",
+          "detail": "test_pretrade PreTrade.StpModeResolution:PreTrade.StpUnsetResolvesAccountDefaultAndStamps:PreTrade.StpUnknownValueRejected: [  PASSED  ] 3 tests.",
+          "at": "2026-09-30T23:05:38.004554674Z",
+          "elapsed": "1.910823ms"
+        }
+      ]
     },
     {
       "criterion_id": 369,
@@ -2230,7 +3805,17 @@
       "criterion_id": 370,
       "stable_test_id": "MAT-370",
       "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/ledgerTestMinorUnitZeroSumInvariant|TestDisplayAmount|TestStorageAmount|TestProfileSwitchZeroBalanceGuard|TestDayAnchorUTC",
+          "kind": "gotest:./internal/ledgerTestMinorUnitZeroSumInvariant|TestDisplayAmount|TestStorageAmount|TestProfileSwitchZeroBalanceGuard|TestDayAnchorUTC",
+          "status": "PASS",
+          "detail": "go test ./internal/ledger -run TestMinorUnitZeroSumInvariant|TestDisplayAmount|TestStorageAmount|TestProfileSwitchZeroBalanceGuard|TestDayAnchorUTC: PASS",
+          "at": "2026-09-30T23:04:33.395959418Z",
+          "elapsed": "164.676346ms"
+        }
+      ]
     },
     {
       "criterion_id": 371,
@@ -2278,13 +3863,33 @@
       "criterion_id": 378,
       "stable_test_id": "MAT-378",
       "owner_phase": "Phase 7 — Admin \u0026 Monitoring (Go)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/adminTestGovernancePackIntegration|Test.*Rollup|Test.*Roll",
+          "kind": "gotest:./internal/adminTestGovernancePackIntegration|Test.*Rollup|Test.*Roll",
+          "status": "PASS",
+          "detail": "go test ./internal/admin -run TestGovernancePackIntegration|Test.*Rollup|Test.*Roll: PASS",
+          "at": "2026-09-30T23:04:22.953740555Z",
+          "elapsed": "577.747771ms"
+        }
+      ]
     },
     {
       "criterion_id": 379,
       "stable_test_id": "MAT-379",
       "owner_phase": "Phase 7 — Admin \u0026 Monitoring (Go)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/adminTestGovernancePackIntegration",
+          "kind": "gotest:./internal/adminTestGovernancePackIntegration",
+          "status": "PASS",
+          "detail": "go test ./internal/admin -run TestGovernancePackIntegration: PASS",
+          "at": "2026-09-30T23:04:23.539004255Z",
+          "elapsed": "585.216095ms"
+        }
+      ]
     },
     {
       "criterion_id": 380,
@@ -2374,7 +3979,25 @@
       "criterion_id": 394,
       "stable_test_id": "MAT-394",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gtest:test_engine_pumpEnginePump.TickStampsWalTimeTick",
+          "kind": "gtest:test_engine_pumpEnginePump.TickStampsWalTimeTick",
+          "status": "PASS",
+          "detail": "test_engine_pump EnginePump.TickStampsWalTimeTick: [  PASSED  ] 1 test.",
+          "at": "2026-09-30T23:05:37.986090214Z",
+          "elapsed": "1.274059ms"
+        },
+        {
+          "test": "gtest:test_expiryExpiryGtd.*:ExpiryTif.*",
+          "kind": "gtest:test_expiryExpiryGtd.*:ExpiryTif.*",
+          "status": "PASS",
+          "detail": "test_expiry ExpiryGtd.*:ExpiryTif.*: [  PASSED  ] 4 tests.",
+          "at": "2026-09-30T23:05:37.987841578Z",
+          "elapsed": "1.728149ms"
+        }
+      ]
     },
     {
       "criterion_id": 395,
@@ -2410,7 +4033,17 @@
       "criterion_id": 400,
       "stable_test_id": "MAT-400",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gtest:test_trade_throughTradeThroughGuard.*:EngineTradeThrough.*",
+          "kind": "gtest:test_trade_throughTradeThroughGuard.*:EngineTradeThrough.*",
+          "status": "PASS",
+          "detail": "test_trade_through TradeThroughGuard.*:EngineTradeThrough.*: [  PASSED  ] 16 tests.",
+          "at": "2026-09-30T23:05:39.345240568Z",
+          "elapsed": "1.91395ms"
+        }
+      ]
     },
     {
       "criterion_id": 401,
@@ -2422,43 +4055,121 @@
       "criterion_id": 402,
       "stable_test_id": "MAT-402",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "ctest:test_book_pipette",
+          "kind": "ctest:test_book_pipette",
+          "status": "PASS",
+          "detail": "ctest -R test_book_pipette: Total Test time (real) =   0.00 sec",
+          "at": "2026-09-30T23:04:15.974546405Z",
+          "elapsed": "4.432498ms"
+        },
+        {
+          "test": "ctest:test_decimal",
+          "kind": "ctest:test_decimal",
+          "status": "PASS",
+          "detail": "ctest -R test_decimal: Total Test time (real) =   0.00 sec",
+          "at": "2026-09-30T23:04:15.977335805Z",
+          "elapsed": "2.768858ms"
+        }
+      ]
     },
     {
       "criterion_id": 403,
       "stable_test_id": "MAT-403",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gtest:test_credit_matrixCreditMatrix.*",
+          "kind": "gtest:test_credit_matrixCreditMatrix.*",
+          "status": "PASS",
+          "detail": "test_credit_matrix CreditMatrix.*: [  PASSED  ] 9 tests.",
+          "at": "2026-09-30T23:05:37.964172179Z",
+          "elapsed": "41.939736ms"
+        }
+      ]
     },
     {
       "criterion_id": 404,
       "stable_test_id": "MAT-404",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gtest:test_cross_shardCrossShard2PC.*:OptimisticCrossShard.*:BasketCtlCodec.*",
+          "kind": "gtest:test_cross_shardCrossShard2PC.*:OptimisticCrossShard.*:BasketCtlCodec.*",
+          "status": "PASS",
+          "detail": "test_cross_shard CrossShard2PC.*:OptimisticCrossShard.*:BasketCtlCodec.*: [  PASSED  ] 12 tests.",
+          "at": "2026-09-30T23:05:37.979070332Z",
+          "elapsed": "8.236655ms"
+        }
+      ]
     },
     {
       "criterion_id": 405,
       "stable_test_id": "MAT-405",
       "owner_phase": "Phase 2 — Matching Engine Core (C++)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gtest:test_discretionaryDiscretionary*.*",
+          "kind": "gtest:test_discretionaryDiscretionary*.*",
+          "status": "PASS",
+          "detail": "test_discretionary Discretionary*.*: [  PASSED  ] 22 tests.",
+          "at": "2026-09-30T23:05:37.983055204Z",
+          "elapsed": "1.807085ms"
+        }
+      ]
     },
     {
       "criterion_id": 406,
       "stable_test_id": "MAT-406",
       "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/settlementTestIntegration_PhysicalDeliveryExcluded|TestPhysicalDeliveryJournalLocksDeliverables|TestMixedSettlementIntentAborts",
+          "kind": "gotest:./internal/settlementTestIntegration_PhysicalDeliveryExcluded|TestPhysicalDeliveryJournalLocksDeliverables|TestMixedSettlementIntentAborts",
+          "status": "PASS",
+          "detail": "go test ./internal/settlement -run TestIntegration_PhysicalDeliveryExcluded|TestPhysicalDeliveryJournalLocksDeliverables|TestMixedSettlementIntentAborts: PASS",
+          "at": "2026-09-30T23:05:12.794805291Z",
+          "elapsed": "701.196676ms"
+        }
+      ]
     },
     {
       "criterion_id": 407,
       "stable_test_id": "MAT-407",
       "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/settlementTestIntegration_SwapFree|TestComputeAdminFee_GraceBoundary",
+          "kind": "gotest:./internal/settlementTestIntegration_SwapFree|TestComputeAdminFee_GraceBoundary",
+          "status": "PASS",
+          "detail": "go test ./internal/settlement -run TestIntegration_SwapFree|TestComputeAdminFee_GraceBoundary: PASS",
+          "at": "2026-09-30T23:05:15.200313786Z",
+          "elapsed": "664.001362ms"
+        }
+      ]
     },
     {
       "criterion_id": 408,
       "stable_test_id": "MAT-408",
       "owner_phase": "Phase 6 — Market Data Distribution",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/marketdataTestSeq|Test.*Depth",
+          "kind": "gotest:./internal/marketdataTestSeq|Test.*Depth",
+          "status": "PASS",
+          "detail": "go test ./internal/marketdata -run TestSeq|Test.*Depth: PASS",
+          "at": "2026-09-30T23:04:56.584430442Z",
+          "elapsed": "1.221749929s"
+        }
+      ]
     },
     {
       "criterion_id": 409,
@@ -2500,31 +4211,81 @@
       "criterion_id": 415,
       "stable_test_id": "MAT-415",
       "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/balanceTestIntegration_|TestAutoExchange",
+          "kind": "gotest:./internal/balanceTestIntegration_|TestAutoExchange",
+          "status": "PASS",
+          "detail": "go test ./internal/balance -run TestIntegration_|TestAutoExchange: PASS",
+          "at": "2026-09-30T23:04:28.520809779Z",
+          "elapsed": "210.875145ms"
+        }
+      ]
     },
     {
       "criterion_id": 416,
       "stable_test_id": "MAT-416",
       "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/settlementTestCarry|TestIntegration_Carry",
+          "kind": "gotest:./internal/settlementTestCarry|TestIntegration_Carry",
+          "status": "PASS",
+          "detail": "go test ./internal/settlement -run TestCarry|TestIntegration_Carry: PASS",
+          "at": "2026-09-30T23:05:10.521222343Z",
+          "elapsed": "550.139509ms"
+        }
+      ]
     },
     {
       "criterion_id": 417,
       "stable_test_id": "MAT-417",
       "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/promosTestVIP|TestTier|TestIntegration",
+          "kind": "gotest:./internal/promosTestVIP|TestTier|TestIntegration",
+          "status": "PASS",
+          "detail": "go test ./internal/promos -run TestVIP|TestTier|TestIntegration: PASS",
+          "at": "2026-09-30T23:05:07.389547252Z",
+          "elapsed": "358.88059ms"
+        }
+      ]
     },
     {
       "criterion_id": 418,
       "stable_test_id": "MAT-418",
       "owner_phase": "Phase 3 — Risk \u0026 Settlement (Go, T+1/T+2)",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/settlementTestRebate|TestNegativeFee|TestMakerRebate",
+          "kind": "gotest:./internal/settlementTestRebate|TestNegativeFee|TestMakerRebate",
+          "status": "PASS",
+          "detail": "go test ./internal/settlement -run TestRebate|TestNegativeFee|TestMakerRebate: PASS",
+          "at": "2026-09-30T23:05:19.254652406Z",
+          "elapsed": "528.785657ms"
+        }
+      ]
     },
     {
       "criterion_id": 419,
       "stable_test_id": "MAT-419",
       "owner_phase": "Phase 4 — Persistence \u0026 Recovery",
-      "status": "EXECUTABLE"
+      "status": "PASS",
+      "legs": [
+        {
+          "test": "gotest:./internal/archiverTest",
+          "kind": "gotest:./internal/archiverTest",
+          "status": "PASS",
+          "detail": "go test ./internal/archiver -run Test: PASS",
+          "at": "2026-09-30T23:04:25.917017859Z",
+          "elapsed": "570.420387ms"
+        }
+      ]
     }
   ]
 }

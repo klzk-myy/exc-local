@@ -3715,7 +3715,7 @@
           "kind": "gotest",
           "pkg": "./internal/ipc",
           "run": "TestAeronRoundTripCpp",
-          "note": "requires aeronmd media driver; absent here → BLOCKED",
+          "note": "vendored aeronmd (core/third_party/aeron/bin) — runs when present",
           "needs": "aeron"
         }
       ]

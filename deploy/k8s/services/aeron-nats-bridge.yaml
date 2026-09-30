@@ -41,6 +41,8 @@ spec:
               value: "0.0.0.0:9101"
             - name: EXC_BRIDGE_SPOOL_DIR
               value: /var/spool/exchange
+          # R9 schema — served by cmd/bridge on metrics_addr :9101 since the
+          # probe-coverage fix (2026-09-30); legacy /healthz kept for compat.
           readinessProbe:
             httpGet: {path: /health/ready, port: health}
             periodSeconds: 5

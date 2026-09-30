@@ -1,0 +1,63 @@
+# kind-overlay — minimal deltas to run ONE representative §19.13.1 service
+# (settlement-service) on a throwaway kind cluster, for the Phase-09 :63
+# HPA proof driven by deploy/scripts/kind_hpa_drill.sh.
+#
+#   kubectl kustomize deploy/k8s/kind-overlay/ \
+#       --load-restrictor=LoadRestrictionsNone | kubectl apply -f -
+#
+# (resources live one level up, so the root-only load restrictor must be
+# relaxed; the generated stream is still applied with plain kubectl apply.)
+#
+# Everything not listed here is applied verbatim from the parent manifests —
+# Deployment, Service, autoscaling/v2 HPA (CPU Utilization 70, 2→10) and PDB
+# are the production objects, not drill-specific stand-ins.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../00-namespace.yaml
+  - ../01-configmap.yaml
+  - ../03-rbac.yaml
+  - secrets.yaml
+  - drill-config.yaml
+  - ../services/settlement-service.yaml
+
+# The shipped image is the registry.internal/...:CHANGE_ME placeholder.
+# Substitute the locally built image (Dockerfile in this dir) loaded into
+# kind via `kind load docker-image` — imagePullPolicy is already
+# IfNotPresent in the source manifest.
+images:
+  - name: registry.internal/exchange/settlement-service
+    newName: exchange/settlement-service
+    newTag: kind-drill
+
+patches:
+    # Explicit env entries override envFrom keys. EXC_REDIS_ADDR in
+    # exchange-env points at the redis-ha master Service name, which does
+    # not exist inside the drill cluster — net.ResolveTCPAddr in
+    # config.Load() would fail the lookup. Point it at a syntactically
+    # valid addr for the drill; the scaffold never dials it.
+  - target: {kind: Deployment, name: settlement-service}
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: settlement-service
+      spec:
+        template:
+          spec:
+            containers:
+              - name: settlement
+                env:
+                  - name: EXC_REDIS_ADDR
+                    value: "127.0.0.1:6379"
+                  # EXC_CONFIG points the loader at the mounted drill
+                  # config.yaml — see drill-config.yaml for why env alone
+                  # cannot carry secrets.data_key (viper Unmarshal gap).
+                  - name: EXC_CONFIG
+                    value: "/etc/exchange-drill/config.yaml"
+                volumeMounts:
+                  - {name: drill-config, mountPath: /etc/exchange-drill, readOnly: true}
+            volumes:
+              - name: drill-config
+                configMap: {name: settlement-drill-config}

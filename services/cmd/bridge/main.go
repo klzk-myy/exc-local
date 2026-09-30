@@ -26,6 +26,7 @@ import (
 
 	"github.com/nats-io/nats.go/jetstream"
 
+	"exchange/internal/api"
 	"exchange/internal/bridge"
 	"exchange/internal/config"
 	ipcaeron "exchange/internal/ipc/aeron"
@@ -122,6 +123,17 @@ func run() error {
 			fmt.Fprintf(w, `{"status":"ok","shard":%d,"nats_connected":%v,"buffer_depth":%d}`,
 				bcfg.ShardID, nats.Connected(), b.Snapshot().BufferDepth)
 		})
+		// R9 probe surface (Task 7.3.6) — deploy/k8s/aeron-nats-bridge
+		// probes /health/live + /health/ready on this port.
+		mux.HandleFunc("/health/live", api.Health)
+		mux.HandleFunc("/health/ready", api.HealthReady(nil, []api.Dependency{
+			{Name: "nats", Required: true, Probe: func(context.Context) error {
+				if !nats.Connected() {
+					return api.DependencyErr("nats", errors.New("disconnected"))
+				}
+				return nil
+			}},
+		}, nil, ""))
 		srv := &http.Server{Addr: bcfg.MetricsAddr, Handler: mux,
 			ReadHeaderTimeout: 5 * time.Second}
 		go func() {

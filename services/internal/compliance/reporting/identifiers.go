@@ -30,10 +30,12 @@ var (
 // TestVenueLEI is the synthetic LEI used when no venue LEI is configured
 // — 20 chars, ISO 17442-format with a valid mod-97-2 checksum so
 // generated UTIs pass structural validation, clearly a test identifier
-// (the "00" check-digit pair + TEST body). Production MUST configure
-// EXC_VENUE_LEI with the entity's registered LEI; a real submission with
-// the test LEI is a configuration defect.
-const TestVenueLEI = "213800TESTTEST000042"
+// (TEST body + real mod-97 check pair "03" — the prior "42" constant
+// failed ISO-17442 validation, so the gateway refused to boot without
+// EXC_VENUE_LEI set). Production MUST configure EXC_VENUE_LEI with the
+// entity's registered LEI; a real submission with the test LEI is a
+// configuration defect.
+const TestVenueLEI = "213800TESTTEST000003"
 
 // DefaultVenueMIC is the segment MIC used when EXC_VENUE_MIC is unset —
 // the venue is a firm-operated FX ECN; XOFF is the ISO 10383 code for

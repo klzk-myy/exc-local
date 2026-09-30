@@ -17,7 +17,13 @@ data:
   # Redis Sentinel discovery (spec §4.5). Data-plane replicas resolve via
   # sentinel, never directly.
   EXC_SENTINEL_ADDRS: "redis-sentinel-0.redis-ha.exchange.svc:26379,redis-sentinel-1.redis-ha.exchange.svc:26379,redis-sentinel-2.redis-ha.exchange.svc:26379"
-  EXC_REDIS_ADDR: "mymaster"                    # sentinel master name; go-redis FailoverClient resolves it
+  # Direct-dial master endpoint for non-sentinel-aware daemons
+  # (config.Load validates redis.addr as host:port). Sentinel-aware
+  # components resolve the current master via EXC_SENTINEL_ADDRS + the
+  # master_name in config/redis-sentinel.yaml ("mymaster" by default) —
+  # the monitor name is NOT a dialable address and must never appear
+  # here (net.ResolveTCPAddr rejects it -> config.Load crashloop).
+  EXC_REDIS_ADDR: "redis-ha.exchange.svc:6379"
   EXC_SHARDING_CONFIG: "/etc/exchange/sharding.yaml"
   # ClickHouse analytics cluster (Phase-20, spec §16). Native protocol
   # endpoint consumed by cmd/analytics (ingest) and cmd/gateway (read

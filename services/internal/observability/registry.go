@@ -520,6 +520,17 @@ func ServeMetrics(ctx context.Context, addr string, r *Registry, service string)
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintf(w, `{"status":"ok","service":%q}`, service)
 	})
+	// R9 probe surface (Task 7.3.6) — K8s manifests probe these paths.
+	// readiness = liveness until these scaffold daemons wire real deps
+	// (api.HealthReady can't be imported here: api→observability already).
+	mux.HandleFunc("/health/live", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	})
+	mux.HandleFunc("/health/ready", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"status":"ok","mode":"Normal","service":%q}`, service)
+	})
 	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 	errCh := make(chan error, 1)
 	go func() {

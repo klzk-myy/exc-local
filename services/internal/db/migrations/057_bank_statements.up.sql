@@ -64,8 +64,11 @@ CREATE TABLE statement_entries (
     narrative                 TEXT,                  -- :86: / AddtlNtryInf
     -- match linkage (priority: UETR → transaction ref → amount+ccy+value date)
     reconciled_instruction_id BIGINT REFERENCES settlement_instructions (id),
-    reconciled_payment_id     BIGINT REFERENCES rail_payments (id),
-    reconciled_movement_id    BIGINT REFERENCES nostro_movements (id),
+    -- FK targets are created by 108 (rail_payments) and 112
+    -- (nostro_movements) — task numbering puts this file first, so both
+    -- constraints land in 112's tail ALTER once the tables exist.
+    reconciled_payment_id     BIGINT,
+    reconciled_movement_id    BIGINT,
     match_key                 VARCHAR(8),           -- UETR | REF | AMOUNT
     status                    statement_entry_status_enum NOT NULL DEFAULT 'UNMATCHED',
     created_at                TIMESTAMPTZ NOT NULL DEFAULT now()

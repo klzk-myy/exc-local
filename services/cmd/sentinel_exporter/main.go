@@ -13,6 +13,7 @@
 //	                                   replicas (the RPO ≤ 5s alert line)
 //
 // Env:
+//
 //	SENTINEL_ADDRS   comma-separated host:port sentinels
 //	                 (default 127.0.0.1:36379,127.0.0.1:36380,127.0.0.1:36381)
 //	MASTER_NAME      sentinel monitor name (default mymaster)
@@ -39,13 +40,13 @@ import (
 )
 
 var (
-	sentinelUp    atomic.Int64
-	quorumOK      atomic.Int64
-	failoverProg  atomic.Int64
-	masterUp      atomic.Int64
-	replicasUp    atomic.Int64
-	replLagMaxMs  atomic.Int64 // milliseconds; exported /1000
-	scrapeErr     atomic.Int64
+	sentinelUp   atomic.Int64
+	quorumOK     atomic.Int64
+	failoverProg atomic.Int64
+	masterUp     atomic.Int64
+	replicasUp   atomic.Int64
+	replLagMaxMs atomic.Int64 // milliseconds; exported /1000
+	scrapeErr    atomic.Int64
 )
 
 func envOr(k, def string) string {

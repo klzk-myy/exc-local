@@ -82,20 +82,20 @@ func validInventoryClass(c SecretClass) bool {
 // InventoryEntry is one secrets_inventory row — metadata only, never
 // secret material (docs/ops/secrets-inventory.md rule zero).
 type InventoryEntry struct {
-	ID                int64      `json:"id"`
-	SecretName        string     `json:"secret_name"`
-	Class             SecretClass `json:"secret_class"`
-	Category          string     `json:"category"` // ops doc §1 finer label
-	Owner             string     `json:"owner"`
-	Consumers         []string   `json:"consumers"`
+	ID                int64         `json:"id"`
+	SecretName        string        `json:"secret_name"`
+	Class             SecretClass   `json:"secret_class"`
+	Category          string        `json:"category"` // ops doc §1 finer label
+	Owner             string        `json:"owner"`
+	Consumers         []string      `json:"consumers"`
 	TTL               time.Duration `json:"ttl_seconds"`
 	AlertLead         time.Duration `json:"alert_lead_seconds"`
-	RotationProcedure string     `json:"rotation_procedure"`
-	LastRotatedAt     *time.Time `json:"last_rotated_at,omitempty"`
-	DRCritical        bool       `json:"dr_critical"`
-	BreakGlassPath    string     `json:"break_glass_path"`
-	CreatedAt         time.Time  `json:"created_at"`
-	UpdatedAt         time.Time  `json:"updated_at"`
+	RotationProcedure string        `json:"rotation_procedure"`
+	LastRotatedAt     *time.Time    `json:"last_rotated_at,omitempty"`
+	DRCritical        bool          `json:"dr_critical"`
+	BreakGlassPath    string        `json:"break_glass_path"`
+	CreatedAt         time.Time     `json:"created_at"`
+	UpdatedAt         time.Time     `json:"updated_at"`
 }
 
 // InventoryEntryInput is the upsert payload. TTL/AlertLead are
@@ -151,9 +151,9 @@ type InventoryRow struct {
 // InventoryView is the admin GET payload — the assessed rows plus the
 // overdue set the 503 emission reports.
 type InventoryView struct {
-	Rows      []InventoryRow `json:"secrets"`
-	Overdue   []string       `json:"overdue"`   // secret_names past rotation SLA
-	Unrotated []string       `json:"unrotated"` // inventoried, never rotated
+	Rows      []InventoryRow  `json:"secrets"`
+	Overdue   []string        `json:"overdue"`   // secret_names past rotation SLA
+	Unrotated []string        `json:"unrotated"` // inventoried, never rotated
 	Coverage  *CoverageReport `json:"coverage,omitempty"`
 }
 
@@ -488,12 +488,12 @@ func (s *InventoryService) UpsertEntry(ctx context.Context, adminID int64,
 		Action:      "secrets_inventory.upsert",
 		TargetType:  "secrets_inventory",
 		AfterState: map[string]any{
-			"secret_name":     e.SecretName,
-			"secret_class":    string(e.Class),
-			"category":        e.Category,
-			"owner":           e.Owner,
-			"ttl_seconds":     int64(e.TTL.Seconds()),
-			"dr_critical":     e.DRCritical,
+			"secret_name":      e.SecretName,
+			"secret_class":     string(e.Class),
+			"category":         e.Category,
+			"owner":            e.Owner,
+			"ttl_seconds":      int64(e.TTL.Seconds()),
+			"dr_critical":      e.DRCritical,
 			"break_glass_path": e.BreakGlassPath,
 		},
 		IPAddress: clientIP,

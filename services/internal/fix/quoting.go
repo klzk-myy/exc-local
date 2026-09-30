@@ -611,7 +611,7 @@ func (s *QuoteService) applyEntry(ctx context.Context, acct *orders.Account,
 	if hasBid {
 		ack, err := submitSide(orders.SideBuy, e.BidPx, e.BidSize)
 		if err != nil {
-			return reject("ORDER_REJECTED: bid leg: "+excerrors.CodeOf(err)+" "+err.Error()),
+			return reject("ORDER_REJECTED: bid leg: " + excerrors.CodeOf(err) + " " + err.Error()),
 				feedDrop()
 		}
 		st.bidOrderID = ack.OrderID
@@ -627,7 +627,7 @@ func (s *QuoteService) applyEntry(ctx context.Context, acct *orders.Account,
 				}
 				st.bidOrderID = 0
 			}
-			return reject("ORDER_REJECTED: ask leg: "+excerrors.CodeOf(err)+" "+err.Error()),
+			return reject("ORDER_REJECTED: ask leg: " + excerrors.CodeOf(err) + " " + err.Error()),
 				feedDrop()
 		}
 		st.askOrderID = ack.OrderID

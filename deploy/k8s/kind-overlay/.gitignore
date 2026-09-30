@@ -1,0 +1,2 @@
+# Built locally by deploy/scripts/kind_hpa_drill.sh — never commit binaries.
+bin/

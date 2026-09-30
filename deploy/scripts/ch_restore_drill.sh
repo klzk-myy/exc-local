@@ -101,9 +101,11 @@ ensure_chb() {  # host-side clickhouse-backup binary
     local tgz=$DRILL_WORKDIR/chb.tar.gz
     curl -fsSL -o "$tgz" \
         "https://github.com/Altinity/clickhouse-backup/releases/download/$CHB_VERSION/clickhouse-backup-linux-amd64.tar.gz"
-    tar -xzf "$tgz" -C "$DRILL_WORKDIR/bin" --strip-components=2 \
+    # tarball path is build/linux/amd64/clickhouse-backup — strip 3 so the
+    # binary lands at bin/clickhouse-backup (strip=2 leaves amd64/ above it)
+    tar -xzf "$tgz" -C "$DRILL_WORKDIR/bin" --strip-components=3 \
         "build/linux/amd64/clickhouse-backup" 2>/dev/null \
-        || tar -xzf "$tgz" -C "$DRILL_WORKDIR/bin"
+        || tar -xzf "$tgz" -C "$DRILL_WORKDIR/bin" --strip-components=3
     chmod +x "$bin"; CHB_HOST_BIN=$bin
 }
 
@@ -117,7 +119,10 @@ ensure_vgw() {  # host-side versitygw binary (static -> runs in busybox ctr)
     fi
     log "downloading versitygw $VGW_VERSION"
     local tgz=$DRILL_WORKDIR/vgw.tar.gz
+    # tarball naming changed across releases (v-prefixed vs not) — try both
     curl -fsSL -o "$tgz" \
+        "https://github.com/versity/versitygw/releases/download/$VGW_VERSION/versitygw_${VGW_VERSION}_Linux_x86_64.tar.gz" ||
+        curl -fsSL -o "$tgz" \
         "https://github.com/versity/versitygw/releases/download/$VGW_VERSION/versitygw_${VGW_VERSION#v}_Linux_x86_64.tar.gz"
     mkdir -p "$DRILL_WORKDIR/vgw-extract" && tar -xzf "$tgz" -C "$DRILL_WORKDIR/vgw-extract"
     local found
@@ -182,18 +187,22 @@ PYEOF
 # --- container provisioning (idempotent) ------------------------------------
 
 provision_s3() {
-    if ! docker inspect "$S3_CONTAINER" >/dev/null 2>&1; then
-        log "starting S3 gateway container $S3_CONTAINER (versitygw posix)"
-        docker run -d --name "$S3_CONTAINER" --network "$NETWORK" \
-            -p "${S3_HOST_PORT}:${S3_CTR_PORT}" \
-            -v "$VGW_HOST_BIN:/usr/local/bin/versitygw:ro" \
-            -v "$S3_VOLUME:/data" \
-            busybox /usr/local/bin/versitygw \
-                --port "0.0.0.0:${S3_CTR_PORT}" \
-                --access "$S3_ACCESS" --secret "$S3_SECRET" \
-                posix /data >/dev/null
-    fi
-    docker start "$S3_CONTAINER" >/dev/null 2>&1 || true
+    # Always recreate: a leftover container can pin a deleted network id
+    # (`docker compose down -v` recreates the stack network), in which case
+    # `docker start` fails with "network not found" and the wait loop dies
+    # on "gateway not listening". The volume is drill-scoped and wiped too —
+    # stale same-named backups (daily-YYYYMMDD) break clean-slate.
+    docker rm -f "$S3_CONTAINER" >/dev/null 2>&1 || true
+    docker volume rm "$S3_VOLUME" >/dev/null 2>&1 || true
+    log "starting S3 gateway container $S3_CONTAINER (versitygw posix)"
+    docker run -d --name "$S3_CONTAINER" --network "$NETWORK" \
+        -p "${S3_HOST_PORT}:${S3_CTR_PORT}" \
+        -v "$VGW_HOST_BIN:/usr/local/bin/versitygw:ro" \
+        -v "$S3_VOLUME:/data" \
+        busybox /usr/local/bin/versitygw \
+            --port "0.0.0.0:${S3_CTR_PORT}" \
+            --access "$S3_ACCESS" --secret "$S3_SECRET" \
+            posix /data >/dev/null
     for i in $(seq 1 30); do
         curl -s -o /dev/null "http://127.0.0.1:${S3_HOST_PORT}/" && break
         [[ $i == 30 ]] && die "s3 gateway not listening on :$S3_HOST_PORT"
@@ -206,15 +215,18 @@ provision_s3() {
 }
 
 provision_scratch() {
-    if ! docker inspect "$SCRATCH_CONTAINER" >/dev/null 2>&1; then
-        log "starting scratch ClickHouse $SCRATCH_CONTAINER ($SCRATCH_IMAGE)"
-        docker run -d --name "$SCRATCH_CONTAINER" --network "$NETWORK" \
-            -p "${SCRATCH_HTTP_PORT}:8123" -p "${SCRATCH_NATIVE_PORT}:9000" \
-            -e CLICKHOUSE_USER="$CH_USER" -e CLICKHOUSE_PASSWORD="$CH_PASSWORD" \
-            -v "$SCRATCH_VOLUME:/var/lib/clickhouse" \
-            "$SCRATCH_IMAGE" >/dev/null
-    fi
-    docker start "$SCRATCH_CONTAINER" >/dev/null 2>&1 || true
+    # Same recreate rule as provision_s3 — stale container + deleted
+    # network id = unstartable. The volume is drill-scoped and wiped too:
+    # a stale local chb store or leftover databases make restore_remote
+    # resurrect old data (observed 1.1M stale ticks vs a 1-row source).
+    docker rm -f "$SCRATCH_CONTAINER" >/dev/null 2>&1 || true
+    docker volume rm "$SCRATCH_VOLUME" >/dev/null 2>&1 || true
+    log "starting scratch ClickHouse $SCRATCH_CONTAINER ($SCRATCH_IMAGE)"
+    docker run -d --name "$SCRATCH_CONTAINER" --network "$NETWORK" \
+        -p "${SCRATCH_HTTP_PORT}:8123" -p "${SCRATCH_NATIVE_PORT}:9000" \
+        -e CLICKHOUSE_USER="$CH_USER" -e CLICKHOUSE_PASSWORD="$CH_PASSWORD" \
+        -v "$SCRATCH_VOLUME:/var/lib/clickhouse" \
+        "$SCRATCH_IMAGE" >/dev/null
     for i in $(seq 1 60); do
         docker exec "$SCRATCH_CONTAINER" wget -qO- http://127.0.0.1:8123/ping \
             2>/dev/null | grep -q Ok && break
@@ -325,6 +337,17 @@ render_configs
 gen_wrappers
 
 PARTITION=${PARTITION:-$(pick_partition)}
+if [[ -z $PARTITION && $CH_DATABASE == "exchange_analytics" ]]; then
+    # Ephemeral provisions (compose down -v / up) apply schema but hold no
+    # data — seed one labeled fixture row so a partition exists to sample.
+    # Backup/restore count-match assertions are unaffected.
+    if chc_src --query "INSERT INTO exchange_analytics.ticks
+        (ts,symbol,price,quantity,side,trade_id,event_seq,shard_id,ver)
+        VALUES (now64(3),'DRILLSEED',1.1,1,'UNKNOWN',18446744073709551615,1,0,1)" 2>/dev/null; then
+        log "seeded DRILLSEED fixture row into exchange_analytics.ticks (empty dev tier)"
+        PARTITION=$(pick_partition)
+    fi
+fi
 [[ -n $PARTITION ]] || die "no active partition in $CH_DATABASE to sample"
 log "sampled partition: $PARTITION"
 

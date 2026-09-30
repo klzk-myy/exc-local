@@ -5,6 +5,7 @@ apiVersion: 1
 
 datasources:
   - name: Prometheus
+    uid: Prometheus          # must match dashboard panel datasource refs
     type: prometheus
     access: proxy
     url: ${PROMETHEUS_URL}

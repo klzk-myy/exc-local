@@ -342,10 +342,15 @@ func (hw *hashWriter) Write(p []byte) (int, error) {
 	return n, err
 }
 
-// s3Keys: {parent}/{name}/{name}.parquet + .manifest.json
+// s3Keys: {parent}/{name}/{name}.parquet under a scan-friendly layout —
+// manifests live in {parent}/{name}/_manifests/ because Hive/Trino
+// treat every non-hidden file under a table's location as data; a sibling
+// .manifest.json would be parsed as parquet and fail the scan ("Malformed
+// Parquet file"). Engines skip _- and .-prefixed paths.
 func s3Keys(p Partition) (dataKey, manifestKey string) {
 	base := fmt.Sprintf("%s/%s/%s", p.Parent, p.Name, p.Name)
-	return base + ".parquet", base + ".manifest.json"
+	return base + ".parquet",
+		fmt.Sprintf("%s/%s/_manifests/%s.manifest.json", p.Parent, p.Name, p.Name)
 }
 
 func (a *Archiver) logInsert(ctx context.Context, p Partition, ex *exportResult,
