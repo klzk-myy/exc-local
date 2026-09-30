@@ -287,6 +287,26 @@ func (a apiKeyRevoker) RevokeAllKeys(ctx context.Context, accountID int64, reaso
 	return revoked, firstErr
 }
 
+// demoOrderCanceller binds demo.OrderCanceller to the shared orders
+// dispatcher — the Task 8.5.3.2 expiry sweep mass-cancels a demo
+// account's resting orders before the CLOSED transition (same
+// convention as the forced-closure path).
+type demoOrderCanceller struct {
+	disp *orders.Dispatcher
+}
+
+func (c demoOrderCanceller) MassCancelAccount(ctx context.Context, accountID int64, reason string) (int, error) {
+	res, err := c.disp.MassCancel(ctx, accounts.MassCancelScope{
+		AccountID: accountID, Reason: reason})
+	if err != nil {
+		return 0, err
+	}
+	if res == nil {
+		return 0, nil
+	}
+	return res.Cancelled, nil
+}
+
 // openOrderLister binds accounts.OpenOrderLister to orders.PgStore —
 // the still-cancellable set the self-freeze P1 alert carries for manual
 // desk cancellation.

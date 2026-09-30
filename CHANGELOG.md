@@ -1561,3 +1561,48 @@ snapshots, costs disclosure, depreciation notices, marketing-ops.
   canonicalization, audit-payload fix); meta-docs synced.
 - Commit: this commit. Next: Phase-08.5 (3 pending checkpoints) +
   Phase-21.
+
+## [2026-09-30 05:05 UTC] — Phase 08.5 + Phase 21 START (parallel dispatch)
+
+- **Phase 08.5** (deferred buffer phase — 3 pending checkpoints surfaced by
+  the Phase-20 corpus): Task 8.5.3.1 (75k/s × 4h staging gate) is
+  env-bound and will be honestly annotated; 8.5.3.2 (demo environment)
+  and 8.5.3.3 (error-injection harness + hysteresis validation) are
+  dispatched as implementation work.
+- **Phase 21** scope: 28 tasks (21.3.1–21.3.28) — sanctions/PEP
+  screening, travel rule, SAR, MiFID II/EMIR/Dodd-Frank reporting,
+  APA/ARM adapters, GDPR+geo-block, market-abuse enforcement, case
+  management, RTS 6/27/28, Basel III, FX Global Code, comms recording,
+  CRS/FATCA, employee dealing, regulatory change, promotions compliance,
+  audit-trail API, execution policy.
+- **Decision:** migration numbering — plan-reserved slots 032/033/054/
+  059/060/062/079/080/100 are absent on disk and used verbatim; 081 was
+  consumed by `vulnerability_disclosures` (Phase-13.5), so
+  `account_consents`/`financial_promotions` allocate 239/240; 238 is
+  Phase-08.5 demo accounts.
+
+## [2026-09-30 05:45 UTC] — Phase 08.5 PARTIAL SETTLE (2 of 3 checkpoints bound)
+
+- **Task 8.5.3.2 DONE** — demo/paper-trading environment: `internal/demo`
+  service (Provision/TouchActivity/ExpireSweep/WrapFundingChecker, env-gated
+  on deployment label `demo`), migration 238 (`account_type_enum +DEMO`,
+  `demo_expires_at`, expiry index), `$100k` virtual seed
+  (`EXC_DEMO_BALANCE_USD`), 30-day inactivity expiry with FOR UPDATE re-arm
+  guard, funding rails hard-fenced for DEMO accounts, `TierDemo` = 2× Basic
+  resolved identically at REST/WS/L3 seams via `api.PgTierLookup`.
+- **Task 8.5.3.3 DONE** — `tests/load/errblast` standalone module: paced
+  invalid-order engine (5 rotating defect classes), control-stream probes,
+  verdict policy (crash/conn-refusal/5xx-threshold → non-zero exit).
+  Live-verified against real gateway+oracle binaries: 6,000 invalid
+  requests → 0 5xx, 0 timeouts, process alive; ReadOnly enforced over the
+  wire (503 DEGRADED_MODE + header) while reads kept answering.
+  Hysteresis pinned: C++ `InfraLagSignalEscalatesToReadOnlyImmediately` +
+  `ReadOnlyRecoveryDwellRequires30ConsecutiveClearSeconds` (blip resets
+  dwell); Go middleware ReadOnly/MarketDataOnly/Maintenance/fail-closed +
+  live Redis mode-record round-trip.
+- **Task 8.5.3.1 honestly deferred** — the 75k/s × 4h staging gate needs a
+  provisioned staging cluster; checkpoint `P08.5-T8.5.3.1-C1` remains
+  pending with the deferral annotated in the phase file.
+- Checkpoints: `P08.5-T8.5.3.2-C1`, `P08.5-T8.5.3.3-C1` bound in
+  `tests/spec/checks/phase085.go` and both PASS (PG/Redis-gated legs
+  exercised live).

@@ -98,21 +98,37 @@ type TierLookup func(ctx context.Context, accountID int64) (string, error)
 // names basic/standard/professional/institutional match the fee-tier
 // ladder). NULL/absent fee tier ⇒ TierBasic; store errors fail closed
 // to TierPublic.
+//
+// Phase-08.5 Task 8.5.3.2: a DEMO account resolves to the demo tier
+// (2× the production Basic quota) regardless of any fee_tier binding —
+// the sandbox must never hand a demo identity a production-tier quota.
+// PgTierLookup is exported separately so the WS/L3 resolver closures
+// (different claims type, same policy) share one query definition.
 func PgTierResolver(pool *pgxpool.Pool) middleware.TierResolver {
-	return TierResolverFromLookup(func(ctx context.Context, accountID int64) (string, error) {
+	return TierResolverFromLookup(PgTierLookup(pool))
+}
+
+// PgTierLookup is the TierLookup half of PgTierResolver — same query,
+// same DEMO substitution, reusable by every TierResolver seam.
+func PgTierLookup(pool *pgxpool.Pool) TierLookup {
+	return func(ctx context.Context, accountID int64) (string, error) {
 		var name *string
+		var accountType string
 		err := pool.QueryRow(ctx, `
-			SELECT t.tier_name FROM accounts a
+			SELECT a.account_type::text, t.tier_name FROM accounts a
 			LEFT JOIN fee_tiers t ON t.id = a.fee_tier_id
-			WHERE a.id = $1`, accountID).Scan(&name)
+			WHERE a.id = $1`, accountID).Scan(&accountType, &name)
 		if err != nil {
 			return "", err
+		}
+		if accountType == "DEMO" {
+			return string(ratelimit.TierDemo), nil
 		}
 		if name == nil {
 			return "", nil
 		}
 		return *name, nil
-	})
+	}
 }
 
 // TierResolverFromLookup adapts a TierLookup to middleware.TierResolver.

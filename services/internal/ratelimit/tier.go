@@ -38,6 +38,11 @@ const (
 	TierProfessional  Tier = "professional"  // authenticated pro
 	TierInstitutional Tier = "institutional" // institutional / market maker
 	TierAdmin         Tier = "admin"         // operator identity (Task 5.3.27)
+	// TierDemo is the Phase-08.5 Task 8.5.3.2 demo-environment tier —
+	// "rate limits relaxed to 2x production": the resolver substitutes
+	// it for DEMO accounts (the demo onboarding path maps to Basic
+	// upstream, so demo = 2× Basic verbatim).
+	TierDemo Tier = "demo"
 )
 
 // Spec declares the §8.3 contract for one tier.
@@ -57,6 +62,8 @@ var Specs = map[Tier]Spec{
 	TierProfessional:  {RatePerSec: 500, BurstFactor: 2, WeightPerMin: 30000},
 	TierInstitutional: {RatePerSec: 2000, BurstFactor: 2, WeightPerMin: 120000},
 	TierAdmin:         {RatePerSec: 2000, BurstFactor: 2, WeightPerMin: 120000},
+	// Task 8.5.3.2: 2× TierBasic (40/s, 2400 weight/min).
+	TierDemo: {RatePerSec: 40, BurstFactor: 2, WeightPerMin: 2400},
 }
 
 // SpecOf returns the tier contract; unknown tiers fail closed to Public
@@ -79,6 +86,9 @@ var DefaultThrottle = map[Tier]float64{
 	TierProfessional:  0.75,
 	TierInstitutional: 1.00,
 	TierAdmin:         1.00,
+	// Demo degrades like Basic — the 2x relaxation is relative to
+	// production in every mode, including Throttled.
+	TierDemo: 0.25,
 }
 
 // EffectiveRate returns the tier's req/s under the given multiplier,
@@ -97,7 +107,7 @@ func EffectiveRate(s Spec, multiplier float64) int64 {
 func ParseTier(name string) Tier {
 	switch t := Tier(name); t {
 	case TierPublic, TierBasic, TierStandard,
-		TierProfessional, TierInstitutional, TierAdmin:
+		TierProfessional, TierInstitutional, TierAdmin, TierDemo:
 		return t
 	}
 	return TierPublic

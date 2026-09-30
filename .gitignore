@@ -50,3 +50,4 @@ tests/load/snapshots/
 # Phase-13.5 Task 13.5.3.9 SBOM artifacts (regenerated: scripts/ci/gen_sbom.sh,
 # deploy/crons/sbom-scan.sh nightly)
 reports/sbom/
+tests/load/errblast/errblast

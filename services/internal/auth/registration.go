@@ -150,10 +150,33 @@ func scanUser(scan func(dest ...any) error) (*User, error) {
 	return &u, nil
 }
 
+// accountProvisionFunc mints the user's initial trading account inside
+// the registration transaction — the production path writes the default
+// SPOT row; the Task 8.5.3.2 demo seam substitutes DEMO+virtual-seed.
+type accountProvisionFunc func(ctx context.Context, tx pgx.Tx, userID int64) (accountID int64, err error)
+
+// provisionSpotAccount is the production default: one SPOT account.
+func provisionSpotAccount(ctx context.Context, tx pgx.Tx, userID int64) (int64, error) {
+	var accountID int64
+	if err := tx.QueryRow(ctx,
+		`INSERT INTO accounts (user_id, account_type) VALUES ($1,'SPOT') RETURNING id`,
+		userID).Scan(&accountID); err != nil {
+		return 0, wrapError(CodeAuthInternal, "account insert", err)
+	}
+	return accountID, nil
+}
+
 // CreateUserWithAccount inserts the user and their default SPOT account
 // in one transaction — registration must never leave a user without a
 // trading account context (api_keys.account_id is NOT NULL).
 func (s *UserStore) CreateUserWithAccount(ctx context.Context, email, passwordHash, country string) (userID, accountID int64, err error) {
+	return s.createUserTx(ctx, email, passwordHash, country, provisionSpotAccount)
+}
+
+// createUserTx is the shared registration transaction: user row first,
+// then the provisioned account — both commit or roll back together, so
+// a provisioning failure can never strand an account-less user.
+func (s *UserStore) createUserTx(ctx context.Context, email, passwordHash, country string, provision accountProvisionFunc) (userID, accountID int64, err error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return 0, 0, wrapError(CodeAuthInternal, "register tx begin", err)
@@ -170,10 +193,8 @@ func (s *UserStore) CreateUserWithAccount(ctx context.Context, email, passwordHa
 		}
 		return 0, 0, wrapError(CodeAuthInternal, "user insert", err)
 	}
-	if err = tx.QueryRow(ctx,
-		`INSERT INTO accounts (user_id, account_type) VALUES ($1,'SPOT') RETURNING id`,
-		userID).Scan(&accountID); err != nil {
-		return 0, 0, wrapError(CodeAuthInternal, "account insert", err)
+	if accountID, err = provision(ctx, tx, userID); err != nil {
+		return 0, 0, err
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return 0, 0, wrapError(CodeAuthInternal, "register tx commit", err)
@@ -499,6 +520,23 @@ type LoginOutcome struct {
 	KYCTier      string
 }
 
+// DemoProvisioner is the Phase-08.5 Task 8.5.3.2 demo-environment seam
+// (*demo.Service at composition — this package never imports demo). On
+// a deployment labelled "demo" registration substitutes a DEMO account
+// + virtual balance for the default SPOT row inside the same
+// transaction, and the login/refresh paths re-arm the 30-day
+// inactivity deadline through TouchActivity.
+type DemoProvisioner interface {
+	// Enabled reports whether this deployment is the demo environment.
+	Enabled() bool
+	// ProvisionTx inserts the DEMO account (+ expiry deadline + virtual
+	// seed) on the registration transaction.
+	ProvisionTx(ctx context.Context, tx pgx.Tx, userID int64) (accountID int64, err error)
+	// TouchActivity re-arms accounts.demo_expires_at; a non-DEMO
+	// account is a no-op (the UPDATE predicate filters).
+	TouchActivity(ctx context.Context, accountID int64) error
+}
+
 // AuthnService wires users + sessions + token cache + mailer.
 type AuthnService struct {
 	users    *UserStore
@@ -506,9 +544,10 @@ type AuthnService struct {
 	cache    TokenCache
 	mail     Sender
 	recorder LoginRecorder
-	lockout  AuthLockout // Phase-12 Task 12.3.12 seam (nil = disabled)
-	issuer   string      // otpauth/mail brand label
-	mailBase string      // verification/reset link base URL
+	lockout  AuthLockout     // Phase-12 Task 12.3.12 seam (nil = disabled)
+	demo     DemoProvisioner // Phase-08.5 Task 8.5.3.2 seam (nil = never demo)
+	issuer   string          // otpauth/mail brand label
+	mailBase string          // verification/reset link base URL
 	now      func() time.Time
 	logf     func(format string, args ...any)
 }
@@ -532,6 +571,28 @@ func NewAuthnService(users *UserStore, sessions *SessionManager, cache TokenCach
 func (s *AuthnService) WithRecorder(r LoginRecorder) *AuthnService {
 	s.recorder = r
 	return s
+}
+
+// WithDemo attaches the Task 8.5.3.2 demo provisioner. A nil or
+// disabled provisioner leaves registration on the production SPOT path
+// — the demo substitution fires only when Enabled() reports the demo
+// deployment label.
+func (s *AuthnService) WithDemo(d DemoProvisioner) *AuthnService {
+	s.demo = d
+	return s
+}
+
+// touchDemo re-arms the demo inactivity deadline after a successful
+// authentication (login or refresh — API use keeps a demo account
+// alive). Best-effort: an activity-bump failure is logged, never fatal
+// to an authenticated session.
+func (s *AuthnService) touchDemo(ctx context.Context, accountID int64) {
+	if s.demo == nil || !s.demo.Enabled() || accountID <= 0 {
+		return
+	}
+	if err := s.demo.TouchActivity(ctx, accountID); err != nil {
+		s.logf("auth: demo activity touch failed for account %d: %v", accountID, err)
+	}
 }
 
 // WithLockout attaches the Task 12.3.12 brute-force lockout. The lock
@@ -619,7 +680,14 @@ func (s *AuthnService) Register(ctx context.Context, req RegisterRequest) (*Regi
 	if err != nil {
 		return nil, wrapError(CodeAuthInternal, "password hash", err)
 	}
-	userID, accountID, err := s.users.CreateUserWithAccount(ctx, email, string(hash), country)
+	// Task 8.5.3.2 — a demo deployment provisions account_type='DEMO'
+	// (+virtual seed) instead of the default SPOT row, inside the same
+	// registration transaction.
+	provision := provisionSpotAccount
+	if s.demo != nil && s.demo.Enabled() {
+		provision = s.demo.ProvisionTx
+	}
+	userID, accountID, err := s.users.createUserTx(ctx, email, string(hash), country, provision)
 	if err == errEmailTaken {
 		return &Registration{Email: email, EmailVerificationRequired: true}, nil
 	}
@@ -820,6 +888,7 @@ func (s *AuthnService) Login(ctx context.Context, req LoginRequest) (*LoginOutco
 		}
 	}
 	kycTier, _ := s.users.AccountKYCTier(ctx, accountID)
+	s.touchDemo(ctx, accountID)
 	s.record(ctx, LoginEvent{UserID: u.ID, Result: LoginResultSuccess,
 		IP: req.IP, UserAgent: req.UserAgent, DeviceFingerprint: req.DeviceFingerprint,
 		SessionID: iss.Session.ID, Timestamp: s.now().UTC()})
@@ -847,9 +916,16 @@ func (s *AuthnService) countFailure(ctx context.Context, lockID string, uid int6
 }
 
 // Refresh rotates the pair via the session manager (rotation + reuse
-// detection are owned by session.go).
+// detection are owned by session.go). A successful rotation also counts
+// as demo activity — the 30-day inactivity clock resets on live API
+// use, not just fresh logins.
 func (s *AuthnService) Refresh(ctx context.Context, refreshToken string) (*IssuedSession, error) {
-	return s.sessions.Refresh(ctx, refreshToken, userSessionScopes)
+	iss, err := s.sessions.Refresh(ctx, refreshToken, userSessionScopes)
+	if err != nil {
+		return nil, err
+	}
+	s.touchDemo(ctx, iss.Session.AccountID)
+	return iss, nil
 }
 
 // Logout revokes the session bound to the caller's JWT. A sessionless

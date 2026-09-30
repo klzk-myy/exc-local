@@ -224,6 +224,13 @@ func TestTierResolverFromLookup(t *testing.T) {
 	if got := TierResolverFromLookup(nil)(context.Background(), nil); got != ratelimit.TierPublic {
 		t.Fatalf("nil claims tier=%v, want public", got)
 	}
+	// Task 8.5.3.2: the lookup substitutes "demo" for DEMO accounts and
+	// it must parse to the 2×-Basic demo tier, not fall back to Basic.
+	if got := TierResolverFromLookup(func(context.Context, int64) (string, error) {
+		return "demo", nil
+	})(context.Background(), claims); got != ratelimit.TierDemo {
+		t.Fatalf("demo tier=%v, want TierDemo", got)
+	}
 }
 
 var _ middleware.TierResolver = TierResolverFromLookup(nil) // seam compiles

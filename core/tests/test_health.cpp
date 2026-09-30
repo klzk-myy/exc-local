@@ -253,6 +253,80 @@ TEST(HealthCheckerUnit, CooldownPreventsFlapping) {
     }
 }
 
+// --- Task 8.5.3.3 — degradation hysteresis under error injection ----------
+// The plan's legs 2–3: an infrastructure-lag-class trigger must move
+// Normal → ReadOnly inside one evaluation (the §2.7.3 "within 500ms"
+// bound is trivially met — check_once() commits escalations
+// synchronously, cooldown never delays a worse state), and recovery
+// must hold ReadOnly until 30 CONSECUTIVE seconds of clear telemetry.
+
+TEST(HealthCheckerUnit, InfraLagSignalEscalatesToReadOnlyImmediately) {
+    Fixture f;
+    // §2.7.3 L1 lag-family signal: coordination-Redis round-trip p50
+    // >1s. The plan's "PostgreSQL replica lag >5s" trigger sits in the
+    // same L1 row — a hard PG loss maps even further to MarketDataOnly
+    // (asserted in PostgresOrWalFailureTriggersMarketDataOnly), the
+    // fail-closed superset.
+    f.sig.redis_p50_us = 2'000'000;
+    const auto r = f.eval();
+    EXPECT_TRUE(r.transitioned);  // same evaluation — no deferred commit
+    EXPECT_EQ(f.modes.mode(), DegradationMode::ReadOnly);
+    EXPECT_EQ(std::string(r.reason), "redis_slow");
+    ASSERT_FALSE(f.alerts.rows.empty());
+    EXPECT_EQ(f.alerts.rows.back().first, 2);  // P2 (spec §2.4 Alerting)
+
+    // While the mode holds, a still-firing trigger re-affirms ReadOnly —
+    // no transition churn, mode stable.
+    const auto r2 = f.eval();
+    EXPECT_FALSE(r2.transitioned);
+    EXPECT_EQ(f.modes.mode(), DegradationMode::ReadOnly);
+}
+
+TEST(HealthCheckerUnit, ReadOnlyRecoveryDwellRequires30ConsecutiveClearSeconds) {
+    Fixture f;
+    // Isolate the dwell from the 60s ModeManager cooldown: cooldown=0
+    // leaves sustained-clear telemetry as the only de-escalation gate.
+    exch::HealthCheckerConfig cfg;
+    cfg.cooldown_ms = 0;
+    f.checker.set_config(cfg);
+
+    f.sig.matching_p50_us = 900;
+    ASSERT_TRUE(f.eval().transitioned);           // t=0 → ReadOnly
+    ASSERT_EQ(f.modes.mode(), DegradationMode::ReadOnly);
+
+    f.sig.matching_p50_us = 40;                   // telemetry clears
+    for (int i = 0; i < 5; ++i) {                 // ~25s clear — dwell not met
+        const auto r = f.eval();
+        EXPECT_EQ(f.modes.mode(), DegradationMode::ReadOnly);
+        EXPECT_TRUE(r.recovery_pending);
+        EXPECT_FALSE(r.transitioned);
+    }
+
+    // A single unhealthy eval inside the window resets the
+    // consecutive-clear clock — "30 consecutive seconds" is literal
+    // (spec §2.7.3). The blip re-affirms ReadOnly without transitioning.
+    f.sig.matching_p50_us = 900;                  // t≈30s
+    const auto blip = f.eval();
+    EXPECT_EQ(blip.target_mode, DegradationMode::ReadOnly);
+    EXPECT_FALSE(blip.transitioned);
+    EXPECT_EQ(f.modes.mode(), DegradationMode::ReadOnly);
+
+    f.sig.matching_p50_us = 40;
+    for (int i = 0; i < 6; ++i) {                 // ~30s post-blip, 0..25s
+        const auto r = f.eval();                  //   into the new window
+        EXPECT_EQ(f.modes.mode(), DegradationMode::ReadOnly)
+            << "dwell must restart after the blip — only " << 5 * (i + 1)
+            << "s of consecutive clear telemetry have elapsed";
+        EXPECT_TRUE(r.recovery_pending);
+        EXPECT_FALSE(r.transitioned);
+    }
+    // t≈65s absolute but only 30s CONSECUTIVE clear: dwell met, cooldown
+    // disabled → de-escalation lands on this evaluation.
+    const auto r = f.eval();
+    EXPECT_TRUE(r.transitioned);
+    EXPECT_EQ(f.modes.mode(), DegradationMode::Normal);
+}
+
 TEST(HealthCheckerUnit, MaintenanceIsManualHold) {
     Fixture f;
     ASSERT_TRUE(f.modes.set_mode(DegradationMode::Maintenance, "deploy"));

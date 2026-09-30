@@ -38,6 +38,7 @@ import (
 	"exchange/internal/copy"
 	"exchange/internal/db"
 	"exchange/internal/delegation"
+	"exchange/internal/demo"
 	"exchange/internal/deprecation"
 	"exchange/internal/errs"
 	"exchange/internal/fix"
@@ -237,6 +238,24 @@ func run() error {
 	killResolver := admin.NewKillSwitchResolver(rdb, cfg.Environment)
 	freezeSvc := accounts.NewFreezeService(pool,
 		accounts.RoleResolver(adminRoleResolver))
+	// Phase-08.5 Task 8.5.3.2 — demo / paper trading environment
+	// (§24 #266). Enabled only when the deployment label is "demo":
+	// registration then mints DEMO accounts seeded with virtual USD
+	// (EXC_DEMO_BALANCE_USD, default 100000). fundChecker keeps the
+	// freeze semantics and adds the fail-closed demo rejection — real
+	// banking rails are unreachable from DEMO accounts on EVERY
+	// funding/pool-facing AssertMutable call site below.
+	demoSvc := demo.New(pool, cfg.Environment).
+		WithLogger(func(f string, a ...any) { log.Warn(fmt.Sprintf("demo: "+f, a...)) })
+	if v := strings.TrimSpace(os.Getenv("EXC_DEMO_BALANCE_USD")); v != "" {
+		if d, derr := decimal.NewFromString(v); derr == nil && d.IsPositive() {
+			demoSvc.WithInitialBalance(d)
+		} else {
+			log.Warn("EXC_DEMO_BALANCE_USD invalid — keeping default",
+				"value", v)
+		}
+	}
+	fundChecker := demoSvc.WrapFundingChecker(freezeSvc)
 	riskLimits := risk.NewLimitsService(risk.NewPgStore(pool), nil, nil)
 	if err := riskLimits.Load(context.Background()); err != nil {
 		// Do not abort boot — the limits view fails closed per request and
@@ -367,7 +386,7 @@ func run() error {
 		log.Warn("EXC_SANCTIONS_LIST_DIR unset — sanctions seam unwired; " +
 			"STANDARD-tier funding reviews fail closed to PENDING_REVIEW")
 	}
-	withdrawalSvc, err := funding.NewWithdrawalService(fundStore, ledgerSvc, freezeSvc)
+	withdrawalSvc, err := funding.NewWithdrawalService(fundStore, ledgerSvc, fundChecker)
 	if err != nil {
 		return fmt.Errorf("withdrawal service: %w", err)
 	}
@@ -389,7 +408,7 @@ func run() error {
 	if screener != nil {
 		withdrawalSvc.WithSanctions(screener)
 	}
-	transferSvc, err := funding.NewTransferService(fundStore, ledgerSvc, freezeSvc)
+	transferSvc, err := funding.NewTransferService(fundStore, ledgerSvc, fundChecker)
 	if err != nil {
 		return fmt.Errorf("transfer service: %w", err)
 	}
@@ -597,7 +616,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("pamm store: %w", err)
 	}
-	pammSvc, err := pamm.NewService(pammStore, ledgerSvc, freezeSvc)
+	pammSvc, err := pamm.NewService(pammStore, ledgerSvc, fundChecker)
 	if err != nil {
 		return fmt.Errorf("pamm service: %w", err)
 	}
@@ -629,7 +648,7 @@ func run() error {
 	}
 	dispatchSvc.WithRails(railSvc).WithAlerter(opsAlerter).
 		WithLogger(func(f string, a ...any) { log.Error(fmt.Sprintf(f, a...)) })
-	depositSvc, err := funding.NewDepositService(fundStore, ledgerSvc, freezeSvc)
+	depositSvc, err := funding.NewDepositService(fundStore, ledgerSvc, fundChecker)
 	if err != nil {
 		return fmt.Errorf("deposit service: %w", err)
 	}
@@ -878,7 +897,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("copy subledger: %w", err)
 	}
-	copySvc, err := copy.NewService(copyStore, catSvc, freezeSvc,
+	copySvc, err := copy.NewService(copyStore, catSvc, fundChecker,
 		settlement.ConverterIndexPricer{Conv: position.NewConverter(
 			risk.LastTradeRates{Instruments: pnlStore, Marks: orderStore}, "")},
 		copyAuditor,
@@ -1763,15 +1782,14 @@ func run() error {
 		Dedup:      ws.NewRedisDedupStore(rdb.Client),
 		Logger:     log,
 		TrustProxy: true,
+		// Task 8.5.3.2: shares api.PgTierLookup so WS honours the same
+		// DEMO→TierDemo (2× Basic) substitution as REST — one policy.
 		TierResolver: func(ctx context.Context, sess *ws.Session) ratelimit.Tier {
-			var name *string
-			if err := pool.QueryRow(ctx, `
-				SELECT t.tier_name FROM accounts a
-				LEFT JOIN fee_tiers t ON t.id = a.fee_tier_id
-				WHERE a.id = $1`, sess.AccountID).Scan(&name); err != nil || name == nil {
+			name, err := api.PgTierLookup(pool)(ctx, sess.AccountID)
+			if err != nil || name == "" {
 				return ratelimit.TierBasic
 			}
-			return ratelimit.ParseTier(*name)
+			return ratelimit.ParseTier(name)
 		},
 	})
 	// Phase-13 Task 13.3.9: stream every breaker transition to the
@@ -1794,15 +1812,14 @@ func run() error {
 	l3Srv := marketdata.NewL3Server(marketdata.L3ServerConfig{
 		Hub: l3Hub, Issuer: jwtIssuer, Verifier: sigVerifier,
 		Logger: log, TrustProxy: true,
+		// Task 8.5.3.2: same shared lookup — DEMO accounts get TierDemo
+		// (2× Basic) on the L3 surface exactly as on REST/WS.
 		TierResolver: func(ctx context.Context, sess *ws.Session) ratelimit.Tier {
-			var name *string
-			if err := pool.QueryRow(ctx, `
-				SELECT t.tier_name FROM accounts a
-				LEFT JOIN fee_tiers t ON t.id = a.fee_tier_id
-				WHERE a.id = $1`, sess.AccountID).Scan(&name); err != nil || name == nil {
+			name, err := api.PgTierLookup(pool)(ctx, sess.AccountID)
+			if err != nil || name == "" {
 				return ratelimit.TierBasic
 			}
-			return ratelimit.ParseTier(*name)
+			return ratelimit.ParseTier(name)
 		},
 	})
 	// Feed pump: the bridge republishes L3OrderEvent rows on the
@@ -2145,6 +2162,9 @@ func run() error {
 	}
 	authnSvc.WithMailBase(os.Getenv("EXC_PUBLIC_BASE_URL")).
 		WithLogger(func(f string, a ...any) { log.Warn(fmt.Sprintf(f, a...)) })
+	// Task 8.5.3.2 — demo deployment: registration mints DEMO+virtual-seed
+	// accounts; login/refresh re-arm the 30-day inactivity deadline.
+	authnSvc.WithDemo(demoSvc)
 	twoFactorSvc, err := auth.NewTwoFactorService(userStore, tokenCache, sessMgr, "exc.local")
 	if err != nil {
 		return fmt.Errorf("2fa service: %w", err)
@@ -2322,6 +2342,26 @@ func run() error {
 		openOrderLister{store: orderStore},
 		freezeOpsAlerter{pool: pool, page: opsAlerter}, acctNotify, nil)
 	api.RegisterAccountClosureExecutor(dualSvc, closureSvc)
+
+	// Task 8.5.3.2 — demo expiry sweep: DEMO accounts whose 30-day
+	// inactivity deadline lapsed are mass-cancelled, closed (status→
+	// CLOSED + account_closures + chained audit row), and lose sessions/
+	// API keys — the same close-out conventions as Task 14.3.9. Runs on
+	// the daily-UTC cadence; the sweep is idempotent and per-account
+	// failures are logged without starving the batch.
+	demoSvc.WithOrderCanceller(demoOrderCanceller{disp: orderDisp}).
+		WithSessionTerminator(sessMgr).
+		WithCredentialRevoker(apiKeyRevoker{ks: keyStore})
+	runDailyUTC(sweepCtx, log, "demo-expiry", 30,
+		func(ctx context.Context) {
+			n, cerr := demoSvc.ExpireSweep(ctx, 500)
+			if cerr != nil {
+				log.Warn("demo expiry sweep failed", "err", cerr)
+			}
+			if n > 0 {
+				log.Info("demo accounts expired", "closed", n)
+			}
+		})
 	// Phase-14 Task 14.3.13 — profile pricing/scope/divisor mutations
 	// run through the four-eyes queue; approval applies them in-tx.
 	api.RegisterProductProfileExecutor(dualSvc, profileSvc)
