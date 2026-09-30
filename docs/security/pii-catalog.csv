@@ -45,6 +45,7 @@ travel_rule_records,originator,JSONB,DIRECT_ID,"plaintext JSONB {name, account_n
 travel_rule_records,beneficiary,JSONB,DIRECT_ID,"plaintext JSONB {name, account_number}",FATF R.16 field 59 — outbound/inbound matching,statutory recordkeeping (≥5y)
 sar_reports,review_note,TEXT,FREE_TEXT,plaintext,second-signer review rationale,SAR confidentiality floor
 sar_reports,approval_note,TEXT,FREE_TEXT,plaintext,approver note,SAR confidentiality floor
+swift_messages,raw_payload,TEXT,FREE_TEXT,plaintext — inbound SWIFT/ISO message body may embed remitter/beneficiary details,wire-detail screen + immutable message journal,financial record floor
 bank_accounts,account_id,BIGINT,LINKAGE,n/a (FK),beneficiary registry,financial record floor
 bank_accounts,iban,VARCHAR(34),FINANCIAL,plaintext — FINDING PII-F2 (justified for rails; audit gap PII-F3),"withdrawal allowlist gate, SWIFT/SEPA dispatch",financial record floor
 bank_accounts,account_number,VARCHAR(64),FINANCIAL,plaintext — FINDING PII-F2,"withdrawal allowlist gate, ACH/FedNow dispatch",financial record floor
@@ -52,6 +53,7 @@ bank_accounts,swift_bic,VARCHAR(16),FINANCIAL,plaintext,rail routing,financial r
 bank_accounts,bic_routing,VARCHAR(32),FINANCIAL,plaintext,rail routing,financial record floor
 bank_accounts,bank_name,VARCHAR(128),FINANCIAL,plaintext,registry view,financial record floor
 bank_accounts,beneficiary_name,VARCHAR(255),DIRECT_ID,plaintext — must match KYC legal name (finding PII-F2),name-match screen + admin verify,financial record floor
+standing_settlement_instructions,nostro_or_beneficiary_ref,VARCHAR(64),FINANCIAL,plaintext — IBAN/account ref of the settlement target,payment dispatch per registered SSI,financial record floor
 support_tickets,account_id,BIGINT,LINKAGE,n/a (FK),support/compliance queues,"complaints record floor (5y, in policy)"
 support_tickets,subject,VARCHAR(255),FREE_TEXT,plaintext,client-authored,complaints floor
 support_tickets,body,TEXT,FREE_TEXT,plaintext — may embed PII,client-authored,complaints floor
@@ -65,6 +67,12 @@ regulatory_report_acks,payload,JSONB,FREE_TEXT,plaintext JSONB — regulator ACK
 regulatory_report_breaks,notes,VARCHAR(1024),FREE_TEXT,plaintext,officer break-resolution note,statutory regulatory retention
 venue_members,suspension_reason,VARCHAR(512),FREE_TEXT,plaintext,CCO action rationale,venue-governance floor
 venue_members,termination_reason,VARCHAR(512),FREE_TEXT,plaintext,CCO action rationale,venue-governance floor
+average_price_group_accounts,beneficiary_account_id,BIGINT,LINKAGE,n/a (FK),allocation beneficiary registry,MiFID/financial record floor
+trade_allocations,beneficiary_account_id,BIGINT,LINKAGE,n/a (FK),allocation beneficiary registry,MiFID/financial record floor
+client_money_bank_reviews,notes,TEXT,FREE_TEXT,plaintext,safeguarding review annotation,regulatory record floor
+client_money_regulator_notices,payload,JSONB,FREE_TEXT,plaintext JSONB — notice body may name accounts/actors,regulator notification archive,regulatory record floor
+settlement_quarantines,quarantined_by,BIGINT,PSEUDONYMOUS,actor principal string (admin/system),quarantine provenance,audit floor
+statement_entries,remitter_name,VARCHAR(255),DIRECT_ID,plaintext,unmatched-credit attribution + suspense screen,financial record floor
 regulatory_submissions,payload,JSONB,FREE_TEXT,plaintext JSONB — report artifact (client fields),NCA/ARM submission,statutory regulatory retention
 regulatory_submissions,payload_xml,TEXT,FREE_TEXT,plaintext XML — submission artifact,submission record,statutory regulatory retention
 regulatory_submission_log,body,JSONB,FREE_TEXT,plaintext — transmission log may echo report fields,wire-level submission log,statutory regulatory retention
@@ -185,3 +193,6 @@ venue_interventions,reason,VARCHAR(1024),FREE_TEXT,plaintext,intervention ration
 venue_cases,subject,VARCHAR(256),FREE_TEXT,plaintext,case subject line,venue-governance floor
 venue_case_evidence,note,VARCHAR(512),FREE_TEXT,plaintext,evidence annotation,venue-governance floor
 venue_conflicts,subject,VARCHAR(256),FREE_TEXT,plaintext — conflict declaration may name persons/accounts,conflict-of-interest register,venue-governance floor
+settlement_exceptions,resolution_notes,TEXT,FREE_TEXT,plaintext,exception investigation annotation,financial record floor
+pb_recon_breaks,resolution_note,TEXT,FREE_TEXT,plaintext,give-up break investigation annotation,financial record floor
+nostro_recon_breaks,resolution_notes,TEXT,FREE_TEXT,plaintext,break investigation annotation,financial record floor

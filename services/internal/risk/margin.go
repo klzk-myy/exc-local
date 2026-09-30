@@ -16,7 +16,15 @@
 //   - ISOLATED mode aggregates positions.isolated_margin_allocated
 //     (migration 106, Task 19.3.27) — the account-level liquidation
 //     trigger does not apply; per-position liquidation is the
-//     isolated-margin engine's job.
+//     isolated-margin engine's job;
+//   - Task 19.3.25 (post-Phase-22 back-fit): the bound
+//     OptionMarginEvaluator folds the option book's signed delta
+//     adjustment into equity (USD numeraire, same composition as the
+//     balance leg) — nil seam ⇒ zero contribution, byte-for-byte the
+//     pre-linkage evaluation; PORTFOLIO mode deducts the Phase-22
+//     SpreadOffsetSource's recognized pair relief from aggregated
+//     used margin through a fresh SpreadOffsetBook (single-grant —
+//     §15.7 "offsets before aggregation, never double-counted").
 //
 // Fail-closed (spec §2.7): a required-margin conversion that cannot be
 // valued in USD aborts the whole evaluation (PRICE_ORACLE_UNAVAILABLE).
@@ -299,6 +307,8 @@ type MarginService struct {
 	vol        IMMultiplierSource
 	oi         OpenInterestSource
 	adv        ADVSource
+	optMargin  OptionMarginEvaluator
+	spreads    SpreadOffsetSource
 	now        func() time.Time
 }
 
@@ -323,7 +333,24 @@ type MarginOptions struct {
 	// correlation offsets never erode them.
 	OI  OpenInterestSource
 	ADV ADVSource
-	Now func() time.Time
+	// OptionMargin — Task 19.3.25 §13.12/§15.7 option-delta equity
+	// linkage (post-Phase-22 back-fit): the bound evaluator's signed
+	// DeltaEquityAdj is composed into equity in the USD numeraire,
+	// beside the balance leg. nil ⇒ zero contribution — the
+	// pre-linkage evaluation is byte-for-byte unchanged. A bound
+	// evaluator that errors FAILS the evaluation — an unreadable
+	// option book never silently drops its delta leg (§2.7).
+	OptionMargin OptionMarginEvaluator
+	// SpreadOffsets — Task 19.3.25 §15.7 recognized option-spread
+	// relief (Phase-22 Task 22.3.13's margin.SpreadOffsetService is
+	// the production binding). Consumed in PORTFOLIO mode only:
+	// APPLIED pairs deduct their offset from the aggregated margin
+	// through a fresh SpreadOffsetBook per evaluation — the
+	// single-grant guard means one pair can never relieve its legs
+	// twice. nil ⇒ no offsets (other modes: option spreads carry no
+	// recognized relief — the legs' full requirements stand).
+	SpreadOffsets SpreadOffsetSource
+	Now           func() time.Time
 }
 
 // NewMarginService builds the service.
@@ -344,7 +371,9 @@ func NewMarginService(o MarginOptions) (*MarginService, error) {
 	}
 	return &MarginService{store: o.Store, marks: o.Marks, corr: corr,
 		collateral: o.Collateral, vol: o.Volatility,
-		oi: o.OI, adv: o.ADV, now: now}, nil
+		oi: o.OI, adv: o.ADV,
+		optMargin: o.OptionMargin, spreads: o.SpreadOffsets,
+		now: now}, nil
 }
 
 // ModeFor resolves the account's effective mode: the margin_accounts row
@@ -629,6 +658,21 @@ func (s *MarginService) evaluate(ctx context.Context, accountID int64,
 		evals = append(evals, ev)
 	}
 
+	// Equity leg 3 — option delta linkage (Task 19.3.25): the bound
+	// evaluator's signed delta adjustment composes into equity in the
+	// same USD numeraire as the balance/P&L legs. nil ⇒ zero (the
+	// pre-linkage evaluation, byte-for-byte). A bound evaluator that
+	// errors FAILS the whole evaluation — a silently-dropped delta leg
+	// would overstate equity for a book the margin engine cannot see
+	// (§2.7; same posture as the collateral leg above).
+	if s.optMargin != nil {
+		adj, err := s.optMargin.DeltaEquityAdj(ctx, accountID)
+		if err != nil {
+			return nil, errCode(CodeRiskLimitsInternal, "option delta equity", err)
+		}
+		snap.Equity = snap.Equity.Add(adj)
+	}
+
 	// ---- used_margin per mode (USD numeraire) ----
 	var used decimal.Decimal
 	switch mode {
@@ -652,6 +696,27 @@ func (s *MarginService) evaluate(ctx context.Context, accountID int64,
 		}
 	case ModePortfolio:
 		used = portfolioMargin(evals, s.corr)
+		// Task 19.3.25 §15.7 — recognized option-spread relief, applied
+		// BEFORE the aggregation result is finalized: the Phase-22
+		// SpreadOffsetSource's APPLIED pairs deduct their offset here,
+		// never inside the per-leg margins above (a leg's naked
+		// requirement still feeds every other margin path — the pair's
+		// bounded worst-case is what the offset replaces). A fresh
+		// SpreadOffsetBook per evaluation enforces the single-grant
+		// invariant — one pair can never relieve its legs twice, and a
+		// duplicated source row grants once. nil source ⇒ zero relief
+		// (pre-Phase-22 behavior); a bound source that errors fails the
+		// evaluation closed.
+		if s.spreads != nil && len(evals) > 0 {
+			offs, serr := s.spreads.SpreadOffsets(accountID)
+			if serr != nil {
+				return nil, errCode(CodeRiskLimitsInternal, "spread offsets", serr)
+			}
+			used = used.Sub(NewSpreadOffsetBook().TotalOffset(offs))
+			if used.IsNegative() {
+				used = decimal.Zero
+			}
+		}
 	default: // CROSS
 		for _, e := range evals {
 			used = used.Add(e.marginUSD)

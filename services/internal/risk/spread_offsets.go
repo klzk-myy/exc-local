@@ -2,7 +2,11 @@
 // offsets applied pre-SIMM (spec §15.7 double-count rule; Phase-22
 // Task 22.3.13).
 //
-// PHASE-22 STUB — ordering seam, not spread mechanics.
+// LIVE (post-Phase-22 back-fit): the Phase-22 strategy engine
+// (margin.SpreadOffsetService) satisfies SpreadOffsetSource;
+// MarginService consumes it in the PORTFOLIO aggregation branch — each
+// evaluation builds a fresh SpreadOffsetBook and deducts the granted
+// relief once.
 //
 // The §15.7 invariant this file pins down: a spread offset may be
 // applied exactly once. The correct application point is BEFORE the
@@ -91,15 +95,15 @@ func (b *SpreadOffsetBook) Reset() {
 }
 
 // SpreadOffsetSource enumerates an account's recognized spread pairs.
-// Phase-22 Task 22.3.13 implements this over the derivatives book;
-// NullSpreadOffsetSource is the Phase-19 binding (no option book →
-// no offsets).
+// Phase-22 Task 22.3.13's margin.SpreadOffsetService implements it
+// over the derivatives book (APPLIED rows only); NullSpreadOffsetSource
+// remains the dev binding (no option book → no offsets).
 type SpreadOffsetSource interface {
 	SpreadOffsets(accountID int64) ([]SpreadOffset, error)
 }
 
-// NullSpreadOffsetSource reports no offsets — correct until the Phase-22
-// option book exists.
+// NullSpreadOffsetSource reports no offsets — the dev binding used when
+// the Phase-22 option book is not wired.
 type NullSpreadOffsetSource struct{}
 
 // SpreadOffsets always returns nil.

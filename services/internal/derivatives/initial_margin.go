@@ -15,9 +15,11 @@
 //   - Curvature margin — CVR_i = −vega_i·σ_i·RW_k²·SF² summed per bucket
 //     with θ = −0.5 on the negative part (SF = √1 vol-tenor scaling
 //     deferred — flagged in UMRParams).
-//   - Total IM = delta + vega + curvature − recognized spread relief
-//     (spread offsets apply BEFORE aggregation of any residual legs and
-//     are never double-counted — each consumed leg is marked).
+//   - Total IM = SIMM aggregation over the RESIDUAL (unconsumed) legs
+//     plus each recognized spread's bounded margin (spread offsets
+//     apply BEFORE aggregation — consumed legs never aggregate AND a
+//     pair's contribution is its bounded worst-case, not the sum of
+//     legs; §15.7 "never double-counted"). Task 19.3.25 back-fit.
 //
 // All money is decimal — no float64 leaves this file.
 package derivatives
@@ -185,53 +187,65 @@ type IMResult struct {
 	DeltaUSD        decimal.Decimal
 	VegaUSD         decimal.Decimal
 	CurvatureUSD    decimal.Decimal
-	SpreadReliefUSD decimal.Decimal // recognized-spread relief subtracted
+	SpreadMarginUSD decimal.Decimal // recognized spreads' bounded margin (legs' naked − relief)
+	SpreadReliefUSD decimal.Decimal // recognized-spread relief granted (naked-sum − bounded margin)
 	TotalUSD        decimal.Decimal
 }
 
 // IMAggregate computes the SIMM-consistent IM over a portfolio.
-// offsets are applied first: each recognized spread's relief is bounded
-// by the sum of its legs' naked margins (never negative, never beyond
-// the naked amount) and each leg may be consumed once — a re-used leg
-// fails the whole computation closed.
+// Offsets apply BEFORE aggregation (§15.7, Task 19.3.25 back-fit): a
+// recognized spread's legs are consumed out of the sensitivity set, so
+// delta/vega/curvature aggregate only the residual legs and each pair
+// contributes its bounded margin (legs' naked sum − capped relief) —
+// never the sum of legs, never netted a second time inside SIMM, and
+// each PositionRef may be consumed once (a re-used leg fails the whole
+// computation closed).
 func IMAggregate(sens []IMSensitivity, offsets []IMSpreadOffset, p UMRParams) (IMResult, error) {
-	relief, err := imSpreadRelief(sens, offsets)
+	residual, spreadMargin, relief, err := imSpreadConsume(sens, offsets)
 	if err != nil {
 		return IMResult{}, err
 	}
 	res := IMResult{
-		DeltaUSD:        imBucketAggregate(sens, p, false),
-		VegaUSD:         imBucketAggregate(sens, p, true),
-		CurvatureUSD:    imCurvature(sens, p),
+		DeltaUSD:        imBucketAggregate(residual, p, false),
+		VegaUSD:         imBucketAggregate(residual, p, true),
+		CurvatureUSD:    imCurvature(residual, p),
+		SpreadMarginUSD: spreadMargin,
 		SpreadReliefUSD: relief,
 	}
 	res.TotalUSD = decimal.Max(decimal.Zero,
-		res.DeltaUSD.Add(res.VegaUSD).Add(res.CurvatureUSD).Sub(relief)).Round(8)
+		res.DeltaUSD.Add(res.VegaUSD).Add(res.CurvatureUSD).
+			Add(spreadMargin)).Round(8)
 	res.DeltaUSD = res.DeltaUSD.Round(8)
 	res.VegaUSD = res.VegaUSD.Round(8)
 	res.CurvatureUSD = res.CurvatureUSD.Round(8)
 	return res, nil
 }
 
-// imSpreadRelief validates and sums the offset relief: a leg may be
-// consumed once and the total relief may not exceed the consumed legs'
-// naked-margin sum (or the margin itself).
-func imSpreadRelief(sens []IMSensitivity, offsets []IMSpreadOffset) (decimal.Decimal, error) {
+// imSpreadConsume enforces the §15.7 pre-aggregation ordering: every
+// offset's legs are marked consumed (double-consumption fails closed),
+// each pair's relief is capped at its legs' naked-margin sum, and the
+// pair's margin contribution is the bounded remainder
+// (legNaked − relief). Returns the residual (unconsumed) sensitivity
+// set — consumed legs NEVER enter bucket aggregation — plus the summed
+// spread margin and the granted relief for audit.
+func imSpreadConsume(sens []IMSensitivity, offsets []IMSpreadOffset) (
+	residual []IMSensitivity, spreadMargin, reliefTotal decimal.Decimal, err error) {
 	naked := map[int64]decimal.Decimal{}
 	for _, s := range sens {
 		naked[s.PositionRef] = s.NakedMarginUSD
 	}
 	consumed := map[int64]bool{}
-	total := decimal.Zero
+	spreadMargin = decimal.Zero
+	reliefTotal = decimal.Zero
 	for _, o := range offsets {
 		if o.ReliefUSD.IsNegative() {
-			return decimal.Zero, excerrors.New("INVALID_REQUEST",
+			return nil, decimal.Zero, decimal.Zero, excerrors.New("INVALID_REQUEST",
 				fmt.Sprintf("spread offset %s: negative relief", o.SpreadID))
 		}
 		legNaked := decimal.Zero
 		for _, ref := range o.LegRefs {
 			if consumed[ref] {
-				return decimal.Zero, excerrors.New("DERIVATIVE_STATE_CONFLICT",
+				return nil, decimal.Zero, decimal.Zero, excerrors.New("DERIVATIVE_STATE_CONFLICT",
 					fmt.Sprintf("spread offset %s: leg %d consumed twice (double-count guard)", o.SpreadID, ref))
 			}
 			consumed[ref] = true
@@ -239,10 +253,18 @@ func imSpreadRelief(sens []IMSensitivity, offsets []IMSpreadOffset) (decimal.Dec
 				legNaked = legNaked.Add(n)
 			}
 		}
-		// Relief is capped at the legs' naked margin.
-		total = total.Add(decimal.Min(o.ReliefUSD, legNaked))
+		// Relief is capped at the legs' naked margin; the pair's margin
+		// contribution is the bounded remainder.
+		relief := decimal.Min(o.ReliefUSD, legNaked)
+		reliefTotal = reliefTotal.Add(relief)
+		spreadMargin = spreadMargin.Add(legNaked.Sub(relief))
 	}
-	return total.Round(8), nil
+	for _, s := range sens {
+		if !consumed[s.PositionRef] {
+			residual = append(residual, s)
+		}
+	}
+	return residual, spreadMargin.Round(8), reliefTotal.Round(8), nil
 }
 
 // imBucketAggregate runs the SIMM two-level aggregation for delta
@@ -409,7 +431,9 @@ type IMSensitivitySource interface {
 }
 
 // IMSpreadOffsetSource supplies recognized-spread relief for the
-// assessment — *margin.SpreadOffsetService satisfies it.
+// assessment — MarginSpreadOffsetSource (im_spread_offsets.go) adapts
+// *margin.SpreadOffsetService to it (the service's APPLIED rows; Task
+// 19.3.25 back-fit).
 type IMSpreadOffsetSource interface {
 	SpreadOffsets(ctx context.Context, accountID int64) ([]IMSpreadOffset, error)
 }

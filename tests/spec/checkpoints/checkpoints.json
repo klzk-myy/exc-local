@@ -5744,7 +5744,7 @@
       "text": "nostro/vostro account management",
       "file": "Phase-24-Backoffice-Settlement.md",
       "line": 43,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -5755,7 +5755,7 @@
       "text": "nostro/vostro reconciliation",
       "file": "Phase-24-Backoffice-Settlement.md",
       "line": 71,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -5766,7 +5766,7 @@
       "text": "settlement confirmation tracking",
       "file": "Phase-24-Backoffice-Settlement.md",
       "line": 95,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -5777,7 +5777,7 @@
       "text": "SWIFT message tracking",
       "file": "Phase-24-Backoffice-Settlement.md",
       "line": 119,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -5788,7 +5788,7 @@
       "text": "compliance reporting",
       "file": "Phase-24-Backoffice-Settlement.md",
       "line": 146,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -5799,7 +5799,7 @@
       "text": "failed settlement handling",
       "file": "Phase-24-Backoffice-Settlement.md",
       "line": 170,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -5810,7 +5810,7 @@
       "text": "PB give-up reconciliation",
       "file": "Phase-24-Backoffice-Settlement.md",
       "line": 198,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -5821,7 +5821,7 @@
       "text": "CLS PvP settlement service",
       "file": "Phase-24-Backoffice-Settlement.md",
       "line": 224,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -5832,7 +5832,7 @@
       "text": "bilateral netting + SSI (§17.7, §24 #155)",
       "file": "Phase-24-Backoffice-Settlement.md",
       "line": 251,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -5843,7 +5843,7 @@
       "text": "bunched-order average-price allocation (§17.8, §24 #172)",
       "file": "Phase-24-Backoffice-Settlement.md",
       "line": 278,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -5854,7 +5854,7 @@
       "text": "client-money segregation + daily reconciliation (§17.9, §24 #173)",
       "file": "Phase-24-Backoffice-Settlement.md",
       "line": 310,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -5865,7 +5865,7 @@
       "text": "Bank statement ingestion and reconciliation parser (§17.10, §24 #175)",
       "file": "Phase-24-Backoffice-Settlement.md",
       "line": 341,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -5876,7 +5876,7 @@
       "text": "CSDR settlement discipline regime (§17.6 extension, §24 #199)",
       "file": "Phase-24-Backoffice-Settlement.md",
       "line": 368,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -5887,7 +5887,7 @@
       "text": "PB credit restitution on settlement failure (§13.7 extension, §24 #200)",
       "file": "Phase-24-Backoffice-Settlement.md",
       "line": 396,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -5898,7 +5898,7 @@
       "text": "post-trade allocation",
       "file": "Phase-24-Backoffice-Settlement.md",
       "line": 427,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -5909,7 +5909,7 @@
       "text": "CLS settlement mismatch quarantine and client-money shortfall alerts (§24 #326)",
       "file": "Phase-24-Backoffice-Settlement.md",
       "line": 443,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -5920,7 +5920,7 @@
       "text": "venue own funds, contingent capital, insurance cover and stressed liquidity buffer are funded and monitored (§17.13.1, §24 #329)",
       "file": "Phase-24-Backoffice-Settlement.md",
       "line": 470,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -5931,7 +5931,7 @@
       "text": "independent client-money audit and segregation certification covering every operating period (§17.13.2, §24 #330)",
       "file": "Phase-24-Backoffice-Settlement.md",
       "line": 498,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -5942,7 +5942,7 @@
       "text": "break lifecycle with suspense SLA, funded nostro with backup routing, cut-off matrix, CLS operations, FX fail economics superseding CSDR, rail failover with Herstatt metric and LP-default playbook (§24 #347)",
       "file": "Phase-24-Backoffice-Settlement.md",
       "line": 522,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -5953,7 +5953,7 @@
       "text": "banking rail cut-off evaluation and automatic value-date rollover (§24 #413)",
       "file": "Phase-24-Backoffice-Settlement.md",
       "line": 549,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -5964,7 +5964,7 @@
       "text": "unmatched bank deposit suspense GL routing and compliance quarantine (§24 #414)",
       "file": "Phase-24-Backoffice-Settlement.md",
       "line": 576,
-      "checked": false,
+      "checked": true,
       "shard": 3
     }
   ]

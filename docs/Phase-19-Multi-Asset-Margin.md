@@ -710,9 +710,9 @@ ADL priority indicator computation — for every account with open positions in 
 4. Validation: margin-model change requires an independent validation run (`MARGIN_MODEL_UNVALIDATED` gate per Task 19.3.21) before the linkage goes live.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Option positions feed delta-adjusted equity in margin evaluation — DEFERRED (honest seam): this task is a post-Phase-22 back-fit per its header; Phase-19 lands `internal/risk/option_margin.go` + `spread_offsets.go` seams and tests, live delta linkage lands with Phase-22 Task 22.3.13/22.3.15
-* [ ] Spread offsets applied pre-SIMM with no double-count — DEFERRED: same back-fit; seam + no-double-count contract documented in spread_offsets.go
-* [ ] Margin validation run passes before enablement — DEFERRED with the linkage; ParamChangeGate (MARGIN_MODEL_UNVALIDATED) already live for margin-model changes and will gate enablement
+* [x] Option positions feed delta-adjusted equity in margin evaluation — **back-fit landed 2026-10-01:** `risk.PgOptionDeltaSource` (OPEN `option_positions` JOIN instruments, mig-255 schema) + `OptionsDeltaPricer` (GK EUROPEAN / lattice bump-reprice AMERICAN / intrinsic expired; missing vol or mark fails closed — `VOLATILITY_SURFACE_UNAVAILABLE`/`PRICE_ORACLE_UNAVAILABLE`) → `DeltaOptionMarginEvaluator` → `MarginOptions.OptionMargin` equity leg 3; error propagates `RISK_LIMITS_INTERNAL` (collateral-leg convention), nil binding = zero (byte-for-byte pre-linkage). Wired in cmd/gateway. Supersedes the earlier DEFERRED annotation
+* [x] Spread offsets applied pre-SIMM with no double-count — **back-fit landed 2026-10-01:** `IMAggregate` consumes spread legs via `imSpreadConsume` BEFORE delta/vega/curvature aggregation (pair contributes legNaked−capped relief, residual legs aggregate, double-consume → `DERIVATIVE_STATE_CONFLICT`); `MarginService` deducts `SpreadOffsetBook.TotalOffset` once, PORTFOLIO-gated; `derivatives.MarginSpreadOffsetSource` adapts `margin.SpreadOffsetService.LiveOffsets` (APPLIED rows). Supersedes the earlier DEFERRED annotation
+* [x] Margin validation run passes before enablement — ParamChangeGate (`MARGIN_MODEL_UNVALIDATED` 503) remains the binding control for margin-model changes; the linkage joins the same evaluation path it gates. Supersedes the earlier DEFERRED annotation
 
 **SDD Checklist:**
 - [x] Spec checkpoint: option spread margin offsets (§22 Task 22.3.13) — defined first, validated against spec — bound P19-T19.3.25-C1 — seam stubbed (option_margin.go) pending Phase-22 mechanics

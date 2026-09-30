@@ -128,6 +128,32 @@ func (s *fakeSettlementStore) MarkDispatched(_ context.Context, id int64, msgID 
 	return false, fmt.Errorf("instruction %d not found", id)
 }
 
+func (s *fakeSettlementStore) QueueForNextCycle(_ context.Context, id int64, newDate time.Time, at time.Time) (bool, error) {
+	for _, l := range s.legs {
+		if l.ID == id {
+			if l.Status != SettlePending || l.SwiftMessageID != nil {
+				return false, nil
+			}
+			l.SettlementDate = newDate
+			l.Status = SettleQueuedNextCycle
+			_ = at
+			return true, nil
+		}
+	}
+	return false, fmt.Errorf("instruction %d not found", id)
+}
+
+func (s *fakeSettlementStore) ReleaseQueued(_ context.Context, day time.Time) (int, error) {
+	n := 0
+	for _, l := range s.legs {
+		if l.Status == SettleQueuedNextCycle && !normalizeDay(l.SettlementDate).After(normalizeDay(day)) {
+			l.Status = SettlePending
+			n++
+		}
+	}
+	return n, nil
+}
+
 func (s *fakeSettlementStore) InTx(ctx context.Context, fn func(ctx context.Context, tx SettlementTx) error) error {
 	return fn(ctx, fakeSettlementTx{s})
 }

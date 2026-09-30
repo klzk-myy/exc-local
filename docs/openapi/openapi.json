@@ -121,10 +121,40 @@
         "http_status": 403
       },
       {
+        "code": "ALLOCATION_CAPACITY_MIX",
+        "description": "Proprietary and client capacity on one average-price group — blocked at registration and by the apg_account_capacity_chk trigger (spec §17.8)",
+        "http_status": 422,
+        "owner": "Phase-24 Task 24.3.10"
+      },
+      {
+        "code": "ALLOCATION_INELIGIBLE",
+        "description": "Beneficiary account is not on the group's pre-registered eligibility set (or was marked INELIGIBLE after execution) — allocation refused (spec §5.31, §17.8)",
+        "http_status": 422,
+        "owner": "Phase-24 Task 24.3.10"
+      },
+      {
         "code": "ALLOCATION_INVALID",
         "description": "FIX AllocationInstruction rejected for a structural fault — unresolvable ExecID/OrderID reference, AllocAccount(79) outside the master-account hierarchy, unknown AllocType(626) method, non-positive leg quantity/weight, or amend against a non-ACCEPTED/settlement-locked instruction (Phase-18 Task 18.3.13)",
         "http_status": 400,
         "owner": "Phase-18 Task 18.3.13"
+      },
+      {
+        "code": "ALLOCATION_LOCKED",
+        "description": "Group is settlement-locked — mutations require the dual-control correction path (spec §5.31, §8.2)",
+        "http_status": 423,
+        "owner": "Phase-24 Task 24.3.10"
+      },
+      {
+        "code": "ALLOCATION_NOT_FOUND",
+        "description": "Average-price group or trade allocation id does not resolve (spec §5.31)",
+        "http_status": 404,
+        "owner": "Phase-24 Task 24.3.10"
+      },
+      {
+        "code": "ALLOCATION_STATE_CONFLICT",
+        "description": "Allocation lifecycle transition refused in the current state — claim/reject/cancel/correct against a terminal, locked or non-amendable row (spec §5.31, §17.8)",
+        "http_status": 409,
+        "owner": "Phase-24 Task 24.3.10"
       },
       {
         "code": "ALLOCATION_SUM_MISMATCH",
@@ -209,6 +239,12 @@
         "owner": "Phase-05 Task 5.3.32"
       },
       {
+        "code": "BENCHMARK_UNAVAILABLE",
+        "description": "NDF fixing benchmark unavailable — no published rate for the contract's fixing date; cash settlement halted (spec §15.7, §27.1 MTF/Fair-Value matrix)",
+        "http_status": 503,
+        "owner": "Phase-22 Task 22.3.3"
+      },
+      {
         "code": "BENEFICIARY_HOLD_ACTIVE",
         "description": "Withdrawal target is a VERIFIED beneficiary still inside its 24-hour new-account hold — retry after `unlocked_at` (Phase-11 Task 11.3.7 Beneficiary Bank-Account Registry; §24 #391 hold, verified_at + 24h — distinct from `BANK_ACCOUNT_NOT_VERIFIED` which covers unregistered/unverified destinations)",
         "http_status": 422,
@@ -225,6 +261,12 @@
         "description": "Matching loop found no executable contra liquidity within bilateral credit screening limits (Phase-02 Task 2.3.24; remediation #37 — registered)",
         "http_status": 409,
         "owner": "Phase-02 Task 2.3.24"
+      },
+      {
+        "code": "BUY_IN_TRIGGERED",
+        "description": "Mandatory buy-in notification/execution dispatch degraded (spec §27.1 CSDR matrix; CSD scope only — FX legs use §17.14 close-out)",
+        "http_status": 500,
+        "owner": "Phase-24 Task 24.3.13"
       },
       {
         "code": "CANCEL_REPLACE_PARTIAL_FAILURE",
@@ -262,9 +304,45 @@
         "owner": "Phase-05 Task 5.3.36"
       },
       {
+        "code": "CLS_INSTRUCTION_STATE_CONFLICT",
+        "description": "Requested transition violates the CLS instruction lifecycle (RECEIVED→VALIDATED→MATCHED/UNMATCHED→ELIGIBLE/INELIGIBLE→PAY_IN→SETTLED|RESCINDED|EXPIRED|REJECTED) — replayed SETTLED stays idempotent (spec §17.6)",
+        "http_status": 409,
+        "owner": "Phase-24 Task 24.3.8"
+      },
+      {
+        "code": "CLS_MATCH_FAILED",
+        "description": "CLS member match report conflicts with the persisted paired instruction or the member reported the pair unmatched — routed to the exception queue before cut-off (spec §17.6 step 3)",
+        "http_status": 409,
+        "owner": "Phase-24 Task 24.3.8"
+      },
+      {
+        "code": "CLS_MEMBER_UNAVAILABLE",
+        "description": "CLS settlement-member ISO 20022 adapter not wired or degraded — the instruction stays pre-dispatch and is never claimed sent (spec §17.6, §2.7 fail-closed)",
+        "http_status": 503,
+        "owner": "Phase-24 Task 24.3.8"
+      },
+      {
+        "code": "CLS_NOT_ELIGIBLE",
+        "description": "Pair/product/member fails the versioned CLS eligibility checks — the caller must route through the settlement-risk waterfall (alternative PvP → bilateral netting → controlled gross) (spec §17.6 step 5)",
+        "http_status": 422,
+        "owner": "Phase-24 Task 24.3.8"
+      },
+      {
+        "code": "CLS_REFERENCE_DATA_MISSING",
+        "description": "No ACTIVE cls_reference_versions row — currency/product/member eligibility and cut-off evaluation fail closed without versioned reference data (spec §17.6, §2.7)",
+        "http_status": 503,
+        "owner": "Phase-24 Task 24.3.8"
+      },
+      {
         "code": "CLS_SETTLEMENT_MISMATCH",
         "description": "Internal settlement batch conflicts with CLS match report (remediation #15)",
         "http_status": 409
+      },
+      {
+        "code": "CLS_WINDOW_CLOSED",
+        "description": "Versioned CLS cut-off window (initial pay-in / rescind deadline) for the instruction's value date has closed — the operation is refused, never silently slipped (spec §17.6)",
+        "http_status": 409,
+        "owner": "Phase-24 Task 24.3.8"
       },
       {
         "code": "COMMS_INTEGRITY_FAILURE",
@@ -360,6 +438,18 @@
         "owner": "Phase-02 Task 2.3.6"
       },
       {
+        "code": "DERIVATIVE_PARAMS_INVALID",
+        "description": "Derivative order parameters missing, malformed or mismatched to the instrument class — required per-class fields absent, unknown enum, non-positive strike/barrier/premium, inconsistent expiry/value-date ordering, or unresolvable instrument settlement_mode linkage (spec §5.4, §15.7; fail-closed §2.7)",
+        "http_status": 400,
+        "owner": "Phase-22 Task 22.3.9"
+      },
+      {
+        "code": "DERIVATIVE_STATE_CONFLICT",
+        "description": "Derivative contract lost the expected lifecycle state mid-operation (e.g. settle raced with a status flip), or its persisted settlement legs diverge from the contract — fail-closed, nothing booked (spec §15.1, §2.7)",
+        "http_status": 409,
+        "owner": "Phase-22 Task 22.3.1"
+      },
+      {
         "code": "DISCLOSURE_NOT_FOUND",
         "description": "Vulnerability disclosure identifier does not resolve (Phase-13.5 Task 13.5.3.8 Vulnerability Disclosure Program; §19.11.2 intake register — VDP_SLA_BREACH stays an internal ops alert per §23 internal-only list)",
         "http_status": 404,
@@ -420,9 +510,39 @@
         "owner": "Phase-02 Task 2.3.17"
       },
       {
+        "code": "EXERCISE_AUCTION_EVAL_FAILED",
+        "description": "Liquidation-auction guard unreadable during exercise — auction state could not be verified, so assignment fails closed (§2.7, §24 #247)",
+        "http_status": 503,
+        "owner": "Phase-22 Task 22.3.10"
+      },
+      {
         "code": "EXERCISE_CUTOFF_PASSED",
         "description": "Manual exercise after 15:00 UTC expiry cutoff (§15.4) — added 2026-09-15",
         "http_status": 409
+      },
+      {
+        "code": "EXERCISE_MARGIN_EVAL_UNAVAILABLE",
+        "description": "Option exercise margin evaluation path unavailable — admission fails closed; on the auto-exercise path the liquidation seam is dispatched rather than leaving delivery unverified (spec §15.6, §24 #324)",
+        "http_status": 503,
+        "owner": "Phase-22 Task 22.3.14"
+      },
+      {
+        "code": "EXPORT_FORMAT_INVALID",
+        "description": "Export format is not one of csv|json|parquet — the value is rejected, never defaulted (spec §10, §16.6)",
+        "http_status": 400,
+        "owner": "Phase-23 Task 23.3.2"
+      },
+      {
+        "code": "EXPORT_JOB_NOT_FOUND",
+        "description": "Export job does not resolve, resolves outside the caller's account scope, or its 24-hour download link has expired — expiry is a miss, never a stale ref (spec §10, §16.6; §2.7 fail-closed)",
+        "http_status": 404,
+        "owner": "Phase-23 Task 23.3.2"
+      },
+      {
+        "code": "EXPORT_LIMIT_EXCEEDED",
+        "description": "Export request exceeds the 1,000,000-row per-export cap — narrow the time range or request a smaller bound (spec §10, §16.6)",
+        "http_status": 400,
+        "owner": "Phase-23 Task 23.3.2"
       },
       {
         "code": "FEE_INVALID_INPUT",
@@ -507,6 +627,12 @@
         "owner": "Phase-16 Task 16.3.16"
       },
       {
+        "code": "HERSTATT_LIMIT_BREACH",
+        "description": "Herstatt principal exposure open beyond its duration cap (§17.14.5 — intraday ops alert payload code)",
+        "http_status": 500,
+        "owner": "Phase-24 Task 24.3.19"
+      },
+      {
         "code": "HISTORICAL_QUERY_TIMEOUT",
         "description": "Historical market-data query exceeded the 10-second ClickHouse timeout (Phase-23 Task 23.3.8; remediation #18)",
         "http_status": 504,
@@ -523,6 +649,12 @@
         "description": "Same `Idempotency-Key` resubmitted with a different payload; stored ack is not replayed (spec §8.8, Phase-05 Task 5.3.42; remediation #24 — registered late 2026-09-27, remediation #26 repair: the Task 5.3.42 text cited this code but §23 never carried the row)",
         "http_status": 422,
         "owner": "Phase-05 Task 5.3.42"
+      },
+      {
+        "code": "IMPLIED_MATCHING_UNAVAILABLE",
+        "description": "Multi-leg implied matching unavailable — the implied_matching feature flag is disabled/unresolvable for this account or tier, so implied-liquidity admission fails closed (spec §24; §2.7 fail-closed)",
+        "http_status": 503,
+        "owner": "Phase-22 Task 22.3.12"
       },
       {
         "code": "INSTRUMENT_CANCEL_ONLY",
@@ -702,6 +834,12 @@
         "owner": "Phase-21 Task 21.3.13"
       },
       {
+        "code": "LIQUIDATION_FAILED",
+        "description": "Liquidation dispatch or processing failed — queue enqueue, level re-read, mass cancel or position close degraded; ops is paged and the account remains flagged (spec §13.4, §13.11; §2.7 fail-closed)",
+        "http_status": 500,
+        "owner": "Phase-19 Task 19.3.3"
+      },
+      {
         "code": "MAINTENANCE_MODE",
         "description": "System in maintenance (Phase-02 Task 2.3.6 Degradation Mode Manager — Maintenance tier; remediation #19)",
         "http_status": 503,
@@ -712,6 +850,12 @@
         "description": "Margin call active — position-increasing orders blocked for the episode (spec §13.6d; Phase-19 Task 19.3.3 margin-call order block)",
         "http_status": 409,
         "owner": "Phase-19 Task 19.3.3"
+      },
+      {
+        "code": "MARGIN_CALL_QUEUE_FAILED",
+        "description": "Premium debit failed (PREMIUM_INSUFFICIENT, §24 #393) and the Phase-19 Task 19.3.3 margin-call queue write also failed — the settlement row stays FAILED and ops is paged; nothing partial was booked",
+        "http_status": 500,
+        "owner": "Phase-22 Task 22.3.10"
       },
       {
         "code": "MARGIN_INSUFFICIENT",
@@ -821,10 +965,52 @@
         "owner": "Phase-19 Task 19.3.9"
       },
       {
+        "code": "NETTING_AGREEMENT_MISSING",
+        "description": "Counterparty has no EXECUTED, unexpired ISDA/netting agreement — bilateral netting is not legally enforceable and the run refuses (spec §17.7, §5.26)",
+        "http_status": 422,
+        "owner": "Phase-24 Task 24.3.9"
+      },
+      {
+        "code": "NETTING_BATCH_STATE_CONFLICT",
+        "description": "Requested operation violates the payment_netting_batches lifecycle (OPEN→NETTED→DISPATCHED→SETTLED|FAILED) — e.g. reopen on a SETTLED batch or dispatch on a non-NETTED row (spec §17.7)",
+        "http_status": 409,
+        "owner": "Phase-24 Task 24.3.9"
+      },
+      {
+        "code": "NOSTRO_ACCOUNT_EXISTS",
+        "description": "Correspondent nostro/vostro registry row already exists for (currency, bank_code, account_number) — dedup enforced, never double-counted (spec §17.1)",
+        "http_status": 409,
+        "owner": "Phase-24 Task 24.3.1"
+      },
+      {
+        "code": "NOSTRO_ACCOUNT_NOT_FOUND",
+        "description": "Nostro/vostro account identifier does not resolve (spec §17.1)",
+        "http_status": 404,
+        "owner": "Phase-24 Task 24.3.1"
+      },
+      {
+        "code": "NOSTRO_FUNDING_BREACH",
+        "description": "Nostro balance below the 3-day-outflow + CLS pay-in funding threshold; backup-correspondent failover armed (§17.14.2 — ops alert payload code)",
+        "http_status": 500,
+        "owner": "Phase-24 Task 24.3.19"
+      },
+      {
         "code": "NOSTRO_INSUFFICIENT_FUNDS",
         "description": "Aggregate ACTIVE nostro balance cannot cover the withdrawal — the withdrawal is QUEUED for dispatch, never rejected (Phase-11 Task 11.3.6 Nostro-Aware Withdrawals; §27.1 Nostro/Vostro matrix code — emitted on the durable funding_ops_alerts trail)",
         "http_status": 500,
         "owner": "Phase-11 Task 11.3.6"
+      },
+      {
+        "code": "NOSTRO_OVERDRAWN",
+        "description": "Posting a settlement DEBIT pushed a nostro_accounts balance below zero — the payment already happened at the correspondent; durable P1 alert, never a silent mask (spec §17.1, §24 #3)",
+        "http_status": 500,
+        "owner": "Phase-24 Task 24.3.1"
+      },
+      {
+        "code": "NOSTRO_RECON_MISMATCH",
+        "description": "Daily nostro reconciliation found our records diverging from the bank statement — durable P1 alert feeding the break investigation workflow; §24 #21 discrepancy threshold (> $1,000 or > 0.01%) flagged on the run (spec §17.1)",
+        "http_status": 500,
+        "owner": "Phase-24 Task 24.3.2"
       },
       {
         "code": "NOT_FOUND",
@@ -856,15 +1042,39 @@
         "owner": "Phase-22 Task 22.3.10"
       },
       {
+        "code": "OPTION_CONTRACT_INVALID",
+        "description": "Option contract terms are malformed or unsettleable — non-positive strike/quantity, unknown option_type/exercise_style/settlement mode, missing premium_currency, past expiry, or no ACTIVE spot instrument for PHYSICAL delivery (spec §15.4; fail-closed §2.7)",
+        "http_status": 400,
+        "owner": "Phase-22 Task 22.3.10"
+      },
+      {
+        "code": "OPTION_EXERCISE_AUCTION_BLOCKED",
+        "description": "Writer assignment blocked while a §13.4 liquidation auction on the option instrument or its underlying is live — delivering mid-auction would worsen a liquidating account's position (§24 #247; retry once the auction resolves)",
+        "http_status": 409,
+        "owner": "Phase-22 Task 22.3.10"
+      },
+      {
         "code": "OPTION_EXERCISE_MARGIN_SHORTFALL",
         "description": "Counterparty margin insufficient for ITM option exercise delivery (remediation #15) (Phase-22 Task 22.3.14 Vol Surface Arbitrage Rejection & Option Exercise Margin Failures; remediation #19)",
         "http_status": 400,
         "owner": "Phase-22 Task 22.3.14"
       },
       {
+        "code": "OPTION_NOT_EXERCISABLE",
+        "description": "Option lifecycle state forbids the instruction — already EXERCISED/ASSIGNED/EXPIRED, wrong side/account, a EUROPEAN before its expiry day, or a do-not-exercise flag racing auto-exercise (spec §15.4)",
+        "http_status": 409,
+        "owner": "Phase-22 Task 22.3.10"
+      },
+      {
         "code": "OPTION_PRICING_CONVERGENCE_ERROR",
         "description": "Black-Scholes implied volatility numerical root-finding failed (remediation #15)",
         "http_status": 422
+      },
+      {
+        "code": "OPTION_PRICING_INPUT_INVALID",
+        "description": "Option pricing input failed validation — non-positive or non-finite spot/strike/tenor/vol, out-of-bounds target price, malformed smile quote, or unknown enum (spec §15.6 fail-closed, §2.7)",
+        "http_status": 400,
+        "owner": "Phase-22 Task 22.3.15"
       },
       {
         "code": "ORACLE_DIVERGENCE_EXCEEDED",
@@ -942,6 +1152,12 @@
         "owner": "Phase-19 Task 19.3.7"
       },
       {
+        "code": "PB_RECON_BREAK_CONFLICT",
+        "description": "PB give-up break already resolved or transition illegal under the PENDING→AFFIRMED/REJECTED/DISPUTED workflow (spec §5.22)",
+        "http_status": 409,
+        "owner": "Phase-24 Task 24.3.7"
+      },
+      {
         "code": "PEGGED_PRICING_UNAVAILABLE",
         "description": "Pegged order pricing unavailable due to missing or crossed BBO (remediation #15)",
         "http_status": 409
@@ -1004,6 +1220,12 @@
         "owner": "Phase-24 Task 24.3.20"
       },
       {
+        "code": "RAIL_FAILOVER_EXHAUSTED",
+        "description": "Queued rail payment exhausted the 15m/1h/4h failover retry timetable without dispatch (§17.14.5)",
+        "http_status": 503,
+        "owner": "Phase-24 Task 24.3.19"
+      },
+      {
         "code": "RATE_LIMIT_EXCEEDED",
         "description": "Per-account order-rate collar breached (Phase-02 Task 2.3.3 check 5); distinct from `RATE_LIMIT_TIER_EXCEEDED` (tiered API quota) — registered 2026-09-15",
         "http_status": 429,
@@ -1054,6 +1276,30 @@
         "description": "Risk-limit store internal failure (Phase-05 Task 5.3.4 Risk-Limit Administration; remediation #44)",
         "http_status": 500,
         "owner": "Phase-05 Task 5.3.4"
+      },
+      {
+        "code": "ROLL_CONFIG_INVALID",
+        "description": "Automatic-roll configuration rejected — missing account, lead_days outside 0..10, or a target_instrument_id that is not a rollable derivative",
+        "http_status": 400,
+        "owner": "Phase-22 Task 22.3.8"
+      },
+      {
+        "code": "ROLL_NOT_PERMITTED",
+        "description": "Position is not rollable — wrong account, flat quantity, or a non-derivative instrument class (spec §15 roll mechanics; FORWARD|SWAP|NDF only)",
+        "http_status": 400,
+        "owner": "Phase-22 Task 22.3.8"
+      },
+      {
+        "code": "ROLL_SPREAD_TOLERANCE_EXCEEDED",
+        "description": "Roll price (open−close spread) exceeded the caller's max_roll_price_bps tolerance — atomic rejection, nothing booked (Phase-22 Task 22.3.15 roll spread-tolerance hook)",
+        "http_status": 422,
+        "owner": "Phase-22 Task 22.3.8"
+      },
+      {
+        "code": "ROLL_TARGET_INVALID",
+        "description": "Roll target instrument missing, inactive, identical to the source, or mismatched in class/base/quote — the roll is rejected rather than re-priced (fail-closed, spec §2.7)",
+        "http_status": 400,
+        "owner": "Phase-22 Task 22.3.8"
       },
       {
         "code": "ROUTING_REJECTED",
@@ -1113,10 +1359,64 @@
         "owner": "Phase-11 Task 11.3.11"
       },
       {
+        "code": "SETTLEMENT_CONFIRMATION_OVERDUE",
+        "description": "Dispatched settlement leg unconfirmed past the 2-business-day window — durable P2 alert, dedup-keyed per instruction (spec §17.1, §24 #12)",
+        "http_status": 500,
+        "owner": "Phase-24 Task 24.3.3"
+      },
+      {
+        "code": "SETTLEMENT_EXCEPTION_CONFLICT",
+        "description": "Settlement exception resolve refused — illegal state transition or already resolved (spec §17.1, §17.14)",
+        "http_status": 409,
+        "owner": "Phase-24 Task 24.3.6"
+      },
+      {
+        "code": "SETTLEMENT_INVALID_FILL",
+        "description": "Settlement fill is missing ids, carries non-positive price/quantity or an unset trade date (Phase-03 Task 3.3.3 scaffold code)",
+        "http_status": 400,
+        "owner": "Phase-24 Task 24.3.3"
+      },
+      {
+        "code": "SETTLEMENT_INVALID_MESSAGE",
+        "description": "Settlement payment payload cannot be rendered — e.g. the nostro row lacks a valid BIC (Phase-03 Task 3.3.3 scaffold code)",
+        "http_status": 400,
+        "owner": "Phase-24 Task 24.3.3"
+      },
+      {
+        "code": "SETTLEMENT_NOSTRO_MISSING",
+        "description": "No ACTIVE nostro account resolves for the settlement currency — legs for it cannot settle (Phase-03 Task 3.3.3 scaffold code; spec §17.1)",
+        "http_status": 503,
+        "owner": "Phase-24 Task 24.3.3"
+      },
+      {
+        "code": "SETTLEMENT_NOT_FOUND",
+        "description": "Settlement instruction id/reference does not resolve — emitted when a correspondent MT900/910 confirmation arrives for an unknown dispatch reference (Phase-03 Task 3.3.3 scaffold code, registered with the Phase-24 landing)",
+        "http_status": 404,
+        "owner": "Phase-24 Task 24.3.3"
+      },
+      {
         "code": "SETTLEMENT_RAIL_REJECTED",
         "description": "Rail rejected the instruction (e.g., RR04 regulatory-rule rejection); distinct from provider outage `SANCTIONS_SERVICE_UNAVAILABLE` (Phase-11 Task 11.3.11; remediation #35 — registered)",
         "http_status": 409,
         "owner": "Phase-11 Task 11.3.11"
+      },
+      {
+        "code": "SETTLEMENT_RESTITUTION_BLOCKED",
+        "description": "PB credit restitution refused — the failed trade was already replaced or allocated (spec §13.7 extension, §24 #200)",
+        "http_status": 409,
+        "owner": "Phase-24 Task 24.3.14"
+      },
+      {
+        "code": "SETTLEMENT_REVERSAL_FAILED",
+        "description": "Settlement reversal posting failed mid-transaction; rolled back atomically (spec §17.1)",
+        "http_status": 500,
+        "owner": "Phase-24 Task 24.3.6"
+      },
+      {
+        "code": "SETTLEMENT_STATE_CONFLICT",
+        "description": "Confirmation rejected — the settlement leg is no longer PENDING (FAILED/RECONCILED); replayed SETTLED legs stay idempotent (Phase-03 Task 3.3.3 scaffold code)",
+        "http_status": 409,
+        "owner": "Phase-24 Task 24.3.3"
       },
       {
         "code": "SLIPPAGE_EXCEEDED",
@@ -1131,10 +1431,28 @@
         "owner": "Phase-18 Task 18.3.14"
       },
       {
+        "code": "SPREAD_OFFSET_INTERNAL",
+        "description": "Option spread offset internal failure — margin-mode, leg, params or persistence read/write degraded; detection fails closed (spec §15.7, §13.11)",
+        "http_status": 500,
+        "owner": "Phase-22 Task 22.3.13"
+      },
+      {
+        "code": "SPREAD_OFFSET_PARAM_INVALID",
+        "description": "Option spread offset parameter rejected — bps out of range, unknown spread type, non-pending row, or maker-checker violation (approver must differ from proposer) (spec §15.7)",
+        "http_status": 422,
+        "owner": "Phase-22 Task 22.3.13"
+      },
+      {
         "code": "SPREAD_ORDER_REJECTED",
         "description": "Spread order validation failed (Phase-16 Task 16.3.14 bracket/spread validation; remediation #35 — owner citation added)",
         "http_status": 400,
         "owner": "Phase-16 Task 16.3.14"
+      },
+      {
+        "code": "SSI_NOT_VERIFIED",
+        "description": "Standing settlement instruction's beneficiary does not resolve to a VERIFIED bank_accounts registry row for the account, or the claimed ref/BIC drifts from the registered record (spec §17.7)",
+        "http_status": 422,
+        "owner": "Phase-24 Task 24.3.9"
       },
       {
         "code": "STALE_FORWARD_POINTS",
@@ -1146,6 +1464,30 @@
         "code": "STALE_MODIFY",
         "description": "Stale order sequence on modify",
         "http_status": 409
+      },
+      {
+        "code": "STATEMENT_ACCOUNT_MISMATCH",
+        "description": "Statement IBAN/BIC/currency does not agree with the nostro account it claims to describe — rejected, never ingested (spec §17.10)",
+        "http_status": 422,
+        "owner": "Phase-24 Task 24.3.12"
+      },
+      {
+        "code": "STATEMENT_MALFORMED",
+        "description": "Bank statement file failed structural validation — missing mandatory tags/fields, undecodable XML, checksum mismatch or out-of-order sequence; nothing is persisted (spec §17.10, §2.7 fail-closed)",
+        "http_status": 400,
+        "owner": "Phase-24 Task 24.3.12"
+      },
+      {
+        "code": "STATEMENT_NOT_FOUND",
+        "description": "bank_statements row does not resolve (spec §17.10)",
+        "http_status": 404,
+        "owner": "Phase-24 Task 24.3.12"
+      },
+      {
+        "code": "STATEMENT_PARSER_MISSING",
+        "description": "Statement parser seam not wired — ingestion refuses rather than misparsing a bank file (spec §17.10, §2.7 fail-closed)",
+        "http_status": 503,
+        "owner": "Phase-24 Task 24.3.12"
       },
       {
         "code": "STP_NONE_NOT_PERMITTED",
@@ -1170,6 +1512,18 @@
         "description": "Strategy template is not APPROVED — marketplace instantiation requires the approval gate (Phase-16 Task 16.3.21)",
         "http_status": 409,
         "owner": "Phase-16 Task 16.3.21"
+      },
+      {
+        "code": "SUSPENSE_ROUTER_MISSING",
+        "description": "Suspense router (funding.DepositGuard) not wired — an unidentified credit cannot be quarantined; the caller must open a manual break instead of dropping the funds (spec §17.16b, §2.7 fail-closed)",
+        "http_status": 503,
+        "owner": "Phase-24 Task 24.3.21"
+      },
+      {
+        "code": "SUSPENSE_SLA_BREACH",
+        "description": "Suspense-account item unresolved past the 2-day clearing SLA (§17.14.1 — ops alert payload code)",
+        "http_status": 500,
+        "owner": "Phase-24 Task 24.3.19"
       },
       {
         "code": "TAX_REPORT_DATA_INCOMPLETE",
@@ -1269,6 +1623,18 @@
         "owner": "Phase-05 Task 5.3.36"
       },
       {
+        "code": "UMR_IM_EVAL_FAILED",
+        "description": "Uncleared-margin IM assessment/gating failed — sensitivity feed, assessment store, scope or collateral read degraded; admission and assessment fail closed (spec §15.5, §24 #146)",
+        "http_status": 503,
+        "owner": "Phase-22 Task 22.3.11"
+      },
+      {
+        "code": "UNALLOCATED_BLOCK_TRADE",
+        "description": "Block trade still unallocated at the T+0 EOD deadline — durable P2 compliance alert (spec §17.8; ops-alert payload code, never an HTTP response)",
+        "http_status": 500,
+        "owner": "Phase-24 Task 24.3.15"
+      },
+      {
         "code": "UNAUTHORIZED",
         "description": "Missing or invalid auth token (Phase-05 Task 5.3.26 WebSocket Authentication Upgrade & In-Flight Token Renewal; REST JWT/OAuth per spec §8.4; remediation #19)",
         "http_status": 401,
@@ -1305,6 +1671,12 @@
         "owner": "Phase-22 Task 22.3.7"
       },
       {
+        "code": "VARIATION_MARGIN_INTERNAL",
+        "description": "Variation-margin sweep internal failure — subject scan, settlement claim, or GL posting error mid-sweep; the subject retries on the next pass (spec §15.7, §5.25)",
+        "http_status": 500,
+        "owner": "Phase-22 Task 22.3.7"
+      },
+      {
         "code": "VENUE_RULEBOOK_NOT_APPROVED",
         "description": "Rulebook/product-terms activation refused — venue approval, required regulator approval, or participant notice outstanding (spec §14.1b no-activation-before-approvals)",
         "http_status": 409,
@@ -1314,6 +1686,12 @@
         "code": "VOLATILITY_SURFACE_ARBITRAGE",
         "description": "Option volatility surface violates calendar or butterfly spread bounds (remediation #15)",
         "http_status": 422
+      },
+      {
+        "code": "VOLATILITY_SURFACE_UNAVAILABLE",
+        "description": "Implied-volatility surface unavailable — empty/unbuilt surface queried or no usable surface snapshot remains after the feed-fallback hierarchy (spec §15.6, §15.7 item 2)",
+        "http_status": 503,
+        "owner": "Phase-22 Task 22.3.14"
       },
       {
         "code": "WAL_RECOVERY_HALT",
@@ -1366,6 +1744,12 @@
         "description": "Whitelist-only mode is enabled for the account and the destination resolves to no VERIFIED bank_accounts beneficiary (Phase-11 Task 11.3.10 Withdrawal Whitelist Mode; §5.23/§24 #391 — registered for the flows cluster)",
         "http_status": 422,
         "owner": "Phase-11 Task 11.3.10"
+      },
+      {
+        "code": "WRITE_OFF_AUTHORITY_EXCEEDED",
+        "description": "Settlement write-off amount exceeds the maker's authority-matrix tier (§17.14.1; T1 Finance Ops / T2 Risk Manager / T3 Super Admin)",
+        "http_status": 403,
+        "owner": "Phase-24 Task 24.3.19"
       },
       {
         "code": "WS_ABUSE_DETECTED",
@@ -4742,6 +5126,547 @@
         "x-weight": 1
       }
     },
+    "/api/v1/admin/allocations/escalate": {
+      "post": {
+        "operationId": "post_api_v1_admin_allocations_escalate",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "T+0 unallocated-remainder escalation sweep",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-24 Task 24.3.15",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/allocations/groups": {
+      "post": {
+        "operationId": "post_api_v1_admin_allocations_groups",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Register bunched-order group + eligibility set",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-24 Task 24.3.10",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/allocations/groups/{id}": {
+      "get": {
+        "operationId": "get_api_v1_admin_allocations_groups_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Group evidence bundle (legs, residuals, audit events)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Read-Only Auditor",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-24 Task 24.3.10",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Read-Only Auditor",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/allocations/groups/{id}/allocate": {
+      "post": {
+        "operationId": "post_api_v1_admin_allocations_groups_id_allocate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Run allocation method (MANUAL|PRO_RATA|RULE_BASED|EQUAL_SPLIT)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-24 Task 24.3.10",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/allocations/groups/{id}/eligibility": {
+      "post": {
+        "operationId": "post_api_v1_admin_allocations_groups_id_eligibility",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Flip beneficiary eligibility {account_id, eligible}",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-24 Task 24.3.10",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/allocations/groups/{id}/fills": {
+      "post": {
+        "operationId": "post_api_v1_admin_allocations_groups_id_fills",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Attach fills to group (pre-aggregation)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-24 Task 24.3.10",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/allocations/groups/{id}/submit": {
+      "post": {
+        "operationId": "post_api_v1_admin_allocations_groups_id_submit",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Submit group to settlement (SETTLEMENT_LOCKED)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-24 Task 24.3.15",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/allocations/{id}/cancel": {
+      "post": {
+        "operationId": "post_api_v1_admin_allocations_id_cancel",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Cancel allocation (pre-settlement)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-24 Task 24.3.15",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/allocations/{id}/claim": {
+      "post": {
+        "operationId": "post_api_v1_admin_allocations_id_claim",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Fund-ops claim → per-fund legs + GL 2090 + 35=AK",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-24 Task 24.3.15",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/allocations/{id}/correct": {
+      "post": {
+        "operationId": "post_api_v1_admin_allocations_id_correct",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Correct allocation — direct pre-lock; dual-control queue when SETTLEMENT_LOCKED",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-24 Task 24.3.15",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/allocations/{id}/reject": {
+      "post": {
+        "operationId": "post_api_v1_admin_allocations_id_reject",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Fund-ops reject (group residual re-opens)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-24 Task 24.3.15",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
     "/api/v1/admin/aml/artifacts": {
       "get": {
         "operationId": "get_api_v1_admin_aml_artifacts",
@@ -6553,8 +7478,46 @@
       }
     },
     "/api/v1/admin/client-money/audits": {
+      "get": {
+        "operationId": "get_api_v1_admin_client_money_audits",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Client-money audit engagements (?status=)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Read-Only Auditor",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-24 Task 24.3.18",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Read-Only Auditor",
+        "x-status": "live",
+        "x-weight": 1
+      },
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_admin_client_money_audits",
         "responses": {
           "200": {
@@ -6575,7 +7538,7 @@
             "oauth2": null
           }
         ],
-        "summary": "Run client-money safeguarding audit",
+        "summary": "Open client-money safeguarding audit engagement",
         "tags": [
           "admin"
         ],
@@ -6587,16 +7550,15 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-24 Task 24.3.11",
+        "x-owner": "Phase-24 Task 24.3.18",
         "x-rate-tier": "basic",
         "x-rbac-role": "Finance Ops",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/admin/client-money/audits/{id}/evidence-pack": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_admin_client_money_audits_id_evidence_pack",
         "parameters": [
           {
@@ -6627,7 +7589,7 @@
             "oauth2": null
           }
         ],
-        "summary": "Generate client-money evidence pack",
+        "summary": "Assemble evidence pack from system-of-record data",
         "tags": [
           "admin"
         ],
@@ -6639,16 +7601,54 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-24 Task 24.3.11",
+        "x-owner": "Phase-24 Task 24.3.18",
         "x-rate-tier": "basic",
         "x-rbac-role": "Finance Ops",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/admin/client-money/certifications": {
+      "get": {
+        "operationId": "get_api_v1_admin_client_money_certifications",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Segregation certifications (release-gate evidence)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Read-Only Auditor",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-24 Task 24.3.18",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Read-Only Auditor",
+        "x-status": "live",
+        "x-weight": 1
+      },
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_admin_client_money_certifications",
         "responses": {
           "200": {
@@ -6669,7 +7669,7 @@
             "oauth2": null
           }
         ],
-        "summary": "Record client-money certification",
+        "summary": "Issue segregation certification {audit_id, pack_id, statement, signatories, published_until} — four-eyes (issuer ≠ approver)",
         "tags": [
           "admin"
         ],
@@ -6679,12 +7679,12 @@
           "role": "Finance Ops",
           "scopes": null
         },
-        "x-dual-control": false,
+        "x-dual-control": true,
         "x-env": "",
-        "x-owner": "Phase-24 Task 24.3.11",
+        "x-owner": "Phase-24 Task 24.3.18",
         "x-rate-tier": "basic",
         "x-rbac-role": "Finance Ops",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -6915,7 +7915,6 @@
     },
     "/api/v1/admin/compliance-report": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_admin_compliance_report",
         "responses": {
           "200": {
@@ -6936,7 +7935,7 @@
             "oauth2": null
           }
         ],
-        "summary": "Compliance reporting export",
+        "summary": "Compliance export ?type=MIFID2|EMIR|FINCEN_CTR|FINCEN_SAR|BASEL3|MONTHLY_SUMMARY&from=&to=",
         "tags": [
           "admin"
         ],
@@ -6948,10 +7947,10 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-21",
+        "x-owner": "Phase-24 Task 24.3.5",
         "x-rate-tier": "basic",
         "x-rbac-role": "Compliance Officer",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -13382,7 +14381,6 @@
     },
     "/api/v1/admin/nostro-accounts": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_admin_nostro_accounts",
         "responses": {
           "200": {
@@ -13415,14 +14413,13 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-24 Task 24.3.8",
+        "x-owner": "Phase-24 Task 24.3.1",
         "x-rate-tier": "basic",
         "x-rbac-role": "Finance Ops",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       },
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_admin_nostro_accounts",
         "responses": {
           "200": {
@@ -13455,16 +14452,15 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-24 Task 24.3.8",
+        "x-owner": "Phase-24 Task 24.3.1",
         "x-rate-tier": "basic",
         "x-rbac-role": "Finance Ops",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/admin/nostro-reconciliation": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_admin_nostro_reconciliation",
         "responses": {
           "200": {
@@ -13485,7 +14481,7 @@
             "oauth2": null
           }
         ],
-        "summary": "Correspondent-bank reconciliation view",
+        "summary": "Correspondent-bank reconciliation view (?date=)",
         "tags": [
           "admin"
         ],
@@ -13497,10 +14493,102 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-24",
+        "x-owner": "Phase-24 Task 24.3.2",
         "x-rate-tier": "basic",
         "x-rbac-role": "Read-Only Auditor",
-        "x-status": "stub",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/nostro-reconciliation/breaks/{id}/resolve": {
+      "post": {
+        "operationId": "post_api_v1_admin_nostro_reconciliation_breaks_id_resolve",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Resolve reconciliation break {notes}",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-24 Task 24.3.2",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/nostro-reconciliation/run": {
+      "post": {
+        "operationId": "post_api_v1_admin_nostro_reconciliation_run",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "On-demand reconciliation run {date?, nostro_account_id?}",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-24 Task 24.3.2",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -13731,7 +14819,6 @@
     },
     "/api/v1/admin/pb-reconciliation": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_admin_pb_reconciliation",
         "responses": {
           "200": {
@@ -13767,7 +14854,7 @@
         "x-owner": "Phase-24 Task 24.3.7",
         "x-rate-tier": "basic",
         "x-rbac-role": "Read-Only Auditor",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -16632,9 +17719,100 @@
         "x-weight": 1
       }
     },
+    "/api/v1/admin/settlement-confirmations": {
+      "post": {
+        "operationId": "post_api_v1_admin_settlement_confirmations",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Ingest MT900/MT910 settlement confirmation (finality)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-24 Task 24.3.3",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/settlement-exceptions/{id}": {
+      "get": {
+        "operationId": "get_api_v1_admin_settlement_exceptions_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Settlement exception detail",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Read-Only Auditor",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-24 Task 24.3.6",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Read-Only Auditor",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
     "/api/v1/admin/settlement-exceptions/{id}/resolve": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_admin_settlement_exceptions_id_resolve",
         "parameters": [
           {
@@ -16665,7 +17843,7 @@
             "oauth2": null
           }
         ],
-        "summary": "Resolve settlement exception (money-moving — four-eyes on Phase-24 implementation)",
+        "summary": "Resolve settlement exception (money-moving — four-eyes approval executes the resolution inside the decision tx)",
         "tags": [
           "admin"
         ],
@@ -16677,10 +17855,1130 @@
         },
         "x-dual-control": true,
         "x-env": "",
-        "x-owner": "Phase-24",
+        "x-owner": "Phase-24 Task 24.3.6",
         "x-rate-tier": "basic",
         "x-rbac-role": "Finance Ops",
-        "x-status": "stub",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/settlement/cls/instructions": {
+      "post": {
+        "operationId": "post_api_v1_admin_settlement_cls_instructions",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Submit paired CLS settlement instruction (ISO 20022)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-24 Task 24.3.8",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/settlement/cls/instructions/{ref}/amend": {
+      "post": {
+        "operationId": "post_api_v1_admin_settlement_cls_instructions_ref_amend",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Amend matched instruction (pre-dispatch)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-24 Task 24.3.8",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/settlement/cls/instructions/{ref}/dispatch": {
+      "post": {
+        "operationId": "post_api_v1_admin_settlement_cls_instructions_ref_dispatch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Dispatch instruction to CLS member adapter (fail-closed unwired)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-24 Task 24.3.8",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/settlement/cls/instructions/{ref}/finality": {
+      "post": {
+        "operationId": "post_api_v1_admin_settlement_cls_instructions_ref_finality",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Record authenticated member finality → GL settlement",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-24 Task 24.3.8",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/settlement/cls/instructions/{ref}/pay-in": {
+      "post": {
+        "operationId": "post_api_v1_admin_settlement_cls_instructions_ref_pay_in",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Record pay-in funding",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-24 Task 24.3.8",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/settlement/cls/instructions/{ref}/rescind": {
+      "post": {
+        "operationId": "post_api_v1_admin_settlement_cls_instructions_ref_rescind",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Rescind instruction (PRE-DEADLINE only)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-24 Task 24.3.8",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/settlement/cls/instructions/{ref}/status": {
+      "post": {
+        "operationId": "post_api_v1_admin_settlement_cls_instructions_ref_status",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Member status notification (unmatched → exception + quarantine)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-24 Task 24.3.8",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/settlement/instructions/{id}/roll": {
+      "post": {
+        "operationId": "post_api_v1_admin_settlement_instructions_id_roll",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Manual value-date roll past cut-off → QUEUED_FOR_NEXT_CYCLE",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-24 Task 24.3.20",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/settlement/netting/batches": {
+      "get": {
+        "operationId": "get_api_v1_admin_settlement_netting_batches",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Netting batches (?status=)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-24 Task 24.3.9",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/settlement/netting/batches/{id}/bust": {
+      "post": {
+        "operationId": "post_api_v1_admin_settlement_netting_batches_id_bust",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Bust batch — release lines back to gross settlement",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-24 Task 24.3.9",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/settlement/netting/batches/{id}/dispatch": {
+      "post": {
+        "operationId": "post_api_v1_admin_settlement_netting_batches_id_dispatch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Dispatch netted batch (SSI snapshot + CLS exclusion + rail cut-off gate)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-24 Task 24.3.9",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/settlement/netting/batches/{id}/lines": {
+      "get": {
+        "operationId": "get_api_v1_admin_settlement_netting_batches_id_lines",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Batch line detail",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-24 Task 24.3.9",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/settlement/netting/batches/{id}/settle": {
+      "post": {
+        "operationId": "post_api_v1_admin_settlement_netting_batches_id_settle",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Mark batch settled on authenticated confirmation",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-24 Task 24.3.9",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/settlement/netting/run": {
+      "post": {
+        "operationId": "post_api_v1_admin_settlement_netting_run",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Run bilateral netting cycle {member_a_id, member_b_id, currency?}",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-24 Task 24.3.9",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/settlement/rail-schedules": {
+      "get": {
+        "operationId": "get_api_v1_admin_settlement_rail_schedules",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Banking rail cut-off schedules (banking_rail_schedules)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Read-Only Auditor",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-24 Task 24.3.20",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Read-Only Auditor",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/settlement/rail-schedules/evaluate": {
+      "post": {
+        "operationId": "post_api_v1_admin_settlement_rail_schedules_evaluate",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Cut-off evaluation preview {rail, currency, at?}",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-24 Task 24.3.20",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/settlement/ssi": {
+      "get": {
+        "operationId": "get_api_v1_admin_settlement_ssi",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Standing settlement instructions (?account_id=)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-24 Task 24.3.9",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      },
+      "post": {
+        "operationId": "post_api_v1_admin_settlement_ssi",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Register verified SSI {account_id, bank_account_id, currency, ref, bic}",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-24 Task 24.3.9",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/settlement/ssi/{id}/revoke": {
+      "post": {
+        "operationId": "post_api_v1_admin_settlement_ssi_id_revoke",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Revoke SSI (dispatch snapshots already taken are unaffected)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-24 Task 24.3.9",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/settlement/statements": {
+      "get": {
+        "operationId": "get_api_v1_admin_settlement_statements",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Statement journal (?nostro_account_id=&from=&to=)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Read-Only Auditor",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-24 Task 24.3.12",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Read-Only Auditor",
+        "x-status": "live",
+        "x-weight": 1
+      },
+      "post": {
+        "operationId": "post_api_v1_admin_settlement_statements",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Ingest bank statement (MT940/MT942/camt.053, base64 body)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-24 Task 24.3.12",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/settlement/statements/{id}/entries": {
+      "get": {
+        "operationId": "get_api_v1_admin_settlement_statements_id_entries",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Normalized statement entries + match linkage",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Read-Only Auditor",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-24 Task 24.3.12",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Read-Only Auditor",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/settlement/suspense/route": {
+      "post": {
+        "operationId": "post_api_v1_admin_settlement_suspense_route",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Route unmatched inbound credit through the deposit-guard quarantine",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-24 Task 24.3.21",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/settlement/suspense/{id}/resolve": {
+      "post": {
+        "operationId": "post_api_v1_admin_settlement_suspense_id_resolve",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Resolve quarantined credit {action: RELEASE_TO_CLIENT|RETURN_TO_SOURCE, notes} — four-eyes",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": true,
+        "x-env": "",
+        "x-owner": "Phase-24 Task 24.3.21",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -17724,7 +20022,6 @@
     },
     "/api/v1/admin/swift-messages": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_admin_swift_messages",
         "responses": {
           "200": {
@@ -17745,7 +20042,7 @@
             "oauth2": null
           }
         ],
-        "summary": "Bank statement ingestion log (MT940/942/camt.053)",
+        "summary": "Immutable SWIFT message journal (?from=&to=&type=&direction=)",
         "tags": [
           "admin"
         ],
@@ -17757,10 +20054,10 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-24 Task 24.3.12",
+        "x-owner": "Phase-24 Task 24.3.4",
         "x-rate-tier": "basic",
         "x-rbac-role": "Finance Ops",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -18345,8 +20642,46 @@
       }
     },
     "/api/v1/admin/treasury/contingent-capital": {
+      "get": {
+        "operationId": "get_api_v1_admin_treasury_contingent_capital",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Contingent-capital commitments",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Finance Ops",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-24 Task 24.3.17",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Finance Ops",
+        "x-status": "live",
+        "x-weight": 1
+      },
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_admin_treasury_contingent_capital",
         "responses": {
           "200": {
@@ -18367,7 +20702,7 @@
             "oauth2": null
           }
         ],
-        "summary": "Manage contingent-capital commitments",
+        "summary": "Record contingent-capital commitment",
         "tags": [
           "admin"
         ],
@@ -18382,13 +20717,12 @@
         "x-owner": "Phase-24 Task 24.3.17",
         "x-rate-tier": "basic",
         "x-rbac-role": "Finance Ops",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/admin/treasury/own-funds": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_admin_treasury_own_funds",
         "responses": {
           "200": {
@@ -18409,7 +20743,7 @@
             "oauth2": null
           }
         ],
-        "summary": "House own-funds balances",
+        "summary": "House own-funds balances + liquidity freeze flags",
         "tags": [
           "admin"
         ],
@@ -18424,7 +20758,7 @@
         "x-owner": "Phase-24 Task 24.3.17",
         "x-rate-tier": "basic",
         "x-rbac-role": "Finance Ops",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -20776,7 +23110,6 @@
     },
     "/api/v1/allocations": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_allocations",
         "responses": {
           "200": {
@@ -20819,13 +23152,12 @@
         "x-env": "",
         "x-owner": "Phase-24 Task 24.3.15",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/analytics/long-short-ratio/{symbol}": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_analytics_long_short_ratio_symbol",
         "parameters": [
           {
@@ -20845,7 +23177,7 @@
             "$ref": "#/components/responses/Problem"
           }
         },
-        "summary": "Aggregate long/short ratio (5-min delayed)",
+        "summary": "Aggregate long/short ratio (5-min delayed, 100-account cohort floor)",
         "tags": [
           "analytics"
         ],
@@ -20857,15 +23189,14 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-23",
+        "x-owner": "Phase-23 Task 23.3.10",
         "x-rate-tier": "public",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/analytics/open-interest/{symbol}": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_analytics_open_interest_symbol",
         "parameters": [
           {
@@ -20885,7 +23216,7 @@
             "$ref": "#/components/responses/Problem"
           }
         },
-        "summary": "OI history (1h/4h/1d granularity)",
+        "summary": "OI current + history (1m ring, tier-aware delay)",
         "tags": [
           "analytics"
         ],
@@ -20897,9 +23228,9 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-23",
+        "x-owner": "Phase-23 Task 23.3.6",
         "x-rate-tier": "public",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -20982,7 +23313,6 @@
     },
     "/api/v1/analytics/taker-flow/{symbol}": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_analytics_taker_flow_symbol",
         "parameters": [
           {
@@ -21002,7 +23332,7 @@
             "$ref": "#/components/responses/Problem"
           }
         },
-        "summary": "Taker buy/sell flow ratio",
+        "summary": "Taker buy/sell flow ratio + unique-trader counts",
         "tags": [
           "analytics"
         ],
@@ -21014,9 +23344,9 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-23",
+        "x-owner": "Phase-23 Task 23.3.10",
         "x-rate-tier": "public",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -22355,6 +24685,170 @@
         "x-weight": 1
       }
     },
+    "/api/v1/export-jobs": {
+      "get": {
+        "operationId": "get_api_v1_export_jobs",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "read"
+            ]
+          },
+          {
+            "apiKeyAuth": [
+              "read"
+            ]
+          },
+          {
+            "oauth2": [
+              "read"
+            ]
+          }
+        ],
+        "summary": "List the caller's async export jobs (newest first)",
+        "tags": [
+          "export-jobs"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "",
+          "scopes": [
+            "read"
+          ]
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-23 Task 23.3.2",
+        "x-rate-tier": "basic",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/export-jobs/{id}": {
+      "get": {
+        "operationId": "get_api_v1_export_jobs_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "read"
+            ]
+          },
+          {
+            "apiKeyAuth": [
+              "read"
+            ]
+          },
+          {
+            "oauth2": [
+              "read"
+            ]
+          }
+        ],
+        "summary": "Export job status (PENDING|RUNNING|COMPLETED|FAILED + row count)",
+        "tags": [
+          "export-jobs"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "",
+          "scopes": [
+            "read"
+          ]
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-23 Task 23.3.2",
+        "x-rate-tier": "basic",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/export-jobs/{id}/download": {
+      "get": {
+        "operationId": "get_api_v1_export_jobs_id_download",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "read"
+            ]
+          },
+          {
+            "apiKeyAuth": [
+              "read"
+            ]
+          },
+          {
+            "oauth2": [
+              "read"
+            ]
+          }
+        ],
+        "summary": "Download the export artifact (signed-link object, 24h expiry)",
+        "tags": [
+          "export-jobs"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "",
+          "scopes": [
+            "read"
+          ]
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-23 Task 23.3.2",
+        "x-rate-tier": "basic",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
     "/api/v1/fees": {
       "get": {
         "operationId": "get_api_v1_fees",
@@ -22961,7 +25455,6 @@
     },
     "/api/v1/history/block-trades/{symbol}": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_history_block_trades_symbol",
         "parameters": [
           {
@@ -22981,7 +25474,7 @@
             "$ref": "#/components/responses/Problem"
           }
         },
-        "summary": "Block trade prints",
+        "summary": "Block trade prints — anonymous tape, correction lineage annotated",
         "tags": [
           "history"
         ],
@@ -22993,9 +25486,9 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-24 Task 24.3.15",
+        "x-owner": "Phase-24 Task 24.3.15 (surface implemented Phase-23 Task 23.3.7)",
         "x-rate-tier": "public",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -23040,7 +25533,6 @@
     },
     "/api/v1/history/swap-rates": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_history_swap_rates",
         "responses": {
           "200": {
@@ -23062,9 +25554,9 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-03 Task 3.3.11",
+        "x-owner": "Phase-03 Task 3.3.11 (surface implemented Phase-23 Task 23.3.9)",
         "x-rate-tier": "public",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -23128,7 +25620,6 @@
     },
     "/api/v1/history/trades/{symbol}": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_history_trades_symbol",
         "parameters": [
           {
@@ -23162,13 +25653,12 @@
         "x-env": "",
         "x-owner": "Phase-23 Task 23.3.4",
         "x-rate-tier": "public",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/history/trades/{symbol}/export": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_history_trades_symbol_export",
         "parameters": [
           {
@@ -23205,7 +25695,7 @@
             ]
           }
         ],
-        "summary": "Bulk trades export (JSON/CSV, cursor)",
+        "summary": "Bulk trades export (JSON/CSV/Parquet; sync ≤50k rows else async job)",
         "tags": [
           "history"
         ],
@@ -23219,9 +25709,9 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-23 Task 23.3.4",
+        "x-owner": "Phase-23 Task 23.3.4 (surface owner Phase-23 Task 23.3.2)",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -23782,7 +26272,6 @@
     },
     "/api/v1/market/performance": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_market_performance",
         "responses": {
           "200": {
@@ -23804,15 +26293,14 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-23",
+        "x-owner": "Phase-23 Task 23.3.11",
         "x-rate-tier": "public",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/market/positioning": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_market_positioning",
         "responses": {
           "200": {
@@ -23834,15 +26322,14 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-23",
+        "x-owner": "Phase-23 Task 23.3.10",
         "x-rate-tier": "public",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/market/taker-volume": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_market_taker_volume",
         "responses": {
           "200": {
@@ -23864,9 +26351,9 @@
         },
         "x-dual-control": false,
         "x-env": "",
-        "x-owner": "Phase-23",
+        "x-owner": "Phase-23 Task 23.3.10",
         "x-rate-tier": "public",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },

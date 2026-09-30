@@ -33,17 +33,17 @@ Staging load test at 75k orders/sec (1.5x production target), validating replica
 5. Metrics: throughput, p50/p99/p999, replica lag, WS drops, alerts.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] 75k orders/sec sustained for 4h
-* [ ] p99 ≤ 50µs (supersedes prior ≤ 1ms) tick-to-trade
-* [ ] PostgreSQL replica lag < 2s
-* [ ] N≥10,000 WS connections with zero drops (supersedes prior N≥100 — realistic production fan-out)
-* [ ] L3 delta exact (matches engine state)
-* [ ] Recovery drill mid-run: < 10s, zero loss
-* [ ] Zero PagerDuty alerts
+* [ ] 75k orders/sec sustained for 4h *(env-bound: requires provisioned staging cluster — sibling checkpoint P08.5-T8.5.3.1-C1 deferred environment-bound)*
+* [ ] p99 ≤ 50µs (supersedes prior ≤ 1ms) tick-to-trade *(env-bound: transport p99 shm 3.9µs / Aeron 3.0µs measured; 4h staging leg unexecuted)*
+* [ ] PostgreSQL replica lag < 2s *(env-bound: no live replica in this environment)*
+* [ ] N≥10,000 WS connections with zero drops (supersedes prior N≥100 — realistic production fan-out) *(env-bound: harness authored; staging-scale connection load unexecuted)*
+* [ ] L3 delta exact (matches engine state) *(env-bound: parity harness landed; staging-run evidence pending)*
+* [ ] Recovery drill mid-run: < 10s, zero loss *(bounded evidence: failover-report.json 116ms max, dup=0; staging mid-run drill unexecuted)*
+* [ ] Zero PagerDuty alerts *(env-bound: PD delivery config-only — no receiver in this environment)*
 
 **SDD Checklist:**
 - [ ] Spec checkpoint: 75k/sec staging gate — defined first, validated against spec — **deferred: environment-bound** (requires a provisioned staging cluster; no code artifact can discharge it — checkpoint `P08.5-T8.5.3.1-C1` stays pending, errblast + soak harnesses are the executable substrate)
-- [ ] All spec checkpoints pass after implementation
+- [ ] All spec checkpoints pass after implementation *(open — env-bound: the registered soak/staging checkpoints skip honestly until a qualifying 72h artifact or provisioned staging cluster exists; all other checkpoints pass)*
 
 ---
 

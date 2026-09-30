@@ -325,7 +325,7 @@ func TestExportJobListOwnOnly(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		if _, err := jobs.Insert(context.Background(), marketdata.Job{
 			AccountID: 7, Kind: "trades", Symbol: "EURUSD", Format: "csv",
-			Status: marketdata.JobPending,
+			Status:    marketdata.JobPending,
 			CreatedAt: exportBase.Add(time.Duration(i) * time.Second),
 		}); err != nil {
 			t.Fatal(err)
@@ -333,7 +333,7 @@ func TestExportJobListOwnOnly(t *testing.T) {
 	}
 	if _, err := jobs.Insert(context.Background(), marketdata.Job{
 		AccountID: 8, Kind: "trades", Symbol: "EURUSD", Format: "csv",
-		Status: marketdata.JobPending,
+		Status:    marketdata.JobPending,
 		CreatedAt: exportBase.Add(99 * time.Second),
 	}); err != nil {
 		t.Fatal(err)

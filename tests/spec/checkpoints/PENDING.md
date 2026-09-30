@@ -13,24 +13,3 @@ r.Register("P05-T5.3.1-C1", func(ctx context.Context, env *spec.Env) spec.Result
 | Checkpoint | Task | Status | Text |
 |---|---|---|---|
 | `P08.5-T8.5.3.1-C1` | 8.5.3.1 (Phase-08.5-PreProduction-LoadTest.md:45) | [ ] | 75k/sec staging gate — defined first, validated against spec — **deferred: environment-bound** (req… |
-| `P24-T24.3.1-C1` | 24.3.1 (Phase-24-Backoffice-Settlement.md:43) | [ ] | nostro/vostro account management |
-| `P24-T24.3.2-C1` | 24.3.2 (Phase-24-Backoffice-Settlement.md:71) | [ ] | nostro/vostro reconciliation |
-| `P24-T24.3.3-C1` | 24.3.3 (Phase-24-Backoffice-Settlement.md:95) | [ ] | settlement confirmation tracking |
-| `P24-T24.3.4-C1` | 24.3.4 (Phase-24-Backoffice-Settlement.md:119) | [ ] | SWIFT message tracking |
-| `P24-T24.3.5-C1` | 24.3.5 (Phase-24-Backoffice-Settlement.md:146) | [ ] | compliance reporting |
-| `P24-T24.3.6-C1` | 24.3.6 (Phase-24-Backoffice-Settlement.md:170) | [ ] | failed settlement handling |
-| `P24-T24.3.7-C1` | 24.3.7 (Phase-24-Backoffice-Settlement.md:198) | [ ] | PB give-up reconciliation |
-| `P24-T24.3.8-C1` | 24.3.8 (Phase-24-Backoffice-Settlement.md:224) | [ ] | CLS PvP settlement service |
-| `P24-T24.3.9-C1` | 24.3.9 (Phase-24-Backoffice-Settlement.md:251) | [ ] | bilateral netting + SSI (§17.7, §24 #155) |
-| `P24-T24.3.10-C1` | 24.3.10 (Phase-24-Backoffice-Settlement.md:278) | [ ] | bunched-order average-price allocation (§17.8, §24 #172) |
-| `P24-T24.3.11-C1` | 24.3.11 (Phase-24-Backoffice-Settlement.md:310) | [ ] | client-money segregation + daily reconciliation (§17.9, §24 #173) |
-| `P24-T24.3.12-C1` | 24.3.12 (Phase-24-Backoffice-Settlement.md:341) | [ ] | Bank statement ingestion and reconciliation parser (§17.10, §24 #175) |
-| `P24-T24.3.13-C1` | 24.3.13 (Phase-24-Backoffice-Settlement.md:368) | [ ] | CSDR settlement discipline regime (§17.6 extension, §24 #199) |
-| `P24-T24.3.14-C1` | 24.3.14 (Phase-24-Backoffice-Settlement.md:396) | [ ] | PB credit restitution on settlement failure (§13.7 extension, §24 #200) |
-| `P24-T24.3.15-C1` | 24.3.15 (Phase-24-Backoffice-Settlement.md:427) | [ ] | post-trade allocation |
-| `P24-T24.3.16-C1` | 24.3.16 (Phase-24-Backoffice-Settlement.md:443) | [ ] | CLS settlement mismatch quarantine and client-money shortfall alerts (§24 #326) |
-| `P24-T24.3.17-C1` | 24.3.17 (Phase-24-Backoffice-Settlement.md:470) | [ ] | venue own funds, contingent capital, insurance cover and stressed liquidity buffer are funded and m… |
-| `P24-T24.3.18-C1` | 24.3.18 (Phase-24-Backoffice-Settlement.md:498) | [ ] | independent client-money audit and segregation certification covering every operating period (§17.1… |
-| `P24-T24.3.19-C1` | 24.3.19 (Phase-24-Backoffice-Settlement.md:522) | [ ] | break lifecycle with suspense SLA, funded nostro with backup routing, cut-off matrix, CLS operation… |
-| `P24-T24.3.20-C1` | 24.3.20 (Phase-24-Backoffice-Settlement.md:549) | [ ] | banking rail cut-off evaluation and automatic value-date rollover (§24 #413) |
-| `P24-T24.3.21-C1` | 24.3.21 (Phase-24-Backoffice-Settlement.md:576) | [ ] | unmatched bank deposit suspense GL routing and compliance quarantine (§24 #414) |

@@ -347,9 +347,9 @@ Implement the C++ matching engine: order book data structure, price-time priorit
 3. STP handling runs inside the matching loop before any fill is emitted; all outcomes emit WAL events (`ORDER_CANCEL` with `reason=STP`) for recovery.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] All 4 prevention modes enforced in matching (CANCEL_NEWEST/CANCEL_OLDEST/CANCEL_BOTH/DECREMENT) plus NONE (Task 2.3.16) — wording clarified 2026-09-27, remediation #35
-* [ ] CANCEL_NEWEST preserves spec §24 #4 (no account trades against itself)
-* [ ] STP outcomes emit WAL cancel events with reason=STP; recovery reproduces them exactly
+* [x] All 4 prevention modes enforced in matching (CANCEL_NEWEST/CANCEL_OLDEST/CANCEL_BOTH/DECREMENT) plus NONE (Task 2.3.16) — `apply_stp` covers all `StpAction` cases incl. NONE passthrough (MatchingEngine.cpp:1028; test_matching_engine.cpp STP suite)
+* [x] CANCEL_NEWEST preserves spec §24 #4 (no account trades against itself) — same-account match killed at taker (test_matching_engine.cpp:222)
+* [x] STP outcomes emit WAL cancel events with reason=STP; recovery reproduces them exactly — `kWalCancelReasonStp` journaled rows replay through the same apply path (test_recovery.cpp)
 
 **SDD Checklist:**
 - [x] Spec checkpoint: configurable STP modes per spec §6.5 / §24 #154 — defined first, validated against spec
@@ -546,8 +546,8 @@ STP mode `NONE` (disabled) — gated to `PROFESSIONAL` and `ELIGIBLE_COUNTERPART
 3. Changing the default never touches resting orders; it applies to orders accepted after the change timestamp.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Omitted stp_mode resolves through account default to CANCEL_NEWEST
-* [ ] Category gating enforced on NONE; resolved mode persisted per fill
+* [x] Omitted stp_mode resolves through account default to CANCEL_NEWEST — `accounts.default_stp_mode` column + `PreTradeChecker::resolved_stp` (check 14)
+* [x] Category gating enforced on NONE; resolved mode persisted per fill — NONE requires PROFESSIONAL/ELIGIBLE_COUNTERPARTY (PreTradeChecker check 14); checker stamps resolved stp_mode per fill
 
 **SDD Checklist:**
 - [x] Spec checkpoint: account-default STP with category gating and per-fill persistence (§24 #368) — defined first, validated against spec
@@ -570,11 +570,11 @@ STP mode `NONE` (disabled) — gated to `PROFESSIONAL` and `ELIGIBLE_COUNTERPART
 5. Emit trade-through prevention events to NATS for Phase-20 TCA reporting (RTS 27/28).
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Aggressive limit orders rejected with `TRADE_THROUGH_DETECTED` when crossing the protected quote
-* [ ] Market orders clipped to protected quote; excess remainder cancelled `SLIPPAGE_EXCEEDED`
-* [ ] Price-improvement delta recorded on fill records for TCA
-* [ ] Trade-through checks suspended during call auctions
-* [ ] Events emitted to NATS for best-execution reporting
+* [x] Aggressive limit orders rejected with `TRADE_THROUGH_DETECTED` when crossing the protected quote — TradeThroughGuard + LIMIT_TRADE_THROUGH_REJECTED (test_trade_through.cpp)
+* [x] Market orders clipped to protected quote; excess remainder cancelled `SLIPPAGE_EXCEEDED` (MatchingEngine.cpp:2083, :2554)
+* [x] Price-improvement delta recorded on fill records for TCA — PriceImprovementRecorder stamps fills
+* [x] Trade-through checks suspended during call auctions — `trade_through_.set_auction(true)` gates checks during CALL/EXTEND
+* [x] Events emitted to NATS for best-execution reporting — L3 fill/trade-through events flow engine→gateway→NATS for the RTS 27/28 surface
 
 **SDD Checklist:**
 - [x] Spec checkpoint: trade-through prevention and price-improvement recording (§24 #400) — defined first, validated against spec
@@ -667,9 +667,9 @@ STP mode `NONE` (disabled) — gated to `PROFESSIONAL` and `ELIGIBLE_COUNTERPART
 4. Any unfilled remainder is inserted into the passive order book strictly at `limit_price`; discretionary offset is hidden and not broadcast on public L2/L3 market data feeds.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Discretionary orders match against resting liquidity within the discretionary band
-* [ ] Resting remainder displays only the limit price on public market data feeds
-* [ ] Negative discretionary offsets rejected with `DISCRETIONARY_OFFSET_INVALID` (HTTP 400)
+* [x] Discretionary orders match against resting liquidity within the discretionary band — DiscretionaryExecutor eval/step ladder (test_discretionary.cpp)
+* [x] Resting remainder displays only the limit price on public market data feeds — book holds the limit price; the offset is engine-private (test_discretionary.cpp display assertions)
+* [x] Negative discretionary offsets rejected with `DISCRETIONARY_OFFSET_INVALID` (HTTP 400) — registered specRow + orders validation
 
 **SDD Checklist:**
 - [x] Spec checkpoint: discretionary offset order execution with hidden price band and passive public display (§24 #405) — defined first, validated against spec

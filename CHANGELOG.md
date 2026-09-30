@@ -1805,3 +1805,122 @@ snapshots, costs disclosure, depreciation notices, marketing-ops.
   AGENTS/CLAUDE).
 - Next: Phase-24 (Backoffice & Settlement — custody, PB/nostro recon,
   CLS PvP, settlement ops — 21 pending checkpoints).
+
+## [2026-10-01 10:05 UTC] — Phase 24 START (Backoffice & Settlement)
+
+- 21 tasks, 21 spec checkpoints, 48 AC rows — final core phase.
+- 5 parallel agents on disjoint scopes:
+  A nostro/SWIFT/compliance (24.3.1–.5): backoffice/nostro.go,
+    reconciliation.go, confirmation.go, swift_tracking.go,
+    compliance_reporting.go + mig 035;
+  B CLS/netting/statements/cutoffs/suspense (24.3.8/.9/.12/.20/.21):
+    settlement/cls_pvp.go, netting.go, ssi.go, rail_cutoff_service.go,
+    statement_parser.go, suspense_service.go + backoffice parsers +
+    migs 044/057/107;
+  C exceptions/PB/CSDR/restitution/ops (24.3.6/.7/.13/.14/.19):
+    backoffice/exceptions.go, pb_reconciliation.go, csdr_discipline.go,
+    buyin.go, credit_restitution.go, ops_hardening.go +
+    risk/pb_credit_adjuster.go + mig 084;
+  D allocations (24.3.10/.15): backoffice/allocations.go,
+    allocation_engine.go + mig 055;
+  E client-money/treasury/assurance (24.3.11/.16/.17/.18):
+    backoffice/client_money.go, treasury.go, contingent_capital.go,
+    client_money_audit.go, segregation_cert.go + migs 056/082/083.
+- Migration 108 already landed (Phase-11); 035/044/055/056/057/082/083/
+  084/107 plan-reserved and free.
+- Route registrations + gateway wiring owned by orchestrator.
+- Commit baseline: f777a33 (Phase-23).
+
+### [2026-09-30 16:56 UTC] — PHASE 24 COMPLETE (Backoffice & Settlement)
+
+- **Scope delivered:** all 21 tasks (24.3.1–24.3.21) — nostro/vostro account
+  management + reconciliation, settlement confirmations, SWIFT message tracking,
+  compliance reporting, failed-settlement handling, PB give-up reconciliation,
+  CLS third-party PvP, SSI + bilateral netting, bunched-order allocation,
+  client-money segregation + reconciliation, MT940/MT942/camt.053 ingestion,
+  CSDR settlement discipline, PB credit restitution, post-trade allocation
+  workflow, CLS quarantine + client-money top-up, treasury/own-funds/contingent
+  capital, independent client-money assurance + segregation certification,
+  settlement-ops hardening, rail cut-off enforcement + value-date roll, and
+  unmatched-deposit suspense routing.
+- **Files:** ~50 new source files across `services/internal/backoffice/`,
+  `services/internal/settlement/` (cls_pvp, netting, ssi, rail_cutoff_service,
+  statement_parser, suspense_service), `services/internal/api/handlers_*`,
+  `services/internal/risk/pb_credit_adjuster.go`; gateway wiring in
+  `services/cmd/gateway/main.go` + `adapters.go`; registry updates in
+  `services/internal/gateway/routes_v1.go`.
+- **Migrations:** 13 new (035, 044, 055, 056, 057, 082, 083, 084, 107, 259,
+  260, 261, 262) — up/down/up round-trip clean on dev PG16 (port 5433).
+- **Gateway:** all Phase-24 surfaces mounted; conditional/fail-closed mounts
+  for BIC/holiday-dependent handlers (settlement-confirmations, value-date
+  roll) and rail-schedule routes — registered routes degrade via the existing
+  503 shim, never panic. Route audit: **549 registered-live routes, 0 without
+  runtime handlers**.
+- **Sweeps:** hourly allocation-remainder escalation, nostro funding thresholds,
+  CLS pay-in monitoring, failover payments, Herstatt exposure; daily CSDR
+  fail/penalty + buy-in ladders. Role-gated finance sign-offs deliberately not
+  automated (distinct-principal control).
+- **Verification:** `go build ./...` clean; `go vet` clean; full services suite
+  green; PG-gated backoffice/settlement/allocations/client-money tests green;
+  two PG-gated defects found & fixed (nil-slice JSONB marshal in
+  `InsertAllocation`; test wiring `fakeRecorder` while asserting real
+  `swift_messages` rows — bound the PG-backed tracker; escalation sweep honored
+  per spec: LOCKED groups escalate T+0 remainder).
+- **Spec checkpoints:** `tests/spec/checks/phase24.go` — **21/21 PASS**
+  (total=21 pass=21 fail=0).
+- **Error registry:** +24 localCodes (43→67 localRows; emitted 210→234;
+  spec §23 table unchanged at 207 pending transcription).
+- **Cross-phase audit fixes in this settle:** Phase-19 option-margin linkage
+  (evaluator seam was dead — `MarginOptions.OptionMargin` now consumes
+  `OptionDeltaSource` PG feed; Black-Scholes-Garman-Kohlhagen/lattice/intrinsic
+  pricing, fail-closed on missing marks/vol/curves; spread offsets applied
+  before SIMM aggregation; wired in gateway) → 3 Phase-19 rows ticked.
+  Phase-02 STP/trade-through/discretionary criteria verified implemented +
+  tested → 13 rows ticked. All remaining unchecked rows repo-wide carry
+  env-bound annotations (72h soak, staging gate, multi-region, PagerDuty,
+  hardware targets).
+- **Regenerated artifacts:** openapi.json (542 paths/641 ops/788,796 B),
+  attack-surface.md (641 routes: 618 live, 23 stub, 7 WS/6 actions),
+  pii-inventory.md + pii-catalog.csv (197 PII cols / 351 tables, 0 unclassified
+  — 37 Phase-24 columns curated), traceability.json/md (419/419 mapped,
+  contiguous, 0 defects), checkpoints corpus (extracted=542, 541 bound IDs —
+  only `P08.5-T8.5.3.1-C1` env-bound pending).
+- **Full corpus:** 4-shard run — 571 rows: 568 pass, 2 skip (72h-soak gates,
+  honest env-bound), 1 pending (8.5.3.1 staging gate), 0 fail after
+  `gen:validators` regen (P10-T10.3.29-C1 re-verified PASS).
+- **AC 24.7:** all 48 rows verified (evidence: gateway builds, suite green,
+  PG round-trips, route audit, checkpoint run above).
+- Next: PROJECT COMPLETE settle.
+
+---
+
+## [2026-09-30 16:56 UTC] — PROJECT COMPLETE
+
+All 30 phase plans executed to specification. Canonical counts vs AGENTS.md:
+
+- **Phases:** 24 core + 6 buffer (01 → 24, all gated sequentially).
+- **Tasks:** 479 enumerated task blocks; all task checklists marked complete
+  or carrying documented env-bound annotations (none silently dropped).
+- **Spec checkpoints:** 542 extracted / 541 bound; corpus run 571 rows —
+  568 pass, 2 env-bound skips (P02.5 72h soak ×2), 1 env-bound pending
+  (P08.5-T8.5.3.1-C1 staging gate), 0 fail.
+- **§24 acceptance criteria:** 419 rows — traceability 419/419 mapped,
+  contiguous, 0 unmapped, 0 waived, 0 defects.
+- **Migrations:** 199 PostgreSQL migrations (up/down/up verified);
+  9 ClickHouse schemas.
+- **Error codes:** 234 emitted (207 §23-table + 27 phase-landed pending
+  transcription); 68 append-only localCodes; zero ownerless.
+- **API surface:** 549 registered-live routes with runtime handlers;
+  OpenAPI 542 paths / 641 operations; attack surface 618 live + 23 stub +
+  7 WebSocket endpoints.
+- **PII inventory:** 197 classified columns across 351 tables, 0 review rows.
+- **Verification state:** C++ core + Go services build clean; `go vet` clean;
+  full `go test ./...` green incl. PG-gated suites; route registry↔handler
+  audit 0 drift; migration round-trips green; traceability/PII/OpenAPI/
+  validators generated artifacts all current.
+- **Honest-open items (env-bound, annotated in place — not code gaps):**
+  72h sustained-soak gates, 75k/sec staging gate, multi-region DR live
+  failover, PagerDuty/live-cluster operational checks, hardware-bound latency
+  measurements, production credential/store provisioning. Each has authored
+  mechanism + harness; discharge requires the documented environment.
+- **Final commit:** see git log — Phase-24 settle lands all remaining work.

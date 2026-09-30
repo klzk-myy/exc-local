@@ -5,13 +5,13 @@
 // Parquet. Two execution paths share one keyset pager:
 //
 //   - sync:  ≤ ExportSyncRows rows are rendered inline by the REST
-//            handler (JSON emits the §8.8-style {data:[...]} envelope;
-//            CSV/Parquet stream as attachment downloads).
+//     handler (JSON emits the §8.8-style {data:[...]} envelope;
+//     CSV/Parquet stream as attachment downloads).
 //   - async: explicit ?async=1, or a bound above ExportSyncRows, enqueues
-//            an export_jobs row (migration 256); a worker drains it in
-//            ExportPageRows keyset batches into an S3 object, stamps the
-//            job COMPLETED with the object ref + 24h link expiry, and
-//            emails the download link via the Task-20.3.8 delivery seam.
+//     an export_jobs row (migration 256); a worker drains it in
+//     ExportPageRows keyset batches into an S3 object, stamps the
+//     job COMPLETED with the object ref + 24h link expiry, and
+//     emails the download link via the Task-20.3.8 delivery seam.
 //
 // Hard cap: ExportMaxRows (1,000,000) rows per export — the admission
 // guard maps to EXPORT_LIMIT_EXCEEDED.

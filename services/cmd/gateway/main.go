@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nats-io/nats.go/jetstream"
 
@@ -31,6 +32,7 @@ import (
 	"exchange/internal/analytics"
 	"exchange/internal/api"
 	"exchange/internal/auth"
+	"exchange/internal/backoffice"
 	"exchange/internal/bots"
 	"exchange/internal/cache"
 	"exchange/internal/compliance"
@@ -51,6 +53,7 @@ import (
 	"exchange/internal/gateway"
 	"exchange/internal/instruments"
 	"exchange/internal/ipc"
+	excmargin "exchange/internal/margin"
 	"exchange/internal/marketapi"
 	"exchange/internal/marketdata"
 	"exchange/internal/marketmaking"
@@ -83,6 +86,7 @@ import (
 	"exchange/internal/webhooks"
 	"exchange/internal/ws"
 	"exchange/pkg/decimal"
+	excerrors "exchange/pkg/errors"
 	"exchange/pkg/logging"
 )
 
@@ -2865,6 +2869,40 @@ func run() error {
 	// failed close aborts and leaves the request PENDING for retry.
 	api.RegisterBreakerResetExecutor(dualSvc, breakerSvc)
 
+	// ---- Phase-24 Tasks 24.3.6 / 24.3.7 / 24.3.19 — settlement ops ----
+	// Failed-settlement exceptions, PB give-up reconciliation and the
+	// write-off authority matrix. Resolution mutations never run inline —
+	// they land inside the dual-control approval transaction via the
+	// registered executors; ops alerts ride the shared NATS alerter.
+	boDual := api.NewBackofficeDualQueue(dualSvc)
+	var boAlerter backoffice.OpsAlertSink
+	if opsAlerter != nil {
+		oa := opsAlerter
+		boAlerter = boOpsAlertSink{raise: func(ctx context.Context, sev, code, summary string, details map[string]string) error {
+			return oa.Raise(ctx, settlement.OpsAlert{
+				Severity: sev, Code: code, Summary: summary, Details: details})
+		}}
+	}
+	settlementExcSvc := backoffice.NewExceptionService(
+		backoffice.NewPgxExceptionStore(pool), boDual)
+	pbReconSvc := backoffice.NewPBReconService(backoffice.NewPgxReconStore(pool),
+		backoffice.PBReconOptions{OnAlert: func(ctx context.Context, code, summary string, detail map[string]any) {
+			if opsAlerter == nil {
+				return
+			}
+			d := map[string]string{}
+			for k, v := range detail {
+				d[k] = fmt.Sprint(v)
+			}
+			_ = opsAlerter.Raise(ctx, settlement.OpsAlert{
+				Severity: "P1", Code: code, Summary: summary, Details: d})
+		}})
+	settlementOpsSvc := backoffice.NewOpsService(backoffice.NewPgxOpsStore(pool)).
+		WithDual(boDual).WithAlerter(boAlerter)
+	api.RegisterSettlementExceptionExecutor(dualSvc, settlementExcSvc)
+	api.RegisterSettlementWriteOffExecutor(dualSvc, settlementOpsSvc)
+	api.RegisterPBBreakResolveExecutor(dualSvc, pbReconSvc)
+
 	// ---- Phase-12 Tasks 12.3.10/12.3.11 + 12.3.12(part 3) ----
 	// Client-side delegation (migration 074): master-account workforce
 	// RBAC (CLIENT_* roles, explicit account/instrument scopes) plus the
@@ -3029,6 +3067,368 @@ func run() error {
 			"err", calErr)
 	}
 	sessionSvc := instruments.NewSessionService(sessionCal, instHolCal)
+
+	// ---- Phase-24 Tasks 24.3.1–.5 — nostro ledger, reconciliation,
+	//      settlement confirmations, SWIFT journal, compliance exports ----
+	// One PgNostroStore serves all four store seams (nostro accounts,
+	// recon runs/breaks, instruction lookup, SWIFT journal) — they are
+	// views over the same durable rows (migrations 018/035/261).
+	nostroStore := backoffice.NewPgNostroStore(pool)
+	nostroSvc, err := backoffice.NewNostroService(nostroStore)
+	if err != nil {
+		return fmt.Errorf("nostro service: %w", err)
+	}
+	swiftTracker, serr := backoffice.NewSwiftTracker(nostroStore)
+	if serr != nil {
+		return fmt.Errorf("swift tracker: %w", serr)
+	}
+	nostroReconSvc, serr := backoffice.NewNostroReconService(nostroStore, nostroSvc)
+	if serr != nil {
+		return fmt.Errorf("nostro recon: %w", serr)
+	}
+	nostroReconSvc.WithAlerter(opsAlerter).
+		WithLogger(func(f string, a ...any) { log.Warn(fmt.Sprintf("nostro recon: "+f, a...)) })
+	// The bank-statement polling seam is bound through the Task 24.3.12
+	// ingested-statement surface — RunDaily then diffs nostro movements
+	// against real statement rows, never a fabrication.
+	nostroReconSvc.WithStatements(boNostroStatements{pool: pool})
+	compReportSvc, serr := backoffice.NewComplianceReportService(
+		regStore, amlSvc, sarSvc, baselSvc)
+	if serr != nil {
+		return fmt.Errorf("compliance reports: %w", serr)
+	}
+
+	// ---- Phase-24 Tasks 24.3.8/.9/.12/.20/.21 — CLS PvP, bilateral
+	//      netting + SSI, statement ingestion, rail cut-offs, suspense ----
+	// CLS: the member-side ISO 20022 transport adapter ships as a
+	// deployment seam (EXC_CLS_* / HSM-bound credentials) — Member is nil
+	// so dispatch-class operations fail closed CLS_MEMBER_UNAVAILABLE;
+	// ingest/status/finality bookkeeping remains live.
+	clsSvc, serr := settlement.NewClsPvpService(settlement.NewPgxClsStore(pool),
+		settlement.ClsPvpOptions{
+			Member:  nil,
+			Poster:  ledgerSvc,
+			Alerter: opsAlerter,
+		})
+	if serr != nil {
+		return fmt.Errorf("cls pvp: %w", serr)
+	}
+	ssiSvc, serr := settlement.NewSsiService(settlement.NewPgxSsiStore(pool), nil)
+	if serr != nil {
+		return fmt.Errorf("ssi service: %w", serr)
+	}
+	var railCutoffSvc *settlement.RailCutoffService
+	if instHolCal != nil {
+		rc, rerr := settlement.NewRailCutoffService(
+			settlement.NewPgxRailScheduleStore(pool), instHolCal, nil)
+		if rerr != nil {
+			return fmt.Errorf("rail cutoff: %w", rerr)
+		}
+		railCutoffSvc = rc
+	} else {
+		log.Warn("Phase-24: holiday calendar unavailable — rail cut-off, " +
+			"netting dispatch and settlement-confirmation seams fail closed")
+	}
+	nettingSvc, serr := settlement.NewNettingService(settlement.NewPgxNettingStore(pool),
+		settlement.NettingServiceOptions{
+			SSI:      settlement.NewPgxSsiStore(pool),
+			Cls:      clsSvc,
+			Cutoff:   railCutoffSvc, // nil → dispatch refuses (fail-closed)
+			Calendar: instHolCal,
+			Alerter:  opsAlerter,
+		})
+	if serr != nil {
+		return fmt.Errorf("netting service: %w", serr)
+	}
+	// Task 24.3.21: unmatched statement credits route through the single
+	// Phase-11 quarantine pipeline — ScreenInbound decides attribution,
+	// never the settlement side.
+	suspenseSvc, serr := settlement.NewSuspenseService(suspenseGuard{g: depositGuard})
+	if serr != nil {
+		return fmt.Errorf("suspense router: %w", serr)
+	}
+	pgStmtStore := settlement.NewPgxStatementStore(pool)
+	stmtIngestSvc, serr := settlement.NewStatementIngestionService(
+		pgStmtStore,
+		settlement.StatementIngestionOptions{
+			Parser:   backoffice.StatementParsers{},
+			Suspense: suspenseSvc,
+			Alerter:  opsAlerter,
+		})
+	if serr != nil {
+		return fmt.Errorf("statement ingestion: %w", serr)
+	}
+	// Task 24.3.3: MT900/MT910 finality flips the settlement instruction
+	// SETTLED inside the settlement store's tx — that needs a live
+	// SettlementService, which requires the venue BIC (EXC_SENDER_BIC)
+	// and the holiday calendar; missing either fails the whole confirm
+	// seam closed rather than settling off-ledger. A nil settleSvc also
+	// parks the manual value-date-roll endpoint (fail-closed handler is
+	// mounted conditionally below).
+	var settleSvc *settlement.SettlementService
+	var confirmationSvc *backoffice.ConfirmationService
+	if bic := strings.TrimSpace(os.Getenv("EXC_SENDER_BIC")); bic != "" && instHolCal != nil {
+		settleSvc, serr = settlement.NewSettlementService(
+			settlement.NewPgxSettlementStore(pool), instHolCal,
+			settlement.SettlementOptions{
+				SenderBIC: bic,
+				Cutoff:    railCutoffSvc,
+			})
+		if serr != nil {
+			return fmt.Errorf("settlement service: %w", serr)
+		}
+		cs, cerr := backoffice.NewConfirmationService(nostroStore,
+			boSettlementConfirmer{svc: settleSvc}, nostroSvc)
+		if cerr != nil {
+			return fmt.Errorf("confirmation service: %w", cerr)
+		}
+		confirmationSvc = cs.WithRecorder(swiftTracker).
+			WithCalendar(instHolCal).
+			WithAlerter(opsAlerter)
+		// Two-business-day overdue sweep — unconfirmed dispatches page P2
+		// (deduped via the ops-alert journal).
+		go func() {
+			t := time.NewTicker(time.Hour)
+			defer t.Stop()
+			for {
+				select {
+				case <-sweepCtx.Done():
+					return
+				case <-t.C:
+					if _, err := confirmationSvc.SweepOverdue(sweepCtx, 500); err != nil {
+						log.Warn("confirmation overdue sweep", "err", err)
+					}
+				}
+			}
+		}()
+	} else {
+		log.Warn("Phase-24: EXC_SENDER_BIC or holiday calendar missing — " +
+			"settlement-confirmation endpoint fails closed SERVICE_DEGRADED")
+	}
+	// Daily nostro reconciliation — 04:30 UTC, after the EOD statement
+	// window and before treasury checks.
+	runDailyUTC(sweepCtx, log, "nostro-recon", 270, func(ctx context.Context) {
+		if _, err := nostroReconSvc.RunDaily(ctx,
+			time.Now().UTC().AddDate(0, 0, -1), nil); err != nil {
+			log.Warn("nostro recon daily run", "err", err)
+		}
+	})
+
+	// ---- Phase-24 Tasks 24.3.10/.15 — bunched-order + post-trade
+	//      allocations ----
+	// PgAllocStore posts the 2090 park/unpark journals through the shared
+	// ledger inside its own SERIALIZABLE tx. Execs/Reports stay nil: the
+	// exec_id→trade resolver and the 35=AK FIX initiator are session-
+	// bound deployment seams — nil fails the FIX ingest path closed
+	// while the admin surface stays live (§27 deviation).
+	allocStore, aerr := backoffice.NewPgAllocStore(pool, ledgerSvc)
+	if aerr != nil {
+		return fmt.Errorf("allocation store: %w", aerr)
+	}
+	allocEngine, aerr := backoffice.NewEngine(backoffice.EngineDeps{
+		Store:   allocStore,
+		Roles:   adminRoleResolver,
+		Execs:   nil,
+		Reports: nil,
+		Alerter: opsAlerter,
+	})
+	if aerr != nil {
+		return fmt.Errorf("allocation engine: %w", aerr)
+	}
+	api.RegisterAllocationCorrectExecutor(dualSvc, allocEngine)
+	allocDeps := api.AllocationDeps{
+		Backend: allocEngine, Dual: dualSvc, TrustProxy: true}
+	// T+0 unallocated-remainder sweep — hourly; groups past the
+	// end-of-day cutoff escalate to a durable P2 ops alert.
+	go func() {
+		t := time.NewTicker(time.Hour)
+		defer t.Stop()
+		for {
+			select {
+			case <-sweepCtx.Done():
+				return
+			case <-t.C:
+				now := time.Now().UTC()
+				cutoff := time.Date(now.Year(), now.Month(), now.Day(),
+					23, 0, 0, 0, time.UTC)
+				if res, err := allocEngine.EscalateUnallocated(sweepCtx, cutoff); err != nil {
+					log.Warn("allocation unallocated sweep", "err", err)
+				} else if res != nil && res.Escalated > 0 {
+					log.Warn("allocation T+0 unallocated escalations",
+						"groups", res.GroupIDs)
+				}
+			}
+		}
+	}()
+
+	// ---- Phase-24 Tasks 24.3.13/.14 — CSDR discipline + PB credit
+	//      restitution — plus the Task 24.3.19 ops monitors ----
+	// FX legs classify FX_CLOSEOUT (never CSDR on this venue); the
+	// classifier resolves regime per leg so a future securities line
+	// fails into the right discipline. Restitution adjusts PB DSL/NOP
+	// inside the caller's tx via the Phase-19 store's RestituteInTx.
+	csdrSvc := backoffice.NewCSDRService(
+		backoffice.NewPgxFailStore(pool), backoffice.NewPgxLegClassifier(pool))
+	restitutionSvc, rerr := backoffice.NewRestitutionService(
+		backoffice.NewPgxRestitutionStore(pool),
+		backoffice.CreditAdjusterFunc(func(ctx context.Context, tx any,
+			clientID int64, pair string, dslUSD, nopUSD decimal.Decimal) (int, error) {
+			raw, ok := tx.(pgx.Tx)
+			if !ok {
+				return 0, excerrors.New("SERVICE_DEGRADED",
+					"pb credit restitution requires a pgx transaction")
+			}
+			return risk.RestituteInTx(ctx, raw, risk.RestitutionInput{
+				ClientID:       clientID,
+				CurrencyPair:   pair,
+				DSLConsumedUSD: dslUSD,
+				NOPConsumedUSD: nopUSD})
+		}))
+	if rerr != nil {
+		return fmt.Errorf("restitution service: %w", rerr)
+	}
+	restitutionSvc.WithAlerter(boRestitutionAlerter{a: opsAlerter})
+	// Margin recalc and the FIX drop-copy notifier stay unwired — the
+	// recalc flag rides the restitution row for the risk service, and
+	// the drop-copy transport is a session-bound deployment seam.
+	buyInSvc := backoffice.NewBuyInService(
+		backoffice.BuyInStoreOf(backoffice.NewPgxFailStore(pool)),
+		boMarkPricer{pool: pool, mark: markProv},
+		func(ctx context.Context, code, summary string, detail map[string]any) {
+			if opsAlerter == nil {
+				return
+			}
+			d := map[string]string{}
+			for k, v := range detail {
+				d[k] = fmt.Sprint(v)
+			}
+			_ = opsAlerter.Raise(ctx, settlement.OpsAlert{
+				Severity: "P2", Code: code, Summary: summary, Details: d})
+		})
+	// Ops monitors: the close-out mark source and the rail cut-off
+	// evaluator join the Task 24.3.19 service; the rail-dispatch seam
+	// stays unwired — failover payments park (fail-closed) until a
+	// production transport binds.
+	settlementOpsSvc.
+		WithPricer(boMarkPricer{pool: pool, mark: markProv})
+	if railCutoffSvc != nil {
+		settlementOpsSvc.WithCutoffs(boCutoffEvaluator{svc: railCutoffSvc})
+	}
+	// Daily fail detection + penalty accrual (CSDR/FX close-out) and the
+	// buy-in notify/execute ladders — 06:00/06:15 UTC.
+	runDailyUTC(sweepCtx, log, "csdr-fails", 360, func(ctx context.Context) {
+		day := time.Now().UTC().AddDate(0, 0, -1)
+		if _, err := csdrSvc.DetectFails(ctx, day); err != nil {
+			log.Warn("csdr fail detection", "err", err)
+		}
+		if _, err := csdrSvc.AccruePenalties(ctx, day); err != nil {
+			log.Warn("csdr penalty accrual", "err", err)
+		}
+	})
+	runDailyUTC(sweepCtx, log, "csdr-buyin", 375, func(ctx context.Context) {
+		day := time.Now().UTC()
+		if _, err := buyInSvc.NotifyDue(ctx, day); err != nil {
+			log.Warn("buy-in notifications", "err", err)
+		}
+		if _, err := buyInSvc.ExecuteDue(ctx, day); err != nil {
+			log.Warn("buy-in executions", "err", err)
+		}
+	})
+	// Hourly settlement-ops monitors: aging escalation, nostro funding
+	// thresholds, CLS pay-in funding, failover dispatch retry, and the
+	// Herstatt exposure window.
+	go func() {
+		t := time.NewTicker(time.Hour)
+		defer t.Stop()
+		for {
+			select {
+			case <-sweepCtx.Done():
+				return
+			case <-t.C:
+				if _, err := settlementOpsSvc.SweepAging(sweepCtx); err != nil {
+					log.Warn("settlement aging sweep", "err", err)
+				}
+				if _, err := settlementOpsSvc.EvaluateNostroThresholds(sweepCtx); err != nil {
+					log.Warn("nostro threshold evaluation", "err", err)
+				}
+				if _, err := settlementOpsSvc.CLSPayInMonitor(sweepCtx); err != nil {
+					log.Warn("cls pay-in monitor", "err", err)
+				}
+				if _, err := settlementOpsSvc.ProcessFailover(sweepCtx); err != nil {
+					log.Warn("settlement failover", "err", err)
+				}
+				if _, err := settlementOpsSvc.MonitorHerstatt(sweepCtx); err != nil {
+					log.Warn("herstatt monitor", "err", err)
+				}
+			}
+		}
+	}()
+
+	// ---- Phase-24 Tasks 24.3.11/.16–.18 — client money, treasury,
+	//      independent assurance ----
+	// One backoffice.PgStore (migration 056/082/083 tables) serves the
+	// client-money, treasury and assurance store interfaces.
+	boStore, berr := backoffice.NewPgStore(pool)
+	if berr != nil {
+		return fmt.Errorf("backoffice store: %w", berr)
+	}
+	treasurySvc, terr := backoffice.NewTreasuryService(backoffice.TreasuryDeps{
+		Store:    boStore,
+		Outflows: pgStressedOutflows{pool: pool},
+		Alerter:  opsAlerter,
+		Resolver: adminRoleResolver,
+	})
+	if terr != nil {
+		return fmt.Errorf("treasury service: %w", terr)
+	}
+	assuranceSvc, terr := backoffice.NewAssuranceService(backoffice.AssuranceDeps{
+		Store:    boStore,
+		Alerter:  opsAlerter,
+		Resolver: adminRoleResolver,
+	})
+	if terr != nil {
+		return fmt.Errorf("client-money assurance: %w", terr)
+	}
+	clientMoneySvc, terr := backoffice.NewClientMoneyService(backoffice.ClientMoneyDeps{
+		Store:      boStore,
+		Poster:     backoffice.PgJournalPoster{L: ledgerSvc},
+		Fund:       cmFundSource{},
+		House:      treasurySvc,
+		NBP:        cmNBPSource{pool: pool},
+		Statements: cmStatementSource{pool: pool},
+		Suspension: cmSuspension{h: reconciliation.NewPgHalter(pool, rdb)},
+		Notices:    nil, // regtech dispatcher is a deployment seam — notices persist PENDING + retry
+		Alerter:    opsAlerter,
+		Resolver:   adminRoleResolver,
+	})
+	if terr != nil {
+		return fmt.Errorf("client money service: %w", terr)
+	}
+	// The daily segregation reconciliation, stress test and liquidity
+	// assessment are deliberately NOT scheduled here — each requires a
+	// finance-write role (RunDailyReconciliation/RunStressTest/
+	// EvaluateLiquidity call requireRole), and the distinct-principal
+	// sign-off is a regulatory control that must carry a human actor id.
+	// They run through the admin surface (/api/v1/admin/client-money/*,
+	// /api/v1/admin/treasury/*). The deadline/notice retry sweep is
+	// ungated and does run on a cadence.
+	go func() {
+		t := time.NewTicker(15 * time.Minute)
+		defer t.Stop()
+		for {
+			select {
+			case <-sweepCtx.Done():
+				return
+			case <-t.C:
+				if err := clientMoneySvc.SweepDeadlines(sweepCtx); err != nil {
+					log.Warn("client money deadline sweep", "err", err)
+				}
+				if err := clientMoneySvc.DispatchNotices(sweepCtx); err != nil {
+					log.Warn("client money notice dispatch", "err", err)
+				}
+			}
+		}
+	}()
 
 	listingSvc, err := instruments.NewListingService(instruments.ListingDeps{
 		Pool:        pool,
@@ -3983,6 +4383,44 @@ func run() error {
 			// construction above succeeded (typed-nil would panic).
 			mo.Collateral = collateralSvc
 		}
+		// Task 19.3.25 back-fit (post-Phase-22) — option-delta equity
+		// linkage: the PG source prices every OPEN option_position's
+		// delta at the current market (GK for EUROPEAN, trinomial
+		// lattice bump-and-reprice for AMERICAN, intrinsic for the
+		// expired-row lifecycle gap). Marks ride the SAME chained
+		// provider as margin evaluation (oracle primary, last-trade
+		// stub fallback); curves come from the oracle's published
+		// curve:{ccy} pillars. The IV-surface vol seam is deliberately
+		// unwired — no vol publisher exists yet (same posture as the
+		// Phase-23 greeks feed): an account holding a live option leg
+		// fails the delta leg closed with VOLATILITY_SURFACE_UNAVAILABLE
+		// rather than fabricating exposure; accounts with no option
+		// book short-circuit to zero before any market read.
+		if osrc, oerr := risk.NewPgOptionDeltaSource(pool,
+			risk.RedisOptionMarketSource{
+				Marks:  markProv,
+				Curves: rates.NewStore(rdb.Client),
+			},
+			risk.MarginUSDRateSource{
+				Pairs: mst,
+				Marks: risk.NewRedisMarkCache(rdb.Client),
+			}); oerr != nil {
+			log.Warn("phase19 option delta source unavailable", "err", oerr)
+		} else {
+			mo.OptionMargin = risk.DeltaOptionMarginEvaluator{Source: osrc}
+		}
+		// Task 19.3.25 §15.7 — recognized spread relief: the Phase-22
+		// detection service's APPLIED rows feed MarginService's
+		// PORTFOLIO aggregation (single-grant SpreadOffsetBook per
+		// evaluation). A nil nakedMargin is honest — SpreadOffsets/
+		// LiveOffsets read persisted APPLIED rows and never reprice
+		// legs; Recompute repricing is invoked by the Phase-22 engine.
+		if ss, serr := excmargin.NewSpreadOffsetService(pool, nil,
+			func(f string, a ...any) { log.Warn(fmt.Sprintf(f, a...)) }); serr != nil {
+			log.Warn("phase22 spread offset service unavailable", "err", serr)
+		} else {
+			mo.SpreadOffsets = ss
+		}
 		if m, merr := risk.NewMarginService(mo); merr != nil {
 			log.Warn("phase19 margin service unavailable", "err", merr)
 		} else {
@@ -4713,6 +5151,118 @@ func run() error {
 			api.AdminReplenishmentDecide(dispatchSvc)),
 		"GET /api/v1/admin/funding/ops-alerts": http.HandlerFunc(
 			api.AdminFundingOpsAlerts(dispatchSvc)),
+		// --- Phase-24 settlement ops (Tasks 24.3.6 / 24.3.7) ---
+		// Resolution submits to the §8.2 four-eyes queue; the mutation
+		// lands inside the approval tx via the registered executors.
+		"GET /api/v1/admin/pb-reconciliation": http.HandlerFunc(
+			api.AdminPBReconciliation(pbReconSvc)),
+		"POST /api/v1/admin/settlement-exceptions/{id}/resolve": http.HandlerFunc(
+			api.AdminSettlementExceptionResolve(settlementExcSvc)),
+		"GET /api/v1/admin/settlement-exceptions/{id}": http.HandlerFunc(
+			api.AdminSettlementExceptionGet(settlementExcSvc)),
+		// --- Phase-24 nostro / recon / SWIFT / confirmations /
+		//     compliance exports (Tasks 24.3.1–.5) ---
+		"GET /api/v1/admin/nostro-accounts": http.HandlerFunc(
+			api.AdminNostroAccountList(nostroSvc)),
+		"POST /api/v1/admin/nostro-accounts": http.HandlerFunc(
+			api.AdminNostroAccountCreate(nostroSvc)),
+		"GET /api/v1/admin/nostro-reconciliation": http.HandlerFunc(
+			api.AdminNostroReconciliation(nostroReconSvc)),
+		"POST /api/v1/admin/nostro-reconciliation/run": http.HandlerFunc(
+			api.AdminNostroReconRun(nostroReconSvc)),
+		"POST /api/v1/admin/nostro-reconciliation/breaks/{id}/resolve": http.HandlerFunc(
+			api.AdminNostroBreakResolve(nostroReconSvc)),
+		"GET /api/v1/admin/swift-messages": http.HandlerFunc(
+			api.AdminSwiftMessages(swiftTracker)),
+		"GET /api/v1/admin/compliance-report": http.HandlerFunc(
+			api.AdminComplianceReport(compReportSvc)),
+		// --- Phase-24 settlement ops: statements / CLS / SSI / netting /
+		//     rail / suspense (Tasks 24.3.8/.9/.12/.20/.21) ---
+		"POST /api/v1/admin/settlement/statements": http.HandlerFunc(
+			api.AdminIngestStatement(stmtIngestSvc)),
+		"GET /api/v1/admin/settlement/statements": http.HandlerFunc(
+			api.AdminListStatements(pgStmtStore)),
+		"GET /api/v1/admin/settlement/statements/{id}/entries": http.HandlerFunc(
+			api.AdminStatementEntries(pgStmtStore)),
+		"POST /api/v1/admin/settlement/cls/instructions": http.HandlerFunc(
+			api.AdminClsSubmit(clsSvc)),
+		"POST /api/v1/admin/settlement/cls/instructions/{ref}/dispatch": http.HandlerFunc(
+			api.AdminClsDispatch(clsSvc)),
+		"POST /api/v1/admin/settlement/cls/instructions/{ref}/amend": http.HandlerFunc(
+			api.AdminClsAmend(clsSvc)),
+		"POST /api/v1/admin/settlement/cls/instructions/{ref}/rescind": http.HandlerFunc(
+			api.AdminClsRescind(clsSvc)),
+		"POST /api/v1/admin/settlement/cls/instructions/{ref}/pay-in": http.HandlerFunc(
+			api.AdminClsPayIn(clsSvc)),
+		"POST /api/v1/admin/settlement/cls/instructions/{ref}/finality": http.HandlerFunc(
+			api.AdminClsFinality(clsSvc)),
+		"POST /api/v1/admin/settlement/cls/instructions/{ref}/status": http.HandlerFunc(
+			api.AdminClsStatus(clsSvc)),
+		"GET /api/v1/admin/settlement/ssi": http.HandlerFunc(
+			api.AdminSsiList(ssiSvc)),
+		"POST /api/v1/admin/settlement/ssi": http.HandlerFunc(
+			api.AdminSsiRegister(ssiSvc)),
+		"POST /api/v1/admin/settlement/ssi/{id}/revoke": http.HandlerFunc(
+			api.AdminSsiRevoke(ssiSvc)),
+		"POST /api/v1/admin/settlement/netting/run": http.HandlerFunc(
+			api.AdminNettingRun(nettingSvc)),
+		"GET /api/v1/admin/settlement/netting/batches": http.HandlerFunc(
+			api.AdminNettingBatches(nettingSvc)),
+		"GET /api/v1/admin/settlement/netting/batches/{id}/lines": http.HandlerFunc(
+			api.AdminNettingBatchLines(nettingSvc)),
+		"POST /api/v1/admin/settlement/netting/batches/{id}/dispatch": http.HandlerFunc(
+			api.AdminNettingDispatch(nettingSvc)),
+		"POST /api/v1/admin/settlement/netting/batches/{id}/settle": http.HandlerFunc(
+			api.AdminNettingSettle(nettingSvc)),
+		"POST /api/v1/admin/settlement/netting/batches/{id}/bust": http.HandlerFunc(
+			api.AdminNettingBust(nettingSvc)),
+		"POST /api/v1/admin/settlement/suspense/route": http.HandlerFunc(
+			api.AdminSuspenseRoute(suspenseSvc)),
+		"POST /api/v1/admin/settlement/suspense/{id}/resolve": http.HandlerFunc(
+			api.AdminSuspenseResolve(suspenseSvc)),
+		// --- Phase-24 allocations (Tasks 24.3.10/.15) ---
+		"POST /api/v1/allocations": http.HandlerFunc(
+			api.AllocationsCreate(allocDeps)),
+		"POST /api/v1/admin/allocations/groups": http.HandlerFunc(
+			api.AdminAllocationGroupCreate(allocDeps)),
+		"GET /api/v1/admin/allocations/groups/{id}": http.HandlerFunc(
+			api.AdminAllocationGroupGet(allocDeps)),
+		"POST /api/v1/admin/allocations/groups/{id}/fills": http.HandlerFunc(
+			api.AdminAllocationAttachFills(allocDeps)),
+		"POST /api/v1/admin/allocations/groups/{id}/allocate": http.HandlerFunc(
+			api.AdminAllocationAllocate(allocDeps)),
+		"POST /api/v1/admin/allocations/groups/{id}/eligibility": http.HandlerFunc(
+			api.AdminAllocationEligibility(allocDeps)),
+		"POST /api/v1/admin/allocations/groups/{id}/submit": http.HandlerFunc(
+			api.AdminAllocationSubmit(allocDeps)),
+		"POST /api/v1/admin/allocations/{id}/claim": http.HandlerFunc(
+			api.AdminAllocationClaim(allocDeps)),
+		"POST /api/v1/admin/allocations/{id}/reject": http.HandlerFunc(
+			api.AdminAllocationReject(allocDeps)),
+		"POST /api/v1/admin/allocations/{id}/cancel": http.HandlerFunc(
+			api.AdminAllocationCancel(allocDeps)),
+		"POST /api/v1/admin/allocations/{id}/correct": http.HandlerFunc(
+			api.AdminAllocationCorrect(allocDeps)),
+		"POST /api/v1/admin/allocations/escalate": http.HandlerFunc(
+			api.AdminAllocationEscalate(allocDeps)),
+		// --- Phase-24 client money / treasury / assurance
+		//     (Tasks 24.3.11/.17/.18) ---
+		"GET /api/v1/admin/treasury/own-funds": http.HandlerFunc(
+			api.AdminTreasuryOwnFunds(treasurySvc)),
+		"GET /api/v1/admin/treasury/contingent-capital": http.HandlerFunc(
+			api.AdminContingentCapitalList(treasurySvc)),
+		"POST /api/v1/admin/treasury/contingent-capital": http.HandlerFunc(
+			api.AdminContingentCapitalCreate(treasurySvc)),
+		"GET /api/v1/admin/client-money/audits": http.HandlerFunc(
+			api.AdminClientMoneyAudits(assuranceSvc)),
+		"POST /api/v1/admin/client-money/audits": http.HandlerFunc(
+			api.AdminClientMoneyAuditCreate(assuranceSvc)),
+		"POST /api/v1/admin/client-money/audits/{id}/evidence-pack": http.HandlerFunc(
+			api.AdminClientMoneyEvidencePack(assuranceSvc)),
+		"GET /api/v1/admin/client-money/certifications": http.HandlerFunc(
+			api.AdminClientMoneyCertificationList(assuranceSvc)),
+		"POST /api/v1/admin/client-money/certifications": http.HandlerFunc(
+			api.AdminClientMoneyCertificationCreate(assuranceSvc)),
 		// --- Phase-13 Task 13.3.2 reconciliation report surface ---
 		"GET /api/v1/admin/reconciliation/latest": http.HandlerFunc(
 			api.AdminReconciliationLatest(reconStore)),
@@ -5514,6 +6064,25 @@ func run() error {
 	// dependent services stay absent (fail-closed 503 shim) when their
 	// backend cannot be constructed; mounting a handler over a nil
 	// service would panic instead of degrading.
+	// Phase-24 conditional mounts — the settlement-confirmation and
+	// value-date-roll endpoints need a live SettlementService
+	// (EXC_SENDER_BIC + holiday calendar); the rail-schedule surface
+	// needs the cut-off service. Mounting a handler over a nil service
+	// would panic instead of degrading to the registered 503 shim.
+	if confirmationSvc != nil {
+		live["POST /api/v1/admin/settlement-confirmations"] = http.HandlerFunc(
+			api.AdminSettlementConfirmation(confirmationSvc))
+	}
+	if settleSvc != nil {
+		live["POST /api/v1/admin/settlement/instructions/{id}/roll"] = http.HandlerFunc(
+			api.AdminRollInstruction(settleSvc))
+	}
+	if railCutoffSvc != nil {
+		live["GET /api/v1/admin/settlement/rail-schedules"] = http.HandlerFunc(
+			api.AdminRailSchedules(railCutoffSvc))
+		live["POST /api/v1/admin/settlement/rail-schedules/evaluate"] = http.HandlerFunc(
+			api.AdminRailEvaluate(railCutoffSvc))
+	}
 	if commsSvc != nil {
 		live["GET /api/v1/admin/comms-recordings"] = http.HandlerFunc(
 			api.AdminCommsList(commsSvc))

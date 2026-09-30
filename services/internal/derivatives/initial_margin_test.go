@@ -123,11 +123,21 @@ func TestIMSpreadRelief_AppliesAndCaps(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Deltas net to zero → delta margin 0; relief then floored at total ≥ 0.
-	if !res.TotalUSD.Equal(decimal.Zero) {
-		t.Fatalf("total %s want 0 (delta nets, relief floored)", res.TotalUSD)
+	// §15.7 pre-aggregation ordering (Task 19.3.25): the consumed legs
+	// never enter delta aggregation — the pair contributes its bounded
+	// margin (naked 200 − relief 50 = 150), NOT the netted-delta 0 AND
+	// NOT a double-counted hedge benefit.
+	if !res.SpreadMarginUSD.Equal(dec("150")) {
+		t.Fatalf("spread margin %s want 150 (naked−relief)", res.SpreadMarginUSD)
 	}
-	// Relief beyond naked sum caps at 200.
+	if !res.TotalUSD.Equal(dec("150")) {
+		t.Fatalf("total %s want 150 (bounded margin)", res.TotalUSD)
+	}
+	if !res.DeltaUSD.IsZero() {
+		t.Fatalf("residual delta %s want 0 — consumed legs must not aggregate", res.DeltaUSD)
+	}
+	// Relief beyond naked sum caps at the legs' naked margin; the pair
+	// then contributes bound = 100 − 100 = 0.
 	res2, err := IMAggregate([]IMSensitivity{
 		sens(1, "EUR", "USD", "1000", "0", "0", "100", false),
 	}, []IMSpreadOffset{{SpreadID: "s9", SpreadType: "CALENDAR",
@@ -137,6 +147,36 @@ func TestIMSpreadRelief_AppliesAndCaps(t *testing.T) {
 	}
 	if !res2.SpreadReliefUSD.Equal(dec("100")) {
 		t.Fatalf("relief %s should cap at naked 100", res2.SpreadReliefUSD)
+	}
+	if !res2.SpreadMarginUSD.IsZero() || !res2.TotalUSD.IsZero() {
+		t.Fatalf("capped spread should contribute 0, got margin %s total %s",
+			res2.SpreadMarginUSD, res2.TotalUSD)
+	}
+}
+
+// TestIMSpreadRelief_ResidualLegsStillAggregate pins the no-double-count
+// invariant from the other side: consuming the spread pair must not
+// strip unrelated legs from the aggregation.
+func TestIMSpreadRelief_ResidualLegsStillAggregate(t *testing.T) {
+	p := DefaultUMRParams()
+	s := []IMSensitivity{
+		sens(1, "EUR", "USD", "1000", "0", "0", "100", false),
+		sens(2, "EUR", "USD", "-1000", "0", "0", "100", false),
+		// Residual leg — NOT in the spread; must aggregate normally.
+		sens(3, "GBP", "USD", "500", "0", "0", "40", false),
+	}
+	res, err := IMAggregate(s, []IMSpreadOffset{{
+		SpreadID: "s1", SpreadType: "VERTICAL_CALL",
+		LegRefs: []int64{1, 2}, ReliefUSD: dec("50")}}, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Residual leg alone: 500·0.073 = 36.5 delta margin; pair bound 150.
+	if !res.DeltaUSD.Equal(dec("36.5")) {
+		t.Fatalf("residual delta %s want 36.5", res.DeltaUSD)
+	}
+	if !res.TotalUSD.Equal(dec("186.5")) {
+		t.Fatalf("total %s want 186.5 (residual agg + bounded pair)", res.TotalUSD)
 	}
 }
 

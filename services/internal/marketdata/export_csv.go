@@ -8,8 +8,8 @@
 //     the async artifact is newline-delimited JSON (JSONL), one document
 //     per row — streaming-friendly at 1M rows.
 //   - Parquet trades schema:
-//       trade_id uint64, ts timestamp(ms,utc), symbol string,
-//       side string, price decimal(18,8), qty decimal(18,8)
+//     trade_id uint64, ts timestamp(ms,utc), symbol string,
+//     side string, price decimal(18,8), qty decimal(18,8)
 //     (klines use the analogous OHLCV column set; snappy-compressed,
 //     50k-row groups so the writer never buffers a full export).
 //
@@ -114,10 +114,10 @@ func rowDoc(r Row) any {
 		}
 	}
 	return tradeDoc{
-		TradeID:  r.TradeID,
-		Time:     r.Ts.Format(time.RFC3339),
-		TimeMs:   r.Ts.UnixMilli(),
-		Symbol:   r.Symbol, Side: r.Side,
+		TradeID: r.TradeID,
+		Time:    r.Ts.Format(time.RFC3339),
+		TimeMs:  r.Ts.UnixMilli(),
+		Symbol:  r.Symbol, Side: r.Side,
 		Price:    r.Price.StringFixed(8),
 		Quantity: r.Quantity.StringFixed(8),
 	}

@@ -21,6 +21,7 @@ import (
 	"exchange/internal/analytics"
 	"exchange/internal/api"
 	"exchange/internal/auth"
+	"exchange/internal/backoffice"
 	"exchange/internal/compliance"
 	"exchange/internal/config"
 	"exchange/internal/funding"
@@ -28,9 +29,12 @@ import (
 	"exchange/internal/marketapi"
 	"exchange/internal/nats"
 	"exchange/internal/orders"
+	"exchange/internal/reconciliation"
 	excredis "exchange/internal/redis"
 	"exchange/internal/reporting"
 	"exchange/internal/settlement"
+	"exchange/pkg/decimal"
+	excerrors "exchange/pkg/errors"
 )
 
 // shardIDs returns the full engine shard universe for the out-ring
@@ -779,4 +783,369 @@ func confirmationRecords(rows []analytics.Confirmation) []reporting.Confirmation
 		})
 	}
 	return out
+}
+
+// ---------------------------------------------------------------------------
+// Phase-24 settlement-ops adapters (Tasks 24.3.6/.7/.19)
+// ---------------------------------------------------------------------------
+
+// boOpsAlertSink adapts the backoffice.OpsAlertSink seam onto the shared
+// funding.OpsAlerter (NATS funding_ops_alerts / settlement.PublisherAlerter).
+type boOpsAlertSink struct {
+	raise func(ctx context.Context, sev, code, summary string, details map[string]string) error
+}
+
+// Raise implements backoffice.OpsAlertSink.
+func (a boOpsAlertSink) Raise(ctx context.Context, sev, code,
+	summary string, details map[string]string) error {
+	return a.raise(ctx, sev, code, summary, details)
+}
+
+// ---------------------------------------------------------------------------
+// Phase-24 nostro/settlement/client-money adapters (Tasks 24.3.1–.21)
+// ---------------------------------------------------------------------------
+
+// boSettlementConfirmer adapts *settlement.SettlementService onto the
+// backoffice.SettlementConfirmer seam (Task 24.3.3 — an authenticated
+// MT900/MT910 flips the instruction SETTLED inside the settlement
+// store's SERIALIZABLE tx; replays resolve ALREADY_SETTLED).
+type boSettlementConfirmer struct {
+	svc *settlement.SettlementService
+}
+
+// ConfirmSettlement implements backoffice.SettlementConfirmer.
+func (a boSettlementConfirmer) ConfirmSettlement(ctx context.Context,
+	instructionID int64, confirmationRef string) (*backoffice.ConfirmedInstruction, error) {
+	ins, err := a.svc.ConfirmSettlement(ctx, instructionID, confirmationRef)
+	if err != nil {
+		return nil, err
+	}
+	return &backoffice.ConfirmedInstruction{Status: string(ins.Status)}, nil
+}
+
+// suspenseGuard adapts *funding.DepositGuard onto the
+// settlement.DepositScreener seam (Task 24.3.21). The wire/result row
+// shapes mirror field-for-field — the Phase-11 quarantine pipeline
+// (screen → suspense_account_mappings + GL 2150) is the single
+// unmatched-credit attribution path.
+type suspenseGuard struct {
+	g *funding.DepositGuard
+}
+
+// ScreenInbound implements settlement.DepositScreener.
+func (a suspenseGuard) ScreenInbound(ctx context.Context,
+	w settlement.SuspenseInbound) (*settlement.SuspenseScreenResult, error) {
+	res, err := a.g.ScreenInbound(ctx, funding.InboundWire{
+		BankTxID:          w.BankTxID,
+		Rail:              w.Rail,
+		Currency:          w.Currency,
+		Amount:            w.Amount,
+		OriginatorName:    w.OriginatorName,
+		OriginatorAccount: w.OriginatorAccount,
+		OriginatorBIC:     w.OriginatorBIC,
+		Reference:         w.Reference,
+		RemittanceInfo:    w.RemittanceInfo,
+		ReceivedAt:        w.ReceivedAt,
+	})
+	if err != nil || res == nil {
+		return nil, err
+	}
+	out := &settlement.SuspenseScreenResult{
+		Disposition: res.Disposition,
+		Reason:      res.Reason,
+		Idempotent:  res.Idempotent,
+	}
+	if res.Suspense != nil {
+		out.SuspenseID = res.Suspense.ID
+	}
+	return out, nil
+}
+
+// ResolveSuspense implements settlement.DepositScreener.
+func (a suspenseGuard) ResolveSuspense(ctx context.Context, suspenseID int64,
+	action string, investigatorID int64, notes string) (*settlement.SuspenseResolveOutcome, error) {
+	res, err := a.g.ResolveSuspense(ctx, suspenseID, action, investigatorID, notes)
+	if err != nil || res == nil {
+		return nil, err
+	}
+	return &settlement.SuspenseResolveOutcome{
+		SuspenseID: res.SuspenseID,
+		Action:     res.Action,
+		Status:     res.Status,
+		JournalID:  res.JournalID,
+	}, nil
+}
+
+// boRawTx unwraps the pgx handle a tx-scoped *backoffice.PgStore
+// carries — the fund/journal seams below must execute inside the
+// caller's SERIALIZABLE transaction, never on the pool.
+func boRawTx(tx backoffice.Tx) (pgx.Tx, error) {
+	raw, ok := tx.(interface{ RawTx() pgx.Tx })
+	if !ok || raw.RawTx() == nil {
+		return nil, excerrors.New("INTERNAL_ERROR",
+			"backoffice seam requires a pgx-backed transaction")
+	}
+	return raw.RawTx(), nil
+}
+
+// cmFundSource is the Task 24.3.11 FundSource binding: it writes ONLY
+// the insurance_fund balance ledger inside the caller's tx — the GL
+// journal for the movement is posted by the client-money service via
+// backoffice.PgJournalPoster (contract: fund adapters never post
+// journals; risk.InsuranceFundService.Debit is unusable here because
+// it commits its own journal).
+type cmFundSource struct{}
+
+// Balance implements backoffice.FundSource.
+func (cmFundSource) Balance(ctx context.Context, tx backoffice.Tx,
+	ccy string) (decimal.Decimal, error) {
+	raw, err := boRawTx(tx)
+	if err != nil {
+		return decimal.Zero, err
+	}
+	var bal decimal.Decimal
+	err = raw.QueryRow(ctx, `
+		SELECT balance FROM insurance_fund
+		 WHERE currency = $1 FOR UPDATE`, ccy).Scan(&bal)
+	if err == pgx.ErrNoRows {
+		return decimal.Zero, nil // unseeded currency — the fund holds nothing
+	}
+	return bal, err
+}
+
+// Debit implements backoffice.FundSource — a guard predicate keeps the
+// fund non-negative; the movement lands in insurance_fund_transactions
+// (same audit artifact InsuranceFundService.Debit writes, reason
+// MANUAL_ADJUSTMENT / reference_type client_money_shortfall).
+func (cmFundSource) Debit(ctx context.Context, tx backoffice.Tx, ccy string,
+	amount decimal.Decimal, refID int64) error {
+	raw, err := boRawTx(tx)
+	if err != nil {
+		return err
+	}
+	tag, err := raw.Exec(ctx, `
+		UPDATE insurance_fund
+		   SET balance = balance - $2, updated_at = now()
+		 WHERE currency = $1 AND balance >= $2`, ccy, amount)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return excerrors.New("INSUFFICIENT_BALANCE",
+			"insurance fund cannot cover the client-money top-up")
+	}
+	_, err = raw.Exec(ctx, `
+		INSERT INTO insurance_fund_transactions
+			(currency, direction, amount, reason, reference_type,
+			 reference_id, balance_after)
+		 SELECT $1, 'DEBIT', $2, 'MANUAL_ADJUSTMENT',
+		        'client_money_shortfall', $3, balance
+		   FROM insurance_fund WHERE currency = $1`,
+		ccy, amount, refID)
+	return err
+}
+
+// cmNBPSource is the Task 24.3.16 NBPExposureSource binding — the
+// worst-case NBP exposure a currency faces right now = the aggregate
+// retail negative balance the fund would restitute on the next NBP
+// sweep (spec §17.13.2 stress-test leg).
+type cmNBPSource struct {
+	pool *pgxpool.Pool
+}
+
+// WorstNBPExposure implements backoffice.NBPExposureSource.
+func (s cmNBPSource) WorstNBPExposure(ctx context.Context,
+	ccy string) (decimal.Decimal, error) {
+	var out decimal.Decimal
+	err := s.pool.QueryRow(ctx, `
+		SELECT COALESCE(SUM(GREATEST(0, -b.balance)), 0)
+		  FROM balances b
+		  JOIN accounts a ON a.id = b.account_id
+		 WHERE b.currency = $1 AND a.client_category = 'RETAIL'`,
+		ccy).Scan(&out)
+	return out, err
+}
+
+// cmStatementSource is the Task 24.3.12 external-reconciliation leg —
+// reads the closing balance of the bank statement ingested for the
+// nostro account on the reconciliation day (nil balance = no
+// statement → the external leg records UNAVAILABLE, never silently
+// passes).
+type cmStatementSource struct {
+	pool *pgxpool.Pool
+}
+
+// ClosingBalance implements backoffice.StatementSource.
+func (s cmStatementSource) ClosingBalance(ctx context.Context,
+	nostroAccountID int64, day time.Time) (*decimal.Decimal, string, error) {
+	var bal decimal.Decimal
+	var ref string
+	err := s.pool.QueryRow(ctx, `
+		SELECT closing_balance, COALESCE(statement_number, '')
+		  FROM bank_statements
+		 WHERE nostro_account_id = $1 AND statement_date = $2
+		 ORDER BY id DESC LIMIT 1`, nostroAccountID, day).Scan(&bal, &ref)
+	if err == pgx.ErrNoRows {
+		return nil, "", nil
+	}
+	if err != nil {
+		return nil, "", err
+	}
+	return &bal, ref, nil
+}
+
+// cmSuspension drives the Task 24.3.11 Tier-4 trading halt through the
+// same artifacts KillSwitchService commits — a trading_suspensions row
+// (initiated_by=0 machine sentinel) plus the halt:* Redis flag — so the
+// enforcement surface and the admin resume path are identical.
+type cmSuspension struct {
+	h *reconciliation.PgHalter
+}
+
+// SuspendTrading implements backoffice.SuspensionTrigger.
+func (s cmSuspension) SuspendTrading(ctx context.Context, reason string) error {
+	_, err := s.h.Halt(ctx, admin.ScopeGlobal, "",
+		"client-money shortfall remediation: "+reason)
+	return err
+}
+
+// boNostroStatements is the Task 24.3.1 NostroStatementSource binding —
+// the statement "poll" replays the already-ingested statement_entries
+// (Task 24.3.12 surface) into nostro_statement_entries, idempotently
+// (natural-key UNIQUE in UpsertStatementEntries). This keeps one
+// ingestion path — no second bank transport lives in the gateway.
+type boNostroStatements struct {
+	pool *pgxpool.Pool
+}
+
+// Poll implements backoffice.NostroStatementSource.
+func (s boNostroStatements) Poll(ctx context.Context, nostroAccountID int64,
+	day time.Time) ([]backoffice.NostroStatementEntry, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT e.id, e.value_date,
+		       COALESCE(e.uetr, e.bank_ref, e.entry_ref, ''),
+		       CASE WHEN e.credit_debit_indicator = 'CRDT' THEN 'CREDIT' ELSE 'DEBIT' END,
+		       e.amount, e.currency, COALESCE(e.narrative, ''), bs.format
+		  FROM statement_entries e
+		  JOIN bank_statements bs ON bs.id = e.statement_id
+		 WHERE bs.nostro_account_id = $1 AND bs.statement_date = $2
+		 ORDER BY e.id`, nostroAccountID, day)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []backoffice.NostroStatementEntry
+	for rows.Next() {
+		var e backoffice.NostroStatementEntry
+		var vd *time.Time
+		if err := rows.Scan(&e.ID, &vd, &e.SwiftReference, &e.Direction,
+			&e.Amount, &e.Currency, &e.Narrative, &e.Source); err != nil {
+			return nil, err
+		}
+		e.NostroAccountID = nostroAccountID
+		e.StatementDate = day
+		if vd != nil {
+			e.StatementDate = *vd
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// pgStressedOutflows is the Task 24.3.17 StressedOutflowSource binding —
+// a deterministic 5-business-day stress estimate per currency:
+// committed outflows (non-terminal withdrawals already queued on the
+// rails) plus 5× the trailing-30-business-day mean daily completed
+// withdrawal volume. Never fabricated — a ccy with no history
+// evaluates against its live pending queue only.
+type pgStressedOutflows struct {
+	pool *pgxpool.Pool
+}
+
+// StressedOutflow5d implements backoffice.StressedOutflowSource.
+func (s pgStressedOutflows) StressedOutflow5d(ctx context.Context,
+	ccy string) (decimal.Decimal, error) {
+	var out decimal.Decimal
+	err := s.pool.QueryRow(ctx, `
+		WITH pending AS (
+			SELECT COALESCE(SUM(amount), 0) AS amt
+			  FROM funding_transactions
+			 WHERE type = 'WITHDRAWAL' AND currency = $1
+			   AND status IN ('PENDING', 'PENDING_REVIEW', 'CONFIRMED')
+		), daily AS (
+			SELECT COALESCE(AVG(day_sum), 0) AS mean_daily
+			  FROM (
+				SELECT date_trunc('day', completed_at) AS d, SUM(amount) AS day_sum
+				  FROM funding_transactions
+				 WHERE type = 'WITHDRAWAL' AND currency = $1
+				   AND status = 'COMPLETED'
+				   AND completed_at >= now() - interval '30 days'
+				 GROUP BY 1) s
+		)
+		SELECT pending.amt + 5 * daily.mean_daily FROM pending, daily`,
+		ccy).Scan(&out)
+	return out, err
+}
+
+// boRestitutionAlerter adapts the shared OpsAlerter onto the
+// backoffice.RestitutionAlerter seam (Task 24.3.14 — the struct fields
+// mirror OpsAlert field-for-field).
+type boRestitutionAlerter struct {
+	a settlement.OpsAlerter
+}
+
+// RaiseRestitutionAlert implements backoffice.RestitutionAlerter.
+func (r boRestitutionAlerter) RaiseRestitutionAlert(ctx context.Context,
+	a backoffice.RestitutionAlert) error {
+	if r.a == nil {
+		return nil
+	}
+	return r.a.Raise(ctx, settlement.OpsAlert{
+		Severity: a.Severity, Code: a.Code,
+		Summary: a.Summary, Details: a.Details})
+}
+
+// boMarkPricer is the backoffice.MarkPricer binding for CSDR buy-ins
+// and FX close-outs (Tasks 24.3.13/.19): trade → instrument symbol →
+// the shared chained mark provider (oracle → last-trade fallback).
+type boMarkPricer struct {
+	pool *pgxpool.Pool
+	mark interface {
+		GetMarkPrice(symbol string) (decimal.Decimal, error)
+	}
+}
+
+// MarkPrice implements backoffice.MarkPricer.
+func (p boMarkPricer) MarkPrice(ctx context.Context,
+	tradeID int64) (decimal.Decimal, error) {
+	var symbol string
+	err := p.pool.QueryRow(ctx, `
+		SELECT i.symbol
+		  FROM trades t JOIN instruments i ON i.id = t.instrument_id
+		 WHERE t.id = $1`, tradeID).Scan(&symbol)
+	if err != nil {
+		return decimal.Zero, fmt.Errorf("mark pricer: trade %d: %w", tradeID, err)
+	}
+	return p.mark.GetMarkPrice(symbol)
+}
+
+// boCutoffEvaluator adapts *settlement.RailCutoffService onto the
+// backoffice.CutoffEvaluator seam (Task 24.3.19 — the decision view is
+// a field-for-field mirror of settlement.CutoffDecision).
+type boCutoffEvaluator struct {
+	svc *settlement.RailCutoffService
+}
+
+// Evaluate implements backoffice.CutoffEvaluator.
+func (a boCutoffEvaluator) Evaluate(rail, currency string,
+	at time.Time) (backoffice.CutoffDecisionView, error) {
+	d, err := a.svc.Evaluate(rail, currency, at)
+	if err != nil {
+		return backoffice.CutoffDecisionView{}, err
+	}
+	return backoffice.CutoffDecisionView{
+		CutoffPassed:       d.CutoffPassed,
+		ValueDate:          d.ValueDate,
+		QueuedForNextCycle: d.QueuedForNextCycle,
+	}, nil
 }

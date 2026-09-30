@@ -37,14 +37,14 @@
 **PostgreSQL reconciliation dependency note:** The trade-to-PostgreSQL persistence pipeline is implemented in Phase 3 (Task 3.3.1: balance service consumes trade fills and updates PostgreSQL). Phase 2.5 runs before Phase 3 (dependency: 2 → 2.5 → 3). During Phase 2.5, the reconciliation job validates **WAL integrity only** (WAL seq continuity, zero gaps, zero duplicates via seq-based idempotency). The PostgreSQL cross-check (WAL trades vs PostgreSQL `trades` table) is added after Phase 3 is complete and the trade persistence pipeline is operational. The Phase 2.5 → 3/4/5/6 gate criterion "PostgreSQL reconcile zero missing" is satisfied by WAL integrity validation during Phase 2.5, with the full PostgreSQL cross-check validated during Phase 8 (Integration Testing).
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Load generator sustains 50k orders/sec for 72h
-* [ ] Grafana dashboard shows real-time metrics
+* [ ] Load generator sustains 50k orders/sec for 72h *(env-bound: 72h soak window not executed; harness + crash-injection monitor landed and exercised on bounded runs — see Task 2.5.3.2 note)*
+* [ ] Grafana dashboard shows real-time metrics *(env-bound: metrics + dashboard definitions landed; live scrape not run in this environment)*
 * [x] Crash injection triggers recovery automatically (monitor.sh: 2 kills → auto-recovery 370/579ms)
 * [x] Reconciliation job runs every 1h (WAL-integrity substitute per dependency note: wal_audit on --audit-interval + final recover scan, all clean)
 
 **SDD Checklist:**
 - [x] Spec checkpoint: 50k orders/sec sustained for 72h — defined first, validated against spec (registered; skips honestly until a qualifying 72h artifact lands)
-- [ ] All spec checkpoints pass after implementation
+- [ ] All spec checkpoints pass after implementation *(open — env-bound: the registered soak/staging checkpoints skip honestly until a qualifying 72h artifact or provisioned staging cluster exists; all other checkpoints pass)*
 
 ---
 
@@ -59,18 +59,18 @@
 4. After 72h: stop load, run final reconciliation, generate report.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] 50k orders/sec sustained for 72h (no drops below 45k for > 1 min)
-* [ ] p99 tick-to-trade ≤ 50µs (supersedes prior ≤ 1ms) for entire 72h
-* [ ] Memory growth < 75% of 16GB (no leak)
-* [ ] Zero WAL_LAG_BOOK alerts
+* [ ] 50k orders/sec sustained for 72h (no drops below 45k for > 1 min) *(env-bound: requires the 72h soak; bounded-run evidence in this file + checkpoint evidence-gated skip)*
+* [ ] p99 tick-to-trade ≤ 50µs (supersedes prior ≤ 1ms) for entire 72h *(env-bound: transport p99 shm 3.9µs / Aeron 3.0µs measured; 72h sustained leg unexecuted)*
+* [ ] Memory growth < 75% of 16GB (no leak) *(env-bound: bounded-run memory flat; 72h leak leg unexecuted)*
+* [ ] Zero WAL_LAG_BOOK alerts *(env-bound: zero lag observed on bounded runs; 72h sustained leg unexecuted)*
 * [x] Recovery from crash < 10s with zero duplicate/missing trades — real engine boot-to-ready **1,328ms** on a 15 GB / 308M-entry journal with a 1M-order snapshot at seq 294M (bounded prescan: 21 covered segments header-checked + filename-bound, tail segment CRC-verified; chaos suite 18/18 runs zero duplicate/missing trades). Supersedes the prior 19.9s soak measurement — root cause was the serial full-journal CRC prescan + replay re-walk, not book restore (restore-insert alone is ~33ms at 1M orders).
-* [ ] PostgreSQL reconciliation: zero missing, zero duplicate trades
-* [ ] No unhandled exceptions or panics
+* [ ] PostgreSQL reconciliation: zero missing, zero duplicate trades *(env-bound: WAL-integrity substitute verified clean per dependency note; full PG cross-check runs at Phase-08 scale)*
+* [ ] No unhandled exceptions or panics *(env-bound: zero on bounded runs incl. crash injection; 72h sustained leg unexecuted)*
 
 **SDD Checklist:**
 - [x] Spec checkpoint: 72h soak 50k/sec p99 ≤ 50µs (supersedes prior ≤ 1ms) — defined first, validated against spec (registered; evidence-gated skip)
 - [x] Spec checkpoint: recovery < 10s zero dup/miss — defined first, validated against spec (PASS: failover-report.json 116ms max, dup=0)
-- [ ] All spec checkpoints pass after implementation
+- [ ] All spec checkpoints pass after implementation *(open — env-bound: the registered soak/staging checkpoints skip honestly until a qualifying 72h artifact or provisioned staging cluster exists; all other checkpoints pass)*
 
 ---
 
@@ -85,7 +85,7 @@
 
 **Definition of Done (Acceptance Criteria):**
 * [x] Soak fault injection executes without crashing matching core or corrupting memory (monitor smoke: crash+burst events, clean WAL audits; 50k/s overload run shed via CAPACITY_EXCEEDED/CRITICAL_BACKPRESSURE with stable RSS)
-* [ ] Backpressure load-shedding maintains p99 ≤ 50µs for remaining priority traffic
+* [ ] Backpressure load-shedding maintains p99 ≤ 50µs for remaining priority traffic *(env-bound: shedding mechanism landed + unit-verified; sustained-overload leg unexecuted)*
 * [x] Warm failover benchmark restores exact book state and advances sequence deterministically (failover_bench PASS: 2/2 fingerprint parity, deterministic replay, seq continuation 158321→284739, 116ms max recovery)
 
 **SDD Checklist:**

@@ -204,12 +204,12 @@ func (r *fakeCHRows) Scan(dest ...any) error {
 	return nil
 }
 
-func (r *fakeCHRows) ScanStruct(any) error      { return errors.New("unused") }
+func (r *fakeCHRows) ScanStruct(any) error             { return errors.New("unused") }
 func (r *fakeCHRows) ColumnTypes() []driver.ColumnType { return nil }
-func (r *fakeCHRows) Totals(...any) error       { return nil }
-func (r *fakeCHRows) Columns() []string         { return nil }
-func (r *fakeCHRows) Close() error              { return nil }
-func (r *fakeCHRows) Err() error                { return nil }
+func (r *fakeCHRows) Totals(...any) error              { return nil }
+func (r *fakeCHRows) Columns() []string                { return nil }
+func (r *fakeCHRows) Close() error                     { return nil }
+func (r *fakeCHRows) Err() error                       { return nil }
 
 // ---------------------------------------------------------------------------
 // Fixtures

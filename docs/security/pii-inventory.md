@@ -1,6 +1,6 @@
 # PII Inventory — GDPR Art. 30 Record + Encryption/Access Map
 
-**Generated:** 2026-09-30 13:09 UTC by `scripts/security/gen-pii-inventory.py` (Task 13.5.3.2) from 184 `*.up.sql` migrations (293 tables, 3555 columns). Do not hand-edit; update the generator's ANNOTATIONS map and re-run. Companion artifacts: `pii-catalog.csv` (same rows, machine-checkable), `pii-audit-report.md` (verification evidence), `gdpr-erasure-runbook.md` (Art. 17 procedure).
+**Generated:** 2026-09-30 16:50 UTC by `scripts/security/gen-pii-inventory.py` (Task 13.5.3.2) from 199 `*.up.sql` migrations (351 tables, 4266 columns). Do not hand-edit; update the generator's ANNOTATIONS map and re-run. Companion artifacts: `pii-catalog.csv` (same rows, machine-checkable), `pii-audit-report.md` (verification evidence), `gdpr-erasure-runbook.md` (Art. 17 procedure).
 
 PII classes: **DIRECT_ID** (name/address/residency) · **CONTACT** (email/phone) · **GOV_ID** (TIN/ID documents) · **FINANCIAL** (bank identifiers) · **AUTH_SECRET** (credentials — hashed/sealed, tracked for erasure) · **PSEUDONYMOUS** (IP/UA/fingerprint/geo/actor ids) · **LINKAGE** (user_id/account_id re-identification joins) · **FREE_TEXT** (may embed incidental PII) · **ORG_CONTACT** (institutional contacts).
 
@@ -124,6 +124,12 @@ Retention classes reference `infrastructure/data-tiering/tiering_policy.yaml` (e
 | `review_note` | TEXT | FREE_TEXT | plaintext | second-signer review rationale | SAR confidentiality floor |
 | `approval_note` | TEXT | FREE_TEXT | plaintext | approver note | SAR confidentiality floor |
 
+### `swift_messages`
+
+| column | type | class | encryption at rest | access path | retention |
+|---|---|---|---|---|---|
+| `raw_payload` | TEXT | FREE_TEXT | plaintext — inbound SWIFT/ISO message body may embed remitter/beneficiary details | wire-detail screen + immutable message journal | financial record floor |
+
 ### `bank_accounts`
 
 | column | type | class | encryption at rest | access path | retention |
@@ -135,6 +141,12 @@ Retention classes reference `infrastructure/data-tiering/tiering_policy.yaml` (e
 | `bic_routing` | VARCHAR(32) | FINANCIAL | plaintext | rail routing | financial record floor |
 | `bank_name` | VARCHAR(128) | FINANCIAL | plaintext | registry view | financial record floor |
 | `beneficiary_name` | VARCHAR(255) | DIRECT_ID | plaintext — must match KYC legal name (finding PII-F2) | name-match screen + admin verify | financial record floor |
+
+### `standing_settlement_instructions`
+
+| column | type | class | encryption at rest | access path | retention |
+|---|---|---|---|---|---|
+| `nostro_or_beneficiary_ref` | VARCHAR(64) | FINANCIAL | plaintext — IBAN/account ref of the settlement target | payment dispatch per registered SSI | financial record floor |
 
 ### `support_tickets`
 
@@ -188,6 +200,42 @@ Retention classes reference `infrastructure/data-tiering/tiering_policy.yaml` (e
 |---|---|---|---|---|---|
 | `suspension_reason` | VARCHAR(512) | FREE_TEXT | plaintext | CCO action rationale | venue-governance floor |
 | `termination_reason` | VARCHAR(512) | FREE_TEXT | plaintext | CCO action rationale | venue-governance floor |
+
+### `average_price_group_accounts`
+
+| column | type | class | encryption at rest | access path | retention |
+|---|---|---|---|---|---|
+| `beneficiary_account_id` | BIGINT | LINKAGE | n/a (FK) | allocation beneficiary registry | MiFID/financial record floor |
+
+### `trade_allocations`
+
+| column | type | class | encryption at rest | access path | retention |
+|---|---|---|---|---|---|
+| `beneficiary_account_id` | BIGINT | LINKAGE | n/a (FK) | allocation beneficiary registry | MiFID/financial record floor |
+
+### `client_money_bank_reviews`
+
+| column | type | class | encryption at rest | access path | retention |
+|---|---|---|---|---|---|
+| `notes` | TEXT | FREE_TEXT | plaintext | safeguarding review annotation | regulatory record floor |
+
+### `client_money_regulator_notices`
+
+| column | type | class | encryption at rest | access path | retention |
+|---|---|---|---|---|---|
+| `payload` | JSONB | FREE_TEXT | plaintext JSONB — notice body may name accounts/actors | regulator notification archive | regulatory record floor |
+
+### `settlement_quarantines`
+
+| column | type | class | encryption at rest | access path | retention |
+|---|---|---|---|---|---|
+| `quarantined_by` | BIGINT | PSEUDONYMOUS | actor principal string (admin/system) | quarantine provenance | audit floor |
+
+### `statement_entries`
+
+| column | type | class | encryption at rest | access path | retention |
+|---|---|---|---|---|---|
+| `remitter_name` | VARCHAR(255) | DIRECT_ID | plaintext | unmatched-credit attribution + suspense screen | financial record floor |
 
 ### `regulatory_submissions`
 
@@ -649,6 +697,24 @@ Retention classes reference `infrastructure/data-tiering/tiering_policy.yaml` (e
 |---|---|---|---|---|---|
 | `subject` | VARCHAR(256) | FREE_TEXT | plaintext — conflict declaration may name persons/accounts | conflict-of-interest register | venue-governance floor |
 
+### `settlement_exceptions`
+
+| column | type | class | encryption at rest | access path | retention |
+|---|---|---|---|---|---|
+| `resolution_notes` | TEXT | FREE_TEXT | plaintext | exception investigation annotation | financial record floor |
+
+### `pb_recon_breaks`
+
+| column | type | class | encryption at rest | access path | retention |
+|---|---|---|---|---|---|
+| `resolution_note` | TEXT | FREE_TEXT | plaintext | give-up break investigation annotation | financial record floor |
+
+### `nostro_recon_breaks`
+
+| column | type | class | encryption at rest | access path | retention |
+|---|---|---|---|---|---|
+| `resolution_notes` | TEXT | FREE_TEXT | plaintext | break investigation annotation | financial record floor |
+
 ## 2. Columns pending review
 
 None — every PII-name-pattern column carries a curated classification.
@@ -661,40 +727,50 @@ Schema-verified by the generator (no PII-name-pattern column and no curated anno
 `insurance_fund` `nostro_accounts` `audit_merkle_roots` `processed_trades` `book_snapshots` `surveillance_signals`
 `fix_sessions` `fix_messages` `ctr_reports` `aml_monitoring_events` `aml_program_artifacts` `aml_account_assessments`
 `variation_margin` `chart_of_accounts` `journal_entries` `ledger_lines` `prime_brokers` `pb_credit_limits`
-`pb_giveup_trades` `collateral_schedule` `appropriateness_assessments` `legal_agreements` `mm_programs`
-`mm_compliance` `mm_rebate_accruals` `client_statements` `trade_confirmations` `fee_invoices` `trial_balances`
-`erp_delivery_log` `fix_certifications` `credit_groups` `credit_parties` `credit_relationships` `credit_reservations`
-`regulatory_schema_versions` `party_identifiers` `cftc_position_limits` `shard_margin_reservations` `compliance_assessment_runs`
-`compliance_assessments` `position_transfers` `comms_recordings` `comms_recording_access` `margin_model_runs`
-`recovery_reports` `grid_bots` `grid_bot_orders` `prevented_matches` `client_role_bindings` `client_approval_policies`
-`order_list_legs` `strategies` `withdrawal_whitelist_settings` `regulatory_change_impacts` `regulatory_change_correspondence`
-`option_spread_offsets` `option_spread_offset_params` `vip_tier_schedule` `account_equity_snapshots`
-`account_vip_history` `instruments_reference` `auction_calendar` `currency_day_counts` `swap_markup_policies`
-`non_trading_fee_schedule` `swap_accrual_records` `principal_role_systems` `admin_recert_campaigns` `environments`
-`fleet_hosts` `release_promotions` `deploy_windows` `recovery_digests` `balance_snapshots` `account_product_profiles`
-`copy_follows` `copy_child_orders` `high_water_marks` `profit_share_accruals` `entity_leverage_policy`
-`product_target_markets` `execution_policy_consents` `governance_packs` `ledger_entries` `journal_sums`
-`swap_free_admin_fees` `rail_payments` `risk_daily_usage` `currency_conversions` `position_fills` `nostro_movements`
-`dust_sweeps` `swap_rates` `carry_trade_allocations` `carry_trade_legs` `carry_yield_records` `carry_yield_totals`
-`swap_free_admin_fee_assessments` `rollover_runs` `commission_tiers` `account_monthly_volume` `partition_archive_log`
-`currency_holidays` `client_order_id_dedup` `transfers` `announcements` `maintenance_windows` `fx_klines`
-`fee_promo_windows` `api_deprecations` `manual_liquidations` `lp_instrument_configs` `lp_performance_alerts`
-`feature_flags` `data_retention_holds` `retention_audit_log` `partition_tier_state` `partition_tier_log`
-`api_deprecation_hits` `ops_status_events` `ops_component_state` `ops_incidents` `funding_fee_tiers`
-`funding_fee_free_usage` `funding_currency_conversions` `withdrawal_dispatch_queue` `funding_ops_alerts`
-`nostro_replenishment_requests` `kyc_tier_policies` `kyc_ops_matrix` `circuit_breaker_events` `reconciliation_runs`
-`reconciliation_findings` `solvency_snapshots` `solvency_proofs` `cooling_off_periods` `pamm_allocations`
-`pamm_subledger_entries` `pamm_fill_allocations` `auto_halt_events` `algo_orders` `algo_order_children`
-`bracket_orders` `bracket_children` `fix_allocations` `fix_allocation_legs` `allocation_events` `sor_shadow_orders`
-`sor_fill_dedup` `fixsbe_sessions` `fixsbe_schema_registry` `insurance_fund_transactions` `margin_call_events`
-`liquidation_events` `nbp_events` `adl_directives` `insurance_fund_governance` `pb_credit_reservations`
-`leverage_tiers` `account_leverage` `account_margin_thresholds` `depreciation_episodes` `account_consents`
-`algo_certifications` `dea_session_controls` `reporting_values` `surveillance_signal_tuning` `account_consent_states`
-`account_consent_events` `data_residency_policies` `data_residency_access_log` `basel_reports` `venue_member_events`
-`venue_member_reviews` `venue_rulebooks` `venue_rule_acks` `venue_self_assessments` `cco_reports` `venue_launch_prerequisites`
-`rts27_daily_stats` `rts27_reports` `rts28_reports` `option_barrier_events` `umr_im_assessments` `derivative_contracts`
-`ndf_fixings` `contract_rolls` `auto_roll_config` `option_positions` `option_premium_settlements` `option_assignments`
-`option_exercise_prefs` `option_expiry_runs`
+`pb_giveup_trades` `collateral_schedule` `appropriateness_assessments` `legal_agreements` `payment_netting_batches`
+`netting_batch_lines` `mm_programs` `mm_compliance` `mm_rebate_accruals` `client_statements` `trade_confirmations`
+`fee_invoices` `trial_balances` `erp_delivery_log` `fix_certifications` `credit_groups` `credit_parties`
+`credit_relationships` `credit_reservations` `regulatory_schema_versions` `party_identifiers` `cftc_position_limits`
+`average_price_groups` `average_price_group_fills` `trade_allocation_events` `client_money_accounts`
+`client_money_receipts` `client_money_reconciliations` `client_money_breaks` `client_money_remediations`
+`client_money_stress_runs` `client_money_pooling_exports` `bank_statements` `shard_margin_reservations`
+`compliance_assessment_runs` `compliance_assessments` `position_transfers` `comms_recordings` `comms_recording_access`
+`margin_model_runs` `recovery_reports` `grid_bots` `grid_bot_orders` `prevented_matches` `client_role_bindings`
+`client_approval_policies` `order_list_legs` `strategies` `withdrawal_whitelist_settings` `regulatory_change_impacts`
+`regulatory_change_correspondence` `own_funds_balances` `contingent_capital_commitments` `treasury_liquidity_assessments`
+`treasury_controls` `client_money_audits` `client_money_evidence_packs` `segregation_certifications`
+`external_auditor_grants` `settlement_fails` `settlement_penalties` `buy_in_events` `option_spread_offsets`
+`option_spread_offset_params` `vip_tier_schedule` `account_equity_snapshots` `account_vip_history` `instruments_reference`
+`auction_calendar` `currency_day_counts` `swap_markup_policies` `non_trading_fee_schedule` `swap_accrual_records`
+`principal_role_systems` `admin_recert_campaigns` `environments` `fleet_hosts` `release_promotions` `deploy_windows`
+`recovery_digests` `balance_snapshots` `account_product_profiles` `copy_follows` `copy_child_orders`
+`high_water_marks` `profit_share_accruals` `entity_leverage_policy` `product_target_markets` `execution_policy_consents`
+`governance_packs` `ledger_entries` `journal_sums` `swap_free_admin_fees` `banking_rail_schedules` `rail_payments`
+`risk_daily_usage` `currency_conversions` `position_fills` `nostro_movements` `dust_sweeps` `swap_rates`
+`carry_trade_allocations` `carry_trade_legs` `carry_yield_records` `carry_yield_totals` `swap_free_admin_fee_assessments`
+`rollover_runs` `commission_tiers` `account_monthly_volume` `partition_archive_log` `currency_holidays`
+`client_order_id_dedup` `transfers` `announcements` `maintenance_windows` `fx_klines` `fee_promo_windows`
+`api_deprecations` `manual_liquidations` `lp_instrument_configs` `lp_performance_alerts` `feature_flags`
+`data_retention_holds` `retention_audit_log` `partition_tier_state` `partition_tier_log` `api_deprecation_hits`
+`ops_status_events` `ops_component_state` `ops_incidents` `funding_fee_tiers` `funding_fee_free_usage`
+`funding_currency_conversions` `withdrawal_dispatch_queue` `funding_ops_alerts` `nostro_replenishment_requests`
+`kyc_tier_policies` `kyc_ops_matrix` `circuit_breaker_events` `reconciliation_runs` `reconciliation_findings`
+`solvency_snapshots` `solvency_proofs` `cooling_off_periods` `pamm_allocations` `pamm_subledger_entries`
+`pamm_fill_allocations` `auto_halt_events` `algo_orders` `algo_order_children` `bracket_orders` `bracket_children`
+`fix_allocations` `fix_allocation_legs` `allocation_events` `sor_shadow_orders` `sor_fill_dedup` `fixsbe_sessions`
+`fixsbe_schema_registry` `insurance_fund_transactions` `margin_call_events` `liquidation_events` `nbp_events`
+`adl_directives` `insurance_fund_governance` `pb_credit_reservations` `leverage_tiers` `account_leverage`
+`account_margin_thresholds` `depreciation_episodes` `account_consents` `algo_certifications` `dea_session_controls`
+`reporting_values` `surveillance_signal_tuning` `account_consent_states` `account_consent_events` `data_residency_policies`
+`data_residency_access_log` `basel_reports` `venue_member_events` `venue_member_reviews` `venue_rulebooks`
+`venue_rule_acks` `venue_self_assessments` `cco_reports` `venue_launch_prerequisites` `rts27_daily_stats`
+`rts27_reports` `rts28_reports` `option_barrier_events` `umr_im_assessments` `derivative_contracts` `ndf_fixings`
+`contract_rolls` `auto_roll_config` `option_positions` `option_premium_settlements` `option_assignments`
+`option_exercise_prefs` `option_expiry_runs` `export_jobs` `premium_feed_subscriptions` `cls_reference_versions`
+`cls_reference_entries` `cls_settlement_instructions` `cls_instruction_events` `settlement_exception_events`
+`pb_recon_runs` `pb_recon_events` `pb_giveup_collateral_moves` `pb_credit_restitutions` `settlement_write_offs`
+`recon_tolerances` `nostro_funding_thresholds` `rail_cutoff_matrix` `rail_failover_queue` `herstatt_exposures`
+`cls_payin_events` `fx_fail_closeouts` `lp_default_events` `nostro_statement_entries` `nostro_recon_runs`
 
 ## 4. Data-flow summary
 

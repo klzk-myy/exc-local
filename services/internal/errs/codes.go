@@ -455,4 +455,71 @@ var localCodes = []CodeDef{
 		"Export job does not resolve, resolves outside the caller's account scope, or its 24-hour download link has expired — expiry is a miss, never a stale ref (spec §10, §16.6; §2.7 fail-closed)"),
 	localRow("EXPORT_FORMAT_INVALID", 400, "Phase-23 Task 23.3.2",
 		"Export format is not one of csv|json|parquet — the value is rejected, never defaulted (spec §10, §16.6)"),
+	// Phase-24 Tasks 24.3.1–24.3.4 — nostro/vostro backoffice codes
+	// emitted by internal/backoffice. NOSTRO_OVERDRAWN,
+	// NOSTRO_RECON_MISMATCH and SETTLEMENT_CONFIRMATION_OVERDUE are
+	// durable ops-alert codes riding the funding_ops_alerts trail (and
+	// the ops.alerts page), never HTTP rejections — the 500 follows the
+	// NOSTRO_INSUFFICIENT_FUNDS convention. The SETTLEMENT_* rows
+	// register the Phase-03 Task 3.3.3 scaffold codes the Phase-24
+	// confirmation path relays to the wire. The §23 fix is a spec-side
+	// transcription row.
+	localRow("NOSTRO_ACCOUNT_EXISTS", 409, "Phase-24 Task 24.3.1",
+		"Correspondent nostro/vostro registry row already exists for (currency, bank_code, account_number) — dedup enforced, never double-counted (spec §17.1)"),
+	localRow("NOSTRO_ACCOUNT_NOT_FOUND", 404, "Phase-24 Task 24.3.1",
+		"Nostro/vostro account identifier does not resolve (spec §17.1)"),
+	localRow("NOSTRO_OVERDRAWN", 500, "Phase-24 Task 24.3.1",
+		"Posting a settlement DEBIT pushed a nostro_accounts balance below zero — the payment already happened at the correspondent; durable P1 alert, never a silent mask (spec §17.1, §24 #3)"),
+	localRow("NOSTRO_RECON_MISMATCH", 500, "Phase-24 Task 24.3.2",
+		"Daily nostro reconciliation found our records diverging from the bank statement — durable P1 alert feeding the break investigation workflow; §24 #21 discrepancy threshold (> $1,000 or > 0.01%) flagged on the run (spec §17.1)"),
+	localRow("SETTLEMENT_CONFIRMATION_OVERDUE", 500, "Phase-24 Task 24.3.3",
+		"Dispatched settlement leg unconfirmed past the 2-business-day window — durable P2 alert, dedup-keyed per instruction (spec §17.1, §24 #12)"),
+	localRow("SETTLEMENT_NOT_FOUND", 404, "Phase-24 Task 24.3.3",
+		"Settlement instruction id/reference does not resolve — emitted when a correspondent MT900/910 confirmation arrives for an unknown dispatch reference (Phase-03 Task 3.3.3 scaffold code, registered with the Phase-24 landing)"),
+	localRow("SETTLEMENT_STATE_CONFLICT", 409, "Phase-24 Task 24.3.3",
+		"Confirmation rejected — the settlement leg is no longer PENDING (FAILED/RECONCILED); replayed SETTLED legs stay idempotent (Phase-03 Task 3.3.3 scaffold code)"),
+	localRow("SETTLEMENT_NOSTRO_MISSING", 503, "Phase-24 Task 24.3.3",
+		"No ACTIVE nostro account resolves for the settlement currency — legs for it cannot settle (Phase-03 Task 3.3.3 scaffold code; spec §17.1)"),
+	localRow("SETTLEMENT_INVALID_MESSAGE", 400, "Phase-24 Task 24.3.3",
+		"Settlement payment payload cannot be rendered — e.g. the nostro row lacks a valid BIC (Phase-03 Task 3.3.3 scaffold code)"),
+	localRow("SETTLEMENT_INVALID_FILL", 400, "Phase-24 Task 24.3.3",
+		"Settlement fill is missing ids, carries non-positive price/quantity or an unset trade date (Phase-03 Task 3.3.3 scaffold code)"),
+	// Phase-24 Task 24.3.8 — CLS PvP lifecycle codes emitted by
+	// internal/settlement/cls_pvp.go. CLS_SETTLEMENT_MISMATCH carries a
+	// §23 spec row already; these lifecycle/routing codes have no spec
+	// row (§23 fix is a spec-side transcription row).
+	localRow("CLS_MEMBER_UNAVAILABLE", 503, "Phase-24 Task 24.3.8",
+		"CLS settlement-member ISO 20022 adapter not wired or degraded — the instruction stays pre-dispatch and is never claimed sent (spec §17.6, §2.7 fail-closed)"),
+	localRow("CLS_WINDOW_CLOSED", 409, "Phase-24 Task 24.3.8",
+		"Versioned CLS cut-off window (initial pay-in / rescind deadline) for the instruction's value date has closed — the operation is refused, never silently slipped (spec §17.6)"),
+	localRow("CLS_MATCH_FAILED", 409, "Phase-24 Task 24.3.8",
+		"CLS member match report conflicts with the persisted paired instruction or the member reported the pair unmatched — routed to the exception queue before cut-off (spec §17.6 step 3)"),
+	localRow("CLS_INSTRUCTION_STATE_CONFLICT", 409, "Phase-24 Task 24.3.8",
+		"Requested transition violates the CLS instruction lifecycle (RECEIVED→VALIDATED→MATCHED/UNMATCHED→ELIGIBLE/INELIGIBLE→PAY_IN→SETTLED|RESCINDED|EXPIRED|REJECTED) — replayed SETTLED stays idempotent (spec §17.6)"),
+	localRow("CLS_REFERENCE_DATA_MISSING", 503, "Phase-24 Task 24.3.8",
+		"No ACTIVE cls_reference_versions row — currency/product/member eligibility and cut-off evaluation fail closed without versioned reference data (spec §17.6, §2.7)"),
+	localRow("CLS_NOT_ELIGIBLE", 422, "Phase-24 Task 24.3.8",
+		"Pair/product/member fails the versioned CLS eligibility checks — the caller must route through the settlement-risk waterfall (alternative PvP → bilateral netting → controlled gross) (spec §17.6 step 5)"),
+	// Phase-24 Task 24.3.12 — bank statement ingestion codes emitted by
+	// internal/settlement/statement_parser.go + the backoffice parsers.
+	localRow("STATEMENT_MALFORMED", 400, "Phase-24 Task 24.3.12",
+		"Bank statement file failed structural validation — missing mandatory tags/fields, undecodable XML, checksum mismatch or out-of-order sequence; nothing is persisted (spec §17.10, §2.7 fail-closed)"),
+	localRow("STATEMENT_PARSER_MISSING", 503, "Phase-24 Task 24.3.12",
+		"Statement parser seam not wired — ingestion refuses rather than misparsing a bank file (spec §17.10, §2.7 fail-closed)"),
+	localRow("STATEMENT_ACCOUNT_MISMATCH", 422, "Phase-24 Task 24.3.12",
+		"Statement IBAN/BIC/currency does not agree with the nostro account it claims to describe — rejected, never ingested (spec §17.10)"),
+	localRow("STATEMENT_NOT_FOUND", 404, "Phase-24 Task 24.3.12",
+		"bank_statements row does not resolve (spec §17.10)"),
+	// Phase-24 Task 24.3.21 — suspense routing over the Phase-11
+	// DepositGuard quarantine pipeline.
+	localRow("SUSPENSE_ROUTER_MISSING", 503, "Phase-24 Task 24.3.21",
+		"Suspense router (funding.DepositGuard) not wired — an unidentified credit cannot be quarantined; the caller must open a manual break instead of dropping the funds (spec §17.16b, §2.7 fail-closed)"),
+	// Phase-24 Task 24.3.9 — SSI + bilateral netting codes emitted by
+	// internal/settlement/ssi.go and netting.go.
+	localRow("SSI_NOT_VERIFIED", 422, "Phase-24 Task 24.3.9",
+		"Standing settlement instruction's beneficiary does not resolve to a VERIFIED bank_accounts registry row for the account, or the claimed ref/BIC drifts from the registered record (spec §17.7)"),
+	localRow("NETTING_BATCH_STATE_CONFLICT", 409, "Phase-24 Task 24.3.9",
+		"Requested operation violates the payment_netting_batches lifecycle (OPEN→NETTED→DISPATCHED→SETTLED|FAILED) — e.g. reopen on a SETTLED batch or dispatch on a non-NETTED row (spec §17.7)"),
+	localRow("NETTING_AGREEMENT_MISSING", 422, "Phase-24 Task 24.3.9",
+		"Counterparty has no EXECUTED, unexpired ISDA/netting agreement — bilateral netting is not legally enforceable and the run refuses (spec §17.7, §5.26)"),
 }

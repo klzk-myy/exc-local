@@ -86,6 +86,11 @@ const (
 	SettleSettled    SettlementStatus = "SETTLED"
 	SettleFailed     SettlementStatus = "FAILED"
 	SettleReconciled SettlementStatus = "RECONCILED"
+	// SettleQueuedNextCycle — instruction generated past its settlement
+	// rail's daily cut-off; settlement_date already rolled to the next
+	// business day and the row waits for the next dispatch cycle
+	// (Phase-24 Task 24.3.20, migration 107 enum value).
+	SettleQueuedNextCycle SettlementStatus = "QUEUED_FOR_NEXT_CYCLE"
 )
 
 // NostroMovementDirection mirrors nostro_movement_direction_enum.
@@ -229,6 +234,15 @@ type SettlementStore interface {
 	// still NULL. claimed=false means a concurrent dispatcher already
 	// claimed it (skip — never double-send).
 	MarkDispatched(ctx context.Context, instructionID int64, messageID string, format MessageFormat, payload string, dispatchedAt time.Time) (claimed bool, err error)
+	// QueueForNextCycle rolls a PENDING leg's settlement_date to the next
+	// business day and flags it QUEUED_FOR_NEXT_CYCLE (rail cut-off
+	// enforcement, Task 24.3.20). claimed=false when the leg lost the
+	// PENDING/undispatched predicate mid-update.
+	QueueForNextCycle(ctx context.Context, instructionID int64, newDate time.Time, at time.Time) (claimed bool, err error)
+	// ReleaseQueued flips QUEUED_FOR_NEXT_CYCLE legs whose (already
+	// rolled) settlement_date has arrived back to PENDING so the due
+	// scan dispatches them. Returns the count released.
+	ReleaseQueued(ctx context.Context, day time.Time) (int, error)
 	// InTx runs fn inside a SERIALIZABLE transaction.
 	InTx(ctx context.Context, fn func(ctx context.Context, tx SettlementTx) error) error
 }
@@ -300,6 +314,13 @@ type SettlementOptions struct {
 	Format MessageFormat
 	// Dispatcher is the rail send seam; nil installs NullDispatcher.
 	Dispatcher MessageDispatcher
+	// Cutoff is the optional Task 24.3.20 rail cut-off enforcer. When
+	// wired: same-day legs generated past the currency's scheduled rail
+	// cut-off roll their value date to the next business day and land
+	// QUEUED_FOR_NEXT_CYCLE; DispatchDue re-evaluates due legs and rolls
+	// any leg whose rail window closed since generation. Nil skips the
+	// gate (composition-root decision; production wires it).
+	Cutoff *RailCutoffService
 	// Clock overrides time.Now (tests); nil defaults to time.Now.
 	Clock func() time.Time
 }
@@ -311,6 +332,7 @@ type SettlementService struct {
 	senderBIC  string
 	format     MessageFormat
 	dispatcher MessageDispatcher
+	cutoff     *RailCutoffService
 	clock      func() time.Time
 }
 
@@ -349,6 +371,7 @@ func NewSettlementService(store SettlementStore, cal *HolidayCalendar, opts Sett
 		senderBIC:  opts.SenderBIC,
 		format:     format,
 		dispatcher: d,
+		cutoff:     opts.Cutoff,
 		clock:      clk,
 	}, nil
 }
@@ -407,6 +430,33 @@ func (s *SettlementService) GenerateInstructions(ctx context.Context, f Settleme
 			fmt.Sprintf("settlement: no ACTIVE nostro for %s", inst.QuoteCurrency), err)
 	}
 
+	// Rail cut-off enforcement (Task 24.3.20): a same-day (T+0) leg
+	// generated after its currency's scheduled rail cut-off rolls to the
+	// evaluated next business day and lands QUEUED_FOR_NEXT_CYCLE — it is
+	// never dispatched into a closed settlement window. T+1/T+2 value
+	// dates are future-dated; the dispatch-day check in DispatchDue
+	// re-evaluates them when the window arrives.
+	now := s.clock().UTC()
+	if s.cutoff != nil && normalizeDay(sd).Equal(normalizeDay(now)) {
+		for _, ccy := range []string{inst.BaseCurrency, inst.QuoteCurrency} {
+			d, cerr := s.cutoff.EvaluateForCurrency(ccy, now)
+			if cerr != nil {
+				// Unscheduled currency leg: fail closed — the fill's
+				// instructions are not generated without a schedulable
+				// same-day rail (spec §2.7).
+				return nil, fmt.Errorf("settlement: rail cutoff eval %s: %w", ccy, cerr)
+			}
+			if d.CutoffPassed && d.ValueDate.After(sd) {
+				sd = d.ValueDate
+			}
+		}
+	}
+	baseStatus := SettlePending
+	if s.cutoff != nil && normalizeDay(sd).After(normalizeDay(now)) &&
+		inst.SettlementCycle == 0 {
+		baseStatus = SettleQueuedNextCycle
+	}
+
 	baseAmount := f.Quantity.Round(8)               // base currency units
 	quoteAmount := f.Quantity.Mul(f.Price).Round(8) // quote notional paid per base
 	baseID, quoteID := baseNostro.ID, quoteNostro.ID
@@ -414,16 +464,16 @@ func (s *SettlementService) GenerateInstructions(ctx context.Context, f Settleme
 	legs := []SettlementInstruction{
 		{TradeID: f.TradeID, AccountID: f.BuyerAccountID, Currency: inst.BaseCurrency,
 			Amount: baseAmount, Direction: DirectionReceive, SettlementDate: sd,
-			NostroAccountID: &baseID, Status: SettlePending},
+			NostroAccountID: &baseID, Status: baseStatus},
 		{TradeID: f.TradeID, AccountID: f.BuyerAccountID, Currency: inst.QuoteCurrency,
 			Amount: quoteAmount, Direction: DirectionPay, SettlementDate: sd,
-			NostroAccountID: &quoteID, Status: SettlePending},
+			NostroAccountID: &quoteID, Status: baseStatus},
 		{TradeID: f.TradeID, AccountID: f.SellerAccountID, Currency: inst.BaseCurrency,
 			Amount: baseAmount, Direction: DirectionPay, SettlementDate: sd,
-			NostroAccountID: &baseID, Status: SettlePending},
+			NostroAccountID: &baseID, Status: baseStatus},
 		{TradeID: f.TradeID, AccountID: f.SellerAccountID, Currency: inst.QuoteCurrency,
 			Amount: quoteAmount, Direction: DirectionReceive, SettlementDate: sd,
-			NostroAccountID: &quoteID, Status: SettlePending},
+			NostroAccountID: &quoteID, Status: baseStatus},
 	}
 
 	inserted, err := s.store.InsertInstructions(ctx, legs)
@@ -451,6 +501,7 @@ type DispatchReport struct {
 	Due        int // legs eligible for dispatch
 	Claimed    int // rows newly claimed (payload stored)
 	Dispatched int // messages handed to the dispatcher
+	Queued     int // legs rolled QUEUED_FOR_NEXT_CYCLE (Task 24.3.20)
 	Errors     []InstructionError
 }
 
@@ -463,6 +514,12 @@ func (s *SettlementService) DispatchDue(ctx context.Context, asOf time.Time) (*D
 	day := normalizeDay(asOf)
 	rep := &DispatchReport{AsOf: day}
 
+	// Release QUEUED_FOR_NEXT_CYCLE legs whose rolled value date has
+	// arrived (Task 24.3.20) — they re-enter the PENDING due scan.
+	if _, err := s.store.ReleaseQueued(ctx, day); err != nil {
+		return nil, fmt.Errorf("settlement: release queued %s: %w", day.Format("2006-01-02"), err)
+	}
+
 	due, err := s.store.DueInstructions(ctx, day)
 	if err != nil {
 		return nil, fmt.Errorf("settlement: due scan %s: %w", day.Format("2006-01-02"), err)
@@ -471,6 +528,30 @@ func (s *SettlementService) DispatchDue(ctx context.Context, asOf time.Time) (*D
 
 	for _, dl := range due {
 		leg := dl.Instruction
+		// Dispatch-day cut-off re-evaluation: a leg whose settlement_date
+		// is today but whose rail window has closed rolls forward and
+		// queues for the next cycle rather than dispatching into a closed
+		// window (Task 24.3.20 step 3).
+		if s.cutoff != nil {
+			d, cerr := s.cutoff.EvaluateForCurrency(leg.Currency, s.clock())
+			if cerr != nil {
+				rep.Errors = append(rep.Errors, InstructionError{InstructionID: leg.ID, Err: cerr})
+				continue
+			}
+			if d.CutoffPassed && !normalizeDay(leg.SettlementDate).After(day) {
+				claimed, qerr := s.store.QueueForNextCycle(ctx, leg.ID, d.ValueDate, s.clock().UTC())
+				if qerr != nil {
+					rep.Errors = append(rep.Errors, InstructionError{InstructionID: leg.ID, Err: qerr})
+					continue
+				}
+				if claimed {
+					rep.Queued++
+					continue
+				}
+				// lost the predicate — another dispatcher owns the row
+				continue
+			}
+		}
 		msg, err := s.buildMessage(leg, dl.Nostro)
 		if err != nil {
 			rep.Errors = append(rep.Errors, InstructionError{InstructionID: leg.ID, Err: err})
@@ -648,6 +729,93 @@ func (s *SettlementService) ConfirmSettlement(ctx context.Context, instructionID
 			leg.ConfirmationRef = &confirmationRef
 		}
 		out = &leg
+		return nil
+	})
+	return out, err
+}
+
+// ---------------------------------------------------------------------------
+// Rail cut-off enforcement for withdrawal / manual same-day requests
+// (Task 24.3.20, spec §17.16a)
+// ---------------------------------------------------------------------------
+
+// EnforceSameDayRequest rejects a client request that demands same-day
+// value date past the currency's scheduled rail cut-off —
+// RAIL_CUTOFF_EXCEEDED (422). A nil enforcer (unwired feature) is a
+// pass-through; a scheduled rail past cut-off is always refused.
+func (s *SettlementService) EnforceSameDayRequest(ctx context.Context, currency string, at time.Time) error {
+	if s.cutoff == nil {
+		return nil // gate not wired — composition root decides
+	}
+	return s.cutoff.EnforceSameDay("", currency, at)
+}
+
+// RollPastCutoff rolls one PENDING instruction's settlement_date to the
+// next business day and flags it QUEUED_FOR_NEXT_CYCLE — the
+// manual-withdrawal/ops path when the instruction was already generated
+// and its rail window has since closed. Returns the updated leg; a leg
+// not in the PENDING predicate conflicts (SETTLEMENT_STATE_CONFLICT).
+func (s *SettlementService) RollPastCutoff(ctx context.Context, instructionID int64, at time.Time) (*SettlementInstruction, error) {
+	if s.cutoff == nil {
+		return nil, excerrors.New("INTERNAL_ERROR",
+			"settlement: rail cutoff enforcer not wired")
+	}
+	if instructionID <= 0 {
+		return nil, excerrors.New(CodeSettlementInvalidFill,
+			"settlement: instruction id must be positive")
+	}
+	if at.IsZero() {
+		at = s.clock()
+	}
+	return s.rollIfPastCutoff(ctx, instructionID, at)
+}
+
+// rollIfPastCutoff reads the leg's currency via the tx lock and applies
+// the roll inside the same transaction.
+func (s *SettlementService) rollIfPastCutoff(ctx context.Context, instructionID int64, at time.Time) (*SettlementInstruction, error) {
+	var out *SettlementInstruction
+	err := s.store.InTx(ctx, func(ctx context.Context, tx SettlementTx) error {
+		leg, found, err := tx.LockInstruction(ctx, instructionID)
+		if err != nil {
+			return fmt.Errorf("settlement: lock instruction %d: %w", instructionID, err)
+		}
+		if !found {
+			return excerrors.New(CodeSettlementNotFound,
+				fmt.Sprintf("settlement instruction %d not found", instructionID))
+		}
+		if leg.Status != SettlePending && leg.Status != SettleQueuedNextCycle {
+			return excerrors.New(CodeSettlementStateConflict, fmt.Sprintf(
+				"instruction %d is %s — only undispatched legs roll", instructionID, leg.Status))
+		}
+		if leg.SwiftMessageID != nil {
+			return excerrors.New(CodeSettlementStateConflict, fmt.Sprintf(
+				"instruction %d already claimed for dispatch", instructionID))
+		}
+		d, err := s.cutoff.EvaluateForCurrency(leg.Currency, at)
+		if err != nil {
+			return err
+		}
+		if !d.CutoffPassed {
+			cp := leg
+			out = &cp
+			return nil // inside window — no roll
+		}
+		if !d.ValueDate.After(normalizeDay(leg.SettlementDate)) {
+			d.ValueDate = s.cal.MutualBusinessDayOnOrAfter(
+				normalizeDay(leg.SettlementDate).AddDate(0, 0, 1), leg.Currency)
+		}
+		claimed, err := s.store.QueueForNextCycle(ctx, leg.ID, d.ValueDate, at.UTC())
+		if err != nil {
+			return err
+		}
+		if !claimed {
+			return excerrors.New(CodeSettlementStateConflict, fmt.Sprintf(
+				"instruction %d lost PENDING predicate mid-roll", instructionID))
+		}
+		leg.SettlementDate = d.ValueDate
+		leg.Status = SettleQueuedNextCycle
+		cp := leg
+		out = &cp
 		return nil
 	})
 	return out, err
@@ -972,6 +1140,35 @@ func (s *PgxSettlementStore) MarkDispatched(ctx context.Context, instructionID i
 		return false, err
 	}
 	return tag.RowsAffected() == 1, nil
+}
+
+// QueueForNextCycle rolls a still-undispatched PENDING leg forward and
+// flags it QUEUED_FOR_NEXT_CYCLE (migration 107 enum).
+func (s *PgxSettlementStore) QueueForNextCycle(ctx context.Context, instructionID int64, newDate time.Time, at time.Time) (bool, error) {
+	tag, err := s.Pool.Exec(ctx, `
+		UPDATE settlement_instructions
+		   SET settlement_date = $2, status = 'QUEUED_FOR_NEXT_CYCLE',
+		       updated_at = $3
+		 WHERE id = $1 AND status = 'PENDING' AND swift_message_id IS NULL`,
+		instructionID, newDate, at)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
+// ReleaseQueued returns QUEUED_FOR_NEXT_CYCLE legs to PENDING once the
+// rolled settlement_date has arrived.
+func (s *PgxSettlementStore) ReleaseQueued(ctx context.Context, day time.Time) (int, error) {
+	tag, err := s.Pool.Exec(ctx, `
+		UPDATE settlement_instructions
+		   SET status = 'PENDING', updated_at = now()
+		 WHERE status = 'QUEUED_FOR_NEXT_CYCLE' AND settlement_date <= $1`,
+		day)
+	if err != nil {
+		return 0, err
+	}
+	return int(tag.RowsAffected()), nil
 }
 
 // InTx runs fn inside a SERIALIZABLE transaction, rolling back on error.

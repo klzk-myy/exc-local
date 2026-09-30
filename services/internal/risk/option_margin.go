@@ -1,19 +1,21 @@
 // option_margin.go — Phase-19 Task 19.3.25: Option-Delta Margin Linkage
 // (spec §13.12/§15.7, §24 #398; remediation #35).
 //
-// PHASE-22 STUB — linkage seam, not option mechanics.
-//
-// Phase-22 (Tasks 22.3.10/22.3.13/22.3.15) owns the option positions,
-// writer-delta computation, and the intra-day assignment pipeline. This
-// file owns the margin-engine contract Phase-22 plugs into:
+// BACK-FIT NOTE (post-Phase-22): Phase-22 has landed — the option book,
+// writer-delta mechanics, and the assignment pipeline are live. This
+// file still owns the margin-engine contract Phase-22 plugs into:
 //
 //	option positions → writer delta per position → delta-adjusted
 //	equity add-on → consumed by MarginService evaluation (Tasks
-//	19.3.3/19.3.16) without formula changes.
+//	19.3.3/19.3.16) via MarginOptions.OptionMargin without formula
+//	changes.
 //
-// Until Phase-22 lands a real OptionDeltaSource, the Null binding
-// contributes zero and the margin path is byte-for-byte identical to
-// the pre-linkage behavior — a typed-nil never panics.
+// The production OptionDeltaSource is PgOptionDeltaSource
+// (option_delta_source.go) — it prices each open leg's delta at the
+// current market and is wired in cmd/gateway. NullOptionDeltaSource /
+// NullOptionMarginEvaluator remain the dev bindings: a nil
+// MarginOptions.OptionMargin contributes zero and the margin path is
+// byte-for-byte identical to the pre-linkage behavior.
 package risk
 
 import (
@@ -39,18 +41,17 @@ type OptionPosition struct {
 }
 
 // OptionDeltaSource supplies open option positions for one account.
-// Phase-22 implements this over the derivatives position book; until
-// then NullOptionDeltaSource is the only binding.
+// PgOptionDeltaSource (option_delta_source.go) implements it over the
+// Phase-22 derivatives position book; NullOptionDeltaSource remains
+// the dev/null binding.
 type OptionDeltaSource interface {
 	OptionPositions(ctx context.Context, accountID int64) ([]OptionPosition, error)
 }
 
-// NullOptionDeltaSource is the Phase-19 dev/null binding: zero option
-// positions, zero adjustment. It is not a fail-closed stall because the
-// derivatives stack does not exist yet — there is nothing to withhold.
-// Once Phase-22 deploys, replacing this binding is mandatory before
-// option books can open (enforced by the instrument-kind gate: OPTION
-// instruments are untradable until then).
+// NullOptionDeltaSource is the dev/null binding: zero option
+// positions, zero adjustment. It is NOT the production binding —
+// cmd/gateway wires PgOptionDeltaSource; the null stays for tests and
+// option-disabled deployments.
 type NullOptionDeltaSource struct{}
 
 // OptionPositions always reports an empty book.
@@ -84,18 +85,18 @@ func OptionDeltaAdjustment(positions []OptionPosition) (decimal.Decimal, error) 
 	return total, nil
 }
 
-// OptionMarginEvaluator is the seam MarginService consults (via
-// MarginOptions) once Phase-22 is live. Phase-19 ships the binding
-// contract + the null implementation.
+// OptionMarginEvaluator is the seam MarginService consults via
+// MarginOptions.OptionMargin (back-fitted post-Phase-22 — gateway
+// binds DeltaOptionMarginEvaluator over PgOptionDeltaSource).
 type OptionMarginEvaluator interface {
 	// DeltaEquityAdj returns the delta-adjusted equity add-on in the
 	// account's USD numeraire. A nil source yields zero.
 	DeltaEquityAdj(ctx context.Context, accountID int64) (decimal.Decimal, error)
 }
 
-// NullOptionMarginEvaluator contributes zero — the pre-Phase-22
-// binding. It lets MarginService hold a non-nil evaluator today without
-// behavior change.
+// NullOptionMarginEvaluator contributes zero — the dev/test binding.
+// It lets MarginService hold a non-nil evaluator without behavior
+// change; production binds DeltaOptionMarginEvaluator.
 type NullOptionMarginEvaluator struct{}
 
 // DeltaEquityAdj always returns zero.
@@ -103,8 +104,9 @@ func (NullOptionMarginEvaluator) DeltaEquityAdj(context.Context, int64) (decimal
 	return decimal.Zero, nil
 }
 
-// DeltaOptionMarginEvaluator is the production seam Phase-22 wires:
-// it resolves the account's option book and applies OptionDeltaAdjustment.
+// DeltaOptionMarginEvaluator is the production seam (wired in
+// cmd/gateway over PgOptionDeltaSource): it resolves the account's
+// option book and applies OptionDeltaAdjustment.
 type DeltaOptionMarginEvaluator struct {
 	Source OptionDeltaSource
 }
