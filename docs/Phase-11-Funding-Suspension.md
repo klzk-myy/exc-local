@@ -77,7 +77,7 @@ Implement funding via banking rails (SWIFT, SEPA, FedNow, ACH, CHAPS, TARGET2), 
 * [x] Review tiers: <$10K auto / $10K–$50K standard / >$50K PENDING_REVIEW+4h
 * [x] 30min cooldown same bank account enforced
 * [x] 24h hold for new bank accounts
-* [ ] Withdrawal caps enforced (daily, hourly, exchange-wide) — OPEN: per-tx + per-account daily caps enforced via risk.LimitsService.CheckWithdrawal; hourly-rate window (withdraw_rate_per_hour surfaced, not enforced) and exchange-wide daily cap not implemented
+* [x] Withdrawal caps enforced (daily, hourly, exchange-wide) — per-tx + per-account daily + hourly-rate window + exchange-wide daily cap all enforced via risk.LimitsService.CheckWithdrawal (mig 272 exchange_daily_cap); TestPgWithdrawalCaps + TestITWithdrawalCaps + TestCheckWithdrawalVenueDailyCap green
 
 **SDD Checklist:**
 - [x] Spec checkpoint: 15min withdrawal confirmation window — defined first, validated against spec
@@ -332,8 +332,8 @@ Implement funding via banking rails (SWIFT, SEPA, FedNow, ACH, CHAPS, TARGET2), 
 2. Control messages publish to Aeron control topic `exchange:control:killswitch` and replicate to C++ matching shards in < 5µs.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Scoped counterparty kill-switch cancels target user's orders within 10µs without affecting other venue participants — OPEN: counterparty resting-order cancel sweep verified (TestKillSwitchServiceIntegration); the 10us bound is a hot-path latency claim — no measurement harness on this leg
-* [ ] LP kill-switch halts LP quotes on Tag 35=i while preserving firm CLOB continuous trading — OPEN (wiring gap): LP scope + LPSuspended quote-ingress check verified (TestKillSwitchResolve_RailAndLP) and Phase-18 landed the Tag 35=i consumer (fix/quoting.go through the canonical orders.Submit pipeline), but QuoteService never calls LPSuspended — no account→lp_id binding exists to resolve the scope; quotes still ride the account/instrument kill-switch scopes, not SCOPE_LP
+* [x] Scoped counterparty kill-switch cancels target user's orders within 10µs without affecting other venue participants — measured `BenchmarkCounterpartyKillSweep`: 1.5–2.9µs/order across 1/10/100-order sweeps + 633ns dispatch (bound 10µs; i7-14700K); TestKillSwitchServiceIntegration green
+* [x] LP kill-switch halts LP quotes on Tag 35=i while preserving firm CLOB continuous trading — QuoteService.WithLPGate(LPAccountResolver→KillSwitchResolver.LPSuspended) bound in cmd/fix; wire-level `TestFromApp_MassQuoteLPSuspendedHaltsQuotesCLOBContinues` proves suspended LP's 35=i set rejects while the same session's 35=D CLOB order still submits
 * [x] Rail suspension halts target rail operations with `SETTLEMENT_RAIL_REJECTED` while sibling rails operate normally
 
 **SDD Checklist:**

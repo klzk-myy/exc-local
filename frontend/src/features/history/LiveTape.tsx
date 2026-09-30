@@ -139,8 +139,14 @@ export function LiveTape() {
           label="Tape symbol"
         />
         <div>
-          <label className="mb-1 block text-xs font-medium text-neutral-400">Depth levels</label>
+          <label
+            className="mb-1 block text-xs font-medium text-neutral-400"
+            htmlFor="tape-depth-levels"
+          >
+            Depth levels
+          </label>
           <select
+            id="tape-depth-levels"
             className={selectCls + ' w-auto'}
             value={depthLevels}
             onChange={(e) => {
@@ -155,8 +161,11 @@ export function LiveTape() {
           </select>
         </div>
         <div>
-          <label className="mb-1 block text-xs font-medium text-neutral-400">Cadence</label>
+          <label className="mb-1 block text-xs font-medium text-neutral-400" htmlFor="tape-cadence">
+            Cadence
+          </label>
           <select
+            id="tape-cadence"
             className={selectCls + ' w-auto'}
             value={depthCadence}
             onChange={(e) => {

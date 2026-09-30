@@ -1147,6 +1147,27 @@ int main(int argc, char** argv) {
     exch::EnginePump pump(&core_chan, &core_chan, ingress, &orders, &wal);
     pump.set_report_sink(stderr_alert, nullptr);
 
+    // Task 9.3.11 — trace_id continuity HTTP -> Aeron -> C++ -> Aeron ->
+    // Go (spec §19.12 byte contract): bind both outbound publishers to the
+    // pump's TraceSlot so frames emitted inside a traced dispatch echo the
+    // 64B EXCTRACE block verbatim back to the Go consumers.
+    publisher.set_trace_slot(pump.trace_slot());
+    l3_pub.set_trace_slot(pump.trace_slot());
+    // `order.match` spans: opt-in JSONL file sink (node-local scrape into
+    // the otel collector, same payload shape as the Go FileExporter).
+    // EXC_TRACE_FILE unset => spans counted (spans_emitted) but dropped —
+    // tracing never backpressures the hot path.
+    std::FILE* trace_fp = nullptr;
+    if (const char* tp = std::getenv("EXC_TRACE_FILE");
+        tp != nullptr && tp[0] != '\0') {
+        trace_fp = std::fopen(tp, "a");
+        if (trace_fp != nullptr) {
+            pump.set_span_sink(exch::file_span_sink, trace_fp);
+        } else {
+            std::fprintf(stderr, "WARN: EXC_TRACE_FILE=%s unwritable\n", tp);
+        }
+    }
+
     std::FILE* poison_fp = std::fopen(poison_path.c_str(), "a");
     pump.set_poison_sink(file_poison_sink, poison_fp);
 
@@ -1216,6 +1237,7 @@ int main(int argc, char** argv) {
     wal.close();
     core_chan.close();
     if (poison_fp != nullptr) std::fclose(poison_fp);
+    if (trace_fp != nullptr) std::fclose(trace_fp);
     std::fprintf(stderr, "shard %" PRIu32 " stopped\n", shard);
     return 0;
 }

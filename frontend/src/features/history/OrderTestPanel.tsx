@@ -113,8 +113,11 @@ export function OrderTestPanel() {
           label="Symbol"
         />
         <div>
-          <label className="mb-1 block text-xs font-medium text-neutral-400">Side</label>
+          <label className="mb-1 block text-xs font-medium text-neutral-400" htmlFor="ot-side">
+            Side
+          </label>
           <select
+            id="ot-side"
             className={selectCls}
             value={side}
             onChange={(e) => setSide(e.target.value as 'BUY' | 'SELL')}
@@ -125,16 +128,30 @@ export function OrderTestPanel() {
           </select>
         </div>
         <div>
-          <label className="mb-1 block text-xs font-medium text-neutral-400">Type</label>
-          <select className={selectCls} value={type} onChange={(e) => setType(e.target.value)}>
+          <label className="mb-1 block text-xs font-medium text-neutral-400" htmlFor="ot-type">
+            Type
+          </label>
+          <select
+            id="ot-type"
+            className={selectCls}
+            value={type}
+            onChange={(e) => setType(e.target.value)}
+          >
             {ORDER_TYPES.map((t) => (
               <option key={t}>{t}</option>
             ))}
           </select>
         </div>
         <div>
-          <label className="mb-1 block text-xs font-medium text-neutral-400">TIF</label>
-          <select className={selectCls} value={tif} onChange={(e) => setTif(e.target.value)}>
+          <label className="mb-1 block text-xs font-medium text-neutral-400" htmlFor="ot-tif">
+            TIF
+          </label>
+          <select
+            id="ot-tif"
+            className={selectCls}
+            value={tif}
+            onChange={(e) => setTif(e.target.value)}
+          >
             {TIME_IN_FORCE.map((t) => (
               <option key={t}>{t}</option>
             ))}

@@ -1,12 +1,18 @@
 # exchange-watchdogd.service — Tier-3 platform supervisor daemon
 # (spec §19.13.3 tier 3, Task 9.3.28 item 2; services/cmd/watchdogd).
 #
-# Duties: Aeron ring watermarks, leader-fencing/sequence-stall detection,
-# synthetic canary order probe (1.0s cadence, 250ms budget), PTP skew poll,
+# Binary: go build -o /opt/exchange/bin/exchange-watchdogd ./services/cmd/watchdogd
+# (Go dir is named per the §19.13 task contract; install renames to the
+# ExecStart path below.)
+#
+# Duties: shm-ring IPC heartbeat monitoring ({base}_{shard}_{in,out} under
+# /dev/shm), leader-fencing/sequence-stall detection, ingress ring
+# watermarks, synthetic canary probe (1.0s cadence, 250ms budget via
+# --canary-cmd — unset until the order injector lands), PTP skew poll,
 # NVMe quota — and leader-lock revocation (engine:leader:{shard}) on hang.
 #
 # WatchdogSec=500ms is the canonical value for this daemon (spec §19.13.3);
-# the binary pets sd_notify("WATCHDOG=1") every probe cycle.
+# the binary pets sd_notify("WATCHDOG=1") after every probe cycle.
 [Unit]
 Description=exchange platform watchdog supervisor
 After=network-online.target
@@ -28,6 +34,8 @@ TimeoutStopSec=5s
 User=exchange
 Group=exchange
 
+# --shards defaults to "0"; multi-shard hosts list all local shard ids.
+# --redis-master-name defaults to "mymaster" (deploy/sentinel/sentinel-*.conf).
 ExecStart=/opt/exchange/bin/exchange-watchdogd \
     --aeron-dir /dev/shm/aeron-exchange \
     --redis-sentinel 10.1.0.11:26379,10.2.0.12:26379,10.3.0.13:26379 \

@@ -99,8 +99,18 @@ function FilterBar({
         placeholder="All pairs"
       />
       <div>
-        <label className="mb-1 block text-xs font-medium text-neutral-400">Side</label>
-        <select className={selectCls} value={side} onChange={(e) => setSide(e.target.value)}>
+        <label
+          className="mb-1 block text-xs font-medium text-neutral-400"
+          htmlFor="orders-filter-side"
+        >
+          Side
+        </label>
+        <select
+          id="orders-filter-side"
+          className={selectCls}
+          value={side}
+          onChange={(e) => setSide(e.target.value)}
+        >
           <option value="">Any</option>
           {ORDER_SIDES.map((s) => (
             <option key={s}>{s}</option>
@@ -108,8 +118,18 @@ function FilterBar({
         </select>
       </div>
       <div>
-        <label className="mb-1 block text-xs font-medium text-neutral-400">Status</label>
-        <select className={selectCls} value={status} onChange={(e) => setStatus(e.target.value)}>
+        <label
+          className="mb-1 block text-xs font-medium text-neutral-400"
+          htmlFor="orders-filter-status"
+        >
+          Status
+        </label>
+        <select
+          id="orders-filter-status"
+          className={selectCls}
+          value={status}
+          onChange={(e) => setStatus(e.target.value)}
+        >
           <option value="">Any</option>
           {ORDER_STATUSES.map((s) => (
             <option key={s}>{s}</option>
@@ -117,8 +137,18 @@ function FilterBar({
         </select>
       </div>
       <div>
-        <label className="mb-1 block text-xs font-medium text-neutral-400">Type</label>
-        <select className={selectCls} value={type} onChange={(e) => setType(e.target.value)}>
+        <label
+          className="mb-1 block text-xs font-medium text-neutral-400"
+          htmlFor="orders-filter-type"
+        >
+          Type
+        </label>
+        <select
+          id="orders-filter-type"
+          className={selectCls}
+          value={type}
+          onChange={(e) => setType(e.target.value)}
+        >
           <option value="">Any</option>
           {ORDER_TYPES.map((t) => (
             <option key={t}>{t}</option>
@@ -126,8 +156,14 @@ function FilterBar({
         </select>
       </div>
       <div>
-        <label className="mb-1 block text-xs font-medium text-neutral-400">From</label>
+        <label
+          className="mb-1 block text-xs font-medium text-neutral-400"
+          htmlFor="orders-filter-from"
+        >
+          From
+        </label>
         <input
+          id="orders-filter-from"
           type="datetime-local"
           className={inputCls}
           value={from}
@@ -135,8 +171,14 @@ function FilterBar({
         />
       </div>
       <div>
-        <label className="mb-1 block text-xs font-medium text-neutral-400">To</label>
+        <label
+          className="mb-1 block text-xs font-medium text-neutral-400"
+          htmlFor="orders-filter-to"
+        >
+          To
+        </label>
         <input
+          id="orders-filter-to"
           type="datetime-local"
           className={inputCls}
           value={to}

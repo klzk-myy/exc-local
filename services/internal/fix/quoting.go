@@ -23,6 +23,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -151,15 +152,37 @@ type ComplianceObserver interface {
 		bidPx, bidQty, offerPx, offerQty *decimal.Decimal) error
 }
 
+// LPAccountResolver resolves the liquidity_providers entity owning the
+// session's quoting account via lp_accounts (migration 271) —
+// *marketmaking.PgStore satisfies it (LPForAccount). The FIX session
+// knows only its bound account; this is the account→LP hop the
+// SCOPE_LP kill-switch (Phase-11 Task 11.3.12, spec §24 #409) needs.
+// lpID==0 means the account is not LP-bound: the LP scope does not
+// apply and quoting proceeds under the mm_programs entitlement alone.
+type LPAccountResolver interface {
+	LPForAccount(ctx context.Context, accountID int64) (int64, error)
+}
+
+// LPGuard reports whether an LP entity is kill-switched —
+// *admin.KillSwitchResolver satisfies it (LPSuspended over the
+// `halt:lp:{lp_id}` flag; SCOPE_LP target_id is the
+// liquidity_providers.lp_id in string form). Errors MUST fail closed:
+// an unverifiable suspension state rejects quoting rather than admit.
+type LPGuard interface {
+	LPSuspended(ctx context.Context, lpID string) (bool, string, error)
+}
+
 // QuoteService owns the mass-quote lifecycle: admission checks, order
 // placement/replacement through the pipeline, per-set state for
 // QuoteCancel (35=Z), and per-entry acknowledgement construction.
 type QuoteService struct {
-	pipe QuotePipeline
-	ent  EntitlementSource
-	mmp  LockoutSource
-	obs  ComplianceObserver
-	logf func(format string, args ...any)
+	pipe    QuotePipeline
+	ent     EntitlementSource
+	mmp     LockoutSource
+	obs     ComplianceObserver
+	lpRes   LPAccountResolver
+	lpGuard LPGuard
+	logf    func(format string, args ...any)
 
 	mu   sync.Mutex
 	sets map[string]*quoteSet // key: account|session|setID
@@ -203,6 +226,22 @@ func (s *QuoteService) WithLogger(fn func(format string, args ...any)) *QuoteSer
 	if fn != nil {
 		s.logf = fn
 	}
+	return s
+}
+
+// WithLPGate binds the Task 11.3.12 SCOPE_LP kill-switch gate: res maps
+// the quoting account → its liquidity_providers entity, guard evaluates
+// the `halt:lp:{lp_id}` flag. Both or neither — a half-bound gate is a
+// wiring defect and fails closed at admission (spec §2.7). A fully-nil
+// pair disables the check: dev/test convenience ONLY — production
+// wiring must bind it or an LP suspension can never reach the 35=i
+// path. The gate is the quote-ingress twin of the order-admission
+// kill-switch: suspended LPs stop quoting while their firm CLOB order
+// flow (and every other venue participant) continues untouched — the
+// LP scope is never consulted on the order path.
+func (s *QuoteService) WithLPGate(res LPAccountResolver, guard LPGuard) *QuoteService {
+	s.lpRes = res
+	s.lpGuard = guard
 	return s
 }
 
@@ -254,6 +293,21 @@ func (s *QuoteService) SubmitMassQuote(ctx context.Context, sessionID string,
 		return nil, excerrors.New(marketmaking.CodeSessionNotEntitled,
 			fmt.Sprintf("account %d not found", accountID))
 	}
+	// Task 11.3.12 SCOPE_LP: a kill-switched liquidity provider stops
+	// quoting entirely — the whole set rejects with per-entry ack
+	// rejections while the LP's (and everyone else's) firm CLOB order
+	// flow continues untouched on the order path.
+	if halt := s.lpGateCheck(ctx, acct.ID); halt != "" {
+		for _, e := range q.Entries {
+			ack.Entries = append(ack.Entries, QuoteAckEntry{
+				QuoteEntryID: e.QuoteEntryID, Symbol: e.Symbol,
+				Status: QuoteStatusRejected, RejectReason: QuoteRejectReasonOther,
+				Text: halt,
+			})
+		}
+		return ack, excerrors.New("TRADING_HALTED",
+			"mass quote rejected: "+halt)
+	}
 	key := setKey(accountID, sessionID, q.QuoteSetID)
 
 	for _, e := range q.Entries {
@@ -261,6 +315,40 @@ func (s *QuoteService) SubmitMassQuote(ctx context.Context, sessionID string,
 		ack.Entries = append(ack.Entries, ae)
 	}
 	return ack, nil
+}
+
+// lpGateCheck resolves the session account → LP entity and evaluates
+// the SCOPE_LP flag. Returns the rejection detail ("" = clear to
+// quote). Fail closed on every unverifiable leg — a lookup error, a
+// flag-scan error or a half-wired gate rejects quoting rather than
+// admit a possibly-suspended LP (spec §2.7). Accounts with no
+// lp_accounts binding skip the scope: they were never an LP.
+func (s *QuoteService) lpGateCheck(ctx context.Context, accountID int64) string {
+	if s.lpRes == nil && s.lpGuard == nil {
+		return "" // gate unwired (dev/test) — documented WithLPGate opt-out
+	}
+	if s.lpRes == nil || s.lpGuard == nil {
+		return "TRADING_HALTED: LP kill-switch gate partially wired — cannot verify LP state"
+	}
+	lpID, err := s.lpRes.LPForAccount(ctx, accountID)
+	if err != nil {
+		return fmt.Sprintf("TRADING_HALTED: LP account binding unverifiable: %v", err)
+	}
+	if lpID <= 0 {
+		return "" // not an LP-bound account — SCOPE_LP does not apply
+	}
+	suspended, reason, err := s.lpGuard.LPSuspended(ctx,
+		strconv.FormatInt(lpID, 10))
+	if err != nil {
+		return fmt.Sprintf("TRADING_HALTED: LP[%d] kill-switch check failed: %v", lpID, err)
+	}
+	if !suspended {
+		return ""
+	}
+	if strings.TrimSpace(reason) == "" {
+		reason = "liquidity provider suspended"
+	}
+	return fmt.Sprintf("TRADING_HALTED: LP[%d] %s", lpID, reason)
 }
 
 // applyEntry handles one quote entry end-to-end and returns its ack

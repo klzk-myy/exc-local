@@ -24,7 +24,12 @@ type fakeStore struct {
 	usage     map[string]Usage // "acct|YYYYMMDD"
 	open      map[int64]int64
 	exposures map[int64][]SymbolExposure
-	err       error // injected store failure
+	// withdrawn maps accountID → rolling-window withdrawal sum served
+	// to WithdrawnSince; venueWithdrawn serves VenueWithdrawnSince.
+	// Tests set them directly — the fake does not model windows.
+	withdrawn      map[int64]decimal.Decimal
+	venueWithdrawn decimal.Decimal
+	err            error // injected store failure
 }
 
 func newFakeStore() *fakeStore {
@@ -32,6 +37,7 @@ func newFakeStore() *fakeStore {
 		usage:     map[string]Usage{},
 		open:      map[int64]int64{},
 		exposures: map[int64][]SymbolExposure{},
+		withdrawn: map[int64]decimal.Decimal{},
 	}
 }
 
@@ -87,6 +93,23 @@ func (f *fakeStore) SymbolExposures(_ context.Context, accountID int64) ([]Symbo
 		return nil, f.err
 	}
 	return f.exposures[accountID], nil
+}
+
+func (f *fakeStore) WithdrawnSince(_ context.Context, accountID int64, _ time.Time) (decimal.Decimal, error) {
+	if f.err != nil {
+		return decimal.Zero, f.err
+	}
+	if v, ok := f.withdrawn[accountID]; ok {
+		return v, nil
+	}
+	return decimal.Zero, nil
+}
+
+func (f *fakeStore) VenueWithdrawnSince(_ context.Context, _ time.Time) (decimal.Decimal, error) {
+	if f.err != nil {
+		return decimal.Zero, f.err
+	}
+	return f.venueWithdrawn, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -399,6 +422,98 @@ func TestCheckWithdrawal(t *testing.T) {
 	}
 	err = s.CheckWithdrawal(context.Background(), 1, "T1", decimal.NewFromInt(1))
 	requireCode(t, err, CodeOrderRejected) // now at cap
+}
+
+func TestCheckWithdrawalHourlyRate(t *testing.T) {
+	fs := newFakeStore()
+	fs.rows = []Row{{ID: 1, AccountID: int64p(1),
+		WithdrawRatePerHour: dec("10000")}}
+	s := svcWith(t, fs, func() time.Time { return testDay.Add(12 * time.Hour) })
+	fs.withdrawn[1] = decimal.NewFromInt(8000)
+
+	// 8000 + 3000 > 10000 → ORDER_REJECTED.
+	err := s.CheckWithdrawal(context.Background(), 1, "T1", decimal.NewFromInt(3000))
+	requireCode(t, err, CodeOrderRejected)
+	// Boundary: 8000 + 2000 == 10000 → allowed (exclusive breach).
+	if err := s.CheckWithdrawal(context.Background(), 1, "T1",
+		decimal.NewFromInt(2000)); err != nil {
+		t.Fatalf("hourly sum exactly at cap must pass: %v", err)
+	}
+	// Unset cap → hourly usage never consulted... but the cap being nil
+	// means the window sum is irrelevant; a pass proves no rejection.
+	fs2 := newFakeStore()
+	fs2.rows = []Row{{ID: 1, AccountID: int64p(1)}}
+	fs2.withdrawn[1] = decimal.NewFromInt(999999999)
+	s2 := svcWith(t, fs2, func() time.Time { return testDay })
+	if err := s2.CheckWithdrawal(context.Background(), 1, "T1",
+		decimal.NewFromInt(1)); err != nil {
+		t.Fatalf("unset withdraw_rate_per_hour must not reject: %v", err)
+	}
+	// Fail closed: a window-read error rejects the withdrawal.
+	fs3 := newFakeStore()
+	fs3.rows = []Row{{ID: 1, AccountID: int64p(1),
+		WithdrawRatePerHour: dec("10000")}}
+	s3 := svcWith(t, fs3, func() time.Time { return testDay })
+	fs3.err = stderrors.New("pg down") // Load succeeded; reads now fail
+	requireCode(t, s3.CheckWithdrawal(context.Background(), 1, "T1",
+		decimal.NewFromInt(1)), CodeRiskLimitsInternal)
+}
+
+func TestCheckWithdrawalVenueDailyCap(t *testing.T) {
+	fs := newFakeStore()
+	// Only the fully-global row carries the venue ceiling.
+	fs.rows = []Row{
+		{ID: 1, ExchangeDailyWithdrawLimit: dec("100000")},
+		{ID: 2, AccountID: int64p(1)}, // scoped row cannot widen/narrow it
+	}
+	s := svcWith(t, fs, func() time.Time { return testDay.Add(12 * time.Hour) })
+	fs.venueWithdrawn = decimal.NewFromInt(99000)
+
+	// 99000 + 2000 > 100000 → ORDER_REJECTED.
+	err := s.CheckWithdrawal(context.Background(), 1, "T1", decimal.NewFromInt(2000))
+	requireCode(t, err, CodeOrderRejected)
+	// Boundary: 99000 + 1000 == 100000 → allowed.
+	if err := s.CheckWithdrawal(context.Background(), 1, "T1",
+		decimal.NewFromInt(1000)); err != nil {
+		t.Fatalf("venue sum exactly at cap must pass: %v", err)
+	}
+	// Other accounts hit the same venue ceiling.
+	if err := s.CheckWithdrawal(context.Background(), 9, "T2",
+		decimal.NewFromInt(2000)); err == nil {
+		t.Fatal("venue cap must apply account-independently")
+	}
+	// Fail closed on the venue-sum read.
+	fs.err = stderrors.New("pg down")
+	requireCode(t, s.CheckWithdrawal(context.Background(), 1, "T1",
+		decimal.NewFromInt(1)), CodeRiskLimitsInternal)
+}
+
+func TestResolveExchangeDailyCapGlobalOnly(t *testing.T) {
+	rows := []Row{
+		// Scoped rows setting the venue column are ignored.
+		{ID: 1, AccountID: int64p(7), ExchangeDailyWithdrawLimit: dec("1")},
+		{ID: 2, Tier: strp("T1"), ExchangeDailyWithdrawLimit: dec("2")},
+		{ID: 3, Symbol: strp("EURUSD"), ExchangeDailyWithdrawLimit: dec("3")},
+		// Fully-global rows — lowest id wins.
+		{ID: 4, ExchangeDailyWithdrawLimit: dec("500000")},
+		{ID: 5, ExchangeDailyWithdrawLimit: dec("999999")},
+	}
+	lim := Resolve(rows, 7, "T1", "EURUSD")
+	if got := lim.ExchangeDailyWithdrawLimit.String(); got != "500000" {
+		t.Fatalf("ExchangeDailyWithdrawLimit = %s, want 500000 (global row id 4)", got)
+	}
+	// No global row → unset (unlimited), even when scoped rows carry it.
+	lim = Resolve(rows[:3], 7, "T1", "EURUSD")
+	if lim.ExchangeDailyWithdrawLimit != nil {
+		t.Fatal("scoped-row venue cap must not resolve")
+	}
+	// Wildcard-symbol global row counts as venue scope.
+	rows2 := []Row{{ID: 6, Symbol: strp("*"),
+		ExchangeDailyWithdrawLimit: dec("42000")}}
+	lim = Resolve(rows2, 1, "T0", "GBPUSD")
+	if got := lim.ExchangeDailyWithdrawLimit.String(); got != "42000" {
+		t.Fatalf("wildcard global row venue cap = %s, want 42000", got)
+	}
 }
 
 // ---------------------------------------------------------------------------

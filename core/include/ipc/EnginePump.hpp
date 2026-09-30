@@ -54,6 +54,7 @@
 #include <cstdint>
 
 #include "book/Order.hpp"
+#include "ipc/TraceContext.hpp"   // Task 9.3.11 — EXCTRACE block codec/slot
 #include "matching/WalWriter.hpp"  // OrderAux — wire-absent order fields
 #include "utils/MemoryPool.hpp"
 
@@ -331,6 +332,23 @@ class EnginePump {
     using report_fn = void (*)(void* ctx, const char* code, const char* detail);
     void set_report_sink(report_fn fn, void* ctx) noexcept;
 
+    // --- Task 9.3.11 — trace_id continuity ---------------------------------
+    // TraceSlot exposed for outbound publishers: while a traced command is
+    // dispatching the slot is armed; IpcPublisher/L3Publisher bind it and
+    // echo the 64B EXCTRACE block verbatim on every frame they emit inside
+    // that window (spec §19.12 byte contract — see ipc/TraceContext.hpp).
+    [[nodiscard]] TraceSlot* trace_slot() noexcept { return &trace_slot_; }
+    // Span sink: invoked once per traced inbound frame at dispatch end with
+    // the engine's `order.match` span (remote-parented on the frame's
+    // traceparent). nullptr default = spans counted but dropped — tracing
+    // never backpressures the hot path (spec §2.7). Ready sink:
+    // exch::file_span_sink writes OTLP/HTTP JSONL for node-local scrape.
+    using span_sink_fn = void (*)(void* ctx, const CoreSpan& span);
+    void set_span_sink(span_sink_fn fn, void* ctx) noexcept {
+        span_sink_ = fn;
+        span_ctx_ = ctx;
+    }
+
     // --- Metrics (single writer = matching thread; relaxed readers OK) ------
     [[nodiscard]] uint64_t msgs_in() const noexcept {
         return msgs_in_.load(std::memory_order_relaxed);
@@ -372,6 +390,13 @@ class EnginePump {
         return wal_failures_.load(std::memory_order_relaxed);
     }
     [[nodiscard]] uint64_t ticks() const noexcept { return ticks_.load(std::memory_order_relaxed); }
+    // Frames that carried a valid EXCTRACE block (Task 9.3.11).
+    [[nodiscard]] uint64_t traced_frames_in() const noexcept {
+        return traced_frames_in_.load(std::memory_order_relaxed);
+    }
+    [[nodiscard]] uint64_t spans_emitted() const noexcept {
+        return spans_emitted_.load(std::memory_order_relaxed);
+    }
     [[nodiscard]] const LatencyHistogram& dispatch_latency() const noexcept {
         return dispatch_latency_;
     }
@@ -412,7 +437,16 @@ class EnginePump {
     std::atomic<uint64_t> wal_appends_{0};
     std::atomic<uint64_t> wal_failures_{0};
     std::atomic<uint64_t> ticks_{0};
+    std::atomic<uint64_t> traced_frames_in_{0};
+    std::atomic<uint64_t> spans_emitted_{0};
     LatencyHistogram dispatch_latency_;
+
+    // Task 9.3.11 — armed while a traced frame dispatches; publishers echo
+    // its 64B block on response frames. Matching-thread only.
+    TraceSlot trace_slot_;
+    span_sink_fn span_sink_ = nullptr;
+    void* span_ctx_ = nullptr;
+    uint64_t span_salt_ = 0;  // mint_span_id uniqueness source
 
     alignas(64) uint8_t inbuf_[kMaxInboundBytes];
 };

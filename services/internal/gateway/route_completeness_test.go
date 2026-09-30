@@ -37,6 +37,9 @@ var (
 var allowlistedExceptions = map[string]string{
 	"/api/v1":                      "version prefix in prose, not an endpoint",
 	"/api/v2":                      "version prefix in prose, not an endpoint",
+	"/api/v3":                      "hypothetical future major in API-MIGRATION-GUIDE prose, not an endpoint",
+	"/api/v{}":                     "templated version prefix in API-MIGRATION-GUIDE prose, not an endpoint",
+	"/api/v{}/openapi.json":        "templated per-major spec URL in API-MIGRATION-GUIDE prose; concretes are registered",
 	"/api/v1/analytics":            "namespace prose; concrete endpoints under it are registered",
 	"/api/v1/market-data/ticks/{}": "deliberately canonicalized to /api/v1/history/ticks/{symbol} (Task 23.3.4)",
 	"/healthz":                     "watchdogd/engine-binary probe path, not gateway client surface",

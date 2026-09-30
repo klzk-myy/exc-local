@@ -9,8 +9,10 @@
 #      /health/ready 200 (R9 dependency schema).
 #   2. Error rate: Prometheus http_requests_total{status=~"5.."} rate on the
 #      target color must stay <= 1% of requests (spec §19.10 canary window).
-#   3. Optional synthetic order probe (--synthetic-url): POSTs a zero-dollar
-#      test order + cancel against the idle color; any non-2xx fails.
+#   3. Synthetic order probe (--synthetic-url): POSTs a zero-dollar test
+#      order + cancel against the idle color; any non-2xx fails.
+#      MANDATORY when --require-synthetic is passed — bluegreen.sh always
+#      passes it; the flag stays optional only for standalone/manual runs.
 #
 # On failure the script prints DEPLOYMENT_AUTOMATED_ROLLBACK and exits 1 —
 # bluegreen.sh scales the failed color to 0; post-switch (--watch) callers
@@ -19,6 +21,7 @@
 # Usage:
 #   canary-check.sh --color green [--window 300] [--interval 15]
 #                   [--prom http://prometheus:9090] [--synthetic-url URL]
+#                   [--require-synthetic]  # probe mandatory (switchover gate)
 #                   [--watch]            # post-switch mode: on failure exec
 #                                        # deploy/scripts/rollback.sh
 #
@@ -32,6 +35,7 @@ COLOR=""
 WINDOW=300
 INTERVAL=15
 PROM="${PROM_URL:-http://prometheus:9090}"
+PROBE_PORT="${EXC_PROBE_PORT:-8080}"   # per-pod readiness port (test override)
 SYN_URL=""
 WATCH=0
 
@@ -42,6 +46,7 @@ while [ $# -gt 0 ]; do
         --interval) INTERVAL="$2"; shift ;;
         --prom)    PROM="$2"; shift ;;
         --synthetic-url) SYN_URL="$2"; shift ;;
+        --require-synthetic) REQUIRE_SYN=1 ;;
         --watch)   WATCH=1 ;;
         -h|--help) sed -n '2,32p' "$0"; exit 0 ;;
         *) echo "unknown flag: $1" >&2; exit 64 ;;
@@ -49,6 +54,10 @@ while [ $# -gt 0 ]; do
     shift
 done
 [ "$COLOR" = "blue" ] || [ "$COLOR" = "green" ] || { echo "--color blue|green required" >&2; exit 64; }
+if [ "${REQUIRE_SYN:-0}" = "1" ] && [ -z "$SYN_URL" ]; then
+    echo "--require-synthetic needs --synthetic-url (mandatory switchover gate)" >&2
+    exit 64
+fi
 
 log() { printf '[canary %s] %s\n' "$(date -u +%H:%M:%S)" "$*"; }
 fail() { log "GATE FAIL: $* — DEPLOYMENT_AUTOMATED_ROLLBACK";
@@ -66,7 +75,7 @@ probe_ready() {
     local ep code
     for ep in $(endpoints); do
         code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 \
-            "http://$ep:8080/health/ready" || echo 000)"
+            "http://$ep:$PROBE_PORT/health/ready" || echo 000)"
         [ "$code" = "200" ] || fail "pod $ep /health/ready -> $code"
     done
 }
@@ -75,7 +84,7 @@ check_error_rate() {
     # PromQL: 5xx rate / total on the target color over the check interval.
     local q resp ratio
     q="sum(rate(http_requests_total{namespace=\"$NS\",color=\"$COLOR\",status=~\"5..\"}[${INTERVAL}s])) / sum(rate(http_requests_total{namespace=\"$NS\",color=\"$COLOR\"}[${INTERVAL}s]))"
-    resp="$(curl -sfG --data-urlencode "query=$q" "$PROM/api/v1/query" 2>/dev/null)" || {
+    resp="$(curl -sfG --max-time 5 --data-urlencode "query=$q" "$PROM/api/v1/query" 2>/dev/null)" || {
         log "prometheus unreachable — skipping error-rate gate (probes still gate)"
         return 0
     }
@@ -94,18 +103,10 @@ except Exception:
 
 synthetic_order() {
     [ -n "$SYN_URL" ] || return 0
-    local code
-    code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 -X POST \
-        -H 'Content-Type: application/json' \
-        -H 'X-Synthetic-Probe: canary' \
-        -d '{"symbol":"EUR/USD","side":"BUY","type":"LIMIT","qty_units":1,"price_ticks":1,"tif":"IOC","synthetic":true}' \
-        "$SYN_URL/api/v1/orders" || echo 000)"
-    # 200/201 accepted, or 4xx rejection is fine — the probe proves the path
-    # is ALIVE; 5xx/timeout is the canary failure.
-    case "$code" in
-        2*|4*) : ;;
-        *) fail "synthetic order probe -> $code" ;;
-    esac
+    # Delegate to the standalone probe (submit + cancel legs) — one
+    # implementation, one contract.
+    "$SELF_DIR/synthetic-order.sh" --base-url "$SYN_URL" \
+        || fail "synthetic order probe failed on $SYN_URL"
 }
 
 log "canary on $SVC window=${WINDOW}s interval=${INTERVAL}s"

@@ -46,6 +46,12 @@
 //     ordered live continuation with prev_last_seq continuity, CRC32
 //     slice verification on depth variants, and private-ring-aware
 //     replay.
+//   - Task 7.3.9 (consumer side) — lpBook@{lpID}/{symbol} per-LP book
+//     distribution: LPQuoteSource → LPPriceFilter applies the persisted
+//     lp_instrument_configs markup/skew, gates on enabled + LP ACTIVE +
+//     per-instrument staleness_timeout_ms (5s default), withdraws dead
+//     books as stale frames, and survives config edits via interval
+//     refresh (lp_pricing.go).
 //
 // Why a dedicated server instead of mounting internal/ws.Server: the ws
 // package (built in Phase-05 for the gateway's /ws/v1 interactive

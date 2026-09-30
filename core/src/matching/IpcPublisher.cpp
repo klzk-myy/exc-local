@@ -15,9 +15,19 @@ namespace exch {
 
 bool IpcPublisher::emit(flatbuffers::Offset<exc::wire::Event> ev) noexcept {
     builder_.Finish(ev);
-    const bool ok = out_ != nullptr &&
-                    out_->send(builder_.GetBufferPointer(),
-                               static_cast<uint32_t>(builder_.GetSize()));
+    const uint8_t* payload = builder_.GetBufferPointer();
+    const uint32_t len = static_cast<uint32_t>(builder_.GetSize());
+    // Task 9.3.11 — echo the inbound EXCTRACE block on the response frame
+    // when the dispatch window is armed (spec §19.12 byte contract).
+    bool ok = false;
+    if (trace_slot_ != nullptr && trace_slot_->armed() &&
+        compose_traced_frame(*trace_slot_, payload, len, trace_stage_,
+                             sizeof(trace_stage_))) {
+        ok = out_ != nullptr &&
+             out_->send(trace_stage_, len + kTraceBlockLen);
+    } else {
+        ok = out_ != nullptr && out_->send(payload, len);
+    }
     builder_.Reset();  // keeps capacity — no reallocation
     if (ok) {
         ++published_;

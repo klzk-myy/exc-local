@@ -24,6 +24,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"sync/atomic"
 	"syscall"
@@ -310,10 +311,94 @@ func (r *Ring) ProducerHeartbeatNs() uint64 {
 
 // ProducerAlive reports whether the stamped pid still exists (kill(pid, 0)).
 func (r *Ring) ProducerAlive() bool {
-	pid := r.ProducerPid()
-	if pid == 0 {
+	return PidAlive(r.ProducerPid())
+}
+
+// PidAlive probes a stamped producer pid via kill(pid, 0). pid 0 (never
+// stamped) reports false — an absent pid is unproven liveness, not life.
+func PidAlive(pid uint64) bool {
+	if pid == 0 || pid > math.MaxInt32 {
 		return false
 	}
 	err := syscall.Kill(int(pid), 0)
 	return err == nil || err == syscall.EPERM
+}
+
+// RingHeader is a point-in-time snapshot of one ring's header — the
+// read-only view a supervisor (exchange-watchdogd, spec §19.13.3 tier 3)
+// needs to detect a hung producer without joining the SPSC protocol.
+type RingHeader struct {
+	Head        uint64 // producer write sequence
+	Tail        uint64 // consumer read sequence
+	HeartbeatNs uint64 // CLOCK_REALTIME ns; 0 = producer never beat
+	ProducerPid uint64
+	Drops       uint64
+	Capacity    uint32
+	SlotPayload uint32
+	Version     uint32
+}
+
+// Occupancy is the pending unread message count (head - tail).
+func (h RingHeader) Occupancy() uint64 { return h.Head - h.Tail }
+
+// Utilization is Occupancy/Capacity in [0,1] (1 when capacity is unknown —
+// a header that validated has capacity > 0, so this is defensive only).
+func (h RingHeader) Utilization() float64 {
+	if h.Capacity == 0 {
+		return 1
+	}
+	return float64(h.Occupancy()) / float64(h.Capacity)
+}
+
+// ErrRingUninitialized is returned when the image exists but the producer
+// never stamped the init magic — created-but-not-yet-configured.
+var ErrRingUninitialized = errors.New("ipc: ring image present but init magic not stamped")
+
+// ReadRingHeader maps an existing ring image read-only and snapshots its
+// header. Unlike OpenRing it never creates or initializes the object — a
+// supervisor must observe liveness, never fabricate it (spec §2.7
+// fail-closed). Missing files, truncated images, un-stamped magic and
+// version mismatches are all errors.
+func ReadRingHeader(path string) (RingHeader, error) {
+	f, err := os.OpenFile(path, os.O_RDONLY, 0)
+	if err != nil {
+		return RingHeader{}, fmt.Errorf("ipc: open %s: %w", path, err)
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		return RingHeader{}, fmt.Errorf("ipc: stat %s: %w", path, err)
+	}
+	if st.Size() < offSlots {
+		return RingHeader{}, fmt.Errorf("ipc: %s truncated image (%d bytes)", path, st.Size())
+	}
+	m, err := unix.Mmap(int(f.Fd()), 0, int(st.Size()), unix.PROT_READ, unix.MAP_SHARED)
+	if err != nil {
+		return RingHeader{}, fmt.Errorf("ipc: mmap %s: %w", path, err)
+	}
+	defer func() { _ = unix.Munmap(m) }()
+
+	u64 := func(off int) uint64 { return atomic.LoadUint64((*uint64)(unsafe.Pointer(&m[off]))) }
+	u32 := func(off int) uint32 { return atomic.LoadUint32((*uint32)(unsafe.Pointer(&m[off]))) }
+
+	switch magic := u32(offMagic); magic {
+	case 0:
+		return RingHeader{}, ErrRingUninitialized
+	case ShmMagic:
+	default:
+		return RingHeader{}, fmt.Errorf("ipc: %s bad magic %#x: %w", path, magic, ErrBadMagic)
+	}
+	if v := u32(offVersion); v != ShmVersion {
+		return RingHeader{}, fmt.Errorf("ipc: %s version %d: %w", path, v, ErrBadMagic)
+	}
+	return RingHeader{
+		Head:        u64(offHead),
+		Tail:        u64(offTail),
+		HeartbeatNs: u64(offHeartbeat),
+		ProducerPid: u64(offPid),
+		Drops:       u64(offDrops),
+		Capacity:    uint32(u64(offCapacity)),
+		SlotPayload: uint32(u64(offSlotPayload)),
+		Version:     u32(offVersion),
+	}, nil
 }

@@ -205,7 +205,8 @@ if(EXCH_BUILD_TESTS)
             test_phase16
             test_l3
             test_implied
-            test_implied_engine)
+            test_implied_engine
+            test_trace)
         add_executable(${t} tests/${t}.cpp)
         target_link_libraries(${t} PRIVATE exch_core gtest_main)
         add_test(NAME ${t} COMMAND ${t})

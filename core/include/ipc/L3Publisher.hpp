@@ -43,6 +43,7 @@
 
 #include "book/Order.hpp"
 #include "ipc/IpcChannel.hpp"
+#include "ipc/TraceContext.hpp"  // Task 9.3.11 — EXCTRACE echo seam
 
 #if __has_include("exchange_generated.h") && \
     __has_include(<flatbuffers/flatbuffers.h>)
@@ -119,6 +120,15 @@ public:
     // on send failure / seq-table saturation (counted in drops()).
     [[nodiscard]] bool publish(const L3Event& e) noexcept;
 
+    // Task 9.3.11 — trace-echo binding (spec §19.12 Aeron header format):
+    // while the owning EnginePump's TraceSlot is armed, publish() prefixes
+    // the 64B EXCTRACE block verbatim onto the wire — L3 events are
+    // engine-emitted frames "in response to that command" same as
+    // TradeFill/BookSnapshot.
+    void set_trace_slot(const TraceSlot* slot) noexcept {
+        trace_slot_ = slot;
+    }
+
     // Next per-instrument seq that would be assigned. Seqs are 1-BASED —
     // the Go decode gate rejects l3_seq==0 as an absent field.
     [[nodiscard]] uint64_t symbol_seq(uint32_t instrument_id) const noexcept;
@@ -149,6 +159,12 @@ private:
     uint64_t published_ = 0;
     uint64_t drops_ = 0;
     uint64_t seq_overflow_ = 0;
+
+    const TraceSlot* trace_slot_ = nullptr;  // Task 9.3.11 echo binding
+    // Staging for [EXCTRACE block][Event] composition — an L3 frame is a
+    // few hundred bytes; 16KiB is unreachable headroom.
+    static constexpr uint32_t kTraceStageBytes = 16 * 1024;
+    uint8_t trace_stage_[kTraceStageBytes] = {};
 
 #if EXCH_L3_FLATBUFFERS
     flatbuffers::FlatBufferBuilder builder_;

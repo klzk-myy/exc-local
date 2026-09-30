@@ -4,8 +4,10 @@ package ipc
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -226,6 +228,69 @@ func TestChannelLoopback(t *testing.T) {
 	}
 	if core.Drops() != 0 || gw.Drops() != 0 {
 		t.Fatal("unexpected drops")
+	}
+}
+
+// ReadRingHeader is the supervisor's (exchange-watchdogd) read-only
+// observer path: it must see the live header and must never create or
+// initialize an image.
+func TestReadRingHeader(t *testing.T) {
+	base := uniqBase(t)
+	name := base + "_ring"
+	path := "/dev/shm/" + name
+
+	// Missing image is an error — a supervisor may not fabricate it.
+	if _, err := ReadRingHeader(path); err == nil {
+		t.Fatal("missing ring read succeeded")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("ReadRingHeader created %s", path)
+	}
+
+	// Producer stamps pid + heartbeat; the header observer sees both.
+	prod, err := OpenRing(name, RoleProducer, true, 256, 1024)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer func() {
+		_ = prod.Close()
+		_ = os.Remove(path)
+	}()
+	if !prod.TryWrite([]byte("payload")) {
+		t.Fatal("write failed")
+	}
+
+	h, err := ReadRingHeader(path)
+	if err != nil {
+		t.Fatalf("read header: %v", err)
+	}
+	if h.ProducerPid != uint64(os.Getpid()) {
+		t.Fatalf("pid %d != %d", h.ProducerPid, os.Getpid())
+	}
+	if h.HeartbeatNs == 0 {
+		t.Fatal("heartbeat zero")
+	}
+	if h.Head != 1 || h.Occupancy() != 1 || h.Capacity != 256 {
+		t.Fatalf("bad header %+v", h)
+	}
+}
+
+func TestReadRingHeaderUninitialized(t *testing.T) {
+	// A zeroed image of header size = created-but-not-configured.
+	path := filepath.Join(t.TempDir(), "ring")
+	if err := os.WriteFile(path, make([]byte, offSlots), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadRingHeader(path); !errors.Is(err, ErrRingUninitialized) {
+		t.Fatalf("got %v, want ErrRingUninitialized", err)
+	}
+	// Below header size = truncated.
+	path2 := filepath.Join(t.TempDir(), "ring2")
+	if err := os.WriteFile(path2, make([]byte, 64), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadRingHeader(path2); err == nil {
+		t.Fatal("truncated image read succeeded")
 	}
 }
 

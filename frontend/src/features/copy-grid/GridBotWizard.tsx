@@ -126,16 +126,21 @@ export function GridBotWizard({
     takeProfit.valid &&
     !boundsInverted;
 
-  const fld = (label: string, f: ReturnType<typeof useValidatedField>, hint?: string) => (
-    <div>
-      <label className={labelCls}>
-        {label}
-        <input className={inputCls} inputMode="decimal" {...f.inputProps} />
-      </label>
-      {f.error ? <p className="mt-1 text-xs text-red-400">{f.error}</p> : null}
-      {!f.error && hint ? <p className="mt-1 text-xs text-neutral-500">{hint}</p> : null}
-    </div>
-  );
+  const fld = (label: string, f: ReturnType<typeof useValidatedField>, hint?: string) => {
+    // Stable control id — keeps label association explicit (implicit-only
+    // labels are fragile under axe's DOM label resolution).
+    const id = `gb-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+    return (
+      <div>
+        <label className={labelCls} htmlFor={id}>
+          {label}
+        </label>
+        <input id={id} className={inputCls} inputMode="decimal" {...f.inputProps} />
+        {f.error ? <p className="mt-1 text-xs text-red-400">{f.error}</p> : null}
+        {!f.error && hint ? <p className="mt-1 text-xs text-neutral-500">{hint}</p> : null}
+      </div>
+    );
+  };
 
   return (
     <section
@@ -159,8 +164,11 @@ export function GridBotWizard({
           label="Pair"
         />
         <div>
-          <label className={labelCls}>Order type</label>
+          <label className={labelCls} htmlFor="gb-order-type">
+            Order type
+          </label>
           <select
+            id="gb-order-type"
             className={selectCls}
             value={orderType}
             onChange={(e) => {
@@ -219,8 +227,12 @@ export function GridBotWizard({
         derivation above is computed locally from your inputs; it is not a performance projection.
       </p>
 
-      <label className="mt-3 flex items-start gap-2 text-sm text-neutral-300">
+      <label
+        className="mt-3 flex items-start gap-2 text-sm text-neutral-300"
+        htmlFor="gb-risk-accept"
+      >
         <input
+          id="gb-risk-accept"
           type="checkbox"
           checked={riskAccepted}
           onChange={(e) => {

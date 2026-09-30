@@ -126,12 +126,17 @@ export function DownloadCenter() {
       >
         <div className="mt-3 grid grid-cols-3 gap-2">
           <div>
-            <label className={labelCls}>Year</label>
-            <input className={inputCls} inputMode="numeric" {...year.inputProps} />
+            <label className={labelCls} htmlFor="tax-year">
+              Year
+            </label>
+            <input id="tax-year" className={inputCls} inputMode="numeric" {...year.inputProps} />
           </div>
           <div>
-            <label className={labelCls}>Method</label>
+            <label className={labelCls} htmlFor="tax-method">
+              Method
+            </label>
             <select
+              id="tax-method"
               className={selectCls}
               value={method}
               onChange={(e) => setMethod(e.target.value)}
@@ -142,8 +147,11 @@ export function DownloadCenter() {
             </select>
           </div>
           <div>
-            <label className={labelCls}>Format</label>
+            <label className={labelCls} htmlFor="tax-format">
+              Format
+            </label>
             <select
+              id="tax-format"
               className={selectCls}
               value={format}
               onChange={(e) => setFormat(e.target.value as 'csv' | 'pdf')}
@@ -185,8 +193,15 @@ export function DownloadCenter() {
         }}
       >
         <div className="mt-3">
-          <label className={labelCls}>Trade id</label>
-          <input className={inputCls} {...tradeId.inputProps} placeholder="e.g. 104200" />
+          <label className={labelCls} htmlFor="conf-trade-id">
+            Trade id
+          </label>
+          <input
+            id="conf-trade-id"
+            className={inputCls}
+            {...tradeId.inputProps}
+            placeholder="e.g. 104200"
+          />
         </div>
       </DownloadCard>
 

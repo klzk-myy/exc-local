@@ -522,4 +522,9 @@ var localCodes = []CodeDef{
 		"Requested operation violates the payment_netting_batches lifecycle (OPEN→NETTED→DISPATCHED→SETTLED|FAILED) — e.g. reopen on a SETTLED batch or dispatch on a non-NETTED row (spec §17.7)"),
 	localRow("NETTING_AGREEMENT_MISSING", 422, "Phase-24 Task 24.3.9",
 		"Counterparty has no EXECUTED, unexpired ISDA/netting agreement — bilateral netting is not legally enforceable and the run refuses (spec §17.7, §5.26)"),
+	// Phase-09 Task 9.3.15 — DORA material-incident closure gate emitted
+	// by internal/operations/dora. No spec §23 row yet; the §23-side fix
+	// is a transcription row.
+	localRow("INCIDENT_CLOSURE_BLOCKED", 409, "Phase-09 Task 9.3.15",
+		"Material incident CLOSED transition refused: overdue/pending DORA regulator reports, incomplete P0/P1 post-mortem artifacts, or unresolved/unaccepted remediation items (spec §19.5, §19.8)"),
 }

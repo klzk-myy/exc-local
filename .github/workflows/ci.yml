@@ -384,3 +384,32 @@ jobs:
           name: spec-report-merged
           path: reports/merged.json
           if-no-files-found: warn
+
+  # ── 6. Ops contracts (Phase-09 Tasks 9.3.26 + 9.3.29) ─────────────────────
+  # Metric cardinality / label / sampling / retention budgets enforced
+  # statically in CI against deploy/monitoring/observability-budgets.yml
+  # (the machine-readable mirror of docs/ops/observability-contract.md);
+  # live per-service series budgets are the checker's --live seam (needs a
+  # Prometheus — documented, not faked). The deploy-gate leg runs the real
+  # bluegreen/canary/synthetic-order scripts against a mock gateway and a
+  # stubbed kubectl — proves the synthetic e2e order test is a mandatory,
+  # fail-closed switchover gate.
+  ops-contracts:
+    name: Observability budgets + blue-green gate tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install PyYAML (checker dependency)
+        run: pip install pyyaml
+
+      - name: Observability budget enforcement (static leg — 9.3.29)
+        run: python3 scripts/ci/check_observability_budgets.py
+
+      - name: Blue-green synthetic-order gate evidence (9.3.26)
+        run: bash deploy/scripts/tests/bluegreen_gate_test.sh

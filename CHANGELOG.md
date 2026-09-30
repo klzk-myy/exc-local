@@ -1924,3 +1924,79 @@ All 30 phase plans executed to specification. Canonical counts vs AGENTS.md:
   measurements, production credential/store provisioning. Each has authored
   mechanism + harness; discharge requires the documented environment.
 - **Final commit:** see git log — Phase-24 settle lands all remaining work.
+
+### [2026-09-30 17:20 UTC] — Post-completion gap-closure round
+
+- Unchecked-checklist audit: 119 open rows across 13 phase files; classified
+  ~85 env-bound / ~10 ops-program / 10 tooling / ~8 measured-open / 6 code gaps.
+- Re-ticked on later-phase evidence: Phase-09 §9.3.23 FIX logout (Phase-18
+  drain.go landed); Phase-11 §11.3.12 edge cases (CoD test landed).
+- Authored `error-scenarios` CI job (suite green locally 24/24).
+- Dispatched 10 agents on the actionable remainder:
+  A1 LP-pricing consumer (7.3.9) · A2 SCOPE_LP quote gate + 10µs bench
+  (11.3.12) · A3 withdrawal hourly/exchange-wide caps (11.3.2) ·
+  A4 watchdogd binary (9.3.28) · A5 incident-closure gate + capacity report
+  (9.3.15/9.3.19) · A6 axe-core WCAG audits (Phase-10 ×10 rows) ·
+  A7 migration guide + post-mortem surface (9.3.6/9.3.25) ·
+  A8 incident bot + blue-green probe gate + CI cardinality (9.3.18/.26/.29) ·
+  A9 latency harnesses 100µs/3s/<5s (9.3.10/9.3.25/18.3.12) ·
+  A10 C++ trace spans + CH restore drill (9.3.11/4.3.6).
+
+## [2026-09-30 18:02 UTC] — Gap-Closure Round (10-agent dispatch on audited unchecked rows)
+
+Following the unchecked-checklist census (`aa704bc`, 119 annotated-open rows), 10
+sub-agents were dispatched on disjoint write scopes to close the actionable
+(non-env-bound) rows. All 10 reported DONE; orchestrator re-verified every claim
+against builds, tests, and live measurements. **24 checklist rows ticked.**
+
+**Code gaps closed:**
+- **FIX MassQuote/QuoteCancel wire layer** (Phase-18 Task 18.3.7 sibling surface):
+  `internal/fix/app_quoting.go` parses 35=i/35=Z (full group templates — delimiter
+  299 first + all emitted fields; partial templates break QuickFIX group parse),
+  session gates (account binding, per-entry allowed_instruments entitlement),
+  emits 35=b MassQuoteAck per-entry; `cmd/fix` binds QuoteService with
+  `WithLPGate(PgxLPAccountResolver→KillSwitchResolver.LPSuspended)`. 5 wire tests:
+  routed+acked, nil-QS→unsupported, drop-copy rejected, suspended-LP rejects set
+  while 35=D CLOB continues, 35=Z cancels set.
+- **Phase-11:80** withdrawal caps — hourly-rate window + exchange-wide daily cap
+  enforced (mig 272); TestPgWithdrawalCaps/TestITWithdrawalCaps/venue-daily-cap green.
+- **Phase-11:335** — `BenchmarkCounterpartyKillSweep`: 1.5–2.9µs/order (bound 10µs).
+- **Phase-11:336** — SCOPE_LP gate now wired to 35=i admission (above).
+- **Phase-18:344** — `TestFailoverE2E` on live PG+Redis: resume median 2.06ms /
+  max 67.9ms, total incl. lease wait 452–518ms (bound 5s).
+- **Phase-09** — DORA material-incident closure gate (`operations/dora`, new code
+  `INCIDENT_CLOSURE_BLOCKED` 409); `cmd/watchdogd` Tier-3 supervisor (shm ring
+  probes, leader-lock revoke, sd_notify); incident war-room bot
+  (`incident.Manager`); quarterly capacity generator (`operations/capacity`, mig
+  274); public postmortem archive generator (`cmd/postmortem-archive` +
+  `ops.Sanitize`); synthetic-order mandatory blue-green gate + evidence suite;
+  API migration guide (`docs/API-MIGRATION-GUIDE.md`); observability budgets CI
+  job (`ops-contracts`: check_observability_budgets.py + bluegreen gate tests);
+  status-mode freshness measured ~1s (bound 3s); cancel-exempt lane measured
+  p99=975ns (bound 100µs).
+- **Phase-10** — jest-axe 11 + `a11y.audit.test.tsx`: 41/41 wcag21aa audits green
+  across ops/auth/settings/funding/KYC/support/strategy/history/reports/
+  input-helpers surfaces (10 rows ticked).
+- **C++ trace spans** (A8) — TraceContext.hpp + span emission in IpcPublisher/
+  L3Publisher/EnginePump, test_trace.cpp; 37/37 ctest green. Go send-path
+  `InjectAeronTrace` remains the open seam (Phase-09:291 stays open, annotation
+  refreshed).
+- **Migrations** 271 (`lp_accounts`), 272 (exchange daily cap), 273
+  (`dora_incidents`), 274 (`capacity_reports`) — up/down/up verified on dev PG16.
+  **199 → 203** total.
+- **Error registry**: +1 localCode `INCIDENT_CLOSURE_BLOCKED` → **235 emitted /
+  69 localCodes** pending §23 transcription.
+- **PII inventory** regenerated: 197 cols / **356** tables, 0 unclassified.
+
+**Deliberately left open (honest):**
+- Phase-07:224 — `LPPriceFilter` + PG config source landed but no LP-quote
+  ingress feeds a live distribution path (gap, not env-bound).
+- Phase-09:291 — trace continuity partial (Go send-path injection seam open).
+- Phase-08:131 — error-scenarios CI job authored (aa704bc); pending remote CI run.
+- Phase-11:41–45 — live SEPA/FedNow/CHAPS/TARGET2 rails (env-blocked).
+- ~85 env-bound rows (soak, staging, multi-region, PagerDuty, hardware, edge).
+
+**Verification:** `go test ./...` green (incl. new fix/incident/dora/capacity/
+watchdog/ops packages + PG/Redis-gated runs); ctest 37/37; vitest axe 41/41;
+spec corpus 4-shard: 571 rows — 568 pass / 2 env-skip / 1 env-pending / 0 fail.
+Unchecked census: 119 → **95** rows, all annotated.

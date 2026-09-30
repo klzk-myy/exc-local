@@ -1,0 +1,183 @@
+# =============================================================================
+# observability-budgets.yml — machine-readable mirror of
+# docs/ops/observability-contract.md §1–3 (Phase-09 Task 9.3.29, spec §19.14,
+# §24 #340). Enforced in CI by scripts/ci/check_observability_budgets.py;
+# this file is the contract the checker executes — a change here is a budget
+# change and must be reviewed like one.
+#
+# Semantics:
+#   services.*.budget      — LIVE series budget per scrape target, enforced by
+#                            the --live mode against a real Prometheus (the
+#                            CI leg cannot scrape a cluster; the seam is
+#                            documented, not faked).
+#   scopes.*.family_budget — STATIC family-count bound per source scope
+#                            (families registered in the listed dirs). This
+#                            is what CI enforces: a cardinality blow-up
+#                            starts as a new family or label long before
+#                            series counts can be observed.
+# =============================================================================
+version: 1
+
+scrape_interval: 15s   # spec §19.3/Task 7.3.4 — prometheus.yml global must match
+
+# --- §1 metrics: per-service series budgets (live seam) ----------------------
+services:
+  gateway:    { budget: 3000, scrape_job: gateway }
+  marketdata: { budget: 2000, scrape_job: marketdata }
+  fix:        { budget: 2000, scrape_job: fix }
+  settlement: { budget: 2000, scrape_job: settlement }
+  compliance: { budget: 2000, scrape_job: compliance }
+  admin:      { budget: 5000, scrape_job: admin }     # primary ops target
+  bridge:     { budget: 1500, scrape_job: bridge, per_instance: true }
+  engine:     { budget: 2000, scrape_job: null, per_shard: true,
+                note: "engine metrics land via watchdog/admin exporter" }
+
+# --- §1 metric naming contract -----------------------------------------------
+# A registered family must match ONE allowed prefix OR be in exact_names.
+prefixes:
+  - exchange_           # platform-domain series
+  - aeron_              # Aeron media-driver / IPC
+  - bridge_             # Aeron→NATS bridge health
+  - nats_               # JetStream stream/consumer
+  - wal_                # write-ahead log
+  - engine_             # core matching engine
+  - reconciliation_     # reconciliation sweeps
+  - watchdog_           # watchdog/supervisor (Task 9.3.28)
+  - daemon_             # daemon liveness (daemon_up)
+  - ptp_                # PTP IEEE 1588 clock sync (Task 9.3.12)
+  - clock_              # clock offset/divergence
+  - marketdata_         # market-data fan-out
+  - ws_                 # websocket surface
+  - http_               # request surface (http_requests_total denominator)
+  - load_shed_          # load shedding (Task 9.3.10)
+  - circuit_breaker_    # five-tier breaker (Phase-13)
+  - auto_halt_          # trading-halt automation (Phase-14)
+  - secret_rotation_    # secrets rotation SLA (Task 9.3.29)
+  - tracing_            # trace exporter self-stats
+  - deprecation_        # API deprecation sunsets (Task 9.3.6)
+  - orders_             # order-path counters
+exact_names:
+  - clock_offset_nanoseconds   # spec §24 #127 PTP gauge (no prefix)
+  - daemon_up                  # kept for clarity; also covered by daemon_
+
+# --- §1 label contract -------------------------------------------------------
+# Contract text: "no unbounded label values (no order IDs, account IDs,
+# IPs, seqs)". CI rule: a label NAME in denylist, or any name absent from
+# allowlist, fails the check — adding a label requires a reviewed edit of
+# this file. Static analysis cannot prove value boundedness; names on
+# labels_review are known-conditional and printed as WARNINGS (tracked
+# debt: circuit_breaker{scope=ACCOUNT,id} and auto_halt{scope,id} carry
+# runtime ids — account-id values ARE the §1 no-unbounded-values breach;
+# bounding them is follow-up work, not silently waived here).
+labels:
+  allowlist:
+    - service      # owning service name (bounded: §19.13.1 inventory)
+    - shard        # engine shard id (bounded: shard map)
+    - tier         # L0–L3 error tier (§2.7.2)
+    - code         # error-code registry id (bounded registry)
+    - kind         # bounded category (reconciliation kind, frame kind)
+    - channel      # notification channel (email/sms/push/ws)
+    - stream_id    # NATS stream (bounded stream inventory)
+    - stream       # stream alias
+    - consumer     # JetStream consumer (bounded)
+    - mode         # degradation mode enum (6 values)
+    - breaker      # breaker name (bounded rule set)
+    - method       # HTTP method (7 values)
+    - route        # registered route pattern — bounded by route table
+    - status       # outcome enum
+    - severity     # P0–P3
+    - rule         # alert rule id (bounded rule pack)
+    - name         # named sub-component (breaker name, dashboard)
+    - scope        # circuit-breaker scope enum (migration 206)
+    - id           # REVIEW — see labels_review
+    - detector     # anomaly detector id (bounded detector set)
+    - action       # action enum
+    - daemon       # daemon name (bounded daemon inventory, Task 9.3.28)
+    - probe        # probe name (bounded probe set)
+    - mount        # filesystem mount point (bounded host config)
+    - counter_id   # Aeron driver counter id (bounded counter registry)
+  denylist:        # names that can only carry unbounded values — hard fail
+    - order_id
+    - client_order_id
+    - trade_id
+    - account_id
+    - user_id
+    - account
+    - user
+    - ip
+    - ip_address
+    - remote_addr
+    - email
+    - phone
+    - trace_id     # trace ids belong in spans/logs, never metric labels
+    - seq
+    - seq_id
+    - session_id
+  # Printed as warnings every run — visible until fixed. Names listed here
+  # must ALSO be allowlisted or the check fails; review-tier means
+  # "tolerated today, tracked".
+  review:
+    - name: id
+      where: "circuit_breaker_state{scope,id}, circuit_breaker_transitions_total{scope,id}, auto_halt_halted{scope,id}"
+      note: "scope=ACCOUNT rows carry account ids — the contract's own 'no account IDs' clause; bounded only while account-scoped breakers stay rare. Fix: bucket id to scope-class (instrument symbol is bounded; account id should map to tier)."
+      severity: warn
+
+# --- §1 static scopes: family-count budgets -----------------------------------
+# families = distinct metric names registered in the dirs. Shared
+# instrumentation (internal/observability) compiles into every service and
+# is therefore counted under every scope's budget — the table reflects
+# what each binary actually exposes.
+scopes:
+  shared:   # internal/observability panel — registered in every Go service
+    dirs: [services/internal/observability]
+    family_budget: 40     # 33 today (Task 7.3.4 metric set + alert/mon families)
+  gateway:
+    dirs: [services/cmd/gateway]
+    family_budget: 40
+  marketdata:
+    dirs: [services/cmd/marketdata]
+    family_budget: 30
+  watchdog:   # exchange-watchdogd on bare metal (Task 9.3.28)
+    dirs: [services/internal/watchdog]
+    family_budget: 20
+  timesync:   # PTP monitor (Task 9.3.12)
+    dirs: [services/internal/timesync]
+    family_budget: 15
+  risk:       # circuit breaker / auto-halt / OTR (Phase-13)
+    dirs: [services/internal/risk]
+    family_budget: 15
+  security:   # secret rotation gauges (Task 9.3.29)
+    dirs: [services/internal/security]
+    family_budget: 10
+
+# --- §3 traces ----------------------------------------------------------------
+tracing:
+  source: services/internal/tracing/tracer.go
+  head_ratio: 0.01            # head-sampling budget (spec §19.12.3)
+  require_tail_error: true    # errored spans always export
+  require_tail_slow: true     # SlowThreshold upgrade must exist
+  collector: deploy/otel/otel-collector.yaml
+  collector_checks:
+    memory_limiter_first: true   # shed load before batching mid-incident
+    require_attributes_crop: true # cardinality hygiene processor
+
+# --- §2 logs / retention -------------------------------------------------------
+retention:
+  policy: infrastructure/data-tiering/tiering_policy.yaml
+  # Required classes with the contract's retain_days (spec §19.12).
+  required_classes:
+    orders:               1825   # MiFID II RTS 6 — 5y
+    trades:               1825
+    order_audit:          1825
+    ledger:               2555   # 7y
+    audit_hash_chain:     2555
+    tick_history:           90   # ClickHouse raw ticks 90d
+    ohlcv_aggregates:     1825
+    comms_recordings:     1825   # MiFID Art 16(7)
+    finance_reports:      2555
+    wal_archives:         1825
+    surveillance_signals: 1825
+    kyc_documents:        1825   # account lifetime + 5y
+  # Honest gap: the 30d Loki hot-log window is operational config, not a
+  # tiering-policy class — surfaced as a warning until the policy owns it.
+  ops_log_hot_days: 30

@@ -75,6 +75,10 @@ var channelTypes = map[string]ChannelClass{
 	"depth_full": ClassL2,
 	"auction":    ClassNone,
 	"greeks":     ClassNone, // Task 23.3.5 — spec §24 #250
+	// lpBook@{lpID}/{symbol} — per-LP priced book distribution
+	// (Task 7.3.9 consumer, lp_pricing.go): markup/skew applied per
+	// lp_instrument_configs before fanout. L2-class — it is book data.
+	"lpBook": ClassL2,
 }
 
 // klineIntervals is the canonical 13-timeframe set pinned by spec §24
@@ -101,6 +105,11 @@ type Channel struct {
 	Class   ChannelClass // budget class
 	Private bool         // auth-gated ws.PrivateChannels member
 	Depth   DepthVariant // resolved depth params (Type=="depth" only)
+	// LPID is the lpBook@{lpID}/{symbol} LP id (Type=="lpBook" only; 0
+	// otherwise). Target stays the symbol so symbol-level entitlements
+	// (DenySymbols) apply to the instrument, not the "7/EUR/USD" pair
+	// token.
+	LPID int64
 }
 
 // DepthVariant is one supported depth@{symbol}:{levels}:{cadence_ms}
@@ -265,6 +274,23 @@ func ParseChannel(raw string) (Channel, error) {
 			return Channel{}, err
 		}
 		ch.Depth = v
+	}
+	if typ == "lpBook" {
+		// lpBook@{lpID}/{symbol}: the LP id is the first path segment —
+		// a non-numeric or empty half is a typo that would bind a
+		// subscription no producer can satisfy.
+		lpTok, sym, ok := strings.Cut(target, "/")
+		if !ok || sym == "" {
+			return Channel{}, fmt.Errorf(
+				"lpBook channel %q must be lpBook@{lp_id}/{symbol}", raw)
+		}
+		lpID, err := strconv.ParseInt(lpTok, 10, 64)
+		if err != nil || lpID <= 0 {
+			return Channel{}, fmt.Errorf(
+				"lpBook channel %q carries an invalid lp_id %q", raw, lpTok)
+		}
+		ch.LPID = lpID
+		ch.Target = sym // symbol-level entitlements see the instrument
 	}
 	return ch, nil
 }

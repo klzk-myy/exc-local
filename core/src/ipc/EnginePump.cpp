@@ -500,18 +500,42 @@ void EnginePump::quarantine(const uint8_t* data, uint32_t len, const char* why) 
 // matching thread (Task 2.3.19, spec §2.7).
 void EnginePump::dispatch(const uint8_t* data, uint32_t len) noexcept {
     const uint64_t t0 = opts_.measure_latency ? steady_ns() : 0;
+    // Task 9.3.11 — EXCTRACE header (byte contract: ipc/TraceContext.hpp):
+    // a magic'd 64B block at offset 0 shifts the FlatBuffers payload to
+    // +kTraceBlockLen. A valid traceparent arms trace_slot_ for the echo
+    // window (publishers copy the block verbatim onto response frames) and
+    // queues an `order.match` span; a malformed parent still decodes at
+    // +64 — untraced, never a fault (spec §2.7).
+    CoreSpanContext tsc{};
+    const bool block_present = has_trace_block(data, len);
+    const bool traced =
+        block_present && parse_trace_context(data, len, tsc);
+    if (block_present) {
+        if (traced) {
+            trace_slot_.arm(tsc.block);
+            traced_frames_in_.fetch_add(1, std::memory_order_relaxed);
+        }
+        data += kTraceBlockLen;
+        len -= kTraceBlockLen;
+    }
+    struct TraceDisarm {  // disarm on every exit path, noexcept by shape
+        TraceSlot* slot;
+        ~TraceDisarm() {
+            if (slot != nullptr) slot->disarm();
+        }
+    } disarm{traced ? &trace_slot_ : nullptr};
+    const uint64_t span_start_ns = traced ? now_ns() : 0;
+    uint8_t wire_event_type = 0xFF;
     try {
 #if EXCH_PUMP_WIRE
         flatbuffers::Verifier v(data, len);
+        const exc::wire::Event* ev = nullptr;
         if (!v.VerifyBuffer<exc::wire::Event>()) {
             quarantine(data, len, "flatbuffers_verify_failed");
-            return;
-        }
-        const exc::wire::Event* ev = exc::wire::GetEvent(data);
-        if (ev == nullptr) {
+        } else if ((ev = exc::wire::GetEvent(data)) == nullptr) {
             quarantine(data, len, "null_event");
-            return;
-        }
+        } else {
+        wire_event_type = static_cast<uint8_t>(ev->type_type());
         switch (ev->type_type()) {
             case exc::wire::EventType_OrderNew: {
                 const exc::wire::OrderNew* m = ev->type_as_OrderNew();
@@ -733,6 +757,7 @@ void EnginePump::dispatch(const uint8_t* data, uint32_t len) noexcept {
                 decode_errors_.fetch_add(1, std::memory_order_relaxed);
                 break;
         }
+        }
 #else
         // Built without FlatBuffers headers: cannot decode — fail closed and
         // count every frame as unrouted rather than guess at bytes.
@@ -744,7 +769,28 @@ void EnginePump::dispatch(const uint8_t* data, uint32_t len) noexcept {
         // Structured poison-pill interceptor (Task 2.3.19): a decode/dispatch
         // fault quarantines the frame; the matching thread never crashes.
         quarantine(data, len, "dispatch_exception");
-        return;
+    }
+    // Task 9.3.11 — emit the engine's `order.match` span, remote-parented
+    // on the frame's traceparent. Emitted for every traced frame that
+    // reached dispatch — including shed/quarantined ones: the engine leg
+    // ran, and the sink is where the tail-sampling decision belongs.
+    if (traced && span_sink_ != nullptr) {
+        CoreSpan s{};
+        std::snprintf(s.name, sizeof(s.name), "order.match");
+        std::memcpy(s.trace_id, tsc.trace_id, sizeof(s.trace_id));
+        std::memcpy(s.parent_span_id, tsc.parent_span_id,
+                    sizeof(s.parent_span_id));
+        render_hex16(mint_span_id(++span_salt_ ^ span_start_ns), s.span_id);
+        s.kind = kSpanKindConsumer;
+        s.start_unix_ns = span_start_ns;
+        s.end_unix_ns = now_ns();
+        s.event_type = wire_event_type;
+        s.sampled = tsc.sampled;
+        try {
+            span_sink_(span_ctx_, s);
+        } catch (...) {
+        }  // a throwing sink must not propagate into the matching loop
+        spans_emitted_.fetch_add(1, std::memory_order_relaxed);
     }
     if (opts_.measure_latency) {
         const uint64_t dt = steady_ns() - t0;

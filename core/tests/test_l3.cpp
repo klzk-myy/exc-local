@@ -90,7 +90,17 @@ struct L3Rec {
     uint64_t ts;
 
     bool operator==(const L3Rec& o) const {
-        return std::memcmp(this, &o, sizeof(L3Rec)) == 0;
+        // Field-wise compare — never memcmp(sizeof(L3Rec)): the struct has
+        // padding bytes whose contents are indeterminate across live vs
+        // replay decodes (surfaced under -O3 recompilation; a memcpy'd
+        // copy may carry different padding yet identical fields).
+        return instrument_id == o.instrument_id && kind == o.kind &&
+               order_id == o.order_id && account_hash == o.account_hash &&
+               side == o.side && price == o.price && ref_price == o.ref_price &&
+               qty == o.qty && qty_delta == o.qty_delta && seq == o.seq &&
+               wal_seq == o.wal_seq && trade_id == o.trade_id &&
+               fill_role == o.fill_role && flags == o.flags &&
+               cancel_reason == o.cancel_reason && ts == o.ts;
     }
 };
 

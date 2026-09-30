@@ -2,6 +2,7 @@ package fix
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -20,6 +21,7 @@ import (
 type fakePipeline struct {
 	mu           sync.Mutex
 	acct         *orders.Account
+	acct2        *orders.Account // optional second account (LP-scope tests)
 	instruments  map[string]*orders.Instrument
 	orders       map[int64]*orders.SubmitRequest
 	nextID       int64
@@ -42,10 +44,13 @@ func newFakePipeline() *fakePipeline {
 }
 
 func (f *fakePipeline) AccountByID(_ context.Context, id int64) (*orders.Account, error) {
-	if id != f.acct.ID {
-		return nil, nil
+	if id == f.acct.ID {
+		return f.acct, nil
 	}
-	return f.acct, nil
+	if f.acct2 != nil && id == f.acct2.ID {
+		return f.acct2, nil
+	}
+	return nil, nil
 }
 
 func (f *fakePipeline) InstrumentBySymbol(_ context.Context, sym string) (*orders.Instrument, error) {
@@ -107,6 +112,39 @@ type fakeLockout struct{ locked map[string]bool }
 
 func (f fakeLockout) MMPLocked(_ context.Context, accountID, instrumentID int64) bool {
 	return f.locked[fmt.Sprintf("%d|%d", accountID, instrumentID)]
+}
+
+// fakeLPResolver is the test LPAccountResolver — account→lp_id binding
+// over lp_accounts (migration 271) with an injectable lookup error.
+type fakeLPResolver struct {
+	lp  map[int64]int64 // accountID → lpID
+	err error
+}
+
+func (f *fakeLPResolver) LPForAccount(_ context.Context, accountID int64) (int64, error) {
+	if f.err != nil {
+		return 0, f.err
+	}
+	return f.lp[accountID], nil
+}
+
+// fakeLPGuard is the test LPGuard — records the resolved lp_id targets
+// it was asked about and answers suspended/error per fixture.
+type fakeLPGuard struct {
+	suspended map[string]string // lpID string → reason
+	err       error
+	calls     []string
+}
+
+func (f *fakeLPGuard) LPSuspended(_ context.Context, lpID string) (bool, string, error) {
+	f.calls = append(f.calls, lpID)
+	if f.err != nil {
+		return false, "", f.err
+	}
+	if r, ok := f.suspended[lpID]; ok {
+		return true, r, nil
+	}
+	return false, "", nil
 }
 
 type obsRecorder struct {
@@ -392,5 +430,152 @@ func TestAskLegFailureUnwindsBid(t *testing.T) {
 	}
 	if len(pipe.cancelled) != 1 {
 		t.Fatalf("unwind must cancel the placed bid: %v", pipe.cancelled)
+	}
+}
+
+// --- SCOPE_LP kill-switch (Task 11.3.12) --------------------------------------
+//
+// A suspended liquidity provider loses its 35=i admission — every set
+// entry rejects TRADING_HALTED and nothing reaches the book — while
+// firm CLOB trading continues: the LP scope never loads on the order
+// path (orders kill-switch lattice excludes LP — admin.TradingScopes),
+// and unrelated quoting accounts are untouched.
+
+func TestMassQuoteLPSuspendedRejectsSet(t *testing.T) {
+	pipe := newFakePipeline()
+	pipe.acct2 = &orders.Account{ID: 8} // second LP-bound account
+	ent := &fakeEntitlement{programs: map[string]*marketmaking.Program{
+		"7|42": activeProgram(42), "8|43": activeProgram(43),
+	}}
+	res := &fakeLPResolver{lp: map[int64]int64{7: 5, 8: 6}}
+	guard := &fakeLPGuard{suspended: map[string]string{"5": "stale quotes"}}
+	svc, err := NewQuoteService(pipe, ent, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.WithLPGate(res, guard)
+	ctx := context.Background()
+
+	// Suspended LP's quoting account: whole set rejects per-entry,
+	// zero quote legs reach the order pipeline.
+	ack, err := svc.SubmitMassQuote(ctx, "sess", 7, &MassQuote{
+		QuoteSetID: "s1",
+		Entries: []QuoteEntry{
+			twoSidedEntry("e1", "EURUSD"), twoSidedEntry("e2", "GBPUSD"),
+		},
+	})
+	if err == nil || excerrors.CodeOf(err) != "TRADING_HALTED" {
+		t.Fatalf("suspended LP must reject TRADING_HALTED: %v", err)
+	}
+	if len(ack.Entries) != 2 {
+		t.Fatalf("every entry gets a rejection line: %+v", ack.Entries)
+	}
+	for _, ae := range ack.Entries {
+		if ae.Status != QuoteStatusRejected ||
+			!strings.Contains(ae.Text, "TRADING_HALTED") ||
+			!strings.Contains(ae.Text, "LP[5]") {
+			t.Fatalf("entry must reject with the LP halt detail: %+v", ae)
+		}
+	}
+	if len(pipe.orders) != 0 {
+		t.Fatalf("no quote leg may post while LP-suspended: %d", len(pipe.orders))
+	}
+	if len(guard.calls) != 1 || guard.calls[0] != "5" {
+		t.Fatalf("guard must see the resolved lp_id, not the account: %v", guard.calls)
+	}
+
+	// Unaffected participant: account 8 binds LP 6 (clear) — quoting
+	// continues normally while LP 5 stands suspended.
+	ack, err = svc.SubmitMassQuote(ctx, "sess", 8, &MassQuote{
+		QuoteSetID: "s2", Entries: []QuoteEntry{twoSidedEntry("e1", "GBPUSD")},
+	})
+	if err != nil || !ack.Accepted() {
+		t.Fatalf("sibling LP must keep quoting: %v %+v", err, ack)
+	}
+	if len(pipe.orders) != 2 {
+		t.Fatalf("account 8 two-sided quote must post: %d", len(pipe.orders))
+	}
+
+	// Firm CLOB flow is untouched: the same pipeline accepts an ordinary
+	// (non-quote) LIMIT for the suspended LP's account — the LP scope is
+	// quote-ingress only, never on the order path.
+	if _, err := pipe.Submit(ctx, pipe.acct, &orders.SubmitRequest{
+		Symbol: "EUR/USD", Side: orders.SideBuy, OrderType: orders.TypeLimit,
+		TimeInForce: orders.TIFGTC, ClientOrderID: "clob-1",
+		Quantity: decPtr("1000"), Price: decPtr("1.1000"),
+	}); err != nil {
+		t.Fatalf("firm CLOB order must pass under LP suspension: %v", err)
+	}
+}
+
+func TestMassQuoteLPGateFailClosed(t *testing.T) {
+	ent := &fakeEntitlement{programs: map[string]*marketmaking.Program{
+		"7|42": activeProgram(42)}}
+	quote := &MassQuote{
+		QuoteSetID: "s1", Entries: []QuoteEntry{twoSidedEntry("e1", "EURUSD")}}
+
+	cases := []struct {
+		name  string
+		res   LPAccountResolver
+		guard LPGuard
+	}{
+		{"binding lookup error",
+			&fakeLPResolver{err: errors.New("pg down")}, &fakeLPGuard{}},
+		{"flag scan error",
+			&fakeLPResolver{lp: map[int64]int64{7: 5}},
+			&fakeLPGuard{err: errors.New("redis down")}},
+		{"resolver without guard",
+			&fakeLPResolver{lp: map[int64]int64{7: 5}}, nil},
+		{"guard without resolver",
+			nil, &fakeLPGuard{}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			pipe := newFakePipeline()
+			svc, _ := NewQuoteService(pipe, ent, nil, nil)
+			svc.WithLPGate(tc.res, tc.guard)
+			ack, err := svc.SubmitMassQuote(context.Background(), "sess", 7, quote)
+			if err == nil || excerrors.CodeOf(err) != "TRADING_HALTED" {
+				t.Fatalf("unverifiable LP state must fail closed: %v", err)
+			}
+			if len(ack.Entries) != 1 ||
+				ack.Entries[0].Status != QuoteStatusRejected ||
+				!strings.Contains(ack.Entries[0].Text, "TRADING_HALTED") {
+				t.Fatalf("per-entry fail-closed reject expected: %+v", ack.Entries)
+			}
+			if len(pipe.orders) != 0 {
+				t.Fatal("nothing may post when the LP check cannot run")
+			}
+		})
+	}
+}
+
+func TestMassQuoteLPGateClearOrUnbound(t *testing.T) {
+	pipe := newFakePipeline()
+	pipe.acct2 = &orders.Account{ID: 8}
+	ent := &fakeEntitlement{programs: map[string]*marketmaking.Program{
+		"7|42": activeProgram(42), "8|43": activeProgram(43)}}
+	// acct 7 binds LP 5 (clear); acct 8 has NO lp_accounts row.
+	res := &fakeLPResolver{lp: map[int64]int64{7: 5}}
+	guard := &fakeLPGuard{suspended: map[string]string{}}
+	svc, _ := NewQuoteService(pipe, ent, nil, nil)
+	svc.WithLPGate(res, guard)
+	ctx := context.Background()
+
+	ack, err := svc.SubmitMassQuote(ctx, "sess", 7, &MassQuote{
+		QuoteSetID: "s1", Entries: []QuoteEntry{twoSidedEntry("e1", "EURUSD")}})
+	if err != nil || !ack.Accepted() {
+		t.Fatalf("clear LP must quote: %v %+v", err, ack)
+	}
+	if len(guard.calls) != 1 || guard.calls[0] != "5" {
+		t.Fatalf("bound account must consult the LP flag once: %v", guard.calls)
+	}
+	ack, err = svc.SubmitMassQuote(ctx, "sess", 8, &MassQuote{
+		QuoteSetID: "s2", Entries: []QuoteEntry{twoSidedEntry("e1", "GBPUSD")}})
+	if err != nil || !ack.Accepted() {
+		t.Fatalf("unbound account must quote: %v %+v", err, ack)
+	}
+	if len(guard.calls) != 1 {
+		t.Fatalf("unbound account must not consult the LP flag: %v", guard.calls)
 	}
 }

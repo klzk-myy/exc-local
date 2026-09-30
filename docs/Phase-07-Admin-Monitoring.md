@@ -221,7 +221,7 @@ Expose Aeron IPC health as Prometheus metrics (spec §2.3, §2.3.1):
 
 **Definition of Done (Acceptance Criteria):**
 * [x] LP entities managed via admin API with full lifecycle (ONBOARDING→ACTIVE→SUSPENDED)
-* [ ] Per-LP pricing configuration stored and applied to market data distribution — stored (lp_instrument_configs incl. spread_markup/skew columns, mig 191); unwired (gap, not env-bound): Phase-06/17 landed but no marketdata consumer reads per-LP markups into distribution
+* [ ] Per-LP pricing configuration stored and applied to market data distribution — stored (lp_instrument_configs, mig 191) + `marketdata.LPPriceFilter` landed (PG config source, markup/skew transform, lpBook channel class, unit tests); still unwired: no LP-quote ingress source feeds the filter into a live distribution path (gap, not env-bound)
 * [x] LP scorecard computes fill ratio, response time, rejection rate, availability in real-time
 * [x] Performance alerts fire when LP metrics degrade below thresholds
 * [x] Markup/skew rules configurable per LP per instrument

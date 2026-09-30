@@ -71,16 +71,21 @@ export function FollowModal({
   const fieldsValid = allocation.valid && maxCopy.valid && stopLoss.valid;
   const stubbed = isNotImplemented(serverErr);
 
-  const field = (f: ValidatedField, label: string, hint?: string) => (
-    <div>
-      <label className={labelCls}>
-        {label}
-        <input className={inputCls} inputMode="decimal" {...f.inputProps} />
-      </label>
-      {f.error ? <p className="mt-1 text-xs text-red-400">{f.error}</p> : null}
-      {!f.error && hint ? <p className="mt-1 text-xs text-neutral-500">{hint}</p> : null}
-    </div>
-  );
+  const field = (f: ValidatedField, label: string, hint?: string) => {
+    // Stable control id — explicit label association (implicit-only labels
+    // are fragile under axe's DOM label resolution).
+    const id = `fm-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+    return (
+      <div>
+        <label className={labelCls} htmlFor={id}>
+          {label}
+        </label>
+        <input id={id} className={inputCls} inputMode="decimal" {...f.inputProps} />
+        {f.error ? <p className="mt-1 text-xs text-red-400">{f.error}</p> : null}
+        {!f.error && hint ? <p className="mt-1 text-xs text-neutral-500">{hint}</p> : null}
+      </div>
+    );
+  };
 
   return (
     <>
@@ -104,8 +109,12 @@ export function FollowModal({
                 'Stop-loss on provider drawdown (%)',
                 'Unfollow triggers if provider drawdown breaches this cap',
               )}
-              <label className="flex items-start gap-2 text-sm text-neutral-300">
+              <label
+                className="flex items-start gap-2 text-sm text-neutral-300"
+                htmlFor="fm-risk-accept"
+              >
                 <input
+                  id="fm-risk-accept"
                   type="checkbox"
                   checked={riskAccepted}
                   onChange={(e) => {

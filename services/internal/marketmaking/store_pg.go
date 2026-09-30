@@ -176,6 +176,23 @@ func (s *PgStore) ListPrograms(ctx context.Context, accountID int64, status Stat
 	return out, rows.Err()
 }
 
+// LPForAccount resolves the liquidity_providers entity bound to the
+// account via lp_accounts (migration 271) — the account→LP hop the
+// SCOPE_LP kill-switch needs on the FIX Mass-Quote ingress path
+// (Phase-11 Task 11.3.12, spec §24 #409). (0, nil) means the account is
+// not LP-bound: the LP suspension scope simply does not apply to it
+// (mm_programs entitlement remains the quoting admission gate).
+func (s *PgStore) LPForAccount(ctx context.Context, accountID int64) (int64, error) {
+	var lpID int64
+	err := s.Pool.QueryRow(ctx,
+		`SELECT lp_id FROM lp_accounts WHERE account_id = $1`,
+		accountID).Scan(&lpID)
+	if stderrors.Is(err, pgx.ErrNoRows) {
+		return 0, nil
+	}
+	return lpID, err
+}
+
 func (s *PgStore) InstrumentBySymbol(ctx context.Context, symbol string) (int64, string, error) {
 	var id int64
 	var ccy string

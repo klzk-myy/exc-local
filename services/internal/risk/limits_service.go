@@ -20,6 +20,15 @@
 // day starts at zero with no reset job. Redis mirrors are written for
 // zero-latency gateway reads but PostgreSQL stays authoritative.
 //
+// Withdrawal window caps (Phase-11 Task 11.3.2): the per-account hourly
+// rate (withdraw_rate_per_hour) and the exchange-wide daily ceiling
+// (exchange_daily_withdraw_limit, migration 272 — global row only) are
+// summed directly from funding_transactions withdrawal rows, so pending
+// reservations count toward the cap and released (FAILED/
+// AUTO_CANCELLED) holds do not. The fiat segregation invariant holds by
+// construction: internal movements (transfers table, PAMM_* entry
+// types) never produce type='WITHDRAWAL' rows.
+//
 // Fail-closed (spec §2.7): any store error fails the check. A configured
 // exposure/daily-volume cap with no usable price is a rejection, never a
 // pass.
@@ -104,6 +113,11 @@ type Row struct {
 	MaxAccountNotional   *decimal.Decimal // migration 109
 	MaxOrderToTradeRatio *decimal.Decimal // migration 047 — MiFID II RTS 9
 	OtrWindow            *time.Duration   // migration 047 — rolling OTR window
+	// ExchangeDailyWithdrawLimit is the venue-wide daily withdrawal
+	// ceiling (migration 272, Phase-11 Task 11.3.2). Only the fully
+	// global row (account_id IS NULL, tier IS NULL, symbol NULL/'*')
+	// may carry it — values on scoped rows are ignored at resolution.
+	ExchangeDailyWithdrawLimit *decimal.Decimal
 }
 
 // EffectiveLimits is the resolved limit set for one (account, tier,
@@ -117,9 +131,12 @@ type EffectiveLimits struct {
 	DailyWithdrawLimit  *decimal.Decimal
 	MaxWithdrawAmount   *decimal.Decimal
 	WithdrawRatePerHour *decimal.Decimal
-	MaxNotionalExposure *decimal.Decimal
-	MaxShortExposure    *decimal.Decimal
-	MaxAccountNotional  *decimal.Decimal
+	// ExchangeDailyWithdrawLimit resolves only from the global row —
+	// it is the venue ceiling, identical for every account.
+	ExchangeDailyWithdrawLimit *decimal.Decimal
+	MaxNotionalExposure        *decimal.Decimal
+	MaxShortExposure           *decimal.Decimal
+	MaxAccountNotional         *decimal.Decimal
 	// Task 13.3.6 — MiFID II RTS 9 order-to-trade ratio. Always resolved:
 	// a scoped row wins, else the §13.6a venue default 500 events/trade
 	// over a 60s window. The §9.6 MM allowance lives on mm_programs.
@@ -175,6 +192,16 @@ type Store interface {
 	AddDailyWithdrawn(ctx context.Context, accountID int64, day time.Time, delta decimal.Decimal) (decimal.Decimal, error)
 	OpenOrderCount(ctx context.Context, accountID int64) (int64, error)
 	SymbolExposures(ctx context.Context, accountID int64) ([]SymbolExposure, error)
+	// WithdrawnSince sums one account's withdrawal amounts created at
+	// or after `since` (rolling window, e.g. now-1h for the hourly
+	// rate cap). Non-terminal withdrawal rows count — PENDING holds
+	// reserve funds, CONFIRMED/PENDING_REVIEW/COMPLETED consumed them;
+	// FAILED/AUTO_CANCELLED released the hold and are excluded.
+	WithdrawnSince(ctx context.Context, accountID int64, since time.Time) (decimal.Decimal, error)
+	// VenueWithdrawnSince sums withdrawal amounts across ALL accounts
+	// created at or after `since` (the exchange-wide daily ceiling
+	// uses the UTC day start). Same status semantics as WithdrawnSince.
+	VenueWithdrawnSince(ctx context.Context, since time.Time) (decimal.Decimal, error)
 }
 
 // Cache mirrors limits/usage into Redis for zero-latency gateway reads.
@@ -254,6 +281,17 @@ func Resolve(rows []Row, accountID int64, tier, symbol string) EffectiveLimits {
 	lim.DailyWithdrawLimit = firstDec(func(r Row) *decimal.Decimal { return r.DailyWithdrawLimit })
 	lim.MaxWithdrawAmount = firstDec(func(r Row) *decimal.Decimal { return r.MaxWithdrawAmount })
 	lim.WithdrawRatePerHour = firstDec(func(r Row) *decimal.Decimal { return r.WithdrawRatePerHour })
+	// The exchange-wide daily ceiling is a venue value, not a scoped
+	// limit — only fully-global rows may carry it; the lowest-id such
+	// row wins (Load orders by id).
+	for _, r := range rows {
+		if r.AccountID == nil && r.Tier == nil &&
+			(r.Symbol == nil || *r.Symbol == "*") &&
+			r.ExchangeDailyWithdrawLimit != nil {
+			lim.ExchangeDailyWithdrawLimit = r.ExchangeDailyWithdrawLimit
+			break
+		}
+	}
 	for _, c := range cands {
 		if c.row.MaxOpenOrders != nil {
 			lim.MaxOpenOrders = c.row.MaxOpenOrders
@@ -531,10 +569,20 @@ func (s *LimitsService) RecordFill(ctx context.Context, accountID int64, notiona
 	return total, nil
 }
 
-// CheckWithdrawal enforces max_withdraw_amount (per transaction) and
-// daily_withdraw_limit (against today's accumulated withdrawals).
-// withdraw_rate_per_hour is surfaced in LimitsView for Phase-11, which
-// owns the hourly-rate enforcement window.
+// CheckWithdrawal enforces the four withdrawal caps (Phase-11 Task
+// 11.3.2 / spec §24 #79):
+//   - max_withdraw_amount — per transaction;
+//   - daily_withdraw_limit — per-account, against today's accumulated
+//     withdrawals (risk_daily_usage, UTC calendar day);
+//   - withdraw_rate_per_hour — per-account rolling 1-hour window, summed
+//     from funding_transactions withdrawal rows (PENDING reservations
+//     count; released holds do not);
+//   - exchange_daily_withdraw_limit — venue-wide UTC-day ceiling across
+//     all accounts (global risk_limits row only).
+//
+// All caps compare in transaction-currency (USD-par) terms, matching the
+// existing daily-counter seam. A store error on any configured cap is a
+// rejection (fail closed, spec §2.7).
 func (s *LimitsService) CheckWithdrawal(ctx context.Context, accountID int64, tier string, amount decimal.Decimal) error {
 	lim := s.EffectiveLimits(accountID, tier, "*")
 	if !amount.IsPositive() {
@@ -554,6 +602,29 @@ func (s *LimitsService) CheckWithdrawal(ctx context.Context, accountID int64, ti
 			return excerrors.New(CodeOrderRejected,
 				fmt.Sprintf("withdrawn %s + %s exceeds daily_withdraw_limit %s",
 					u.Withdrawn, amount, *lim.DailyWithdrawLimit))
+		}
+	}
+	if lim.WithdrawRatePerHour != nil {
+		h, err := s.store.WithdrawnSince(ctx, accountID,
+			s.clock().UTC().Add(-time.Hour))
+		if err != nil {
+			return internalError("hourly withdrawn window", err)
+		}
+		if h.Add(amount).GreaterThan(*lim.WithdrawRatePerHour) {
+			return excerrors.New(CodeOrderRejected,
+				fmt.Sprintf("withdrawn %s in the last hour + %s exceeds withdraw_rate_per_hour %s",
+					h, amount, *lim.WithdrawRatePerHour))
+		}
+	}
+	if lim.ExchangeDailyWithdrawLimit != nil {
+		v, err := s.store.VenueWithdrawnSince(ctx, s.todayUTC())
+		if err != nil {
+			return internalError("venue daily withdrawn", err)
+		}
+		if v.Add(amount).GreaterThan(*lim.ExchangeDailyWithdrawLimit) {
+			return excerrors.New(CodeOrderRejected,
+				fmt.Sprintf("venue withdrawals %s today + %s exceeds exchange_daily_withdraw_limit %s",
+					v, amount, *lim.ExchangeDailyWithdrawLimit))
 		}
 	}
 	return nil
@@ -699,7 +770,8 @@ func (s *PgStore) LoadLimits(ctx context.Context) ([]Row, error) {
 		       max_notional_exposure::text, max_short_exposure::text,
 		       max_account_notional::text,
 		       max_order_to_trade_ratio::text,
-		       EXTRACT(EPOCH FROM otr_window)::text
+		       EXTRACT(EPOCH FROM otr_window)::text,
+		       exchange_daily_withdraw_limit::text
 		FROM risk_limits ORDER BY id`)
 	if err != nil {
 		return nil, err
@@ -711,11 +783,11 @@ func (s *PgStore) LoadLimits(ctx context.Context) ([]Row, error) {
 		var (
 			r                                       Row
 			moq, mdv, dwl, mwa, wrph, mne, mse, man *string
-			otr, otrw                               *string
+			otr, otrw, edwl                         *string
 		)
 		if err := rows.Scan(&r.ID, &r.AccountID, &r.Symbol, &r.Tier,
 			&moq, &mdv, &r.MaxOpenOrders, &dwl, &mwa, &wrph,
-			&mne, &mse, &man, &otr, &otrw); err != nil {
+			&mne, &mse, &man, &otr, &otrw, &edwl); err != nil {
 			return nil, err
 		}
 		var scanErr error
@@ -747,6 +819,9 @@ func (s *PgStore) LoadLimits(ctx context.Context) ([]Row, error) {
 			return nil, scanErr
 		}
 		if r.OtrWindow, scanErr = parseWindow(otrw); scanErr != nil {
+			return nil, scanErr
+		}
+		if r.ExchangeDailyWithdrawLimit, scanErr = parseDec(edwl); scanErr != nil {
 			return nil, scanErr
 		}
 		out = append(out, r)
@@ -835,6 +910,55 @@ func (s *PgStore) AddDailyWithdrawn(ctx context.Context, accountID int64, day ti
 	return s.addDaily(ctx, accountID, day, "withdrawn", delta)
 }
 
+// WithdrawnSince sums one account's withdrawal amounts created at or
+// after `since`. The counted funding_status_enum values are the
+// non-terminal ones whose rows still consume cap budget — a PENDING row
+// carries a reserved hold; CONFIRMED/PENDING_REVIEW/COMPLETED are
+// committed or paid out. FAILED and AUTO_CANCELLED released the hold
+// and are excluded.
+//
+// The sum is taken in transaction currency (USD-par), matching the
+// daily_withdraw_limit / max_withdraw_amount seam semantics. Internal
+// balance movements are excluded by construction: only
+// type='WITHDRAWAL' rows exist here — transfers live in the transfers
+// table and PAMM/TRANSFER ledger entry types never write
+// funding_transactions WITHDRAWAL rows (fiat segregation invariant,
+// Phase-11 Task 11.3.2 remediation #38).
+func (s *PgStore) WithdrawnSince(ctx context.Context, accountID int64, since time.Time) (decimal.Decimal, error) {
+	return s.sumWithdrawals(ctx, `
+		SELECT COALESCE(SUM(amount), 0)::text
+		FROM funding_transactions
+		WHERE account_id = $1
+		  AND type = 'WITHDRAWAL'
+		  AND status IN ('PENDING','CONFIRMED','PENDING_REVIEW','COMPLETED')
+		  AND created_at >= $2`,
+		accountID, since)
+}
+
+// VenueWithdrawnSince sums every account's withdrawals since `since`
+// (the exchange-wide ceiling passes the UTC day start).
+func (s *PgStore) VenueWithdrawnSince(ctx context.Context, since time.Time) (decimal.Decimal, error) {
+	return s.sumWithdrawals(ctx, `
+		SELECT COALESCE(SUM(amount), 0)::text
+		FROM funding_transactions
+		WHERE type = 'WITHDRAWAL'
+		  AND status IN ('PENDING','CONFIRMED','PENDING_REVIEW','COMPLETED')
+		  AND created_at >= $1`,
+		since)
+}
+
+func (s *PgStore) sumWithdrawals(ctx context.Context, q string, args ...any) (decimal.Decimal, error) {
+	var txt string
+	if err := s.pool.QueryRow(ctx, q, args...).Scan(&txt); err != nil {
+		return decimal.Zero, err
+	}
+	d, err := decimal.NewFromString(txt)
+	if err != nil {
+		return decimal.Zero, fmt.Errorf("parse withdrawn sum %q: %w", txt, err)
+	}
+	return d, nil
+}
+
 // OpenOrderCount counts non-terminal orders (PENDING/RESERVED/ACTIVE/
 // PARTIALLY_FILLED) — the full set of order statuses that occupy a slot.
 func (s *PgStore) OpenOrderCount(ctx context.Context, accountID int64) (int64, error) {
@@ -914,9 +1038,12 @@ type rowJSON struct {
 	DailyWithdrawLimit  *string `json:"daily_withdraw_limit,omitempty"`
 	MaxWithdrawAmount   *string `json:"max_withdraw_amount,omitempty"`
 	WithdrawRatePerHour *string `json:"withdraw_rate_per_hour,omitempty"`
-	MaxNotionalExposure *string `json:"max_notional_exposure,omitempty"`
-	MaxShortExposure    *string `json:"max_short_exposure,omitempty"`
-	MaxAccountNotional  *string `json:"max_account_notional,omitempty"`
+	// ExchangeDailyWithdrawLimit rides the snapshot for read-through
+	// visibility; enforcement re-reads rows via Load, never the cache.
+	ExchangeDailyWithdrawLimit *string `json:"exchange_daily_withdraw_limit,omitempty"`
+	MaxNotionalExposure        *string `json:"max_notional_exposure,omitempty"`
+	MaxShortExposure           *string `json:"max_short_exposure,omitempty"`
+	MaxAccountNotional         *string `json:"max_account_notional,omitempty"`
 	// Migration 047 (RTS 9). OtrWindow crosses the wire as a Go duration
 	// string ("60s") — the INTERVAL column renders the same human unit.
 	MaxOrderToTradeRatio *string `json:"max_order_to_trade_ratio,omitempty"`
@@ -944,21 +1071,22 @@ func (c *RedisLimitsCache) PublishLimits(ctx context.Context, rows []Row) error 
 	wire := make([]rowJSON, 0, len(rows))
 	for _, r := range rows {
 		wire = append(wire, rowJSON{
-			ID:                   r.ID,
-			AccountID:            r.AccountID,
-			Symbol:               r.Symbol,
-			Tier:                 r.Tier,
-			MaxOrderQty:          decStr(r.MaxOrderQty),
-			MaxDailyVolume:       decStr(r.MaxDailyVolume),
-			MaxOpenOrders:        r.MaxOpenOrders,
-			DailyWithdrawLimit:   decStr(r.DailyWithdrawLimit),
-			MaxWithdrawAmount:    decStr(r.MaxWithdrawAmount),
-			WithdrawRatePerHour:  decStr(r.WithdrawRatePerHour),
-			MaxNotionalExposure:  decStr(r.MaxNotionalExposure),
-			MaxShortExposure:     decStr(r.MaxShortExposure),
-			MaxAccountNotional:   decStr(r.MaxAccountNotional),
-			MaxOrderToTradeRatio: decStr(r.MaxOrderToTradeRatio),
-			OtrWindow:            durStr(r.OtrWindow),
+			ID:                         r.ID,
+			AccountID:                  r.AccountID,
+			Symbol:                     r.Symbol,
+			Tier:                       r.Tier,
+			MaxOrderQty:                decStr(r.MaxOrderQty),
+			MaxDailyVolume:             decStr(r.MaxDailyVolume),
+			MaxOpenOrders:              r.MaxOpenOrders,
+			DailyWithdrawLimit:         decStr(r.DailyWithdrawLimit),
+			MaxWithdrawAmount:          decStr(r.MaxWithdrawAmount),
+			WithdrawRatePerHour:        decStr(r.WithdrawRatePerHour),
+			ExchangeDailyWithdrawLimit: decStr(r.ExchangeDailyWithdrawLimit),
+			MaxNotionalExposure:        decStr(r.MaxNotionalExposure),
+			MaxShortExposure:           decStr(r.MaxShortExposure),
+			MaxAccountNotional:         decStr(r.MaxAccountNotional),
+			MaxOrderToTradeRatio:       decStr(r.MaxOrderToTradeRatio),
+			OtrWindow:                  durStr(r.OtrWindow),
 		})
 	}
 	blob, err := json.Marshal(wire)

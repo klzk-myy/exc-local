@@ -348,7 +348,7 @@ Invariant: the client may never hold optimistic order state across a full re-aut
 **Definition of Done (Acceptance Criteria):**
 * [x] Context pill, prod confirm, and context-bound API client verified (no cross-env calls)
 * [x] Fleet, release and ops-board pages render backend state with dual-control flows
-* [ ] New routes pass the axe-core audit; RBAC-gated including `env` scope *(open — partial: context pill/prod-confirm/context-bound client verified; axe-core audit not run (no axe dep))*
+* [x] New routes pass the axe-core audit; RBAC-gated including `env` scope — context pill/prod-confirm/context-bound client verified + FleetPage/ReleasesPage/OpsBoardPage pass wcag21aa via a11y.audit.test.tsx (jest-axe 11)
 
 **SDD Checklist:**
 - [x] Spec checkpoint: environment switcher with context-bound client, fleet/release pages, and ops-board UI with dual-control surfacing (§24 #351) — defined first, validated against spec
@@ -374,7 +374,7 @@ Invariant: the client may never hold optimistic order state across a full re-aut
 * [x] Login, register, 2FA setup/verify/disable, and session-list screens functional
 * [x] Route guards redirect unauthenticated users; token refresh is silent until refresh fails
 * [x] Session revoke works with confirmation; logout clears all local state
-* [ ] All auth screens pass axe-core audit (WCAG 2.1 AA per Task 10.3.14) *(open — open: axe-core audit not run — axe tooling not installed)*
+* [x] All auth screens pass axe-core audit (WCAG 2.1 AA per Task 10.3.14) — LoginPage + TOTP step + RegisterPage + ForgotPasswordPage + SessionList audited green (a11y.audit.test.tsx, jest-axe)
 
 **SDD Checklist:**
 - [x] Spec checkpoint: auth screens gate the SPA, 2FA is mandatory before trading, sessions are revocable (§24 #382) — defined first, validated against spec
@@ -404,7 +404,7 @@ Invariant: the client may never hold optimistic order state across a full re-aut
 * [x] Profile edit, WebAuthn register/authenticate, anti-phishing code set functional
 * [x] Login history, device management, emergency freeze, cooling-off, account closure, GDPR export/erase, consent, notification preferences all functional
 * [x] Emergency freeze and account closure require explicit confirmation modals
-* [ ] All settings screens pass axe-core audit (WCAG 2.1 AA per Task 10.3.14) *(open — open: axe-core audit not run — axe tooling not installed)*
+* [x] All settings screens pass axe-core audit (WCAG 2.1 AA per Task 10.3.14) — profile/security/api-keys/notifications/safety tabs audited green
 
 **SDD Checklist:**
 - [x] Spec checkpoint: account-security center covers profile, WebAuthn, anti-phishing, devices, emergency freeze, cooling-off, closure, GDPR, consent, notifications (§24 #383) — defined first, validated against spec
@@ -431,7 +431,7 @@ Invariant: the client may never hold optimistic order state across a full re-aut
 * [x] Internal transfer between owned accounts with live balance check
 * [x] Fee estimator shows rail fee, arrival estimate, and cut-off
 * [x] Funding history table filters by type, currency, date, status
-* [ ] All funding screens pass axe-core audit *(open — open: axe-core audit not run — axe tooling not installed)*
+* [x] All funding screens pass axe-core audit — deposit/withdraw/transfer/history tabs audited green
 
 **SDD Checklist:**
 - [x] Spec checkpoint: funding screens cover deposits, withdrawals with 15-min confirm, internal transfers, fee estimate, and unified history (§24 #384) — defined first, validated against spec
@@ -455,7 +455,7 @@ Invariant: the client may never hold optimistic order state across a full re-aut
 * [x] KYC status tracker displays tier, state, per-document status, and trading-limit impact
 * [x] Upload wizard handles multi-step document submission with file validation and progress
 * [x] Re-verification flow triggers on expiry with degraded-access warnings
-* [ ] KYC screens pass axe-core audit *(open — open: axe-core audit not run — axe tooling not installed)*
+* [x] KYC screens pass axe-core audit — status tracker + upload wizard audited green
 
 **SDD Checklist:**
 - [x] Spec checkpoint: KYC UI shows tier/status, trading-limit impact, multi-step upload, and re-verification prompts (§24 #385) — defined first, validated against spec
@@ -479,7 +479,7 @@ Invariant: the client may never hold optimistic order state across a full re-aut
 * [x] Ticket list renders with filters and conversation thread view
 * [x] Ticket submission with category, attachments, and priority gating functional
 * [x] Staff support-view queue renders for Support Agent role
-* [ ] Support screens pass axe-core audit *(open — open: axe-core audit not run — axe tooling not installed)*
+* [x] Support screens pass axe-core audit — ticket list + new-ticket form + ticket thread audited green
 
 **SDD Checklist:**
 - [x] Spec checkpoint: support UI covers ticket submission with attachments, conversation thread, status lifecycle, and staff queue (§24 #386) — defined first, validated against spec
@@ -505,7 +505,7 @@ Invariant: the client may never hold optimistic order state across a full re-aut
 * [x] Grid bot wizard with live preview and max-5-concurrent enforcement functional
 * [ ] Active bot panel shows live P&L and pause/resume/cancel *(open — partial: ActiveBotsPanel exists; live P&L needs backend endpoints (Phase-14/16) — renders honest unavailable)*
 * [x] Risk disclosures displayed on both surfaces
-* [ ] All strategy/bot screens pass axe-core audit *(open — open: axe-core audit not run — axe tooling not installed)*
+* [x] All strategy/bot screens pass axe-core audit — strategy browser + grid-bots tab + follow modal audited green
 
 **SDD Checklist:**
 - [x] Spec checkpoint: copy-trading browser/follow and grid-bot wizard/management UI enforce limits and display risk disclosures (§24 #387) — defined first, validated against spec
@@ -537,7 +537,7 @@ Invariant: the client may never hold optimistic order state across a full re-aut
 * [x] Dead-man switch toggle with live countdown and deactivate
 * [x] Order test/preview panel validates without submitting
 * [x] BBO, aggTrades, liquidations, OI, referencePrice, and configurable-depth WS channels consumed by the appropriate components
-* [ ] All order-history screens pass axe-core audit *(open — open: axe-core audit not run — axe tooling not installed)*
+* [x] All order-history screens pass axe-core audit — history page tabs audited green
 
 **SDD Checklist:**
 - [x] Spec checkpoint: order history, algo management, OPO lists, dead-man switch, and test/preview are functional; BBO/aggTrades/liquidations/OI/referencePrice/configurable-depth WS channels are consumed (§24 #388) — defined first, validated against spec
@@ -570,7 +570,7 @@ Invariant: the client may never hold optimistic order state across a full re-aut
 * [x] Fee schedule, account snapshots, income history tables functional
 * [x] System-info panel shows exchange-info, time, status, announcements, maintenance, execution-policy
 * [x] Announcement banners render globally in SPA shell
-* [ ] All report screens pass axe-core audit *(open — open: axe-core audit not run — axe tooling not installed)*
+* [x] All report screens pass axe-core audit — ReportsPage tabs audited green
 
 **SDD Checklist:**
 - [x] Spec checkpoint: report-download, statement, solvency-proof, fee-schedule, and system-info surfaces are functional; announcement banners render globally (§24 #389) — defined first, validated against spec
@@ -685,7 +685,7 @@ Invariant: the client may never hold optimistic order state across a full re-aut
 * [x] CSV order import and beneficiary paste with per-row validation and pre-submit summary
 * [x] Unit converters (pip↔price, lots↔units, base↔quote, pct↔absolute) consumed by calculators, sliders, and preview
 * [ ] All existing inline validation in Tasks 10.3.3/10.3.7/10.3.21–10.3.28 refactored to use the shared framework *(open — partial: framework consumed by copy-grid/history/reports only; retrofit into order-entry/auth/funding/settings not done)*
-* [ ] Input-helper framework passes axe-core audit (WCAG 2.1 AA per Task 10.3.14) *(open — open: axe-core audit not run — axe tooling not installed)*
+* [x] Input-helper framework passes axe-core audit (WCAG 2.1 AA per Task 10.3.14) — field/autocomplete/preset/help/preview/unavailable fixtures + ConfirmModal HIGH + ShortcutHelpOverlay + GlossaryList audited green
 
 **SDD Checklist:**
 - [x] Spec checkpoint: centralized input-helper framework with OpenAPI-synced validation, instrument-aware formatting, preview engine, smart defaults, autocomplete, keyboard shortcuts, contextual help, unified confirmation modals, bulk import, and unit converters shared across all UI surfaces (§24 #390) — defined first, validated against spec

@@ -110,8 +110,19 @@ bool L3Publisher::publish(const L3Event& e) noexcept {
     eb.add_type_type(exc::wire::EventType_L3OrderEvent);
     eb.add_type(ev.Union());
     builder_.Finish(eb.Finish());
-    const bool ok = out_->send(builder_.GetBufferPointer(),
-                               builder_.GetSize());
+    // Task 9.3.11 — echo the inbound EXCTRACE block on the response frame
+    // when the dispatch window is armed (spec §19.12 byte contract); an
+    // oversized payload ships untraced rather than dropped.
+    const uint8_t* payload = builder_.GetBufferPointer();
+    const uint32_t len = static_cast<uint32_t>(builder_.GetSize());
+    bool ok;
+    if (trace_slot_ != nullptr && trace_slot_->armed() &&
+        compose_traced_frame(*trace_slot_, payload, len, trace_stage_,
+                             sizeof(trace_stage_))) {
+        ok = out_->send(trace_stage_, len + kTraceBlockLen);
+    } else {
+        ok = out_->send(payload, len);
+    }
     if (ok) ++published_; else ++drops_;
     return ok;
 }

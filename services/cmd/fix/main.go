@@ -31,6 +31,7 @@ import (
 	aeronclient "exchange/internal/ipc/aeron"
 	"exchange/internal/marketapi"
 	"exchange/internal/marketdata"
+	"exchange/internal/marketmaking"
 	excnats "exchange/internal/nats"
 	"exchange/internal/observability"
 	"exchange/internal/orders"
@@ -281,6 +282,41 @@ func run() error {
 		}
 	}()
 
+	// ---- Mass quoting (Task 18.3.7 wire half + Task 11.3.12 SCOPE_LP) ---
+	// mm_programs entitlement + MMP lockout share the gateway's service
+	// family; the LP kill-switch gate resolves the session account →
+	// liquidity_providers row (lp_accounts, mig 271) and refuses the
+	// whole set while the firm CLOB keeps trading.
+	mmStore := marketmaking.NewPgStore(pool)
+	mmSvc := marketmaking.NewService(mmStore, marketmaking.Options{
+		Logger: func(f string, a ...any) { log.Warn(fmt.Sprintf(f, a...)) },
+	})
+	if err := mmSvc.Load(context.Background()); err != nil {
+		// Boot continues: entitlement reads fall through to PG
+		// (fail-closed) until the refresher lands a snapshot.
+		log.Warn("mm programs initial load failed", "err", err)
+	}
+	mmSvc.StartRefresher(context.Background(), 60*time.Second,
+		func(e error) { log.Warn("mm programs refresh failed", "err", e) })
+	mmTracker := marketmaking.NewMMPTracker(mmSvc,
+		func(ctx context.Context, p *marketmaking.Program, instrumentID int64) (int, error) {
+			res, err := orderSvc.MassCancel(ctx, orders.MassCancelScope{
+				AccountID:    p.AccountID,
+				InstrumentID: instrumentID,
+				Reason:       "mmp",
+			}, "system:mmp", "", "")
+			if err != nil {
+				return 0, err
+			}
+			return res.Cancelled, nil
+		}).WithLogger(func(f string, a ...any) { log.Warn(fmt.Sprintf(f, a...)) })
+	qs, err := fix.NewQuoteService(orderSvc, mmSvc, mmTracker, nil)
+	if err != nil {
+		return fmt.Errorf("fix quoting: %w", err)
+	}
+	qs.WithLPGate(mmStore, killResolver).
+		WithLogger(func(f string, a ...any) { log.Warn(fmt.Sprintf(f, a...)) })
+
 	app := fix.NewApp(fix.Options{
 		Store:       fixStore,
 		Orders:      orderSvc,
@@ -290,6 +326,7 @@ func run() error {
 		Log:         log,
 		TSS:         tss,
 		MDS:         mds,
+		QS:          qs,
 		CoD:         cod,
 	})
 

@@ -46,6 +46,10 @@ type Options struct {
 	// MDS handles MarketDataRequest(35=V) — nil → MSGTYPE_UNSUPPORTED.
 	// Task 18.3.3's MarketDataService binds it.
 	MDS *MarketDataService
+	// QS handles MassQuote(35=i) and QuoteCancel(35=Z) — nil →
+	// MSGTYPE_UNSUPPORTED. Task 18.3.7's QuoteService binds it (with the
+	// Task 11.3.12 SCOPE_LP gate via WithLPGate).
+	QS *QuoteService
 	// CoD owns the measured cancel-on-disconnect path (rate gate §24
 	// #245 + audit events) — nil falls back to the inline purge below.
 	CoD *CoDExecutor
@@ -330,6 +334,10 @@ func (a *App) FromApp(msg *quickfix.Message, sessionID quickfix.SessionID) quick
 		}
 		a.emit(sessionID, businessReject(mt, "",
 			"MSGTYPE_UNSUPPORTED", BusinessRejectReasonOther))
+	case MsgMassQuote:
+		a.onMassQuote(ctx, msg, sessionID, row)
+	case MsgQuoteCancel:
+		a.onQuoteCancel(ctx, msg, sessionID, row)
 	default:
 		a.emit(sessionID, businessReject(mt, "",
 			"MSGTYPE_UNSUPPORTED", BusinessRejectReasonOther))

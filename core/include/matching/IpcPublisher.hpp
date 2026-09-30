@@ -39,6 +39,7 @@
 #endif
 
 #include "book/OrderBook.hpp"
+#include "ipc/TraceContext.hpp"  // Task 9.3.11 — EXCTRACE echo seam
 
 namespace exch {
 
@@ -108,6 +109,17 @@ public:
                                              int64_t cleared_qty,
                                              uint64_t ts_ns) noexcept;
 
+    // Task 9.3.11 — trace-echo binding (spec §19.12 Aeron header format):
+    // while the owning EnginePump's TraceSlot is armed (dispatch window of
+    // a traced inbound command), emit() prefixes the 64B EXCTRACE block
+    // verbatim onto the wire so the Go consumer continues the trace with
+    // tracing.ExtractAeronTrace. Frames emitted outside the window keep the
+    // legacy unprefixed shape; an oversized payload ships untraced rather
+    // than dropped (metadata never outranks send correctness).
+    void set_trace_slot(const TraceSlot* slot) noexcept {
+        trace_slot_ = slot;
+    }
+
     [[nodiscard]] bool bound() const noexcept { return out_ != nullptr; }
     [[nodiscard]] uint64_t published() const noexcept { return published_; }
     [[nodiscard]] uint64_t drops() const noexcept { return drops_; }
@@ -118,9 +130,15 @@ private:
     uint64_t pub_seq_ = 0;
     uint64_t published_ = 0;
     uint64_t drops_ = 0;
+    const TraceSlot* trace_slot_ = nullptr;  // Task 9.3.11 echo binding
+
+    // Staging for [EXCTRACE block][Event] composition — covers every frame
+    // that fits a transport slot; larger payloads ship untraced.
+    static constexpr uint32_t kTraceStageBytes = 16 * 1024;
 
 #ifdef EXCH_IPC_FLATBUFFERS
     flatbuffers::FlatBufferBuilder builder_;
+    uint8_t trace_stage_[kTraceStageBytes] = {};
     // Offset staging for snapshot level vectors (no heap).
     flatbuffers::Offset<exc::wire::PriceLevel>
         level_off_[2 * OrderBook::kMaxLevels];
