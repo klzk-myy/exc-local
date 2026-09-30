@@ -669,6 +669,148 @@ uint32_t MatchingEngine::instrument_id_of(const OrderAux& aux) const noexcept {
     return i != nullptr ? static_cast<uint32_t>(i->instrument_id) : 0;
 }
 
+// ---------------------------------------------------------------------------
+// Phase-22 Task 22.3.12 — implied matching (spec §24 #199/#200)
+// ---------------------------------------------------------------------------
+
+bool MatchingEngine::implied_ensure_registered() noexcept {
+    if (implied_ == nullptr) return false;
+    if (implied_registered_) return true;
+    const Instrument* ins = book_.instrument();
+    if (ins == nullptr || ins->instrument_id == 0) return false;
+    // Registration is a cold-path append into the matcher's book table;
+    // a failure (duplicate id / capacity) latches registered_ true and
+    // leaves the engine running outright-only — fail safe, not fatal.
+    implied_registered_ = implied_->register_book(
+        static_cast<uint32_t>(ins->instrument_id), book_, wal_, publisher_,
+        &implied_fill_trampoline, this);
+    if (!implied_registered_) {
+        implied_registered_ = true;   // do not retry every event
+        implied_ = nullptr;           // unbind — outright-only engine
+    }
+    return implied_ != nullptr;
+}
+
+void MatchingEngine::implied_take(Order& order, const OrderAux& aux,
+                                  TakerResult& r, bool has_limit,
+                                  int64_t limit_ticks) noexcept {
+    if (implied_ == nullptr || r.remaining <= 0 || r.dead || wal_fault_) {
+        return;
+    }
+    // FOK stays outright-only (§27 Phase-22 ruling): an implied-only or
+    // mixed-liquidity feasibility proof would need a combined read-only
+    // capacity walk that preserves STP/collar verdicts exactly; a false
+    // positive would commit a partial FOK. post_only takers probe first —
+    // crossing implied liquidity rejects POST_ONLY_VIOLATION, mirroring
+    // the pre-trade gate's outright rule.
+    if (order.tif == TimeInForce::FOK) return;
+    if (!implied_ensure_registered()) {
+        return;
+    }
+    const ImpliedMatcher::Result ir =
+        implied_->match_incoming(instrument_id_of(aux), order, now_ns_,
+                                 tid_stream(), has_limit, limit_ticks);
+    if (ir.wal_fault) {
+        wal_fault_ = true;  // shared fault flag — journaled prefix is
+                            // replay-consistent, remainder cannot rest
+        return;
+    }
+    if ((order.flags & kOrderFlagPostOnly) != 0 && ir.would_match) {
+        r.dead = true;
+        r.dead_reason = kWalCancelReasonUser;
+        r.dead_code = kRejectPostOnlyViolation;
+        return;
+    }
+    if (ir.filled_units > 0) {
+        r.remaining -= ir.filled_units;
+        if (r.remaining < 0) r.remaining = 0;  // defensive — matcher is
+                                               // bounded by remaining
+    }
+}
+
+void MatchingEngine::implied_rescan() noexcept {
+    if (implied_ == nullptr || wal_fault_) return;
+    if (!implied_ensure_registered()) return;
+    const Instrument* ins = book_.instrument();
+    if (ins == nullptr) return;
+    const uint32_t served = static_cast<uint32_t>(ins->instrument_id);
+    // Bounded local fixpoint (same discipline as settle()'s 8 passes):
+    // an implied fill inside book_ can move book_ in its role as a LEG
+    // of other links, which may expose fresh crossings — rescan until
+    // stable. Implied fills also advance last_price_ticks_, so a dirty
+    // pass re-runs the conditional settle wave to fire LAST triggers.
+    constexpr int kMaxImpliedPasses = 8;
+    for (int pass = 0; pass < kMaxImpliedPasses; ++pass) {
+        implied_dirty_ = false;
+        const ImpliedMatcher::Result r =
+            implied_->on_book_changed(served, now_ns_, tid_stream());
+        if (r.wal_fault) {
+            wal_fault_ = true;
+            return;
+        }
+        if (!implied_dirty_) return;   // no fills touched book_ — stable
+        settle();
+        if (wal_fault_) return;
+    }
+}
+
+void MatchingEngine::implied_sync() noexcept {
+    implied_rescan();
+}
+
+void MatchingEngine::implied_fill_trampoline(
+    void* ctx, const FillNote& n) noexcept {
+    static_cast<MatchingEngine*>(ctx)->on_implied_fill(n);
+}
+
+void MatchingEngine::on_implied_fill(
+    const FillNote& n) noexcept {
+    // Any trade printed in this book advances the LAST-source trigger
+    // reference and the emitted-trade counter — the settle wave fired by
+    // implied_rescan()/the host drain then evaluates stop triggers
+    // against it exactly like an outright fill.
+    last_price_ticks_ = n.price_ticks;
+    ++trades_emitted_;
+    implied_dirty_ = true;
+    if (!n.taker_leg) {
+        // Resting-order bookkeeping walk_match performs around apply_fill
+        // — the matcher's raw fill bypassed it: iceberg reserves account
+        // the fill and replenish a dead visible slice; a terminal order
+        // releases its meta slot and arms the OCO winner.
+        if (auto* rec = icebergs_.find(n.order_id)) {
+            rec->filled_total_units += n.qty_units;
+            if (book_.find_order(n.order_id) == nullptr) {
+                replenish_iceberg(rec);
+            }
+        }
+        if (book_.find_order(n.order_id) == nullptr) {
+            meta_erase(n.order_id);
+            if (icebergs_.find(n.order_id) == nullptr) {
+                oco_on_dead(n.order_id, /*by_fill=*/true);
+            }
+        }
+    }
+    // Price-improvement accounting on the out-book presentation fill —
+    // delta vs the filled order's OWN limit, same rule as walk_match.
+    if (n.out_presentation) {
+        improvement_.on_fill(n.side, n.order_id, n.trade_id,
+                             n.limit_ticks, n.price_ticks, n.qty_units);
+    }
+    if (l3_ != nullptr) {
+        const Order* live = book_.find_order(n.order_id);
+        const int64_t rem_after =
+            live != nullptr ? effective_remaining_units(live)
+                            : (n.order_remaining_after >= 0
+                                   ? n.order_remaining_after : 0);
+        l3_emit_ev(static_cast<uint8_t>(L3Kind::Fill), n.order_id,
+                   n.account_id, n.side, n.instrument_id, n.price_ticks,
+                   /*ref*/ 0, rem_after, /*delta*/ -n.qty_units,
+                   n.trade_id,
+                   n.taker_leg ? kL3RoleTaker : kL3RoleMaker, 0, 0,
+                   n.wal_seq);
+    }
+}
+
 void MatchingEngine::publish_depth() noexcept {
     if (publisher_ != nullptr) {
         (void)publisher_->publish_book_snapshot(book_, instrument_id_of(OrderAux{}),
@@ -1153,7 +1295,7 @@ MatchingEngine::TakerResult MatchingEngine::walk_match(
         const int64_t px = eff_px;  // midpoint for hidden makers (16.3.13)
         const uint64_t maker_id = maker->id;
         const uint64_t maker_acct = maker->account_id;
-        const uint64_t tid = next_trade_id_++;
+        const uint64_t tid = tid_stream()++;
         const uint64_t buy_id =
             taker.side == Side::BUY ? taker.id : maker_id;
         const uint64_t sell_id =
@@ -1634,7 +1776,7 @@ void MatchingEngine::gslo_fill(Order* node, const OrderAux& aux,
                                int64_t stop_ticks) noexcept {
     const int64_t fill = remaining_qty_units(*node);
     if (fill <= 0) return;
-    const uint64_t tid = next_trade_id_++;
+    const uint64_t tid = tid_stream()++;
     // Venue leg = the synthetic counterparty id — the gap liability moves
     // to the exposure pool, never against a real order id.
     const uint64_t buy_id =
@@ -1974,6 +2116,13 @@ void MatchingEngine::process_triggered(Order* node,
     } else {
         TakerResult r = walk_match(*node, aux, has_limit,
                                    node->price_ticks, cb);
+        // Triggered stops take implied liquidity too — a STOP_LIMIT's
+        // nominal price_ticks bounds the combo the same way it bounds
+        // the outright sweep; a plain STOP sweeps unbounded (market
+        // semantics — the collar snapshot still gates every leg fill
+        // via the engine that owns the leg book).
+        implied_take(*node, aux, r, has_limit,
+                     has_limit ? node->price_ticks : 0);
         finish_taker(*node, aux, r, 0);
     }
     const uint64_t nid = node->id;
@@ -2209,9 +2358,25 @@ void MatchingEngine::on_order_received(Order* order,
             order->side == Side::BUY ? book_.ask_count() == 0
                                      : book_.bid_count() == 0;
         if (opposite_empty) {
-            reject(order, kRejectNoLiquidity);
-            orders_.free(order);
-            return;
+            // Task 22.3.12 — a locally empty opposite side does not mean
+            // no liquidity: implied quotes synthesize the out book from
+            // its legs. Exempt the reject only when the read-only probe
+            // shows real implied capacity — FOK stays outright-only
+            // (§27 ruling: no combined-liquidity feasibility proof).
+            bool implied_liquidity = false;
+            if (order->tif != TimeInForce::FOK &&
+                implied_ != nullptr && implied_->enabled() &&
+                implied_ensure_registered()) {
+                implied_liquidity =
+                    implied_->evaluate_incoming(instrument_id_of(aux),
+                                                *order)
+                        .fillable_qty_units > 0;
+            }
+            if (!implied_liquidity) {
+                reject(order, kRejectNoLiquidity);
+                orders_.free(order);
+                return;
+            }
         }
     }
 
@@ -2239,10 +2404,14 @@ void MatchingEngine::on_order_received(Order* order,
                 orders_.free(order);
                 return;
             }
-            // The opposite side is non-empty per the gate above.
-            const int64_t best = order->side == Side::BUY
-                                     ? ask->price_ticks
-                                     : bid->price_ticks;
+            // The opposite side is non-empty per the gate above — except
+            // a Task 22.3.12 implied-exempted taker, whose reference
+            // quote lives on the legs; no local quote means no
+            // protection bound can be computed (documented in §27).
+            const PriceLevel* opp_lvl =
+                order->side == Side::BUY ? ask : bid;
+            if (opp_lvl != nullptr) {
+            const int64_t best = opp_lvl->price_ticks;
             const int64_t bps = effective_slippage_bps(*instr);
             int64_t prot = 0;
             if (bps < kSlippageUnboundedBps &&
@@ -2259,6 +2428,7 @@ void MatchingEngine::on_order_received(Order* order,
             // escape — the order sweeps unbounded (pre-protection behavior).
             // An overflowing protection price (degenerate config) skips
             // conversion rather than clamping to an invisible bound.
+            }
         }
     }
 
@@ -2367,6 +2537,10 @@ void MatchingEngine::on_order_received(Order* order,
                 break;
             }
             TakerResult r = walk_match(*order, aux, true, walk_bound, cb);
+            // Task 22.3.12 — the discretionary walk bound (walk_bound)
+            // substitutes the nominal limit for the implied sweep exactly
+            // as it did for the outright sweep.
+            implied_take(*order, aux, r, /*has_limit=*/true, walk_bound);
             finish_taker(*order, aux, r, display);
             break;
         }
@@ -2427,6 +2601,13 @@ void MatchingEngine::on_order_received(Order* order,
             }
             TakerResult r = walk_match(*order, aux, market_protected,
                                        protection_price_ticks, cb);
+            // Task 22.3.12 — implied liquidity fills an unprotected
+            // market remainder; a §6.6a-protected order never sweeps
+            // implied (the protection bound is a hard wall, not a quote
+            // the combo could honor leg-by-leg).
+            if (!market_protected) {
+                implied_take(*order, aux, r, /*has_limit=*/false, 0);
+            }
             if (tt_clipped && r.remaining > 0 && !r.dead && !wal_fault_) {
                 // §6.6b remainder: cancelled SLIPPAGE_EXCEEDED; the TCA
                 // stream sees MARKET_REMAINDER_SLIPPAGE through the guard.
@@ -2643,6 +2824,10 @@ void MatchingEngine::on_order_received(Order* order,
 
     if (!adopted) orders_.free(order);
     settle();
+    // Task 22.3.12 — a committed mutation can move an implied quote on
+    // any link this book is a leg of (or put a newly-rested/amended
+    // member of this book across an existing quote as its out book).
+    if (book_.book_seq() != seq0) implied_rescan();
     quarantine_check();  // Task 15.3.10 — post-mutation crossed-book probe
     if (book_.book_seq() != seq0) {
         refresh_protected_quote();  // §6.6b #6 — internal book is the quote
@@ -2665,6 +2850,10 @@ void MatchingEngine::on_cancel_received(uint64_t order_id,
         ++reject_count_;
     }
     settle();
+    // Task 22.3.12 — a cancel removes leg liquidity (quote worsens, no
+    // new fills possible) but costs only a bounded scan; keep the rescan
+    // uniform across every mutation tail.
+    if (book_.book_seq() != seq0) implied_rescan();
     publish_auction_indicative();  // a CALL cancel can move the indicative
     quarantine_check();
     if (book_.book_seq() != seq0) {
@@ -2807,6 +2996,9 @@ void MatchingEngine::on_amend_received_ex(uint64_t order_id,
     } else {
         amend_resting(*o, req, *m);
     }
+    // Task 22.3.12 — an amended price can put a resting member across an
+    // implied quote (out book) or improve a leg into fresh crossings.
+    if (book_.book_seq() != seq0) implied_rescan();
     quarantine_check();
     if (book_.book_seq() != seq0) {
         refresh_protected_quote();  // §6.6b #6 — internal book is the quote
@@ -3096,6 +3288,9 @@ void MatchingEngine::on_time_tick(uint64_t now_ns) noexcept {
     quarantine_check();
     expire_due();
     settle();
+    // Task 22.3.12 — settle()'s pegged repricing can move leg quotes;
+    // GTD/DAY expiry cancels only shrink capacity.
+    if (book_.book_seq() != seq0) implied_rescan();
     publish_auction_indicative();  // expiry cancels can move the indicative
     if (book_.book_seq() != seq0) {
         refresh_protected_quote();  // §6.6b #6 — internal book is the quote
@@ -3953,7 +4148,7 @@ int64_t MatchingEngine::auction_uncross(int64_t price_ticks,
             // book node, so nothing below may dereference a dead pointer.
             const uint64_t bid = b->id;
             const uint64_t sid = s->id;
-            const uint64_t tid = next_trade_id_++;
+            const uint64_t tid = tid_stream()++;
             const uint32_t instr = instrument_id_of(OrderAux{});
             // L3 pre-mutation capture — apply_fill may free either leg.
             const Side b_side = b->side;

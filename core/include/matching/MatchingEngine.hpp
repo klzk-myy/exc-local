@@ -43,6 +43,7 @@
 #include "matching/DiscretionaryExecutor.hpp"
 #include "matching/ExecutionCollar.hpp"
 #include "matching/IcebergManager.hpp"
+#include "matching/ImpliedMatcher.hpp"
 #include "matching/PriceImprovementRecorder.hpp"
 #include "matching/SelfTradeGuard.hpp"
 #include "matching/StopOrderTrigger.hpp"
@@ -147,9 +148,32 @@ public:
     // --- Recovery / wiring hooks ---------------------------------------------
 
     // Trade ids are monotonic per engine; B2 recovery seeds the next id from
-    // the WAL tail so post-replay trades continue the sequence.
+    // the WAL tail so post-replay trades continue the sequence. On a bound
+    // trade-id stream (curve shard) the shared counter is seeded instead —
+    // same id space the journaled rows were drawn from.
     void seed_trade_id(uint64_t next_trade_id) noexcept {
-        next_trade_id_ = next_trade_id;
+        uint64_t& s = tid_stream();
+        if (next_trade_id > s) s = next_trade_id;
+    }
+    // Curve-shard co-location (Task 22.3.12): engines sharing one WAL and
+    // an implied matcher must draw trade ids from ONE stream — implied
+    // fills print into sibling books under the driving engine's seq, and
+    // the shared journal's max_trade_id is global. The host binds the
+    // shared counter on every co-located engine before any ingress; a
+    // standalone engine keeps its member stream (pre-22 identical).
+    void bind_trade_id_stream(uint64_t* shared) noexcept {
+        tid_stream_ = shared != nullptr ? shared : &next_trade_id_;
+    }
+    [[nodiscard]] uint64_t& tid_stream() noexcept {
+        return tid_stream_ != nullptr ? *tid_stream_ : next_trade_id_;
+    }
+    // Ownership probe (Task 22.3.12 host routing): true when order_id is
+    // live anywhere in this engine's stores — resting book, pending stop
+    // queue, or auction-parked list. Read-only; used by a multi-engine
+    // ingress to route cancel/amend wire messages that carry no
+    // instrument_id.
+    [[nodiscard]] bool owns_order(uint64_t order_id) noexcept {
+        return l3_order_detail(order_id) != nullptr;
     }
     // Pre-trade risk slot (Task 2.3.3). fn returns nullptr to accept, else a
     // static reject code string surfaced via last_reject(). Order& is
@@ -249,7 +273,9 @@ public:
     [[nodiscard]] uint64_t book_seq() const noexcept { return book_.book_seq(); }
     [[nodiscard]] uint64_t received_count() const noexcept { return received_count_; }
     [[nodiscard]] uint64_t trades_emitted() const noexcept { return trades_emitted_; }
-    [[nodiscard]] uint64_t next_trade_id() const noexcept { return next_trade_id_; }
+    [[nodiscard]] uint64_t next_trade_id() noexcept {
+        return tid_stream();
+    }
     [[nodiscard]] uint64_t last_price_ticks() const noexcept { return last_price_ticks_; }
     [[nodiscard]] uint64_t now_ns() const noexcept { return now_ns_; }
     // Address of the logical clock — EngineRiskBinding points here so the
@@ -328,6 +354,10 @@ public:
     // (MARKET/IOC/FOK + MOO/MOC) swept at/after the uncross surface this
     // code — WAL reason kWalCancelReasonAuctionCancelled (8).
     static constexpr char kRejectAuctionCancelled[] = "AUCTION_CANCELLED";
+    // Phase-22 Task 22.3.12 — post_only order whose remainder would take
+    // implied liquidity rejects with the same code the pre-trade gate
+    // uses (services emit POST_ONLY_VIOLATION for the outright case).
+    static constexpr char kRejectPostOnlyViolation[] = "POST_ONLY_VIOLATION";
     // GSLO fills print against the synthetic venue counterparty id — the
     // gap liability moves to the exposure pool, never a real order id.
     static constexpr uint64_t kGsloVenueOrderId = ~uint64_t{0};
@@ -422,6 +452,48 @@ public:
     [[nodiscard]] const InstrumentFeed* instrument_feed() const noexcept {
         return feed_;
     }
+
+    // --- Phase-22 Task 22.3.12 implied matching (spec §24 #199/#200) -----
+    // Binds this engine's book to an ImpliedMatcher shared across the
+    // curve's co-located books — all books registered on ONE matching
+    // thread (the curve-shard host topology; spec §27). Unbound or
+    // disabled matcher => zero-cost no-ops everywhere; behaviour is
+    // identical to the pre-Phase-22 engine.
+    //
+    // Wiring contract for a host process:
+    //   * construct one MatchingEngine per linked instrument on the same
+    //     thread, each with its own pool/book/wal/pub;
+    //   * call bind_implied(&matcher) on each before any ingress —
+    //     registration resolves the bound book's instrument lazily, so
+    //     book.set_instrument may precede or follow the bind;
+    //   * after EVERY ingress event (order/cancel/amend/tick) drain the
+    //     cross-engine fixpoint: for each engine e, while
+    //     e.take_implied_dirty() run e.implied_sync() — implied fills the
+    //     matcher produced in e's book need its conditional-settle wave.
+    //     Bound the drain (e.g. 8 passes) — deterministic replay needs a
+    //     stable fixed point, never an unbounded loop.
+    void bind_implied(ImpliedMatcher* m) noexcept {
+        implied_ = m;
+        implied_registered_ = false;
+        implied_dirty_ = false;
+        // Register eagerly when the instrument is already bound so a host
+        // can register links immediately after the bind; the lazy path in
+        // implied_ensure_registered covers instrument-set-later hosts.
+        if (implied_ != nullptr) (void)implied_ensure_registered();
+    }
+    [[nodiscard]] bool implied_enabled() const noexcept {
+        return implied_ != nullptr && implied_->enabled();
+    }
+    // One-shot drain flag: set by the owner hook when a matcher fill
+    // touched this engine's book. The host consumes it to schedule the
+    // engine's implied_sync (rescan + conditional settle).
+    [[nodiscard]] bool take_implied_dirty() noexcept {
+        const bool d = implied_dirty_;
+        implied_dirty_ = false;
+        return d;
+    }
+    // Host-facing rescan+settle entry — see bind_implied contract.
+    void implied_sync() noexcept;
 
     // Auction phase values == WalAuctionPhasePayload.phase wire enum.
     static constexpr uint8_t kAuctionPhaseCall       = 0;
@@ -716,6 +788,33 @@ private:
     // pegged reprice -> repeat until stable. Bounded pass count; a
     // journal/structural fault halts the wave.
     void settle() noexcept;
+
+    // --- Phase-22 Task 22.3.12 implied-matching internals -------------------
+    // Lazy self-registration — bind_implied may precede
+    // book_.set_instrument; the first use resolves the served id.
+    bool implied_ensure_registered() noexcept;
+    // Post-sweep implied take: fills the taker's remainder against
+    // implied liquidity (implied-in and implied-out links alike),
+    // folding the result into the in-flight TakerResult. FOK takers and
+    // slippage-protected MARKET orders skip the path outright (§27:
+    // implied never participates in an all-or-nothing feasibility proof
+    // and never extends a §6.6a protection bound).
+    void implied_take(Order& order, const OrderAux& aux, TakerResult& r,
+                      bool has_limit, int64_t limit_ticks) noexcept;
+    // Commit-point rescan: forwards own-book mutations to the matcher and
+    // runs a bounded local fixpoint (implied fills in book_ as an out
+    // book can in turn move book_ as a leg of further links). Implied
+    // fills update last_price_ticks_ via the owner hook, so a dirty pass
+    // re-runs settle() to fire LAST-sourced triggers.
+    void implied_rescan() noexcept;
+    // Owner bookkeeping for one matcher-produced fill inside book_ —
+    // mirrors walk_match's post-fill block (iceberg reserve accounting,
+    // meta slot release, OCO winner arm, L3 Fill emit, price-improvement
+    // recording, LAST-price reference).
+    void on_implied_fill(const FillNote& n) noexcept;
+    static void implied_fill_trampoline(
+        void* ctx, const FillNote& n) noexcept;
+
     // Evaluation references for the trigger queue: last trade always
     // available; mark/index come from the bound PriceOracleFeed (or the
     // local seam) and are zeroed when unverifiable or stale.
@@ -977,9 +1076,18 @@ private:
     uint64_t gslo_fills_ = 0;
     int64_t  gslo_max_exposure_units_ = 0;  // 0 = uncapped
 
+    // Phase-22 Task 22.3.12 — implied matching. implied_ is the shared
+    // matcher (co-located curve books, same thread); implied_registered_
+    // latches the one-time register_book call; implied_dirty_ is the
+    // host-drain flag the owner hook sets on matcher-produced fills.
+    ImpliedMatcher* implied_ = nullptr;
+    bool implied_registered_ = false;
+    bool implied_dirty_ = false;
+
     uint64_t received_count_ = 0;
     uint64_t trades_emitted_ = 0;
     uint64_t next_trade_id_ = 1;
+    uint64_t* tid_stream_ = nullptr;  // shared curve stream when bound
     uint64_t emit_seq_ = 0;          // engine-generated priority stamps
     uint64_t now_ns_ = 0;            // logical clock (TIME_TICK driven)
     int64_t last_price_ticks_ = 0;

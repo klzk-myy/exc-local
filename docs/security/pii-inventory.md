@@ -1,6 +1,6 @@
 # PII Inventory — GDPR Art. 30 Record + Encryption/Access Map
 
-**Generated:** 2026-09-30 08:20 UTC by `scripts/security/gen-pii-inventory.py` (Task 13.5.3.2) from 176 `*.up.sql` migrations (278 tables, 3332 columns). Do not hand-edit; update the generator's ANNOTATIONS map and re-run. Companion artifacts: `pii-catalog.csv` (same rows, machine-checkable), `pii-audit-report.md` (verification evidence), `gdpr-erasure-runbook.md` (Art. 17 procedure).
+**Generated:** 2026-09-30 13:09 UTC by `scripts/security/gen-pii-inventory.py` (Task 13.5.3.2) from 184 `*.up.sql` migrations (293 tables, 3555 columns). Do not hand-edit; update the generator's ANNOTATIONS map and re-run. Companion artifacts: `pii-catalog.csv` (same rows, machine-checkable), `pii-audit-report.md` (verification evidence), `gdpr-erasure-runbook.md` (Art. 17 procedure).
 
 PII classes: **DIRECT_ID** (name/address/residency) · **CONTACT** (email/phone) · **GOV_ID** (TIN/ID documents) · **FINANCIAL** (bank identifiers) · **AUTH_SECRET** (credentials — hashed/sealed, tracked for erasure) · **PSEUDONYMOUS** (IP/UA/fingerprint/geo/actor ids) · **LINKAGE** (user_id/account_id re-identification joins) · **FREE_TEXT** (may embed incidental PII) · **ORG_CONTACT** (institutional contacts).
 
@@ -660,39 +660,41 @@ Schema-verified by the generator (no PII-name-pattern column and no curated anno
 `instruments` `balances` `audit_hash_chain` `risk_limits` `fee_tiers` `margin_accounts` `positions` `liquidation_auctions`
 `insurance_fund` `nostro_accounts` `audit_merkle_roots` `processed_trades` `book_snapshots` `surveillance_signals`
 `fix_sessions` `fix_messages` `ctr_reports` `aml_monitoring_events` `aml_program_artifacts` `aml_account_assessments`
-`chart_of_accounts` `journal_entries` `ledger_lines` `prime_brokers` `pb_credit_limits` `pb_giveup_trades`
-`collateral_schedule` `appropriateness_assessments` `mm_programs` `mm_compliance` `mm_rebate_accruals`
-`client_statements` `trade_confirmations` `fee_invoices` `trial_balances` `erp_delivery_log` `fix_certifications`
-`credit_groups` `credit_parties` `credit_relationships` `credit_reservations` `regulatory_schema_versions`
-`party_identifiers` `cftc_position_limits` `shard_margin_reservations` `compliance_assessment_runs` `compliance_assessments`
-`position_transfers` `comms_recordings` `comms_recording_access` `margin_model_runs` `recovery_reports`
-`grid_bots` `grid_bot_orders` `prevented_matches` `client_role_bindings` `client_approval_policies` `order_list_legs`
-`strategies` `withdrawal_whitelist_settings` `regulatory_change_impacts` `regulatory_change_correspondence`
-`vip_tier_schedule` `account_equity_snapshots` `account_vip_history` `instruments_reference` `auction_calendar`
-`currency_day_counts` `swap_markup_policies` `non_trading_fee_schedule` `swap_accrual_records` `principal_role_systems`
-`admin_recert_campaigns` `environments` `fleet_hosts` `release_promotions` `deploy_windows` `recovery_digests`
-`balance_snapshots` `account_product_profiles` `copy_follows` `copy_child_orders` `high_water_marks`
-`profit_share_accruals` `entity_leverage_policy` `product_target_markets` `execution_policy_consents`
-`governance_packs` `ledger_entries` `journal_sums` `swap_free_admin_fees` `rail_payments` `risk_daily_usage`
-`currency_conversions` `position_fills` `nostro_movements` `dust_sweeps` `swap_rates` `carry_trade_allocations`
-`carry_trade_legs` `carry_yield_records` `carry_yield_totals` `swap_free_admin_fee_assessments` `rollover_runs`
-`commission_tiers` `account_monthly_volume` `partition_archive_log` `currency_holidays` `client_order_id_dedup`
-`transfers` `announcements` `maintenance_windows` `fx_klines` `fee_promo_windows` `api_deprecations`
-`manual_liquidations` `lp_instrument_configs` `lp_performance_alerts` `feature_flags` `data_retention_holds`
-`retention_audit_log` `partition_tier_state` `partition_tier_log` `api_deprecation_hits` `ops_status_events`
-`ops_component_state` `ops_incidents` `funding_fee_tiers` `funding_fee_free_usage` `funding_currency_conversions`
-`withdrawal_dispatch_queue` `funding_ops_alerts` `nostro_replenishment_requests` `kyc_tier_policies`
-`kyc_ops_matrix` `circuit_breaker_events` `reconciliation_runs` `reconciliation_findings` `solvency_snapshots`
-`solvency_proofs` `cooling_off_periods` `pamm_allocations` `pamm_subledger_entries` `pamm_fill_allocations`
-`auto_halt_events` `algo_orders` `algo_order_children` `bracket_orders` `bracket_children` `fix_allocations`
-`fix_allocation_legs` `allocation_events` `sor_shadow_orders` `sor_fill_dedup` `fixsbe_sessions` `fixsbe_schema_registry`
-`insurance_fund_transactions` `margin_call_events` `liquidation_events` `nbp_events` `adl_directives`
-`insurance_fund_governance` `pb_credit_reservations` `leverage_tiers` `account_leverage` `account_margin_thresholds`
-`depreciation_episodes` `account_consents` `algo_certifications` `dea_session_controls` `reporting_values`
-`surveillance_signal_tuning` `account_consent_states` `account_consent_events` `data_residency_policies`
-`data_residency_access_log` `basel_reports` `venue_member_events` `venue_member_reviews` `venue_rulebooks`
-`venue_rule_acks` `venue_self_assessments` `cco_reports` `venue_launch_prerequisites` `rts27_daily_stats`
-`rts27_reports` `rts28_reports`
+`variation_margin` `chart_of_accounts` `journal_entries` `ledger_lines` `prime_brokers` `pb_credit_limits`
+`pb_giveup_trades` `collateral_schedule` `appropriateness_assessments` `legal_agreements` `mm_programs`
+`mm_compliance` `mm_rebate_accruals` `client_statements` `trade_confirmations` `fee_invoices` `trial_balances`
+`erp_delivery_log` `fix_certifications` `credit_groups` `credit_parties` `credit_relationships` `credit_reservations`
+`regulatory_schema_versions` `party_identifiers` `cftc_position_limits` `shard_margin_reservations` `compliance_assessment_runs`
+`compliance_assessments` `position_transfers` `comms_recordings` `comms_recording_access` `margin_model_runs`
+`recovery_reports` `grid_bots` `grid_bot_orders` `prevented_matches` `client_role_bindings` `client_approval_policies`
+`order_list_legs` `strategies` `withdrawal_whitelist_settings` `regulatory_change_impacts` `regulatory_change_correspondence`
+`option_spread_offsets` `option_spread_offset_params` `vip_tier_schedule` `account_equity_snapshots`
+`account_vip_history` `instruments_reference` `auction_calendar` `currency_day_counts` `swap_markup_policies`
+`non_trading_fee_schedule` `swap_accrual_records` `principal_role_systems` `admin_recert_campaigns` `environments`
+`fleet_hosts` `release_promotions` `deploy_windows` `recovery_digests` `balance_snapshots` `account_product_profiles`
+`copy_follows` `copy_child_orders` `high_water_marks` `profit_share_accruals` `entity_leverage_policy`
+`product_target_markets` `execution_policy_consents` `governance_packs` `ledger_entries` `journal_sums`
+`swap_free_admin_fees` `rail_payments` `risk_daily_usage` `currency_conversions` `position_fills` `nostro_movements`
+`dust_sweeps` `swap_rates` `carry_trade_allocations` `carry_trade_legs` `carry_yield_records` `carry_yield_totals`
+`swap_free_admin_fee_assessments` `rollover_runs` `commission_tiers` `account_monthly_volume` `partition_archive_log`
+`currency_holidays` `client_order_id_dedup` `transfers` `announcements` `maintenance_windows` `fx_klines`
+`fee_promo_windows` `api_deprecations` `manual_liquidations` `lp_instrument_configs` `lp_performance_alerts`
+`feature_flags` `data_retention_holds` `retention_audit_log` `partition_tier_state` `partition_tier_log`
+`api_deprecation_hits` `ops_status_events` `ops_component_state` `ops_incidents` `funding_fee_tiers`
+`funding_fee_free_usage` `funding_currency_conversions` `withdrawal_dispatch_queue` `funding_ops_alerts`
+`nostro_replenishment_requests` `kyc_tier_policies` `kyc_ops_matrix` `circuit_breaker_events` `reconciliation_runs`
+`reconciliation_findings` `solvency_snapshots` `solvency_proofs` `cooling_off_periods` `pamm_allocations`
+`pamm_subledger_entries` `pamm_fill_allocations` `auto_halt_events` `algo_orders` `algo_order_children`
+`bracket_orders` `bracket_children` `fix_allocations` `fix_allocation_legs` `allocation_events` `sor_shadow_orders`
+`sor_fill_dedup` `fixsbe_sessions` `fixsbe_schema_registry` `insurance_fund_transactions` `margin_call_events`
+`liquidation_events` `nbp_events` `adl_directives` `insurance_fund_governance` `pb_credit_reservations`
+`leverage_tiers` `account_leverage` `account_margin_thresholds` `depreciation_episodes` `account_consents`
+`algo_certifications` `dea_session_controls` `reporting_values` `surveillance_signal_tuning` `account_consent_states`
+`account_consent_events` `data_residency_policies` `data_residency_access_log` `basel_reports` `venue_member_events`
+`venue_member_reviews` `venue_rulebooks` `venue_rule_acks` `venue_self_assessments` `cco_reports` `venue_launch_prerequisites`
+`rts27_daily_stats` `rts27_reports` `rts28_reports` `option_barrier_events` `umr_im_assessments` `derivative_contracts`
+`ndf_fixings` `contract_rolls` `auto_roll_config` `option_positions` `option_premium_settlements` `option_assignments`
+`option_exercise_prefs` `option_expiry_runs`
 
 ## 4. Data-flow summary
 

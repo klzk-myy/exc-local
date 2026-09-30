@@ -2364,7 +2364,7 @@
       "phase": "08.5",
       "task": "8.5.3.1",
       "index": 1,
-      "text": "75k/sec staging gate",
+      "text": "75k/sec staging gate — defined first, validated against spec — **deferred: environment-bound** (requires a provisioned staging cluster; no code artifact can discharge it — checkpoint `P08.5-T8.5.3.1-C1` stays pending, errblast + soak harnesses are the executable substrate)",
       "file": "Phase-08.5-PreProduction-LoadTest.md",
       "line": 45,
       "checked": false,
@@ -2377,8 +2377,8 @@
       "index": 1,
       "text": "isolated demo environment mirrors the production API without real funds (§24 #266)",
       "file": "Phase-08.5-PreProduction-LoadTest.md",
-      "line": 55,
-      "checked": false,
+      "line": 57,
+      "checked": true,
       "shard": 2
     },
     {
@@ -2388,8 +2388,8 @@
       "index": 1,
       "text": "High-stress error injection and degradation mode hysteresis validated (§24 #308)",
       "file": "Phase-08.5-PreProduction-LoadTest.md",
-      "line": 75,
-      "checked": false,
+      "line": 77,
+      "checked": true,
       "shard": 3
     },
     {
@@ -4952,7 +4952,7 @@
       "text": "ClickHouse for tick history + analytics",
       "file": "Phase-20-Analytics-Reporting.md",
       "line": 47,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -4963,7 +4963,7 @@
       "text": "tick history retention (90d raw / 5yr aggregates)",
       "file": "Phase-20-Analytics-Reporting.md",
       "line": 71,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -4974,7 +4974,7 @@
       "text": "OHLCV at multiple timeframes",
       "file": "Phase-20-Analytics-Reporting.md",
       "line": 93,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -4985,7 +4985,7 @@
       "text": "P\u0026L reporting",
       "file": "Phase-20-Analytics-Reporting.md",
       "line": 116,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -4996,7 +4996,7 @@
       "text": "volume + stats reporting",
       "file": "Phase-20-Analytics-Reporting.md",
       "line": 141,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -5007,7 +5007,7 @@
       "text": "client statements + confirmations (§5.28, §24 #143)",
       "file": "Phase-20-Analytics-Reporting.md",
       "line": 170,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -5018,7 +5018,7 @@
       "text": "house finance reporting (§16.5, §24 #205)",
       "file": "Phase-20-Analytics-Reporting.md",
       "line": 194,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -5029,7 +5029,7 @@
       "text": "trade confirmation delivery",
       "file": "Phase-20-Analytics-Reporting.md",
       "line": 223,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -5040,7 +5040,7 @@
       "text": "TCA engine",
       "file": "Phase-20-Analytics-Reporting.md",
       "line": 251,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -5051,7 +5051,7 @@
       "text": "tax calculations expose method, costs, period, and reproducible export (§24 #276)",
       "file": "Phase-20-Analytics-Reporting.md",
       "line": 263,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -5062,7 +5062,7 @@
       "text": "ClickHouse ingestion buffering and dead-letter recovery fail closed (§24 #322)",
       "file": "Phase-20-Analytics-Reporting.md",
       "line": 283,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -5073,7 +5073,7 @@
       "text": "income ledger by type/symbol/time reconciled to statements (§24 #361)",
       "file": "Phase-20-Analytics-Reporting.md",
       "line": 301,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -5084,7 +5084,7 @@
       "text": "daily hash-chained account snapshots with history API (§24 #362)",
       "file": "Phase-20-Analytics-Reporting.md",
       "line": 321,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -5095,7 +5095,7 @@
       "text": "ex-ante preview and annual ex-post costs statement reconciled to ledger (§24 #374)",
       "file": "Phase-20-Analytics-Reporting.md",
       "line": 340,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -5106,7 +5106,7 @@
       "text": "per-position 10%-multiple depreciation notices with episode dedupe (§24 #375)",
       "file": "Phase-20-Analytics-Reporting.md",
       "line": 360,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -5117,7 +5117,7 @@
       "text": "promo inventory and counts-only consent cohorts (§24 #381)",
       "file": "Phase-20-Analytics-Reporting.md",
       "line": 380,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -5128,7 +5128,7 @@
       "text": "sanctions screening OFAC/EU/UN",
       "file": "Phase-21-Compliance-AML.md",
       "line": 47,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -5139,7 +5139,7 @@
       "text": "FATF travel rule ≥$1,000",
       "file": "Phase-21-Compliance-AML.md",
       "line": 73,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -5150,7 +5150,7 @@
       "text": "SAR generation",
       "file": "Phase-21-Compliance-AML.md",
       "line": 100,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -5161,7 +5161,7 @@
       "text": "MiFID II transaction reporting",
       "file": "Phase-21-Compliance-AML.md",
       "line": 124,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -5172,7 +5172,7 @@
       "text": "EMIR trade reporting",
       "file": "Phase-21-Compliance-AML.md",
       "line": 148,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -5183,7 +5183,7 @@
       "text": "FinCEN MSB + AML program",
       "file": "Phase-21-Compliance-AML.md",
       "line": 176,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -5194,7 +5194,7 @@
       "text": "GDPR + geo-block",
       "file": "Phase-21-Compliance-AML.md",
       "line": 203,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -5205,7 +5205,7 @@
       "text": "market-abuse enforcement",
       "file": "Phase-21-Compliance-AML.md",
       "line": 227,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -5216,7 +5216,7 @@
       "text": "Dodd-Frank swap reporting to US SDR",
       "file": "Phase-21-Compliance-AML.md",
       "line": 254,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -5227,7 +5227,7 @@
       "text": "CFTC position limits + large trader reporting",
       "file": "Phase-21-Compliance-AML.md",
       "line": 255,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -5238,7 +5238,7 @@
       "text": "SanctionsHook in PreTradeChecker (spec §14.3)",
       "file": "Phase-21-Compliance-AML.md",
       "line": 282,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -5249,7 +5249,7 @@
       "text": "PEP/adverse-media + ongoing monitoring (§14.3, §24 #149)",
       "file": "Phase-21-Compliance-AML.md",
       "line": 307,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -5260,7 +5260,7 @@
       "text": "RTS 6 cert + DEA + retention (§14.1, §24 #150)",
       "file": "Phase-21-Compliance-AML.md",
       "line": 332,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -5271,7 +5271,7 @@
       "text": "Basel III capital/leverage reporting (§14.1, §24 #151)",
       "file": "Phase-21-Compliance-AML.md",
       "line": 355,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -5282,7 +5282,7 @@
       "text": "EMIR REFIT + CFTC lifecycle/data-quality reporting (§14.1a, §24 #169–170)",
       "file": "Phase-21-Compliance-AML.md",
       "line": 383,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -5293,7 +5293,7 @@
       "text": "regulated-venue governance and rule enforcement (§14.1b, §24 #174)",
       "file": "Phase-21-Compliance-AML.md",
       "line": 410,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -5304,7 +5304,7 @@
       "text": "MiFID II APA/ARM submission adapters (§14.5, §24 #178)",
       "file": "Phase-21-Compliance-AML.md",
       "line": 436,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -5315,7 +5315,7 @@
       "text": "FX Global Code 55-principle self-assessment (§14.6, §24 #182)",
       "file": "Phase-21-Compliance-AML.md",
       "line": 464,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -5326,7 +5326,7 @@
       "text": "Jurisdictional data residency enforcement (§14.7, §24 #184)",
       "file": "Phase-21-Compliance-AML.md",
       "line": 488,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -5337,7 +5337,7 @@
       "text": "MiFID II RTS 27/28 best execution reporting",
       "file": "Phase-21-Compliance-AML.md",
       "line": 513,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -5348,7 +5348,7 @@
       "text": "communications recording (§14.8, §24 #203)",
       "file": "Phase-21-Compliance-AML.md",
       "line": 539,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -5359,7 +5359,7 @@
       "text": "CRS/FATCA tax reporting",
       "file": "Phase-21-Compliance-AML.md",
       "line": 580,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -5370,7 +5370,7 @@
       "text": "Sanctions service downtime quarantine and ARM/APA resubmission (§24 #323)",
       "file": "Phase-21-Compliance-AML.md",
       "line": 596,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -5381,7 +5381,7 @@
       "text": "employee dealing controls with restricted lists, pre-clearance and server-side enforcement (§14.10.1, §24 #327)",
       "file": "Phase-21-Compliance-AML.md",
       "line": 623,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -5392,7 +5392,7 @@
       "text": "regulatory change monitoring with triage SLA and impact assessment (§14.10.2, §24 #328)",
       "file": "Phase-21-Compliance-AML.md",
       "line": 651,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -5403,7 +5403,7 @@
       "text": "financial promotions pre-approved with bounded expiry and render-time enforcement (§14.10.3, §24 #333)",
       "file": "Phase-21-Compliance-AML.md",
       "line": 679,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -5414,7 +5414,7 @@
       "text": "tabulated reporting values with outage buffering, per-signal surveillance tuning with STOR, and searchable WORM audit trail (§24 #345)",
       "file": "Phase-21-Compliance-AML.md",
       "line": 700,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -5425,7 +5425,7 @@
       "text": "published execution policy with consent gate and annual evidence review (§24 #377)",
       "file": "Phase-21-Compliance-AML.md",
       "line": 722,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -5436,7 +5436,7 @@
       "text": "FX forwards with interest rate parity",
       "file": "Phase-22-Derivatives-Foundation.md",
       "line": 43,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -5447,7 +5447,7 @@
       "text": "FX swaps (near + far leg)",
       "file": "Phase-22-Derivatives-Foundation.md",
       "line": 67,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -5458,7 +5458,7 @@
       "text": "NDFs with cash settlement",
       "file": "Phase-22-Derivatives-Foundation.md",
       "line": 90,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -5469,7 +5469,7 @@
       "text": "vanilla FX options with Greeks",
       "file": "Phase-22-Derivatives-Foundation.md",
       "line": 119,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -5480,7 +5480,7 @@
       "text": "barrier options with knock-in/knock-out monitoring",
       "file": "Phase-22-Derivatives-Foundation.md",
       "line": 147,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -5491,7 +5491,7 @@
       "text": "Monte Carlo pricing for barrier options",
       "file": "Phase-22-Derivatives-Foundation.md",
       "line": 148,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -5502,7 +5502,7 @@
       "text": "binary options with fixed payout",
       "file": "Phase-22-Derivatives-Foundation.md",
       "line": 172,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -5513,7 +5513,7 @@
       "text": "Monte Carlo pricing for binary options",
       "file": "Phase-22-Derivatives-Foundation.md",
       "line": 173,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -5524,7 +5524,7 @@
       "text": "variation margin for derivatives",
       "file": "Phase-22-Derivatives-Foundation.md",
       "line": 197,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -5535,7 +5535,7 @@
       "text": "position roll",
       "file": "Phase-22-Derivatives-Foundation.md",
       "line": 220,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -5546,7 +5546,7 @@
       "text": "derivative order params persisted (§5.4, §24 #131)",
       "file": "Phase-22-Derivatives-Foundation.md",
       "line": 243,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -5557,7 +5557,7 @@
       "text": "option lifecycle — premium, cutoff, auto-exercise (§15.4, §24 #158)",
       "file": "Phase-22-Derivatives-Foundation.md",
       "line": 273,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -5568,7 +5568,7 @@
       "text": "IM/UMR + legal agreements (§15.5, §24 #146)",
       "file": "Phase-22-Derivatives-Foundation.md",
       "line": 301,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -5579,7 +5579,7 @@
       "text": "Multi-Leg Implied Matching Engine",
       "file": "Phase-22-Derivatives-Foundation.md",
       "line": 324,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -5590,7 +5590,7 @@
       "text": "option spread margin offsets",
       "file": "Phase-22-Derivatives-Foundation.md",
       "line": 349,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -5601,7 +5601,7 @@
       "text": "Option pricing solvers fail gracefully on numerical non-convergence and exercise shortfalls trigger liquidation (§24 #324)",
       "file": "Phase-22-Derivatives-Foundation.md",
       "line": 363,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -5612,7 +5612,7 @@
       "text": "lattice American pricing, built IV surface with fallback hierarchy, deterministic assignment/barrier/expiry-roll linkage (§24 #346)",
       "file": "Phase-22-Derivatives-Foundation.md",
       "line": 385,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {

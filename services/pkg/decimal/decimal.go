@@ -57,3 +57,16 @@ func NewFromScaled(scaled int64) Decimal {
 func Scaled(d Decimal) int64 {
 	return d.Shift(int32(Scale)).Truncate(0).IntPart()
 }
+
+// Min returns the smaller of a and b (shopspring passthrough).
+func Min(a, b Decimal) Decimal { return decimal.Min(a, b) }
+
+// Max returns the larger of a and b (shopspring passthrough).
+func Max(a, b Decimal) Decimal { return decimal.Max(a, b) }
+
+// Abs is the shopspring passthrough for |d|.
+func Abs(d Decimal) Decimal { return d.Abs() }
+
+// Div is the shopspring passthrough for a/b (banker's division at
+// shopspring's default precision — financial callers round explicitly).
+func Div(a, b Decimal) Decimal { return a.Div(b) }

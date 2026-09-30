@@ -368,4 +368,82 @@ var localCodes = []CodeDef{
 		"Member annual review or required attestation past due — P1 ops alert until the review lands; member trading admission blocks concurrently (spec §14.1b, §27.1 Regulated Venue matrix)"),
 	localRow("VENUE_RULEBOOK_NOT_APPROVED", 409, "Phase-21 Task 21.3.15",
 		"Rulebook/product-terms activation refused — venue approval, required regulator approval, or participant notice outstanding (spec §14.1b no-activation-before-approvals)"),
+	// Phase-22 Task 22.3.14 — spec §15.6 derivatives pricing fallbacks.
+	// The IV-surface feed fallback hierarchy (§15.7 item 2) exhausts to a
+	// 503 like YIELD_CURVE_UNAVAILABLE; emitted by
+	// internal/options (ivsurface.go query paths). The §23 fix is a
+	// spec-side transcription row.
+	localRow("VOLATILITY_SURFACE_UNAVAILABLE", 503, "Phase-22 Task 22.3.14",
+		"Implied-volatility surface unavailable — empty/unbuilt surface queried or no usable surface snapshot remains after the feed-fallback hierarchy (spec §15.6, §15.7 item 2)"),
+	// Phase-22 Task 22.3.15 — emitted by internal/options
+	// (types.go invalidInput contract: american.go/ivsurface.go/
+	// determinism.go/barrier.go input guards).
+	localRow("OPTION_PRICING_INPUT_INVALID", 400, "Phase-22 Task 22.3.15",
+		"Option pricing input failed validation — non-positive or non-finite spot/strike/tenor/vol, out-of-bounds target price, malformed smile quote, or unknown enum (spec §15.6 fail-closed, §2.7)"),
+	// Phase-22 Tasks 22.3.1/22.3.3 — derivatives booking/settlement codes
+	// emitted by internal/derivatives. BENCHMARK_UNAVAILABLE is named
+	// verbatim in the §27.1 MTF/Fair-Value matrix row (503, L1); emitted
+	// when an NDF has no published fixing at settle time (spec §15.6/§15.7
+	// hierarchy exhausted). The §23 fix is a spec-side transcription row.
+	localRow("BENCHMARK_UNAVAILABLE", 503, "Phase-22 Task 22.3.3",
+		"NDF fixing benchmark unavailable — no published rate for the contract's fixing date; cash settlement halted (spec §15.7, §27.1 MTF/Fair-Value matrix)"),
+	localRow("DERIVATIVE_STATE_CONFLICT", 409, "Phase-22 Task 22.3.1",
+		"Derivative contract lost the expected lifecycle state mid-operation (e.g. settle raced with a status flip), or its persisted settlement legs diverge from the contract — fail-closed, nothing booked (spec §15.1, §2.7)"),
+	// Phase-22 Task 22.3.8 — Roll Management codes emitted by
+	// internal/derivatives (roll.go). The §23 fix is a spec-side
+	// transcription row.
+	localRow("ROLL_NOT_PERMITTED", 400, "Phase-22 Task 22.3.8",
+		"Position is not rollable — wrong account, flat quantity, or a non-derivative instrument class (spec §15 roll mechanics; FORWARD|SWAP|NDF only)"),
+	localRow("ROLL_TARGET_INVALID", 400, "Phase-22 Task 22.3.8",
+		"Roll target instrument missing, inactive, identical to the source, or mismatched in class/base/quote — the roll is rejected rather than re-priced (fail-closed, spec §2.7)"),
+	localRow("ROLL_SPREAD_TOLERANCE_EXCEEDED", 422, "Phase-22 Task 22.3.8",
+		"Roll price (open−close spread) exceeded the caller's max_roll_price_bps tolerance — atomic rejection, nothing booked (Phase-22 Task 22.3.15 roll spread-tolerance hook)"),
+	localRow("ROLL_CONFIG_INVALID", 400, "Phase-22 Task 22.3.8",
+		"Automatic-roll configuration rejected — missing account, lead_days outside 0..10, or a target_instrument_id that is not a rollable derivative"),
+	// Phase-22 Task 22.3.10 — Option Lifecycle codes emitted by
+	// internal/derivatives (lifecycle.go); spec §15.4, §24 #158/#393.
+	localRow("OPTION_NOT_EXERCISABLE", 409, "Phase-22 Task 22.3.10",
+		"Option lifecycle state forbids the instruction — already EXERCISED/ASSIGNED/EXPIRED, wrong side/account, a EUROPEAN before its expiry day, or a do-not-exercise flag racing auto-exercise (spec §15.4)"),
+	localRow("OPTION_CONTRACT_INVALID", 400, "Phase-22 Task 22.3.10",
+		"Option contract terms are malformed or unsettleable — non-positive strike/quantity, unknown option_type/exercise_style/settlement mode, missing premium_currency, past expiry, or no ACTIVE spot instrument for PHYSICAL delivery (spec §15.4; fail-closed §2.7)"),
+	localRow("MARGIN_CALL_QUEUE_FAILED", 500, "Phase-22 Task 22.3.10",
+		"Premium debit failed (PREMIUM_INSUFFICIENT, §24 #393) and the Phase-19 Task 19.3.3 margin-call queue write also failed — the settlement row stays FAILED and ops is paged; nothing partial was booked"),
+	localRow("OPTION_EXERCISE_AUCTION_BLOCKED", 409, "Phase-22 Task 22.3.10",
+		"Writer assignment blocked while a §13.4 liquidation auction on the option instrument or its underlying is live — delivering mid-auction would worsen a liquidating account's position (§24 #247; retry once the auction resolves)"),
+	localRow("EXERCISE_AUCTION_EVAL_FAILED", 503, "Phase-22 Task 22.3.10",
+		"Liquidation-auction guard unreadable during exercise — auction state could not be verified, so assignment fails closed (§2.7, §24 #247)"),
+	// Phase-22 Task 22.3.9 — derivative order-parameter admission codes
+	// emitted by internal/orders (types.go validateDerivativeParams +
+	// service.go linkage/persistence seams); migration 039, spec §5.4.
+	localRow("DERIVATIVE_PARAMS_INVALID", 400, "Phase-22 Task 22.3.9",
+		"Derivative order parameters missing, malformed or mismatched to the instrument class — required per-class fields absent, unknown enum, non-positive strike/barrier/premium, inconsistent expiry/value-date ordering, or unresolvable instrument settlement_mode linkage (spec §5.4, §15.7; fail-closed §2.7)"),
+	// Phase-22 Task 22.3.12 — multi-leg implied-matching gate code
+	// emitted by internal/derivatives (implied_gate.go); spec §6.3/§24
+	// implied liquidity. The §23 fix is a spec-side transcription row.
+	localRow("IMPLIED_MATCHING_UNAVAILABLE", 503, "Phase-22 Task 22.3.12",
+		"Multi-leg implied matching unavailable — the implied_matching feature flag is disabled/unresolvable for this account or tier, so implied-liquidity admission fails closed (spec §24; §2.7 fail-closed)"),
+	// Phase-22 Task 22.3.7 — variation-margin sweep internals emitted by
+	// internal/risk/variation_margin.go (subject scan, claim, GL posting).
+	localRow("VARIATION_MARGIN_INTERNAL", 500, "Phase-22 Task 22.3.7",
+		"Variation-margin sweep internal failure — subject scan, settlement claim, or GL posting error mid-sweep; the subject retries on the next pass (spec §15.7, §5.25)"),
+	// Phase-22 Task 22.3.14 — fail-closed exercise margin-eval /
+	// liquidation-adapter construction failures.
+	localRow("EXERCISE_MARGIN_EVAL_UNAVAILABLE", 503, "Phase-22 Task 22.3.14",
+		"Option exercise margin evaluation path unavailable — admission fails closed; on the auto-exercise path the liquidation seam is dispatched rather than leaving delivery unverified (spec §15.6, §24 #324)"),
+	// Phase-22 Task 22.3.11 — UMR/IM assessment or gate degradation
+	// (sensitivity feed, assessment store, posted-collateral read).
+	localRow("UMR_IM_EVAL_FAILED", 503, "Phase-22 Task 22.3.11",
+		"Uncleared-margin IM assessment/gating failed — sensitivity feed, assessment store, scope or collateral read degraded; admission and assessment fail closed (spec §15.5, §24 #146)"),
+	// Phase-22 Task 22.3.13 — spread-offset param lifecycle violations
+	// and internal persistence degradation on the offsets path.
+	localRow("SPREAD_OFFSET_PARAM_INVALID", 422, "Phase-22 Task 22.3.13",
+		"Option spread offset parameter rejected — bps out of range, unknown spread type, non-pending row, or maker-checker violation (approver must differ from proposer) (spec §15.7)"),
+	localRow("SPREAD_OFFSET_INTERNAL", 500, "Phase-22 Task 22.3.13",
+		"Option spread offset internal failure — margin-mode, leg, params or persistence read/write degraded; detection fails closed (spec §15.7, §13.11)"),
+	// Phase-19 Task 19.3.3 — liquidation engine failure code emitted by
+	// internal/risk (liquidation.go, auction.go, variation_margin.go
+	// exercise-shortfall adapter). Registered here because the §23
+	// canonical table has no row for it; spec §13.4/§13.11.
+	localRow("LIQUIDATION_FAILED", 500, "Phase-19 Task 19.3.3",
+		"Liquidation dispatch or processing failed — queue enqueue, level re-read, mass cancel or position close degraded; ops is paged and the account remains flagged (spec §13.4, §13.11; §2.7 fail-closed)"),
 }

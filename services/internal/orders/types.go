@@ -129,6 +129,12 @@ type Instrument struct {
 	MaxPrice         *decimal.Decimal
 	MaxSpreadPips    *decimal.Decimal
 	MaxOpenOrders    *int
+	// SettlementMode is instruments.settlement_mode::text (GROSS | NET —
+	// migration 031). PopulateSnapshot does not select it; the service
+	// resolves it lazily through the instrumentLinkageReader seam
+	// (service.go) only for derivative-class instruments — the Phase-22
+	// Task 22.3.9 instrument-linkage check.
+	SettlementMode string
 }
 
 // Account is the order-flow view of an accounts row.
@@ -188,8 +194,23 @@ type Order struct {
 	// migration 229; FIX tag 9510). Dead-man/admin/close-all sweeps are
 	// unaffected — only Reason "cancel_on_disconnect" honours it.
 	CoDExempt bool
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	// ---- Phase-22 Task 22.3.9 derivative order parameters (migration
+	// 039) — populated by DerivativeParams persistence, not the base
+	// orderCols/scanOrder path (store.go owns those; see service.go) ----
+	Strike           *decimal.Decimal
+	OptionType       *string // CALL | PUT | BINARY
+	ExerciseStyle    *string // EUROPEAN | AMERICAN
+	ExpiryAt         *time.Time
+	BarrierType      *string // UP_AND_IN | UP_AND_OUT | DOWN_AND_IN | DOWN_AND_OUT
+	BarrierLevel     *decimal.Decimal
+	ValueDate        *time.Time // civil date (UTC midnight)
+	NearLegValueDate *time.Time
+	FarLegValueDate  *time.Time
+	Premium          *decimal.Decimal
+	PremiumCurrency  *string // QUOTE | SETTLEMENT
+	NdfFixingSource  *string
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
 // View serializes an Order for REST responses — all decimals rendered as
@@ -260,6 +281,43 @@ func (o *Order) View() map[string]any {
 	if len(o.AlgoParams) > 0 {
 		v["algo_params"] = json.RawMessage(o.AlgoParams)
 	}
+	// Phase-22 Task 22.3.9 derivative parameters (migration 039).
+	if o.Strike != nil {
+		v["strike"] = o.Strike.String()
+	}
+	if o.OptionType != nil {
+		v["option_type"] = *o.OptionType
+	}
+	if o.ExerciseStyle != nil {
+		v["exercise_style"] = *o.ExerciseStyle
+	}
+	if o.ExpiryAt != nil {
+		v["expiry_at"] = o.ExpiryAt.UTC().Format(time.RFC3339Nano)
+	}
+	if o.BarrierType != nil {
+		v["barrier_type"] = *o.BarrierType
+	}
+	if o.BarrierLevel != nil {
+		v["barrier_level"] = o.BarrierLevel.String()
+	}
+	if o.ValueDate != nil {
+		v["value_date"] = o.ValueDate.UTC().Format("2006-01-02")
+	}
+	if o.NearLegValueDate != nil {
+		v["near_leg_value_date"] = o.NearLegValueDate.UTC().Format("2006-01-02")
+	}
+	if o.FarLegValueDate != nil {
+		v["far_leg_value_date"] = o.FarLegValueDate.UTC().Format("2006-01-02")
+	}
+	if o.Premium != nil {
+		v["premium"] = o.Premium.String()
+	}
+	if o.PremiumCurrency != nil {
+		v["premium_currency"] = *o.PremiumCurrency
+	}
+	if o.NdfFixingSource != nil {
+		v["ndf_fixing_source"] = *o.NdfFixingSource
+	}
 	return v
 }
 
@@ -305,6 +363,26 @@ type SubmitRequest struct {
 	FixingBenchmark string
 	AlgoType        string
 	AlgoParams      json.RawMessage
+
+	// ---- Phase-22 Task 22.3.9 derivative order parameters (migration
+	// 039 columns; canonical spec §5.4 vocabulary; validation in
+	// validateDerivativeParams below) ----
+	Strike           *decimal.Decimal // OPTION strike
+	OptionType       string           // CALL | PUT | BINARY
+	ExerciseStyle    string           // EUROPEAN | AMERICAN
+	ExpiryAt         *time.Time       // OPTION expiry (RFC3339)
+	BarrierType      string           // UP_AND_IN | UP_AND_OUT | DOWN_AND_IN | DOWN_AND_OUT
+	BarrierLevel     *decimal.Decimal
+	ValueDate        *time.Time // FORWARD value date (civil date, UTC midnight)
+	NearLegValueDate *time.Time // SWAP near leg
+	FarLegValueDate  *time.Time // SWAP far leg
+	Premium          *decimal.Decimal
+	PremiumCurrency  string // QUOTE | SETTLEMENT
+	// NdfFixingSource is the §15.7 NDF fixing-source token (migration 039
+	// ndf_fixing_source) — deliberately distinct from FixingBenchmark, the
+	// three-value order-level benchmark enum that migration 038 owns and
+	// which applies only to FIXING order types.
+	NdfFixingSource string
 }
 
 // ModifyRequest is PUT /orders/{id}: order_seq is the STALE_MODIFY fence
@@ -460,6 +538,26 @@ func timeField(obj map[string]json.RawMessage, key string) (*time.Time, bool, er
 	return &t, true, nil
 }
 
+// dateField parses a civil date for the migration-039 DATE columns —
+// strictly "YYYY-MM-DD" (no time-of-day; deterministic across TZ). The
+// value lands as a UTC-midnight time.Time so DATE persistence and
+// cross-field comparisons are stable.
+func dateField(obj map[string]json.RawMessage, key string) (*time.Time, bool, error) {
+	raw, ok := obj[key]
+	if !ok || string(raw) == "null" {
+		return nil, false, nil
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return nil, true, fmt.Errorf("field %q must be a YYYY-MM-DD string", key)
+	}
+	t, err := time.Parse("2006-01-02", s)
+	if err != nil {
+		return nil, true, fmt.Errorf("field %q is not YYYY-MM-DD: %q", key, s)
+	}
+	return &t, true, nil
+}
+
 // ParseSubmit decodes + structural-checks a POST /orders body. Deep
 // business validation happens in validate.go.
 func ParseSubmit(body []byte) (*SubmitRequest, error) {
@@ -482,6 +580,12 @@ func ParseSubmit(body []byte) (*SubmitRequest, error) {
 		{"trigger_source", &req.TriggerSource},
 		{"fixing_benchmark", &req.FixingBenchmark},
 		{"algo_type", &req.AlgoType},
+		// Phase-22 Task 22.3.9 derivative params (migration 039).
+		{"option_type", &req.OptionType},
+		{"exercise_style", &req.ExerciseStyle},
+		{"barrier_type", &req.BarrierType},
+		{"premium_currency", &req.PremiumCurrency},
+		{"ndf_fixing_source", &req.NdfFixingSource},
 	} {
 		v, present, err := strField(obj, k.key)
 		if err != nil {
@@ -502,6 +606,9 @@ func ParseSubmit(body []byte) (*SubmitRequest, error) {
 		{"iceberg_visible_qty", &req.DisplayQty},
 		{"peg_offset", &req.PegOffset},
 		{"peg_limit", &req.PegLimit},
+		{"strike", &req.Strike},
+		{"barrier_level", &req.BarrierLevel},
+		{"premium", &req.Premium},
 	} {
 		v, _, err := decField(obj, k.key)
 		if err != nil {
@@ -510,6 +617,20 @@ func ParseSubmit(body []byte) (*SubmitRequest, error) {
 		*k.dst = v
 	}
 	if req.GTDExpiry, _, err = timeField(obj, "gtd_expiry"); err != nil {
+		return nil, err
+	}
+	// Phase-22 Task 22.3.9: OPTION expiry is an instant; leg dates are
+	// civil dates.
+	if req.ExpiryAt, _, err = timeField(obj, "expiry_at"); err != nil {
+		return nil, err
+	}
+	if req.ValueDate, _, err = dateField(obj, "value_date"); err != nil {
+		return nil, err
+	}
+	if req.NearLegValueDate, _, err = dateField(obj, "near_leg_value_date"); err != nil {
+		return nil, err
+	}
+	if req.FarLegValueDate, _, err = dateField(obj, "far_leg_value_date"); err != nil {
 		return nil, err
 	}
 	if req.PostOnly, err = boolField(obj, "post_only"); err != nil {
@@ -779,4 +900,398 @@ func ParseKeepPriority(body []byte) (*KeepPriorityRequest, error) {
 		return nil, err
 	}
 	return req, nil
+}
+
+// ---------------------------------------------------------------------------
+// Phase-22 Task 22.3.9 — derivative order parameters (migration 039)
+// ---------------------------------------------------------------------------
+//
+// Canonical instrument-class + derivative vocabularies (spec §5.1
+// instrument_type_enum / §5.4 derivative columns). Strings are
+// normalized to upper-case at parse time; validation below enforces
+// presence/absence per instrument class.
+
+const (
+	InstTypeSpot    = "SPOT"
+	InstTypeForward = "FORWARD"
+	InstTypeSwap    = "SWAP"
+	InstTypeNDF     = "NDF"
+	InstTypeOption  = "OPTION"
+)
+
+// Option / barrier / premium vocabularies — spec §5.4 canonical strings.
+const (
+	OptionTypeCall   = "CALL"
+	OptionTypePut    = "PUT"
+	OptionTypeBinary = "BINARY"
+)
+const (
+	ExerciseEuropean = "EUROPEAN"
+	ExerciseAmerican = "AMERICAN"
+)
+const (
+	BarrierUpAndIn    = "UP_AND_IN"
+	BarrierUpAndOut   = "UP_AND_OUT"
+	BarrierDownAndIn  = "DOWN_AND_IN"
+	BarrierDownAndOut = "DOWN_AND_OUT"
+)
+const (
+	PremiumCurrencyQuote      = "QUOTE"
+	PremiumCurrencySettlement = "SETTLEMENT"
+)
+
+// Settlement modes from instruments.settlement_mode (migration 031).
+const (
+	SettlementModeGross = "GROSS"
+	SettlementModeNet   = "NET"
+)
+
+// isDerivativeInstrumentType reports whether the instrument class
+// carries derivative order parameters (spec §5.4 instrument_type_enum).
+func isDerivativeInstrumentType(t string) bool {
+	switch t {
+	case InstTypeForward, InstTypeSwap, InstTypeNDF, InstTypeOption:
+		return true
+	}
+	return false
+}
+
+// DerivativeParams is the migration-039 column bundle persisted alongside
+// the order row. It travels request → service → store explicitly (the
+// base orderCols/scanOrder surface is store.go-owned and untouched).
+type DerivativeParams struct {
+	Strike           *decimal.Decimal
+	OptionType       string
+	ExerciseStyle    string
+	ExpiryAt         *time.Time
+	BarrierType      string
+	BarrierLevel     *decimal.Decimal
+	ValueDate        *time.Time
+	NearLegValueDate *time.Time
+	FarLegValueDate  *time.Time
+	Premium          *decimal.Decimal
+	PremiumCurrency  string
+	NdfFixingSource  string
+}
+
+// derivParamsFromRequest extracts the persistable bundle; nil when the
+// request carries no derivative fields at all.
+func derivParamsFromRequest(req *SubmitRequest) *DerivativeParams {
+	if !hasDerivativeParams(req) {
+		return nil
+	}
+	return &DerivativeParams{
+		Strike:           req.Strike,
+		OptionType:       req.OptionType,
+		ExerciseStyle:    req.ExerciseStyle,
+		ExpiryAt:         req.ExpiryAt,
+		BarrierType:      req.BarrierType,
+		BarrierLevel:     req.BarrierLevel,
+		ValueDate:        req.ValueDate,
+		NearLegValueDate: req.NearLegValueDate,
+		FarLegValueDate:  req.FarLegValueDate,
+		Premium:          req.Premium,
+		PremiumCurrency:  req.PremiumCurrency,
+		NdfFixingSource:  req.NdfFixingSource,
+	}
+}
+
+// hasDerivativeParams reports whether any migration-039 field is set.
+func hasDerivativeParams(req *SubmitRequest) bool {
+	return req.Strike != nil ||
+		req.OptionType != "" ||
+		req.ExerciseStyle != "" ||
+		req.ExpiryAt != nil ||
+		req.BarrierType != "" ||
+		req.BarrierLevel != nil ||
+		req.ValueDate != nil ||
+		req.NearLegValueDate != nil ||
+		req.FarLegValueDate != nil ||
+		req.Premium != nil ||
+		req.PremiumCurrency != "" ||
+		req.NdfFixingSource != ""
+}
+
+// applyTo copies the bundle onto an Order read/write view.
+func (d *DerivativeParams) applyTo(o *Order) {
+	if d == nil || o == nil {
+		return
+	}
+	o.Strike = d.Strike
+	o.BarrierLevel = d.BarrierLevel
+	o.ValueDate = d.ValueDate
+	o.NearLegValueDate = d.NearLegValueDate
+	o.FarLegValueDate = d.FarLegValueDate
+	o.Premium = d.Premium
+	o.ExpiryAt = d.ExpiryAt
+	if d.OptionType != "" {
+		v := d.OptionType
+		o.OptionType = &v
+	}
+	if d.ExerciseStyle != "" {
+		v := d.ExerciseStyle
+		o.ExerciseStyle = &v
+	}
+	if d.BarrierType != "" {
+		v := d.BarrierType
+		o.BarrierType = &v
+	}
+	if d.PremiumCurrency != "" {
+		v := d.PremiumCurrency
+		o.PremiumCurrency = &v
+	}
+	if d.NdfFixingSource != "" {
+		v := d.NdfFixingSource
+		o.NdfFixingSource = &v
+	}
+}
+
+func validOptionType(s string) bool {
+	switch s {
+	case OptionTypeCall, OptionTypePut, OptionTypeBinary:
+		return true
+	}
+	return false
+}
+func validExerciseStyle(s string) bool {
+	return s == ExerciseEuropean || s == ExerciseAmerican
+}
+func validBarrierType(s string) bool {
+	switch s {
+	case BarrierUpAndIn, BarrierUpAndOut, BarrierDownAndIn, BarrierDownAndOut:
+		return true
+	}
+	return false
+}
+func validPremiumCurrency(s string) bool {
+	return s == PremiumCurrencyQuote || s == PremiumCurrencySettlement
+}
+
+// validateDerivativeParams enforces the Task 22.3.9 per-instrument-class
+// contract (spec §5.4, §15.7). It runs after ValidateSubmit on every
+// direct submit path (Submit, BatchSubmit pre-pass, DryRun) — validate.go
+// is frozen by change scope, so the hook lives in service.go.
+//
+// Fail-closed posture: an instrument class the validator does not know
+// rejects when derivative fields are present; a derivative-class
+// instrument whose settlement_mode could not be resolved rejects rather
+// than guessing.
+//
+// now is injected — the service never reads wall clock inside validation
+// beyond the single now it already pins.
+func validateDerivativeParams(req *SubmitRequest, inst *Instrument, now time.Time) error {
+	// Normalize enum spellings once, before checks.
+	req.OptionType = strings.ToUpper(strings.TrimSpace(req.OptionType))
+	req.ExerciseStyle = strings.ToUpper(strings.TrimSpace(req.ExerciseStyle))
+	req.BarrierType = strings.ToUpper(strings.TrimSpace(req.BarrierType))
+	req.PremiumCurrency = strings.ToUpper(strings.TrimSpace(req.PremiumCurrency))
+	req.NdfFixingSource = strings.ToUpper(strings.TrimSpace(req.NdfFixingSource))
+
+	it := strings.ToUpper(strings.TrimSpace(inst.InstrumentType))
+	hasParams := hasDerivativeParams(req)
+
+	// Enum-shape checks run whenever a field is present, regardless of
+	// instrument class — a malformed value never silently flows through.
+	if req.OptionType != "" && !validOptionType(req.OptionType) {
+		return codeErr("DERIVATIVE_PARAMS_INVALID",
+			"option_type must be CALL, PUT or BINARY")
+	}
+	if req.ExerciseStyle != "" && !validExerciseStyle(req.ExerciseStyle) {
+		return codeErr("DERIVATIVE_PARAMS_INVALID",
+			"exercise_style must be EUROPEAN or AMERICAN")
+	}
+	if req.BarrierType != "" && !validBarrierType(req.BarrierType) {
+		return codeErr("DERIVATIVE_PARAMS_INVALID",
+			"barrier_type must be UP_AND_IN, UP_AND_OUT, DOWN_AND_IN or DOWN_AND_OUT")
+	}
+	if req.PremiumCurrency != "" && !validPremiumCurrency(req.PremiumCurrency) {
+		return codeErr("DERIVATIVE_PARAMS_INVALID",
+			"premium_currency must be QUOTE or SETTLEMENT")
+	}
+	if req.Strike != nil && !req.Strike.IsPositive() {
+		return codeErr("DERIVATIVE_PARAMS_INVALID", "strike must be > 0")
+	}
+	if req.BarrierLevel != nil && !req.BarrierLevel.IsPositive() {
+		return codeErr("DERIVATIVE_PARAMS_INVALID", "barrier_level must be > 0")
+	}
+	if req.Premium != nil && !req.Premium.IsPositive() {
+		return codeErr("DERIVATIVE_PARAMS_INVALID", "premium must be > 0")
+	}
+	// Barrier fields are an atomic pair (mirrors the migration CHECK).
+	if (req.BarrierType == "") != (req.BarrierLevel == nil) {
+		return codeErr("DERIVATIVE_PARAMS_INVALID",
+			"barrier_type and barrier_level must be provided together")
+	}
+	// Swap legs are an atomic pair, far strictly after near.
+	if (req.NearLegValueDate == nil) != (req.FarLegValueDate == nil) {
+		return codeErr("DERIVATIVE_PARAMS_INVALID",
+			"near_leg_value_date and far_leg_value_date must be provided together")
+	}
+	if req.NearLegValueDate != nil &&
+		!req.FarLegValueDate.After(*req.NearLegValueDate) {
+		return codeErr("DERIVATIVE_PARAMS_INVALID",
+			"far_leg_value_date must be strictly after near_leg_value_date")
+	}
+	// An OPTION expiry after its own delivery date is impossible.
+	if req.ExpiryAt != nil && req.ValueDate != nil &&
+		civilDateUTC(*req.ExpiryAt).After(*req.ValueDate) {
+		return codeErr("DERIVATIVE_PARAMS_INVALID",
+			"expiry_at date must be on or before value_date")
+	}
+	// Value dates cannot sit in the past (civil-date floor of now).
+	today := civilDateUTC(now)
+	if req.ValueDate != nil && req.ValueDate.Before(today) {
+		return codeErr("DERIVATIVE_PARAMS_INVALID",
+			"value_date must be today or later")
+	}
+	if req.NearLegValueDate != nil && req.NearLegValueDate.Before(today) {
+		return codeErr("DERIVATIVE_PARAMS_INVALID",
+			"near_leg_value_date must be today or later")
+	}
+	if req.FarLegValueDate != nil && req.FarLegValueDate.Before(today) {
+		return codeErr("DERIVATIVE_PARAMS_INVALID",
+			"far_leg_value_date must be today or later")
+	}
+
+	if !isDerivativeInstrumentType(it) {
+		if hasParams {
+			return codeErr("DERIVATIVE_PARAMS_INVALID",
+				"derivative order parameters are not valid for %s instruments", it)
+		}
+		return nil
+	}
+
+	// Instrument linkage (Task 22.3.9): a derivative-class instrument
+	// must resolve a known instruments.settlement_mode — the service
+	// populates it through the linkage seam before validation.
+	if inst.SettlementMode != SettlementModeGross &&
+		inst.SettlementMode != SettlementModeNet {
+		return codeErr("DERIVATIVE_PARAMS_INVALID",
+			"instrument %s has unresolvable settlement_mode %q",
+			inst.Symbol, inst.SettlementMode)
+	}
+
+	// Fields that never apply to the resolved class are rejected —
+	// dropping them silently would corrupt the semantic request
+	// identity (the dedup hash covers them).
+	rejectOptFields := func() error {
+		if req.Strike != nil || req.OptionType != "" || req.ExerciseStyle != "" ||
+			req.ExpiryAt != nil || req.BarrierType != "" || req.BarrierLevel != nil ||
+			req.Premium != nil || req.PremiumCurrency != "" {
+			return codeErr("DERIVATIVE_PARAMS_INVALID",
+				"option fields are not valid on %s instruments", it)
+		}
+		return nil
+	}
+	rejectSwapLegs := func() error {
+		if req.NearLegValueDate != nil || req.FarLegValueDate != nil {
+			return codeErr("DERIVATIVE_PARAMS_INVALID",
+				"swap leg value dates are not valid on %s instruments", it)
+		}
+		return nil
+	}
+	rejectNdfSource := func() error {
+		if req.NdfFixingSource != "" {
+			return codeErr("DERIVATIVE_PARAMS_INVALID",
+				"ndf_fixing_source is only valid on NDF instruments")
+		}
+		return nil
+	}
+
+	switch it {
+	case InstTypeForward:
+		if req.ValueDate == nil {
+			return codeErr("DERIVATIVE_PARAMS_INVALID",
+				"FORWARD orders require value_date")
+		}
+		if err := rejectOptFields(); err != nil {
+			return err
+		}
+		if err := rejectSwapLegs(); err != nil {
+			return err
+		}
+		if err := rejectNdfSource(); err != nil {
+			return err
+		}
+	case InstTypeSwap:
+		if req.NearLegValueDate == nil || req.FarLegValueDate == nil {
+			return codeErr("DERIVATIVE_PARAMS_INVALID",
+				"SWAP orders require near_leg_value_date and far_leg_value_date")
+		}
+		if req.ValueDate != nil {
+			return codeErr("DERIVATIVE_PARAMS_INVALID",
+				"value_date is not valid on SWAP instruments — use the leg value dates")
+		}
+		if err := rejectOptFields(); err != nil {
+			return err
+		}
+		if err := rejectNdfSource(); err != nil {
+			return err
+		}
+	case InstTypeNDF:
+		// Spec §15.7/§5.4 note: the NDF fixing source is the canonical
+		// anchor (central-bank/vendor/prior-day hierarchy); the
+		// three-value fixing_benchmark enum cannot express it.
+		if req.NdfFixingSource == "" {
+			return codeErr("DERIVATIVE_PARAMS_INVALID",
+				"NDF orders require ndf_fixing_source")
+		}
+		if req.ValueDate == nil {
+			return codeErr("DERIVATIVE_PARAMS_INVALID",
+				"NDF orders require value_date (cash settlement date)")
+		}
+		if err := rejectOptFields(); err != nil {
+			return err
+		}
+		if err := rejectSwapLegs(); err != nil {
+			return err
+		}
+	case InstTypeOption:
+		if req.Strike == nil || req.OptionType == "" ||
+			req.ExerciseStyle == "" || req.ExpiryAt == nil {
+			return codeErr("DERIVATIVE_PARAMS_INVALID",
+				"OPTION orders require strike, option_type, exercise_style and expiry_at")
+		}
+		if !req.ExpiryAt.After(now) {
+			return codeErr("DERIVATIVE_PARAMS_INVALID",
+				"expiry_at must be in the future")
+		}
+		// A purchased option carries a premium obligation (§6.3 option
+		// legs); a sell-side short option books premium received — the
+		// amount is still required so the premium ledger is explicit.
+		if req.Premium == nil {
+			return codeErr("DERIVATIVE_PARAMS_INVALID",
+				"OPTION orders require premium")
+		}
+		// BINARY pays a fixed cash amount — premium denomination must be
+		// explicit rather than defaulting to market convention.
+		if req.OptionType == OptionTypeBinary && req.PremiumCurrency == "" {
+			return codeErr("DERIVATIVE_PARAMS_INVALID",
+				"BINARY options require explicit premium_currency")
+		}
+		if req.ValueDate != nil && req.ValueDate.Before(civilDateUTC(*req.ExpiryAt)) {
+			return codeErr("DERIVATIVE_PARAMS_INVALID",
+				"value_date must be on or after the expiry date")
+		}
+		if err := rejectSwapLegs(); err != nil {
+			return err
+		}
+		if err := rejectNdfSource(); err != nil {
+			return err
+		}
+	default:
+		// Unknown derivative-class instrument types never reach here
+		// (isDerivativeInstrumentType guards), but keep the tail
+		// fail-closed in case the instrument enum grows.
+		return codeErr("DERIVATIVE_PARAMS_INVALID",
+			"unsupported derivative instrument type %q", it)
+	}
+	return nil
+}
+
+// civilDateUTC reduces a timestamp to its civil date (UTC) — expiry vs
+// value-date comparisons are date-grain, not instant-grain.
+func civilDateUTC(t time.Time) time.Time {
+	u := t.UTC()
+	return time.Date(u.Year(), u.Month(), u.Day(), 0, 0, 0, 0, time.UTC)
 }

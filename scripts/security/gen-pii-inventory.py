@@ -336,6 +336,10 @@ NONPII = {
     ("regulatory_submissions", "schema_name"): "schema identifier",
     ("rts6_self_assessments", "document_ref"): "object-store reference, not content",
     ("basel_reports", "reporting_currency"): "ISO currency code — report config",
+    # ---- Phase-22 non-PII (references, ops vocabulary)
+    ("legal_agreements", "document_url"): "S3 document reference, not content",
+    ("contract_rolls", "failure_reason"): "ops vocabulary — roll failure detail",
+    ("option_premium_settlements", "failure_reason"): "ops vocabulary — settlement failure detail",
     ("client_role_bindings", "revoke_reason"): "admin vocabulary",
     ("client_approval_requests", "fingerprint"): "SHA-256 dedup digest",
     ("vulnerability_disclosures", "bulletin_ref"): "bulletin id (EXC-SA-…)",

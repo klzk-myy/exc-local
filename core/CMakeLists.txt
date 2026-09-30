@@ -76,6 +76,7 @@ add_library(exch_core STATIC
     src/ipc/SharedMemChannel.cpp
     src/ipc/EnginePump.cpp
     src/matching/MatchingEngine.cpp
+    src/matching/ImpliedMatcher.cpp
     src/matching/WalWriter.cpp
     src/matching/IpcPublisher.cpp
     src/matching/SelfTradeGuard.cpp
@@ -202,7 +203,9 @@ if(EXCH_BUILD_TESTS)
             test_lifecycle_auction
             test_oco
             test_phase16
-            test_l3)
+            test_l3
+            test_implied
+            test_implied_engine)
         add_executable(${t} tests/${t}.cpp)
         target_link_libraries(${t} PRIVATE exch_core gtest_main)
         add_test(NAME ${t} COMMAND ${t})

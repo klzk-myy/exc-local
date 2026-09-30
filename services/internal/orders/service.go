@@ -11,6 +11,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	stderrors "errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -470,8 +471,49 @@ func submitHash(instID int64, req *SubmitRequest) string {
 	b.WriteString(decStr(req.StopPrice))
 	b.WriteByte('|')
 	b.WriteString(decStr(req.DisplayQty))
+	// Phase-22 Task 22.3.9 — derivative parameters are part of the
+	// semantic request identity: the same client_order_id replaying with
+	// different strike/legs must collide, not silently replay.
+	b.WriteByte('|')
+	b.WriteString(decStr(req.Strike))
+	b.WriteByte('|')
+	b.WriteString(req.OptionType)
+	b.WriteByte('|')
+	b.WriteString(req.ExerciseStyle)
+	b.WriteByte('|')
+	b.WriteString(timeStr(req.ExpiryAt))
+	b.WriteByte('|')
+	b.WriteString(req.BarrierType)
+	b.WriteByte('|')
+	b.WriteString(decStr(req.BarrierLevel))
+	b.WriteByte('|')
+	b.WriteString(dateStr(req.ValueDate))
+	b.WriteByte('|')
+	b.WriteString(dateStr(req.NearLegValueDate))
+	b.WriteByte('|')
+	b.WriteString(dateStr(req.FarLegValueDate))
+	b.WriteByte('|')
+	b.WriteString(decStr(req.Premium))
+	b.WriteByte('|')
+	b.WriteString(req.PremiumCurrency)
+	b.WriteByte('|')
+	b.WriteString(req.NdfFixingSource)
 	sum := sha256.Sum256([]byte(b.String()))
 	return hex.EncodeToString(sum[:])
+}
+
+func timeStr(t *time.Time) string {
+	if t == nil {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339Nano)
+}
+
+func dateStr(t *time.Time) string {
+	if t == nil {
+		return ""
+	}
+	return t.UTC().Format("2006-01-02")
 }
 
 func decStr(d *decimal.Decimal) string {
@@ -704,6 +746,11 @@ func (s *Service) Submit(ctx context.Context, acct *Account, req *SubmitRequest)
 	if err := ValidateSubmit(req, inst, acct, ref, s.now()); err != nil {
 		return nil, err
 	}
+	// Phase-22 Task 22.3.9 — derivative parameter contract
+	// (validate.go is frozen by change scope; the hook lives here).
+	if err := s.checkDerivativeParams(ctx, req, inst); err != nil {
+		return nil, err
+	}
 
 	// Quote-denominated market conversion (spec §22.1): base qty is
 	// lot-rounded DOWN so the fill can never exceed the requested quote.
@@ -795,7 +842,8 @@ func (s *Service) Submit(ctx context.Context, acct *Account, req *SubmitRequest)
 	if req.ClientOrderID != "" {
 		hash = submitHash(inst.ID, req)
 	}
-	o, dup, err := s.store.InsertOrderTx(ctx, InsertParams{
+	deriv := derivParamsFromRequest(req)
+	o, dup, err := s.insertOrderTx(ctx, InsertParams{
 		AccountID:       acct.ID,
 		InstrumentID:    inst.ID,
 		ClientOrderID:   req.ClientOrderID,
@@ -824,7 +872,7 @@ func (s *Service) Submit(ctx context.Context, acct *Account, req *SubmitRequest)
 		FixingBenchmark: strPtrOrNil(req.FixingBenchmark),
 		AlgoType:        strPtrOrNil(req.AlgoType),
 		AlgoParams:      req.AlgoParams,
-	})
+	}, deriv)
 	if err != nil {
 		if c := DedupConflictRow(err); c != nil {
 			// §8.7 idempotency semantics: same payload → replay the
@@ -851,6 +899,9 @@ func (s *Service) Submit(ctx context.Context, acct *Account, req *SubmitRequest)
 	if dup != nil { // defensive — conflict path returns via err
 		return nil, codeErr("IDEMPOTENCY_KEY_COLLISION", "duplicate client_order_id")
 	}
+	// Keep the in-memory row consistent with what was persisted — the
+	// base scanOrder path does not read the migration-039 columns.
+	deriv.applyTo(o)
 
 	// Phase-16 Task 16.3.9 — FIXING orders queue locally: post the
 	// balance reservation, flip to RESERVED and return. No wire send —
@@ -1704,6 +1755,11 @@ func (s *Service) BatchSubmit(ctx context.Context, acct *Account,
 				return nil, errInternal("reference price", rerr)
 			}
 			verr = ValidateSubmit(req, inst, acct, ref, s.now())
+			if verr == nil {
+				// Phase-22 Task 22.3.9 — per-entry derivative contract
+				// in the atomic pre-pass.
+				verr = s.checkDerivativeParams(ctx, req, inst)
+			}
 			// Quote conversion runs in the atomic pre-pass too so a
 			// non-convertible entry aborts the batch before any dispatch.
 			if verr == nil && req.QuoteQuantity != nil {
@@ -1780,7 +1836,8 @@ func (s *Service) BatchSubmit(ctx context.Context, acct *Account,
 		shard := s.shardFor(inst.Symbol)
 		seq := s.seq.Next()
 		hash := submitHash(inst.ID, req)
-		o, _, err := s.store.InsertOrderTx(ctx, InsertParams{
+		deriv := derivParamsFromRequest(req)
+		o, _, err := s.insertOrderTx(ctx, InsertParams{
 			AccountID: acct.ID, InstrumentID: inst.ID,
 			ClientOrderID: req.ClientOrderID, Side: req.Side,
 			OrderType: req.OrderType, Quantity: *req.Quantity,
@@ -1790,10 +1847,11 @@ func (s *Service) BatchSubmit(ctx context.Context, acct *Account,
 			OrderSeq: seq, PostOnly: req.PostOnly,
 			ReduceOnly: req.ReduceOnly, STPMode: req.STPMode,
 			SessionID: req.SessionID, RequestHash: hash,
-		})
+		}, deriv)
 		if err != nil {
 			return nil, s.batchAbort(ctx, persisted, err)
 		}
+		deriv.applyTo(o)
 		persisted = append(persisted, o)
 		if s.sub != nil {
 			b := flatbuffers.NewBuilder(256)
@@ -2000,6 +2058,11 @@ func (s *Service) DryRun(ctx context.Context, acct *Account,
 	if err := ValidateSubmit(req, inst, acct, ref, s.now()); err != nil {
 		return nil, err
 	}
+	// Phase-22 Task 22.3.9 — dry-run predicts the real gate, so the
+	// derivative contract applies here too.
+	if err := s.checkDerivativeParams(ctx, req, inst); err != nil {
+		return nil, err
+	}
 
 	warn := []string{}
 	filters := []string{"PRICE_FILTER", "LOT_SIZE", "MIN_NOTIONAL", "PRICE_BAND"}
@@ -2109,6 +2172,11 @@ func (s *Service) GetOrder(ctx context.Context, acct *Account, orderID int64) (*
 	if o == nil || o.AccountID != acct.ID {
 		return nil, codeErr("ORDER_NOT_FOUND", "order %d not found", orderID)
 	}
+	// Phase-22 Task 22.3.9 — rehydrate the migration-039 columns the
+	// base scanOrder path does not select.
+	if err := s.loadDerivativeParams(ctx, o); err != nil {
+		return nil, errInternal("derivative params read", err)
+	}
 	return o, nil
 }
 
@@ -2150,4 +2218,191 @@ func (s *Service) AdminMassCancel(ctx context.Context, scope MassCancelScope,
 
 func errInternal(op string, err error) error {
 	return codeErr("INTERNAL_ERROR", "%s: %v", op, err)
+}
+
+// ---------------------------------------------------------------------------
+// Phase-22 Task 22.3.9 — derivative order parameters: validation hook,
+// instrument linkage + atomic persistence (migration 039)
+// ---------------------------------------------------------------------------
+//
+// Scope note: store.go is frozen by the task's change list, so the
+// migration-039 columns ride explicit seams declared here rather than
+// growing InsertParams/orderCols in place. *PgStore implements both
+// capability interfaces; a store without them fails closed (a submitted
+// derivative order with nowhere to persist its parameters is a
+// fabrication risk — SERVICE_DEGRADED, never a silent drop).
+
+// checkDerivativeParams resolves the instrument linkage the derivative
+// contract needs, then runs the per-class validation. Called after
+// ValidateSubmit on every direct submit path (Submit, BatchSubmit
+// pre-pass, DryRun). Composite flows (OCO/bracket/order-list) build
+// their own legs and do not pass through here — see the task report.
+func (s *Service) checkDerivativeParams(ctx context.Context, req *SubmitRequest,
+	inst *Instrument) error {
+	if isDerivativeInstrumentType(inst.InstrumentType) && inst.SettlementMode == "" {
+		if err := s.resolveSettlementMode(ctx, inst); err != nil {
+			return err
+		}
+	}
+	return validateDerivativeParams(req, inst, s.now())
+}
+
+// instrumentLinkageReader is the optional store capability that resolves
+// instruments.settlement_mode — not part of PopulateSnapshot's column
+// set (that query surface is store.go-owned).
+type instrumentLinkageReader interface {
+	InstrumentSettlementMode(ctx context.Context, instrumentID int64) (string, error)
+}
+
+func (s *Service) resolveSettlementMode(ctx context.Context, inst *Instrument) error {
+	r, ok := s.store.(instrumentLinkageReader)
+	if !ok {
+		return codeErr("SERVICE_DEGRADED",
+			"derivative instrument linkage unavailable for %s (fail closed)", inst.Symbol)
+	}
+	mode, err := r.InstrumentSettlementMode(ctx, inst.ID)
+	if err != nil {
+		return errInternal("instrument settlement_mode", err)
+	}
+	inst.SettlementMode = strings.ToUpper(strings.TrimSpace(mode))
+	return nil
+}
+
+// derivativeOrderStore is the optional Store capability that persists
+// the migration-039 column bundle atomically with the order insert and
+// rehydrates it on reads.
+type derivativeOrderStore interface {
+	// InsertOrderDerivativeTx is InsertOrderTx + the derivative column
+	// bundle inside the same transaction — dedup fast-path and
+	// conflict semantics are identical.
+	InsertOrderDerivativeTx(ctx context.Context, p InsertParams,
+		d *DerivativeParams) (*Order, *DedupRow, error)
+	// LoadDerivativeParams fills the migration-039 fields on an Order
+	// already read through scanOrder.
+	LoadDerivativeParams(ctx context.Context, o *Order) error
+}
+
+// insertOrderTx routes through the derivative-aware insert when the
+// request carries migration-039 fields; otherwise the base path.
+// Fail-closed: derivative params on a store without the capability
+// reject SERVICE_DEGRADED — nothing is persisted unparameterized.
+func (s *Service) insertOrderTx(ctx context.Context, p InsertParams,
+	d *DerivativeParams) (*Order, *DedupRow, error) {
+	if d == nil {
+		return s.store.InsertOrderTx(ctx, p)
+	}
+	ds, ok := s.store.(derivativeOrderStore)
+	if !ok {
+		return nil, nil, codeErr("SERVICE_DEGRADED",
+			"derivative order persistence unavailable (fail closed)")
+	}
+	return ds.InsertOrderDerivativeTx(ctx, p, d)
+}
+
+// loadDerivativeParams rehydrates the migration-039 columns on a read
+// path. A store without the capability leaves the fields absent — the
+// base row is still authoritative for non-derivative orders.
+func (s *Service) loadDerivativeParams(ctx context.Context, o *Order) error {
+	ds, ok := s.store.(derivativeOrderStore)
+	if !ok {
+		return nil
+	}
+	return ds.LoadDerivativeParams(ctx, o)
+}
+
+// --- *PgStore derivative capability (same package — reuses insertOrderInTx,
+//     decPtrStr, mustParseDecPtr, isNoRows from store.go) ---
+
+// derivativeCols is the migration-039 select list; decimals ride ::text
+// per the repo's shopspring-free convention.
+const derivativeCols = `
+	strike::text, option_type, exercise_style, expiry_at,
+	barrier_type, barrier_level::text, value_date,
+	near_leg_value_date, far_leg_value_date,
+	premium::text, premium_currency, ndf_fixing_source`
+
+// InsertOrderDerivativeTx runs the shared insert body plus the
+// migration-039 column update inside ONE transaction — a derivative
+// order never commits without its parameter bundle.
+func (s *PgStore) InsertOrderDerivativeTx(ctx context.Context, p InsertParams,
+	d *DerivativeParams) (*Order, *DedupRow, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	id, err := insertOrderInTx(ctx, tx, p)
+	if err != nil {
+		var c *dedupConflict
+		if stderrors.As(err, &c) {
+			return nil, c.row, err
+		}
+		return nil, nil, err
+	}
+	var premiumCurrency any
+	if d.PremiumCurrency != "" {
+		premiumCurrency = d.PremiumCurrency
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE orders SET
+		    strike=$2::numeric, option_type=NULLIF($3,''),
+		    exercise_style=NULLIF($4,''), expiry_at=$5,
+		    barrier_type=NULLIF($6,''), barrier_level=$7::numeric,
+		    value_date=$8, near_leg_value_date=$9, far_leg_value_date=$10,
+		    premium=$11::numeric,
+		    premium_currency=COALESCE($12,'QUOTE'),
+		    ndf_fixing_source=NULLIF($13,''),
+		    updated_at=now()
+		WHERE id=$1`,
+		id, decPtrStr(d.Strike), d.OptionType,
+		d.ExerciseStyle, d.ExpiryAt,
+		d.BarrierType, decPtrStr(d.BarrierLevel),
+		d.ValueDate, d.NearLegValueDate, d.FarLegValueDate,
+		decPtrStr(d.Premium), premiumCurrency,
+		d.NdfFixingSource); err != nil {
+		return nil, nil, fmt.Errorf("derivative params: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, nil, fmt.Errorf("commit derivative order insert: %w", err)
+	}
+	o, err := s.GetOrder(ctx, id)
+	return o, nil, err
+}
+
+// LoadDerivativeParams selects the migration-039 columns for an Order
+// already scanned by orderCols. A NULL-less row scans clean (all
+// pointers stay nil).
+func (s *PgStore) LoadDerivativeParams(ctx context.Context, o *Order) error {
+	var strike, barrier, premium *string
+	err := s.pool.QueryRow(ctx,
+		`SELECT `+derivativeCols+` FROM orders WHERE id=$1`, o.ID).
+		Scan(&strike, &o.OptionType, &o.ExerciseStyle, &o.ExpiryAt,
+			&o.BarrierType, &barrier, &o.ValueDate,
+			&o.NearLegValueDate, &o.FarLegValueDate,
+			&premium, &o.PremiumCurrency, &o.NdfFixingSource)
+	if isNoRows(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	o.Strike = mustParseDecPtr(strike)
+	o.BarrierLevel = mustParseDecPtr(barrier)
+	o.Premium = mustParseDecPtr(premium)
+	return nil
+}
+
+// InstrumentSettlementMode resolves instruments.settlement_mode::text —
+// the Task 22.3.9 linkage check for derivative-class instruments.
+func (s *PgStore) InstrumentSettlementMode(ctx context.Context,
+	instrumentID int64) (string, error) {
+	var mode string
+	err := s.pool.QueryRow(ctx, `
+		SELECT settlement_mode::text FROM instruments WHERE id=$1`,
+		instrumentID).Scan(&mode)
+	if isNoRows(err) {
+		return "", nil
+	}
+	return mode, err
 }

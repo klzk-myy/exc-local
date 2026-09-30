@@ -12,70 +12,7 @@ r.Register("P05-T5.3.1-C1", func(ctx context.Context, env *spec.Env) spec.Result
 
 | Checkpoint | Task | Status | Text |
 |---|---|---|---|
-| `P08.5-T8.5.3.1-C1` | 8.5.3.1 (Phase-08.5-PreProduction-LoadTest.md:45) | [ ] | 75k/sec staging gate |
-| `P08.5-T8.5.3.2-C1` | 8.5.3.2 (Phase-08.5-PreProduction-LoadTest.md:55) | [ ] | isolated demo environment mirrors the production API without real funds (§24 #266) |
-| `P08.5-T8.5.3.3-C1` | 8.5.3.3 (Phase-08.5-PreProduction-LoadTest.md:75) | [ ] | High-stress error injection and degradation mode hysteresis validated (§24 #308) |
-| `P20-T20.3.1-C1` | 20.3.1 (Phase-20-Analytics-Reporting.md:47) | [ ] | ClickHouse for tick history + analytics |
-| `P20-T20.3.2-C1` | 20.3.2 (Phase-20-Analytics-Reporting.md:71) | [ ] | tick history retention (90d raw / 5yr aggregates) |
-| `P20-T20.3.3-C1` | 20.3.3 (Phase-20-Analytics-Reporting.md:93) | [ ] | OHLCV at multiple timeframes |
-| `P20-T20.3.4-C1` | 20.3.4 (Phase-20-Analytics-Reporting.md:116) | [ ] | P&L reporting |
-| `P20-T20.3.5-C1` | 20.3.5 (Phase-20-Analytics-Reporting.md:141) | [ ] | volume + stats reporting |
-| `P20-T20.3.6-C1` | 20.3.6 (Phase-20-Analytics-Reporting.md:170) | [ ] | client statements + confirmations (§5.28, §24 #143) |
-| `P20-T20.3.7-C1` | 20.3.7 (Phase-20-Analytics-Reporting.md:194) | [ ] | house finance reporting (§16.5, §24 #205) |
-| `P20-T20.3.8-C1` | 20.3.8 (Phase-20-Analytics-Reporting.md:223) | [ ] | trade confirmation delivery |
-| `P20-T20.3.9-C1` | 20.3.9 (Phase-20-Analytics-Reporting.md:251) | [ ] | TCA engine |
-| `P20-T20.3.10-C1` | 20.3.10 (Phase-20-Analytics-Reporting.md:263) | [ ] | tax calculations expose method, costs, period, and reproducible export (§24 #276) |
-| `P20-T20.3.11-C1` | 20.3.11 (Phase-20-Analytics-Reporting.md:283) | [ ] | ClickHouse ingestion buffering and dead-letter recovery fail closed (§24 #322) |
-| `P20-T20.3.12-C1` | 20.3.12 (Phase-20-Analytics-Reporting.md:301) | [ ] | income ledger by type/symbol/time reconciled to statements (§24 #361) |
-| `P20-T20.3.13-C1` | 20.3.13 (Phase-20-Analytics-Reporting.md:321) | [ ] | daily hash-chained account snapshots with history API (§24 #362) |
-| `P20-T20.3.14-C1` | 20.3.14 (Phase-20-Analytics-Reporting.md:340) | [ ] | ex-ante preview and annual ex-post costs statement reconciled to ledger (§24 #374) |
-| `P20-T20.3.15-C1` | 20.3.15 (Phase-20-Analytics-Reporting.md:360) | [ ] | per-position 10%-multiple depreciation notices with episode dedupe (§24 #375) |
-| `P20-T20.3.16-C1` | 20.3.16 (Phase-20-Analytics-Reporting.md:380) | [ ] | promo inventory and counts-only consent cohorts (§24 #381) |
-| `P21-T21.3.1-C1` | 21.3.1 (Phase-21-Compliance-AML.md:47) | [ ] | sanctions screening OFAC/EU/UN |
-| `P21-T21.3.2-C1` | 21.3.2 (Phase-21-Compliance-AML.md:73) | [ ] | FATF travel rule ≥$1,000 |
-| `P21-T21.3.3-C1` | 21.3.3 (Phase-21-Compliance-AML.md:100) | [ ] | SAR generation |
-| `P21-T21.3.4-C1` | 21.3.4 (Phase-21-Compliance-AML.md:124) | [ ] | MiFID II transaction reporting |
-| `P21-T21.3.5-C1` | 21.3.5 (Phase-21-Compliance-AML.md:148) | [ ] | EMIR trade reporting |
-| `P21-T21.3.6-C1` | 21.3.6 (Phase-21-Compliance-AML.md:176) | [ ] | FinCEN MSB + AML program |
-| `P21-T21.3.7-C1` | 21.3.7 (Phase-21-Compliance-AML.md:203) | [ ] | GDPR + geo-block |
-| `P21-T21.3.8-C1` | 21.3.8 (Phase-21-Compliance-AML.md:227) | [ ] | market-abuse enforcement |
-| `P21-T21.3.9-C1` | 21.3.9 (Phase-21-Compliance-AML.md:254) | [ ] | Dodd-Frank swap reporting to US SDR |
-| `P21-T21.3.9-C2` | 21.3.9 (Phase-21-Compliance-AML.md:255) | [ ] | CFTC position limits + large trader reporting |
-| `P21-T21.3.10-C1` | 21.3.10 (Phase-21-Compliance-AML.md:282) | [ ] | SanctionsHook in PreTradeChecker (spec §14.3) |
-| `P21-T21.3.11-C1` | 21.3.11 (Phase-21-Compliance-AML.md:307) | [ ] | PEP/adverse-media + ongoing monitoring (§14.3, §24 #149) |
-| `P21-T21.3.12-C1` | 21.3.12 (Phase-21-Compliance-AML.md:332) | [ ] | RTS 6 cert + DEA + retention (§14.1, §24 #150) |
-| `P21-T21.3.13-C1` | 21.3.13 (Phase-21-Compliance-AML.md:355) | [ ] | Basel III capital/leverage reporting (§14.1, §24 #151) |
-| `P21-T21.3.14-C1` | 21.3.14 (Phase-21-Compliance-AML.md:383) | [ ] | EMIR REFIT + CFTC lifecycle/data-quality reporting (§14.1a, §24 #169–170) |
-| `P21-T21.3.15-C1` | 21.3.15 (Phase-21-Compliance-AML.md:410) | [ ] | regulated-venue governance and rule enforcement (§14.1b, §24 #174) |
-| `P21-T21.3.16-C1` | 21.3.16 (Phase-21-Compliance-AML.md:436) | [ ] | MiFID II APA/ARM submission adapters (§14.5, §24 #178) |
-| `P21-T21.3.17-C1` | 21.3.17 (Phase-21-Compliance-AML.md:464) | [ ] | FX Global Code 55-principle self-assessment (§14.6, §24 #182) |
-| `P21-T21.3.18-C1` | 21.3.18 (Phase-21-Compliance-AML.md:488) | [ ] | Jurisdictional data residency enforcement (§14.7, §24 #184) |
-| `P21-T21.3.19-C1` | 21.3.19 (Phase-21-Compliance-AML.md:513) | [ ] | MiFID II RTS 27/28 best execution reporting |
-| `P21-T21.3.20-C1` | 21.3.20 (Phase-21-Compliance-AML.md:539) | [ ] | communications recording (§14.8, §24 #203) |
-| `P21-T21.3.22-C1` | 21.3.22 (Phase-21-Compliance-AML.md:580) | [ ] | CRS/FATCA tax reporting |
-| `P21-T21.3.23-C1` | 21.3.23 (Phase-21-Compliance-AML.md:596) | [ ] | Sanctions service downtime quarantine and ARM/APA resubmission (§24 #323) |
-| `P21-T21.3.24-C1` | 21.3.24 (Phase-21-Compliance-AML.md:623) | [ ] | employee dealing controls with restricted lists, pre-clearance and server-side enforcement (§14.10.… |
-| `P21-T21.3.25-C1` | 21.3.25 (Phase-21-Compliance-AML.md:651) | [ ] | regulatory change monitoring with triage SLA and impact assessment (§14.10.2, §24 #328) |
-| `P21-T21.3.26-C1` | 21.3.26 (Phase-21-Compliance-AML.md:679) | [ ] | financial promotions pre-approved with bounded expiry and render-time enforcement (§14.10.3, §24 #3… |
-| `P21-T21.3.27-C1` | 21.3.27 (Phase-21-Compliance-AML.md:700) | [ ] | tabulated reporting values with outage buffering, per-signal surveillance tuning with STOR, and sea… |
-| `P21-T21.3.28-C1` | 21.3.28 (Phase-21-Compliance-AML.md:722) | [ ] | published execution policy with consent gate and annual evidence review (§24 #377) |
-| `P22-T22.3.1-C1` | 22.3.1 (Phase-22-Derivatives-Foundation.md:43) | [ ] | FX forwards with interest rate parity |
-| `P22-T22.3.2-C1` | 22.3.2 (Phase-22-Derivatives-Foundation.md:67) | [ ] | FX swaps (near + far leg) |
-| `P22-T22.3.3-C1` | 22.3.3 (Phase-22-Derivatives-Foundation.md:90) | [ ] | NDFs with cash settlement |
-| `P22-T22.3.4-C1` | 22.3.4 (Phase-22-Derivatives-Foundation.md:119) | [ ] | vanilla FX options with Greeks |
-| `P22-T22.3.5-C1` | 22.3.5 (Phase-22-Derivatives-Foundation.md:147) | [ ] | barrier options with knock-in/knock-out monitoring |
-| `P22-T22.3.5-C2` | 22.3.5 (Phase-22-Derivatives-Foundation.md:148) | [ ] | Monte Carlo pricing for barrier options |
-| `P22-T22.3.6-C1` | 22.3.6 (Phase-22-Derivatives-Foundation.md:172) | [ ] | binary options with fixed payout |
-| `P22-T22.3.6-C2` | 22.3.6 (Phase-22-Derivatives-Foundation.md:173) | [ ] | Monte Carlo pricing for binary options |
-| `P22-T22.3.7-C1` | 22.3.7 (Phase-22-Derivatives-Foundation.md:197) | [ ] | variation margin for derivatives |
-| `P22-T22.3.8-C1` | 22.3.8 (Phase-22-Derivatives-Foundation.md:220) | [ ] | position roll |
-| `P22-T22.3.9-C1` | 22.3.9 (Phase-22-Derivatives-Foundation.md:243) | [ ] | derivative order params persisted (§5.4, §24 #131) |
-| `P22-T22.3.10-C1` | 22.3.10 (Phase-22-Derivatives-Foundation.md:273) | [ ] | option lifecycle — premium, cutoff, auto-exercise (§15.4, §24 #158) |
-| `P22-T22.3.11-C1` | 22.3.11 (Phase-22-Derivatives-Foundation.md:301) | [ ] | IM/UMR + legal agreements (§15.5, §24 #146) |
-| `P22-T22.3.12-C1` | 22.3.12 (Phase-22-Derivatives-Foundation.md:324) | [ ] | Multi-Leg Implied Matching Engine |
-| `P22-T22.3.13-C1` | 22.3.13 (Phase-22-Derivatives-Foundation.md:349) | [ ] | option spread margin offsets |
-| `P22-T22.3.14-C1` | 22.3.14 (Phase-22-Derivatives-Foundation.md:363) | [ ] | Option pricing solvers fail gracefully on numerical non-convergence and exercise shortfalls trigger… |
-| `P22-T22.3.15-C1` | 22.3.15 (Phase-22-Derivatives-Foundation.md:385) | [ ] | lattice American pricing, built IV surface with fallback hierarchy, deterministic assignment/barrie… |
+| `P08.5-T8.5.3.1-C1` | 8.5.3.1 (Phase-08.5-PreProduction-LoadTest.md:45) | [ ] | 75k/sec staging gate — defined first, validated against spec — **deferred: environment-bound** (req… |
 | `P23-T23.3.1-C1` | 23.3.1 (Phase-23-Market-Data-Products.md:42) | [ ] | historical data API with partitioning |
 | `P23-T23.3.2-C1` | 23.3.2 (Phase-23-Market-Data-Products.md:65) | [ ] | data export CSV/JSON/Parquet |
 | `P23-T23.3.3-C1` | 23.3.3 (Phase-23-Market-Data-Products.md:90) | [ ] | premium data feeds |

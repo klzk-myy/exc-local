@@ -18,10 +18,13 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
 #include <filesystem>
 #include <memory>
+#include <string>
 #include <thread>
 #include <type_traits>
+#include <vector>
 
 #include "book/Order.hpp"
 #include "book/OrderBook.hpp"
@@ -32,6 +35,7 @@
 #include "ipc/L3Publisher.hpp"
 #include "ipc/SharedMemChannel.hpp"
 #include "matching/EngineLoop.hpp"
+#include "matching/ImpliedMatcher.hpp"
 #include "matching/IpcPublisher.hpp"
 #include "matching/MatchingEngine.hpp"
 #include "matching/WalWriter.hpp"
@@ -66,7 +70,9 @@ void usage(const char* argv0) {
                  "          [-snapshot-interval-s <s>] [-follower]\n"
                  "          [-report-log <path>]\n"
                  "          [-redis <host:port>] [-halt-poll-ms <ms>]\n"
-                 "          [-symbol <SYM>] [-feed-poll-ms <ms>]\n",
+                 "          [-symbol <SYM>] [-feed-poll-ms <ms>]\n"
+                 "          [-curve <id1,id2,...>] [-curve-symbols <s1,s2,...>]\n"
+                 "          [-implied-link <out>:<s0>:<i0>:<r0>:<s1>:<i1>:<r1>]\n",
                  argv0);
 }
 
@@ -189,6 +195,46 @@ void file_poison_sink(void* ctx, const uint8_t* data, uint32_t len, const char* 
     std::fflush(f);
 }
 
+// Comma-split helper for -curve lists (no heap churn beyond the result).
+std::vector<std::string> split_csv(const char* s) {
+    std::vector<std::string> out;
+    if (s == nullptr) return out;
+    std::string cur;
+    for (const char* p = s; ; ++p) {
+        if (*p == ',' || *p == '\0') {
+            out.push_back(cur);
+            cur.clear();
+            if (*p == '\0') break;
+        } else {
+            cur += *p;
+        }
+    }
+    return out;
+}
+
+// Task 22.3.12 curve shard — one extra co-located instrument slot. All
+// members live on the heap (std::deque of unique_ptr): books bind their
+// Instrument by pointer, engines hold pointers into bindings/feeds/ctxs —
+// nothing may move after bind.
+struct CurveSlot {
+    exch::Instrument ins{};
+    std::string symbol;
+    std::unique_ptr<exch::OrderBook> book;
+    std::unique_ptr<exch::MatchingEngine> engine;
+    exch::EngineRiskBinding risk_binding{};
+    exch::InstrumentFeed instr_feed;
+    exch::PriceOracleFeed oracle_feed;
+    SnapshotCtx snap_ctx{};
+    std::unique_ptr<exch::RespClient> feed_redis;
+    std::unique_ptr<exch::InstrumentFeedRefresher> feed_refresh;
+    std::unique_ptr<exch::RespClient> oracle_redis;
+    std::unique_ptr<exch::PriceOracleFeedRefresher> oracle_refresh;
+    std::unique_ptr<std::atomic<bool>> feed_stop;
+    std::unique_ptr<std::atomic<bool>> oracle_stop;
+    std::thread feed_thread;
+    std::thread oracle_thread;
+};
+
 // Watchdog STALL/WARN report — runs on the watchdog thread, so it must not
 // touch the WAL or the book (single-writer ownership, wal/Wal.hpp). It only
 // emits the operational alert; the L0 response (dirty-flush -> lease release
@@ -233,6 +279,15 @@ int main(int argc, char** argv) {
     // (same unwired-seam convention as the halt lattice).
     std::string symbol;
     uint32_t feed_poll_ms = 250;       // control-key refresh cadence
+    // Phase-22 Task 22.3.12: `-curve` co-locates N instrument books on
+    // this shard's matching thread behind a shared ImpliedMatcher +
+    // CurveIngress router. ids[0] is the primary (uses -instrument-id's
+    // book/engine objects); entries 1..N build CurveSlots. `-symbols`
+    // may carry the parallel symbol list for per-slot control feeds;
+    // `-implied-link` registers one two-leg link per flag.
+    std::vector<uint32_t> curve_ids;
+    std::vector<std::string> curve_symbols;
+    std::vector<std::string> implied_link_specs;
 
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "-shard") == 0) {
@@ -318,6 +373,33 @@ int main(int argc, char** argv) {
                 return 2;
             }
             if (feed_poll_ms == 0) feed_poll_ms = 250;
+        } else if (std::strcmp(argv[i], "-curve") == 0) {
+            if (++i >= argc) {
+                usage(argv[0]);
+                return 2;
+            }
+            for (const std::string& tok : split_csv(argv[i])) {
+                uint32_t id = 0;
+                if (!parse_u32(tok.c_str(), &id) || id == 0) {
+                    std::fprintf(stderr,
+                                 "FATAL: -curve element '%s' is not a "
+                                 "valid instrument id\n", tok.c_str());
+                    return 2;
+                }
+                curve_ids.push_back(id);
+            }
+        } else if (std::strcmp(argv[i], "-curve-symbols") == 0) {
+            if (++i >= argc) {
+                usage(argv[0]);
+                return 2;
+            }
+            curve_symbols = split_csv(argv[i]);
+        } else if (std::strcmp(argv[i], "-implied-link") == 0) {
+            if (++i >= argc) {
+                usage(argv[0]);
+                return 2;
+            }
+            implied_link_specs.push_back(argv[i]);
         } else if (std::strcmp(argv[i], "-h") == 0 || std::strcmp(argv[i], "--help") == 0) {
             usage(argv[0]);
             return 0;
@@ -478,6 +560,127 @@ int main(int argc, char** argv) {
                                          engine.now_ns_ptr()};
     engine.set_risk_hook(&exch::engine_risk_check, &risk_binding);
 
+    // --- Phase-22 Task 22.3.12 curve shard ----------------------------------
+    // `-curve` co-locates N instrument books on this shard's single
+    // matching thread so the shared ImpliedMatcher synthesizes liquidity
+    // across the curve. Every slot shares the shard's Order pool, WAL
+    // writer, outbound publisher and trade-id stream — implied fills
+    // journal into sibling books under instrument_id, and one counter
+    // keeps trade ids unique across the shared journal (recovery routes
+    // WAL rows by instrument_id into each binding).
+    exch::ImpliedMatcher implied_matcher;
+    exch::CurveIngress curve_ingress(&orders);
+    uint64_t curve_tid_stream = 1;
+    std::deque<std::unique_ptr<CurveSlot>> curve_slots;
+    const bool curve_mode = !curve_ids.empty();
+    if (curve_mode) {
+        if (curve_ids.size() < 2 ||
+            curve_ids.size() > exch::CurveIngress::kMaxEngines) {
+            std::fprintf(stderr,
+                         "FATAL: -curve needs 2..%u instrument ids\n",
+                         exch::CurveIngress::kMaxEngines);
+            wal.close();
+            core_chan.close();
+            return 1;
+        }
+        if (curve_ids[0] != instrument_id) {
+            std::fprintf(stderr,
+                         "FATAL: -curve[0] (%u) must equal -instrument-id "
+                         "(%u) — the primary slot owns the boot objects\n",
+                         curve_ids[0], instrument_id);
+            wal.close();
+            core_chan.close();
+            return 1;
+        }
+        if (!curve_symbols.empty() &&
+            curve_symbols.size() != curve_ids.size()) {
+            std::fprintf(stderr,
+                         "FATAL: -curve-symbols count (%zu) != -curve "
+                         "count (%zu)\n",
+                         curve_symbols.size(), curve_ids.size());
+            wal.close();
+            core_chan.close();
+            return 1;
+        }
+        engine.bind_implied(&implied_matcher);
+        engine.bind_trade_id_stream(&curve_tid_stream);
+        if (!curve_ingress.add_engine(&engine, served.instrument_id)) {
+            std::fprintf(stderr, "FATAL: curve ingress rejected primary "
+                                 "instrument %u\n", instrument_id);
+            wal.close();
+            core_chan.close();
+            return 1;
+        }
+        for (std::size_t ci = 1; ci < curve_ids.size(); ++ci) {
+            auto slot = std::make_unique<CurveSlot>();
+            slot->ins = served;
+            slot->ins.instrument_id = curve_ids[ci];
+            if (!curve_symbols.empty()) {
+                slot->symbol = curve_symbols[ci];
+                std::snprintf(slot->ins.symbol, sizeof(slot->ins.symbol),
+                              "%s", slot->symbol.c_str());
+            }
+            slot->book = std::make_unique<exch::OrderBook>(orders);
+            slot->book->set_instrument(slot->ins);
+            slot->engine = std::make_unique<exch::MatchingEngine>(
+                shard, *slot->book, orders, &wal_writer, &publisher,
+                &l3_pub);
+            slot->risk_binding = exch::EngineRiskBinding{
+                &risk, slot->book->instrument(),
+                slot->engine->now_ns_ptr()};
+            slot->engine->set_risk_hook(&exch::engine_risk_check,
+                                        &slot->risk_binding);
+            slot->engine->bind_implied(&implied_matcher);
+            slot->engine->bind_trade_id_stream(&curve_tid_stream);
+            if (!curve_ingress.add_engine(slot->engine.get(),
+                                          curve_ids[ci])) {
+                std::fprintf(stderr, "FATAL: curve ingress rejected "
+                                     "instrument %u\n", curve_ids[ci]);
+                wal.close();
+                core_chan.close();
+                return 1;
+            }
+            curve_slots.push_back(std::move(slot));
+        }
+        // Implied link table — each spec is
+        // out:sign0:id0:ratio0:sign1:id1:ratio1 (signs ±1, ratios > 0).
+        // Registration fails closed on any unregistered instrument.
+        uint64_t link_seq = 1;
+        for (const std::string& spec : implied_link_specs) {
+            exch::ImpliedLink l{};
+            l.link_id = link_seq++;
+            int64_t v[7];
+            const std::vector<std::string> toks =
+                [&] { std::string t = spec;
+                      for (char& ch : t) if (ch == ':') ch = ',';
+                      return split_csv(t.c_str()); }();
+            bool ok = toks.size() == 7;
+            for (std::size_t k = 0; ok && k < 7; ++k) {
+                ok = parse_i64(toks[k].c_str(), &v[k]);
+            }
+            if (ok) {
+                l.out_instrument = static_cast<uint32_t>(v[0]);
+                l.legs[0] = exch::ImpliedLeg{
+                    static_cast<uint32_t>(v[2]),
+                    static_cast<int8_t>(v[1]),
+                    static_cast<uint32_t>(v[3])};
+                l.legs[1] = exch::ImpliedLeg{
+                    static_cast<uint32_t>(v[5]),
+                    static_cast<int8_t>(v[4]),
+                    static_cast<uint32_t>(v[6])};
+                ok = implied_matcher.register_link(l);
+            }
+            if (!ok) {
+                std::fprintf(stderr,
+                             "FATAL: -implied-link '%s' invalid or "
+                             "unregistered instrument\n", spec.c_str());
+                wal.close();
+                core_chan.close();
+                return 1;
+            }
+        }
+    }
+
     // --- Kill-switch suspension lattice (Task 11.3.4 step 4; 11.3.8/12) --
     // `-redis host:port` binds check 0: a control thread polls `halt:*`
     // every -halt-poll-ms (default 50ms) into an immutable snapshot the
@@ -616,6 +819,42 @@ int main(int argc, char** argv) {
                      "unbound (lifecycle/hours enforced by the Go gates)\n");
     }
 
+    // Curve-slot instrument feeds (Task 22.3.12): identical bind per
+    // slot symbol — unbound slots keep the same fail-closed seam as a
+    // symbol-less single book.
+    for (auto& sp : curve_slots) {
+        if (sp->symbol.empty() || redis_addr.empty()) continue;
+        exch::RespClientConfig fcfg{};
+        const std::size_t colon = redis_addr.rfind(':');
+        fcfg.host = redis_addr.substr(0, colon);
+        fcfg.port = static_cast<uint16_t>(
+            std::strtoul(redis_addr.c_str() + colon + 1, nullptr, 10));
+        sp->feed_redis = std::make_unique<exch::RespClient>(fcfg);
+        sp->feed_refresh =
+            std::make_unique<exch::InstrumentFeedRefresher>(
+                sp->feed_redis.get(), sp->symbol);
+        sp->engine->bind_instrument_feed(&sp->instr_feed);
+        if (!sp->feed_redis->connect() ||
+            !sp->feed_refresh->refresh(&sp->instr_feed)) {
+            std::fprintf(stderr,
+                         "WARN: instrument feed poll unreachable at boot "
+                         "for %s — lifecycle/hours gates fail closed until "
+                         "the poll thread lands a clean read\n",
+                         sp->symbol.c_str());
+        }
+        sp->feed_stop = std::make_unique<std::atomic<bool>>(false);
+        exch::InstrumentFeedRefresher* fr = sp->feed_refresh.get();
+        exch::InstrumentFeed* feed = &sp->instr_feed;
+        std::atomic<bool>* fstop = sp->feed_stop.get();
+        const auto cadence = std::chrono::milliseconds(feed_poll_ms);
+        sp->feed_thread = std::thread([fr, feed, fstop, cadence]() {
+            while (!fstop->load(std::memory_order_acquire)) {
+                (void)fr->refresh(feed);
+                std::this_thread::sleep_for(cadence);
+            }
+        });
+    }
+
     // --- Phase-16 mark/index oracle feed (Tasks 16.3.17/16.3.22) ----------
     // With -redis + -symbol the engine binds a dedicated control poll of
     // oracle:mark|index:{symbol}[:ts]. MARK_PRICE/INDEX_PRICE conditional
@@ -651,6 +890,40 @@ int main(int argc, char** argv) {
         std::atomic<bool>* ostop = &oracle_stop;
         const auto ocadence = std::chrono::milliseconds(feed_poll_ms);
         oracle_thread = std::thread([orf, ofeed, ostop, ocadence]() {
+            while (!ostop->load(std::memory_order_acquire)) {
+                (void)orf->refresh(ofeed);
+                std::this_thread::sleep_for(ocadence);
+            }
+        });
+    }
+
+    // Curve-slot oracle feeds (Task 22.3.12) — same per-symbol binding.
+    for (auto& sp : curve_slots) {
+        if (sp->symbol.empty() || redis_addr.empty()) continue;
+        exch::RespClientConfig ocfg{};
+        const std::size_t colon = redis_addr.rfind(':');
+        ocfg.host = redis_addr.substr(0, colon);
+        ocfg.port = static_cast<uint16_t>(
+            std::strtoul(redis_addr.c_str() + colon + 1, nullptr, 10));
+        sp->oracle_redis = std::make_unique<exch::RespClient>(ocfg);
+        sp->oracle_refresh =
+            std::make_unique<exch::PriceOracleFeedRefresher>(
+                sp->oracle_redis.get(), sp->symbol, nullptr);
+        sp->engine->bind_oracle_feed(&sp->oracle_feed);
+        if (!sp->oracle_redis->connect() ||
+            !sp->oracle_refresh->refresh(&sp->oracle_feed)) {
+            std::fprintf(stderr,
+                         "WARN: oracle feed poll unreachable at boot for "
+                         "%s — MARK/INDEX conditional sources freeze until "
+                         "the poll thread lands a clean read\n",
+                         sp->symbol.c_str());
+        }
+        sp->oracle_stop = std::make_unique<std::atomic<bool>>(false);
+        exch::PriceOracleFeedRefresher* orf = sp->oracle_refresh.get();
+        exch::PriceOracleFeed* ofeed = &sp->oracle_feed;
+        std::atomic<bool>* ostop = sp->oracle_stop.get();
+        const auto ocadence = std::chrono::milliseconds(feed_poll_ms);
+        sp->oracle_thread = std::thread([orf, ofeed, ostop, ocadence]() {
             while (!ostop->load(std::memory_order_acquire)) {
                 (void)orf->refresh(ofeed);
                 std::this_thread::sleep_for(ocadence);
@@ -694,6 +967,14 @@ int main(int argc, char** argv) {
     }
     SnapshotCtx snap_ctx{&snap_store, &book, &wal, &snap_mgr, instrument_id, 0};
     engine.set_snapshot_hook(&on_snapshot_tick, &snap_ctx);
+    // Curve slots share the shard's store/mgr — each book snapshots under
+    // its own instrument_id (Task 22.3.12).
+    for (std::size_t ci = 0; ci < curve_slots.size(); ++ci) {
+        CurveSlot* sp = curve_slots[ci].get();
+        sp->snap_ctx = SnapshotCtx{&snap_store, sp->book.get(), &wal,
+                                   &snap_mgr, curve_ids[ci + 1], 0};
+        sp->engine->set_snapshot_hook(&on_snapshot_tick, &sp->snap_ctx);
+    }
 
     // --- Boot recovery (Task 2.3.4 / Phase-02.5 failover benchmark) --------
     // Replay snapshot + WAL tail into the book BEFORE the pump opens the
@@ -713,8 +994,19 @@ int main(int argc, char** argv) {
                      "seam binds (no trading traffic before promotion)\n");
     } else {
         exch::RecoveryManager recovery(shard, snap_sink);
+        // Curve mode: every slot's (instrument, book, shared pool) triple
+        // binds — journaled rows route by instrument_id into each book.
+        std::vector<exch::RecoveryBookBinding> curve_bindings{
+            {instrument_id, &book, &orders}};
+        for (auto& sp : curve_slots) {
+            curve_bindings.push_back(
+                {static_cast<uint32_t>(sp->ins.instrument_id),
+                 sp->book.get(), &orders});
+        }
         const exch::RecoveryLadderResult lad = recovery.recover_ladder(
-            shard_dir.string(), {{instrument_id, &book, &orders}}, report_log);
+            shard_dir.string(), std::span<const exch::RecoveryBookBinding>(
+                curve_bindings.data(), curve_bindings.size()),
+            report_log);
         const exch::RecoveryResult& rr = lad.result;
         if (lad.outcome == exch::RecoveryOutcome::HALTED) {
             // Level 3 — the ladder already appended the WAL_RECOVERY_HALT
@@ -814,6 +1106,18 @@ int main(int argc, char** argv) {
                              ra->quarantined ? 1 : 0, ra->parked_count);
             }
         }
+        // Curve slots adopt their own replayed auction/lifecycle state.
+        for (auto& sp : curve_slots) {
+            const uint32_t sid =
+                static_cast<uint32_t>(sp->ins.instrument_id);
+            if (const auto* ra = recovery.recovered_auction_state(sid)) {
+                sp->engine->adopt_auction_state(
+                    ra->phase, ra->auction_id, ra->deadline_ns,
+                    ra->extensions, ra->awaiting, ra->last_completed,
+                    ra->quarantined, ra->quarantine_code, ra->parked_head,
+                    ra->parked_count);
+            }
+        }
         std::fprintf(stderr,
                      "recovery: level=%u entries=%llu applied=%llu "
                      "derived=%llu dedup=%llu covered_gap_seqs=%llu "
@@ -835,8 +1139,12 @@ int main(int argc, char** argv) {
     (void)election;
 
     // --- Pump + loop ---------------------------------------------------------
-    exch::MatchingEngineIngress ingress(&engine);
-    exch::EnginePump pump(&core_chan, &core_chan, &ingress, &orders, &wal);
+    exch::MatchingEngineIngress single_ingress(&engine);
+    exch::IEngineIngress* ingress =
+        curve_mode
+            ? static_cast<exch::IEngineIngress*>(&curve_ingress)
+            : static_cast<exch::IEngineIngress*>(&single_ingress);
+    exch::EnginePump pump(&core_chan, &core_chan, ingress, &orders, &wal);
     pump.set_report_sink(stderr_alert, nullptr);
 
     std::FILE* poison_fp = std::fopen(poison_path.c_str(), "a");
@@ -863,10 +1171,22 @@ int main(int argc, char** argv) {
     sanc_stop.store(true, std::memory_order_release);
     feed_stop.store(true, std::memory_order_release);
     oracle_stop.store(true, std::memory_order_release);
+    for (auto& sp : curve_slots) {
+        if (sp->feed_stop != nullptr) {
+            sp->feed_stop->store(true, std::memory_order_release);
+        }
+        if (sp->oracle_stop != nullptr) {
+            sp->oracle_stop->store(true, std::memory_order_release);
+        }
+    }
     if (susp_thread.joinable()) susp_thread.join();
     if (sanc_thread.joinable()) sanc_thread.join();
     if (feed_thread.joinable()) feed_thread.join();
     if (oracle_thread.joinable()) oracle_thread.join();
+    for (auto& sp : curve_slots) {
+        if (sp->feed_thread.joinable()) sp->feed_thread.join();
+        if (sp->oracle_thread.joinable()) sp->oracle_thread.join();
+    }
 
     loop.stop_watchdog();
     // Drain snapshot: a graceful stop leaves a fresh base so the next boot
@@ -877,6 +1197,16 @@ int main(int argc, char** argv) {
                      (unsigned long long)wal.tail_seq());
         (void)snap_mgr.notify_stored(instrument_id,
                                      snap_store.last_snapshot_seq());
+    }
+    // Curve slots snapshot under their own instrument ids.
+    for (auto& sp : curve_slots) {
+        const uint32_t sid =
+            static_cast<uint32_t>(sp->ins.instrument_id);
+        if (snap_store.force_snapshot(*sp->book, sid, wal.tail_seq()) ==
+            exch::SnapshotOutcome::Taken) {
+            (void)snap_mgr.notify_stored(sid,
+                                         snap_store.last_snapshot_seq());
+        }
     }
     // Last ack drain before the WAL closes: a confirmation that arrived
     // during the final snapshot still gets its trim.

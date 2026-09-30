@@ -206,6 +206,122 @@ void MatchingEngineIngress::on_oco_link_received(
     }
 }
 
+// --- CurveIngress (Task 22.3.12) ---------------------------------------------
+
+bool CurveIngress::add_engine(MatchingEngine* engine,
+                              uint32_t instrument_id) noexcept {
+    if (engine == nullptr || instrument_id == 0 || n_ >= kMaxEngines ||
+        engine_for(instrument_id) != nullptr) {
+        return false;
+    }
+    entries_[n_].engine = engine;
+    entries_[n_].instrument_id = instrument_id;
+    ++n_;
+    return true;
+}
+
+MatchingEngine* CurveIngress::engine_for(uint32_t instrument_id) noexcept {
+    for (uint32_t i = 0; i < n_; ++i) {
+        if (entries_[i].instrument_id == instrument_id) {
+            return entries_[i].engine;
+        }
+    }
+    return nullptr;
+}
+
+MatchingEngine* CurveIngress::owner_of(uint64_t order_id) noexcept {
+    for (uint32_t i = 0; i < n_; ++i) {
+        if (entries_[i].engine->owns_order(order_id)) {
+            return entries_[i].engine;
+        }
+    }
+    return nullptr;
+}
+
+void CurveIngress::drain() noexcept {
+    for (uint32_t pass = 0; pass < kMaxDrainPasses; ++pass) {
+        bool any = false;
+        for (uint32_t i = 0; i < n_; ++i) {
+            if (entries_[i].engine->take_implied_dirty()) {
+                entries_[i].engine->implied_sync();
+                any = true;
+            }
+        }
+        if (!any) return;
+    }
+    ++drain_saturated_;
+}
+
+void CurveIngress::on_order_received(Order* order) noexcept {
+    // Plain form carries no instrument_id — routable only on a single-
+    // engine binding; on a curve the wire always uses the aux form.
+    if (n_ == 1) {
+        entries_[0].engine->on_order_received(order);
+    } else {
+        ++unrouted_orders_;
+        if (orders_ != nullptr && order != nullptr) orders_->free(order);
+    }
+    drain();
+}
+
+void CurveIngress::on_order_received_ex(Order* order,
+                                        const OrderAux& aux) noexcept {
+    MatchingEngine* e = engine_for(aux.instrument_id);
+    if (e != nullptr) {
+        e->on_order_received(order, aux);
+    } else {
+        ++unrouted_orders_;
+        if (orders_ != nullptr && order != nullptr) orders_->free(order);
+    }
+    drain();
+}
+
+void CurveIngress::on_cancel_received(uint64_t order_id,
+                                      uint64_t account_id) noexcept {
+    MatchingEngine* e = owner_of(order_id);
+    if (e != nullptr) {
+        e->on_cancel_received(order_id, account_id);
+    } else {
+        ++unrouted_cancels_;
+    }
+    drain();
+}
+
+void CurveIngress::on_time_tick(uint64_t now_ns) noexcept {
+    for (uint32_t i = 0; i < n_; ++i) {
+        entries_[i].engine->on_time_tick(now_ns);
+    }
+    drain();
+}
+
+void CurveIngress::on_amend_received(uint64_t order_id, int64_t price_ticks,
+                                     int64_t qty_units,
+                                     int64_t stop_price_ticks,
+                                     uint64_t ingress_seq) noexcept {
+    MatchingEngine* e = owner_of(order_id);
+    if (e != nullptr) {
+        e->on_amend_received(order_id, price_ticks, qty_units,
+                             stop_price_ticks, ingress_seq);
+    } else {
+        ++unrouted_amends_;
+    }
+    drain();
+}
+
+void CurveIngress::on_oco_link_received(uint64_t link_id, uint64_t order_id_a,
+                                        uint64_t order_id_b,
+                                        uint64_t account_id,
+                                        uint32_t instrument_id) noexcept {
+    MatchingEngine* e = engine_for(instrument_id);
+    if (e != nullptr) {
+        e->on_oco_link_received(link_id, order_id_a, order_id_b,
+                                account_id, instrument_id);
+    } else {
+        ++unrouted_links_;
+    }
+    drain();
+}
+
 // --- LatencyHistogram ---------------------------------------------------------
 
 void LatencyHistogram::record(uint64_t ns) noexcept {

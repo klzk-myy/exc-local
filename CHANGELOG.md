@@ -1636,3 +1636,80 @@ snapshots, costs disclosure, depreciation notices, marketing-ops.
   enforcement awaits a session registry; consent→marketing-dispatch seam
   awaits a dispatcher; SIPREC voice capture prerequisite-only (R6);
   GDPR consent route is `/api/v1/account/gdpr/consent` (plan text stale).
+
+## [2026-09-30 09:55 UTC] — Phase 22 START (Derivatives Foundation)
+
+- 6 parallel agents dispatched on disjoint scopes:
+  linear derivatives `internal/derivatives/` (22.3.1–3);
+  options pricing `internal/options/` vanilla/barrier/binary (22.3.4–6);
+  vol surface + American lattice + arb rejection (22.3.14/.15);
+  VM + IM/UMR + legal docs + spread offsets (22.3.7/.11/.13/.14-half);
+  roll + option lifecycle (22.3.8/.10);
+  order params mig 039 + C++ implied matching (22.3.9/.12).
+- Plan-reserved migrations free and assigned verbatim:
+  034 variation_margin, 039 orders_derivative_params,
+  043 legal_agreements, 085 option_spread_offsets.
+
+## [2026-09-30 13:05 UTC] — PHASE 22 COMPLETE (Derivatives Foundation)
+
+- All 6 agent clusters landed; 15/15 tasks implemented.
+- **Checkpoints: 17/17 bound and green** (`tests/spec/checks/phase22.go`;
+  tasks 22.3.5/22.3.6 carry two IDs each — validator: 17 pass / 0 fail /
+  0 timeout / 0 error / 0 skip).
+- **C++ suite: 36/36 ctest green** incl. `test_implied` +
+  `test_implied_engine` (production-ingress implied matching: implied-in/
+  out fills, resting out-book fills on leg arrival, POST_ONLY probe, FOK
+  admission, IOC partial, OCO cleanup, stop-trigger implied sweep,
+  CurveIngress routing + bounded dirty-drain).
+- Go suites green: `derivatives`, `options`, `risk`, `margin`,
+  `compliance`, `orders`, `fix` — PG-gated legs exercised live on dev DB.
+- Production smoke: single-book boot clean; **curve-shard boot clean** —
+  3 books co-located on one matching thread, implied links registered,
+  multi-binding recovery, per-instrument snapshots on shutdown.
+- **Settle-time fixes (orchestrator):**
+  - `types.go` `ON CONFLICT` clause matched to migration-254's
+    partial-unique-index predicate (42P10 under PG tests).
+  - AC #39 auction-block seam implemented during verification:
+    `ExerciseAuctionGuard` (satisfied by `*risk.PgLiquidationStore.
+    ActiveAuctions`) gates `exerciseAttempt` for MANUAL+AUTO — live §13.4
+    auction on the option or its underlying rejects
+    `OPTION_EXERCISE_AUCTION_BLOCKED` (409); unreadable guard fails closed
+    `EXERCISE_AUCTION_EVAL_FAILED` (503). AUTO block leaves option OPEN
+    for next sweep.
+  - `ImpliedMatcher` promoted from tested standalone unit into
+    `MatchingEngine` production ingress: `bind_implied` (eager register
+    when instrument bound), `implied_take` at incoming/stop-trigger
+    sweep points, commit-tail `implied_sync` on order/cancel/amend/tick
+    paths, owner-notify hook keeps meta/OCO/iceberg/L3/last-price
+    consistent on sibling books, shared WAL writer + shared trade-ID
+    stream, bounded dirty-drain rescan.
+  - Curve-shard host in `main.cpp`: `matching_engine -curve <ids>
+    -curve-symbols <s> -implied-link <out>:<s0>:<i0>:<r0>:<s1>:<i1>:<r1>`;
+    `CurveIngress` routes wire orders by `instrument_id`, cancels/amends
+    by ownership probe; per-instrument feeds/snapshots/risk bindings.
+  - `implied_gate_test.go` added (`TestImpliedGateAdmitMatrix`) — gate
+    shipped untested; fail-closed matrix verified.
+- **Deviations recorded in spec §27:** Go gate path
+  `internal/derivatives/implied_gate.go` (plan's
+  `internal/features/22_3_12.go` superseded by flags convention); FOK
+  outright-only for implied; implied-aware `NO_LIQUIDITY` admission
+  probe for non-FOK; protected-market implied exclusion; hidden qty
+  excluded from implied capacity; curve-shard topology.
+- **Migrations:** 034/039/043/085 plan-reserved + 252/253/254/255 fresh —
+  176 → **184** on disk, zero collisions, all `.down.sql` paired.
+- **Error registry:** no specRow delta — the 4 emitted P22 codes
+  (`VARIATION_MARGIN_INSUFFICIENT`, `OPTION_ASSIGNMENT_FAILED`,
+  `OPTION_EXERCISE_MARGIN_SHORTFALL`, `PREMIUM_INSUFFICIENT`) were
+  pre-tabled at remediation #19 — emitted stays **207**; +21 localCodes
+  → **40** pending §23 transcription.
+- **Checkpoint corpus:** regenerated — 542 extracted, 509 bound,
+  33 pending stubs; bound checkpoint IDs 492 → 509.
+- **Honest seams** (spec §27 + phase addendum): `OptionService`/VM sweep/
+  roll engine are verified library surfaces, not yet constructed in a
+  `cmd/` binary; exercise-during-HALT governed by the mark-staleness
+  gate (fail-closed) not a dedicated state check; `orders`-side
+  `validateDerivativeParams` coverage rides FIX contract tests +
+  structural binding (no dedicated unit test — flagged).
+- 91/91 DoD/SDD rows ticked in `docs/Phase-22-Derivatives-Foundation.md`.
+- Next: Phase-23 (Settlement & Backoffice hardening — remaining API/
+  reporting surfaces).

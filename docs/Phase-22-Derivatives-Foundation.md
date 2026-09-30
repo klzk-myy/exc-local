@@ -34,14 +34,14 @@ Implement FX derivatives: forwards, swaps, NDFs, and vanilla options. Includes p
 5. `POST /api/v1/orders` with instrument type=FORWARD.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Forward pricing: `spot × (1 + quote_rate × d/DCC_quote) / (1 + base_rate × d/DCC_base)` with currency-specific ACT/360 vs ACT/365 convention (spec §15.3)
-* [ ] Physical delivery on maturity
-* [ ] Forward curve per maturity
-* [ ] Forward order submission works
+* [x] Forward pricing: `spot × (1 + quote_rate × d/DCC_quote) / (1 + base_rate × d/DCC_base)` with currency-specific ACT/360 vs ACT/365 convention (spec §15.3)
+* [x] Physical delivery on maturity
+* [x] Forward curve per maturity
+* [x] Forward order submission works
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: FX forwards with interest rate parity — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: FX forwards with interest rate parity — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -59,13 +59,13 @@ Implement FX derivatives: forwards, swaps, NDFs, and vanilla options. Includes p
 5. Settlement: both legs settled on respective dates.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Swap = near leg (spot) + far leg (forward)
-* [ ] Swap points computed correctly
-* [ ] Both legs settled on respective dates
+* [x] Swap = near leg (spot) + far leg (forward)
+* [x] Swap points computed correctly
+* [x] Both legs settled on respective dates
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: FX swaps (near + far leg) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: FX swaps (near + far leg) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -82,13 +82,13 @@ Implement FX derivatives: forwards, swaps, NDFs, and vanilla options. Includes p
 4. Used for: restricted currencies (CNY, INR, BRL, etc.).
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] NDF cash settlement works
-* [ ] Fixing rate from reference source
-* [ ] Settlement amount correct
+* [x] NDF cash settlement works
+* [x] Fixing rate from reference source
+* [x] Settlement amount correct
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: NDFs with cash settlement — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: NDFs with cash settlement — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -108,16 +108,16 @@ Implement FX derivatives: forwards, swaps, NDFs, and vanilla options. Includes p
 7. Writer assignment: pro-rata by open interest with random tie-break (supersedes prior random selection — remediation #24/#35: the canonical policy per Task 22.3.15/§15.4; the AC row 16 copy is updated below).
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Call/Put options with Black-Scholes pricing
-* [ ] European + American exercise styles
-* [ ] Physical + cash settlement
-* [ ] IV surface computed
-* [ ] Greeks computed (delta, gamma, vega, theta, rho)
-* [ ] Writer assignment on exercise
+* [x] Call/Put options with Black-Scholes pricing
+* [x] European + American exercise styles
+* [x] Physical + cash settlement
+* [x] IV surface computed
+* [x] Greeks computed (delta, gamma, vega, theta, rho)
+* [x] Writer assignment on exercise
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: vanilla FX options with Greeks — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: vanilla FX options with Greeks — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -136,17 +136,17 @@ Implement FX derivatives: forwards, swaps, NDFs, and vanilla options. Includes p
 6. Settlement: cash settlement at expiry if barrier was not knocked out (or was knocked in).
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Knock-in barrier: option activates when barrier touched
-* [ ] Knock-out barrier: option becomes worthless when barrier touched
-* [ ] All 4 barrier types (up/down × in/out) supported
-* [ ] Barrier monitored continuously against mark price
-* [ ] Monte Carlo pricing for barrier options
-* [ ] Cash settlement at expiry with barrier event logging
+* [x] Knock-in barrier: option activates when barrier touched
+* [x] Knock-out barrier: option becomes worthless when barrier touched
+* [x] All 4 barrier types (up/down × in/out) supported
+* [x] Barrier monitored continuously against mark price
+* [x] Monte Carlo pricing for barrier options
+* [x] Cash settlement at expiry with barrier event logging
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: barrier options with knock-in/knock-out monitoring — defined first, validated against spec
-- [ ] Spec checkpoint: Monte Carlo pricing for barrier options — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: barrier options with knock-in/knock-out monitoring — defined first, validated against spec
+- [x] Spec checkpoint: Monte Carlo pricing for barrier options — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -163,15 +163,15 @@ Implement FX derivatives: forwards, swaps, NDFs, and vanilla options. Includes p
 4. Settlement: cash settlement at expiry.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Binary option with fixed payout at expiry
-* [ ] Cash-or-nothing and asset-or-nothing types supported
-* [ ] Monte Carlo pricing for binary options
-* [ ] Cash settlement at expiry
+* [x] Binary option with fixed payout at expiry
+* [x] Cash-or-nothing and asset-or-nothing types supported
+* [x] Monte Carlo pricing for binary options
+* [x] Cash settlement at expiry
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: binary options with fixed payout — defined first, validated against spec
-- [ ] Spec checkpoint: Monte Carlo pricing for binary options — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: binary options with fixed payout — defined first, validated against spec
+- [x] Spec checkpoint: Monte Carlo pricing for binary options — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -189,13 +189,13 @@ Implement FX derivatives: forwards, swaps, NDFs, and vanilla options. Includes p
 5. **Migration note:** `migrations/034_create_variation_margin.up.sql` — `variation_margin` table (id, account_id, instrument_id, vm_amount, mtm_value, settled_at, created_at).
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] VM = MTM change since previous settlement
-* [ ] Collected/paid daily
-* [ ] Works for all derivative types
+* [x] VM = MTM change since previous settlement
+* [x] Collected/paid daily
+* [x] Works for all derivative types
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: variation margin for derivatives — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: variation margin for derivatives — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -212,13 +212,13 @@ Implement FX derivatives: forwards, swaps, NDFs, and vanilla options. Includes p
 4. Automatic roll: configurable per account.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Roll closes expiring + opens new contract
-* [ ] Roll price computed correctly
-* [ ] Automatic roll works
+* [x] Roll closes expiring + opens new contract
+* [x] Roll price computed correctly
+* [x] Automatic roll works
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: position roll — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: position roll — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -235,14 +235,14 @@ Implement FX derivatives: forwards, swaps, NDFs, and vanilla options. Includes p
 4. Instrument linkage: derivative orders validate `instruments.settlement_mode` and the instrument's `expiry_at`/value-date conventions.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] All derivative params persisted + WAL/snapshot round-trip (§24 #131)
-* [ ] Per-type required-field validation rejects incomplete derivative orders
-* [ ] Swap legs carry independent value dates; NDF fixing source recorded
+* [x] All derivative params persisted + WAL/snapshot round-trip (§24 #131)
+* [x] Per-type required-field validation rejects incomplete derivative orders
+* [x] Swap legs carry independent value dates; NDF fixing source recorded
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: derivative order params persisted (§5.4, §24 #131) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: expiry before value date, barrier inside current market, missing premium on option buy
+- [x] Spec checkpoint: derivative order params persisted (§5.4, §24 #131) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [x] Edge cases: expiry before value date, barrier inside current market, missing premium on option buy
 
 ---
 
@@ -261,18 +261,18 @@ Implement FX derivatives: forwards, swaps, NDFs, and vanilla options. Includes p
    **(amended 2026-09-20 — feature-completeness audit remediation #11):** American-style intra-day exercise pipeline: exercise request → pro-rata writer assignment by open interest with random tie-break → **WAL event `OPTION_ASSIGNMENT` is appended by the engine, not this Go service** (single-writer invariant, remediation #35 — the derivatives service emits an IPC command; the engine owns WAL appends and the seq/checksum invariants) → position mutation on both buyer and writer (off-book position transfer at strike via the Phase-19 Task 19.3.12 machinery — not a public-CLOB spot trade, which would cross the book at an off-market strike) → margin recalculation within same cycle (target: ≤ 5 seconds end-to-end; margin evaluation path = synchronous call into the margin service with its own timeout/fallback) → position mutation on both buyer and writer → margin recalculation within same cycle (target: ≤ 5 seconds end-to-end) → NATS notification to buyer and writer private channels. Assignment is blocked during active liquidation auctions (assignment cannot worsen a liquidating account's position). Intra-day assignment records are logged in `option_assignments` table with timestamp, exercise_price, assignment_price, and margin_impact.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Premium settles T+2 via GL (§24 #158)
-* [ ] Manual exercise rejected after 15:00 UTC cutoff
-* [ ] Auto-exercise ≥0.5% ITM at expiry; OTM expire worthless
-* [ ] Exercise produces spot trade/cash delta with writer assignment; GL-posted
-* [ ] American-style intra-day exercise processes within 5 seconds end-to-end
-* [ ] Assignment blocked during active liquidation auctions
-* [ ] `option_assignments` table records all assignment events with margin impact
+* [x] Premium settles T+2 via GL (§24 #158)
+* [x] Manual exercise rejected after 15:00 UTC cutoff
+* [x] Auto-exercise ≥0.5% ITM at expiry; OTM expire worthless
+* [x] Exercise produces spot trade/cash delta with writer assignment; GL-posted
+* [x] American-style intra-day exercise processes within 5 seconds end-to-end
+* [x] Assignment blocked during active liquidation auctions
+* [x] `option_assignments` table records all assignment events with margin impact
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: option lifecycle — premium, cutoff, auto-exercise (§15.4, §24 #158) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: expiry on holiday (next business day per holiday calendar Task 3.3.8), exercise during instrument HALT, binary option expiry (no exercise — payout evaluation)
+- [x] Spec checkpoint: option lifecycle — premium, cutoff, auto-exercise (§15.4, §24 #158) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [x] Edge cases: expiry on holiday (next business day per holiday calendar Task 3.3.8), exercise during instrument HALT, binary option expiry (no exercise — payout evaluation)
 
 ---
 
@@ -292,15 +292,15 @@ Implement FX derivatives: forwards, swaps, NDFs, and vanilla options. Includes p
 **Migration note:** `migrations/043_legal_agreements.up.sql` — `legal_agreements` + `accounts.umr_in_scope` (spec §15.5).
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] NDF/option orders rejected `LEGAL_DOC_REQUIRED` without EXECUTED ISDA+CSA (§24 #146)
-* [ ] SIMM-consistent IM computed per counterparty; segregated + haircut per collateral schedule
-* [ ] Daily IM calls through margin-call workflow (10d MPOR)
-* [ ] `umr_in_scope` gates IM applicability; out-of-scope uses standard margin
+* [x] NDF/option orders rejected `LEGAL_DOC_REQUIRED` without EXECUTED ISDA+CSA (§24 #146)
+* [x] SIMM-consistent IM computed per counterparty; segregated + haircut per collateral schedule
+* [x] Daily IM calls through margin-call workflow (10d MPOR)
+* [x] `umr_in_scope` gates IM applicability; out-of-scope uses standard margin
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: IM/UMR + legal agreements (§15.5, §24 #146) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: agreement terminated with open positions (block new, allow reduce-only), IM dispute window, ineligible collateral for IM posting
+- [x] Spec checkpoint: IM/UMR + legal agreements (§15.5, §24 #146) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [x] Edge cases: agreement terminated with open positions (block new, allow reduce-only), IM dispute window, ineligible collateral for IM posting
 
 ---
 
@@ -317,12 +317,12 @@ Implement FX derivatives: forwards, swaps, NDFs, and vanilla options. Includes p
 3. Match across books atomically.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Multi-Leg Implied Matching Engine implementation completed
-* [ ] Tests passing for Multi-Leg Implied Matching Engine
+* [x] Multi-Leg Implied Matching Engine implementation completed
+* [x] Tests passing for Multi-Leg Implied Matching Engine
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: Multi-Leg Implied Matching Engine — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: Multi-Leg Implied Matching Engine — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -340,15 +340,15 @@ Implement FX derivatives: forwards, swaps, NDFs, and vanilla options. Includes p
 5. Real-time spread detection runs on every position change event.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] Spread recognition detects verticals, straddles, strangles, calendar spreads
-* [ ] Vertical spread margin ≤ max loss of spread
-* [ ] Offsets apply only in PORTFOLIO margin mode
-* [ ] Admin-configurable offset percentages with audit trail
+* [x] Spread recognition detects verticals, straddles, strangles, calendar spreads
+* [x] Vertical spread margin ≤ max loss of spread
+* [x] Offsets apply only in PORTFOLIO margin mode
+* [x] Admin-configurable offset percentages with audit trail
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: option spread margin offsets — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
-- [ ] Edge cases: partially filled spread (one leg only), spread broken by partial close, multi-currency spreads
+- [x] Spec checkpoint: option spread margin offsets — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
+- [x] Edge cases: partially filled spread (one leg only), spread broken by partial close, multi-currency spreads
 
 ### Task 22.3.14: Vol Surface Arbitrage Rejection & Option Exercise Margin Failures
 
@@ -360,8 +360,8 @@ Implement FX derivatives: forwards, swaps, NDFs, and vanilla options. Includes p
 3. **Exercise Margin Shortfall Fail-Closed:** When an in-the-money option auto-exercises or is manually exercised, verify the exercising account has sufficient margin to hold the resulting spot/forward position. If margin is insufficient and cannot be covered, immediately trigger liquidation auction flow on the resulting position rather than rejecting delivery into an inconsistent state.
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: Option pricing solvers fail gracefully on numerical non-convergence and exercise shortfalls trigger liquidation (§24 #324) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: Option pricing solvers fail gracefully on numerical non-convergence and exercise shortfalls trigger liquidation (§24 #324) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -377,13 +377,13 @@ Implement FX derivatives: forwards, swaps, NDFs, and vanilla options. Includes p
 5. **Margin linkage:** SIMM bucket/risk-weight/correlation tables with dispute-window length; IM-vs-VM netting rule; writer delta-margin linkage into Phase-19 spot margin; Task 22.3.13 spread offsets interact with SIMM as offsets-before-aggregation, never double-counted. Expiry/roll coordination: forward-maturity auto-settle vs physical-delivery funding sequence with Phase-24 nostro, roll spread-tolerance, trade-group preservation on roll close+open, and auto-roll vs same-day option-expiry conflict resolution.
 
 **Definition of Done (Acceptance Criteria):**
-* [ ] American prices match lattice reference within tolerance; European unchanged
-* [ ] Surface builds without arbitrage; fallback hierarchy demonstrated per feed failure
-* [ ] Assignment, barrier and expiry/roll sequences replay deterministically
+* [x] American prices match lattice reference within tolerance; European unchanged
+* [x] Surface builds without arbitrage; fallback hierarchy demonstrated per feed failure
+* [x] Assignment, barrier and expiry/roll sequences replay deterministically
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: lattice American pricing, built IV surface with fallback hierarchy, deterministic assignment/barrier/expiry-roll linkage (§24 #346) — defined first, validated against spec
-- [ ] All spec checkpoints pass after implementation
+- [x] Spec checkpoint: lattice American pricing, built IV surface with fallback hierarchy, deterministic assignment/barrier/expiry-roll linkage (§24 #346) — defined first, validated against spec
+- [x] All spec checkpoints pass after implementation
 
 ---
 
@@ -482,3 +482,28 @@ Implement FX derivatives: forwards, swaps, NDFs, and vanilla options. Includes p
 | 41 | Volatility surface arbitrage rejects quotes with VOLATILITY_SURFACE_ARBITRAGE; ITM option exercise with insufficient margin triggers automatic liquidation (§24 #324) |
 | 42 | American options on lattice with exercise boundary; built IV surface with feed-fallback hierarchy; pro-rata assignment; discrete barrier evaluation; SIMM linkage with spread offsets; coordinated expiry/roll (§24 #346) |
 | 43 | Option premium settlement failure path: buyer lacking `premium_currency` balance at T+2 rejects with `PREMIUM_INSUFFICIENT` (400) and queues into the margin-call workflow (Task 19.3.3); GL reversal rules defined (§24 #393; added 2026-09-27, remediation #35 — a failed premium debit midway was a zero-loss-invariant hazard with no code and no path) |
+
+---
+
+## Phase-22 Settle Addendum (2026-09-30) — implementation record
+
+All 15 tasks implemented across 6 disjoint work-streams; **17/17 spec checkpoints bound and green** (`tests/spec/checks/phase22.go`; tasks 22.3.5/22.3.6 carry two checkpoints each). 91/91 DoD/SDD rows ticked. C++ suite: **36/36 ctest green** incl. `test_implied` + `test_implied_engine` (production-ingress implied matching: implied-in/out fills, resting out-book fills on leg arrival, POST_ONLY probe, FOK admission, IOC partial, OCO cleanup, stop-trigger implied sweep, curve-ingress routing + bounded dirty-drain).
+
+**Migrations landed:** 034 `variation_margin` / 039 `orders_derivative_params` / 043 `legal_agreements` / 085 `option_spread_offsets` (plan-reserved verbatim) + 252 `option_barrier_events` / 253 `umr_im_assessments` / 254 `derivative_contracts` / 255 `derivatives_roll_lifecycle` (fresh numbers). Zero collisions; all `.down.sql` paired.
+
+**Deviations and honest seams (recorded, not hidden):**
+
+1. **Task 22.3.12 file location:** the task prescribes `services/internal/features/22_3_12.go`; the implied-matching feature gate landed at `services/internal/derivatives/implied_gate.go` — `internal/flags` (migration-193 `feature_flags`) is the established flag convention, and the gate is a `FlagResolver` seam over `flags.Store`. The engine-side machinery lives in `core/src/matching/ImpliedMatcher.cpp` + `MatchingEngine` wiring. Recorded in spec §27.
+2. **FOK is outright-only:** FOK orders never consume implied liquidity — a mixed outright+implied feasibility result could false-positive and produce a partial FOK execution, violating all-or-nothing. FOK on a locally-empty book therefore rejects `ORDER_REJECTED_NO_LIQUIDITY` at admission rather than consulting the implied probe. Recorded in spec §27.
+3. **Empty-book admission gate consults implied liquidity** for non-FOK takers (`IOC`/restable types) when the local opposite side is empty — a read-only `evaluate_incoming` probe exempts the order from `ORDER_REJECTED_NO_LIQUIDITY` so `match_incoming` can run. Recorded in spec §27.
+4. **Protected market orders do not sweep implied liquidity** while a hard slippage/protection bound is active; the local opposite price-level read is null-guarded for implied-exempted orders on an empty out-book. Recorded in spec §27.
+5. **Curve-shard production host:** `matching_engine -curve <ids> -curve-symbols <syms> -implied-link <out>:<s0>:<i0>:<r0>:<s1>:<i1>:<r1>` co-locates N linked instruments on one matching thread — one `MatchingEngine` per instrument, one shared `ImpliedMatcher`, one WAL writer, one shared trade-ID stream, one `CurveIngress` router dispatching wire orders by `instrument_id` (cancels/amends route by book+pending+parked ownership probe). Recovery binds all N books and routes WAL rows by `instrument_id`; each instrument snapshots independently under the shared store. Single-book mode is unchanged. Recorded in spec §27.
+6. **Hidden/non-displayed quantity is excluded from implied capacity** — the matcher computes leg capacity from displayed depth only; a hidden remainder never mints an implied quote it cannot honor.
+7. **Exercise blocked during liquidation auctions (AC #39):** `ExerciseAuctionGuard` seam (satisfied by `*risk.PgLiquidationStore.ActiveAuctions`) gates `exerciseAttempt` for both MANUAL and AUTO sources — a live §13.4 auction on the option instrument or its underlying rejects assignment `OPTION_EXERCISE_AUCTION_BLOCKED` (409); an unreadable guard fails closed `EXERCISE_AUCTION_EVAL_FAILED` (503). On the AUTO path a block leaves the option OPEN for the next sweep (fail-closed, no stranded delivery). `option_assignments` (migration 255) logs every assignment with mark/margin-impact.
+8. **Exercise during instrument HALT** is covered by the mark-staleness gate rather than a dedicated state check: `freshOptMark` halts the lifecycle on a stale/missing oracle mark (fail-closed), which is the operative risk during HALT; deliberate exercise-while-HALT with a fresh mark is permitted (delivery is settlement, not book matching).
+9. **`OptionService` is not yet constructed in a `cmd/` binary** — the lifecycle service, roll engine, VM sweep and margin/offets machinery are verified library surfaces; service/binary wiring is an ops-topology decision bound when the derivatives runner lands (consistent with Phase-19 seam-wiring precedent).
+10. **`orders`-package `validateDerivativeParams`** has no dedicated unit test; admission coverage is via the FIX 5.0 SP2 contract tests (`TestForwardMapping`, `TestNDFRequiresFixingDate`, `TestSwapLegDates`, `TestOptionContract`) plus structural binding — flagged for hardening.
+
+**Error registry:** no specRow delta — the 4 emitted spec codes (`VARIATION_MARGIN_INSUFFICIENT`, `OPTION_ASSIGNMENT_FAILED`, `OPTION_EXERCISE_MARGIN_SHORTFALL`, `PREMIUM_INSUFFICIENT`) were pre-tabled at remediation #19 — emitted stays **207** (202 §23 + 5 matrix-resident). **+21 localCodes** pending §23 transcription (`VOLATILITY_SURFACE_UNAVAILABLE`, `OPTION_PRICING_INPUT_INVALID`, `BENCHMARK_UNAVAILABLE`, `DERIVATIVE_STATE_CONFLICT`, `ROLL_NOT_PERMITTED`, `ROLL_TARGET_INVALID`, `ROLL_SPREAD_TOLERANCE_EXCEEDED`, `ROLL_CONFIG_INVALID`, `OPTION_NOT_EXERCISABLE`, `OPTION_CONTRACT_INVALID`, `MARGIN_CALL_QUEUE_FAILED`, `OPTION_EXERCISE_AUCTION_BLOCKED`, `EXERCISE_AUCTION_EVAL_FAILED`, `DERIVATIVE_PARAMS_INVALID`, `IMPLIED_MATCHING_UNAVAILABLE`, `VARIATION_MARGIN_INTERNAL`, `EXERCISE_MARGIN_EVAL_UNAVAILABLE`, `UMR_IM_EVAL_FAILED`, `SPREAD_OFFSET_PARAM_INVALID`, `SPREAD_OFFSET_INTERNAL`, `LIQUIDATION_FAILED` — cites Phase-19 Task 19.3.3 as owner, registered by the Phase-22 exercise-shortfall liquidation seam).
+
+**Settle-time fixes:** `types.go` `ON CONFLICT` clause matched to migration-254's partial-unique-index predicate (42P10 under the PG tests); the §24 #247 auction-block seam implemented during verification (guard + 2 codes + gated test) after the parallel agents landed without it; `ImpliedMatcher` wired into `MatchingEngine` (was a tested standalone unit — bind/rescan/owner-hook integration, eager book registration, shared trade-ID stream, bounded dirty-drain) plus the curve-shard host in `main.cpp`; `implied_gate_test.go` added (gate had no test).

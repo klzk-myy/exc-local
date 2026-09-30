@@ -136,6 +136,106 @@ class MatchingEngineIngress final : public IEngineIngress {
     uint64_t unrouted_links_ = 0;
 };
 
+// --- CurveIngress -------------------------------------------------------------
+//
+// Task 22.3.12 — multi-engine ingress for a curve shard: one process hosts
+// N instrument engines co-located on the matching thread so a shared
+// ImpliedMatcher can synthesize liquidity across the curve. The adapter
+// owns the wire->engine routing that MatchingEngineIngress leaves implicit:
+//
+//   * OrderNew    — routed by aux.instrument_id (decoded in dispatch);
+//                   an unroutable instrument is a counted drop and the node
+//                   is returned to the shared pool — never a misrouted book
+//                   mutation.
+//   * OcoLink     — routed by its wire instrument_id.
+//   * Cancel/Amend— the wire carries no instrument_id: each engine's
+//                   owns_order probe (book + pending-stop + parked list)
+//                   resolves the owner in registration order. No owner
+//                   found => counted no-op (per-engine UNKNOWN_ORDER is the
+//                   single-engine path; the shard-level verdict lives in
+//                   unrouted_cancels_).
+//   * TimeTick    — broadcast to every engine (all books share the
+//                   shard's deterministic clock).
+//
+// After EVERY dispatched event the adapter runs the dirty-drain fixpoint
+// the engine contract requires: implied fills inside a sibling book mark
+// that engine dirty; drain passes implied_sync() each dirty engine until
+// stable (bounded — fills strictly consume liquidity, so it converges).
+//
+// All engines MUST share the Order pool the pump allocates from (nodes
+// migrate between books through implied fills' bookkeeping) and MUST be
+// bound to the shared trade-id stream — see MatchingEngine::bind_implied.
+class CurveIngress final : public IEngineIngress {
+   public:
+    static constexpr uint32_t kMaxEngines = 16;
+    // Drain bound — fills strictly consume book liquidity so the fixpoint
+    // converges; the bound is defensive against a bookkeeping cycle.
+    static constexpr uint32_t kMaxDrainPasses = 8;
+
+    explicit CurveIngress(MemoryPool<Order>* orders = nullptr) noexcept
+        : orders_(orders) {}
+    void bind_pool(MemoryPool<Order>* orders) noexcept { orders_ = orders; }
+
+    // Cold path — before any ingress. Fails closed on capacity or a
+    // duplicate instrument_id.
+    [[nodiscard]] bool add_engine(MatchingEngine* engine,
+                                  uint32_t instrument_id) noexcept;
+
+    void on_order_received(Order* order) noexcept override;
+    void on_order_received_ex(Order* order,
+                              const OrderAux& aux) noexcept override;
+    void on_cancel_received(uint64_t order_id,
+                            uint64_t account_id) noexcept override;
+    void on_time_tick(uint64_t now_ns) noexcept override;
+    void on_amend_received(uint64_t order_id, int64_t price_ticks,
+                           int64_t qty_units, int64_t stop_price_ticks,
+                           uint64_t ingress_seq) noexcept override;
+    void on_oco_link_received(uint64_t link_id, uint64_t order_id_a,
+                              uint64_t order_id_b, uint64_t account_id,
+                              uint32_t instrument_id) noexcept override;
+
+    // The dirty-drain fixpoint — also safe to call between batched
+    // dispatches; run_once batches are drained once per dispatch so
+    // wal/dirty state is always settled before the next wire event.
+    void drain() noexcept;
+
+    [[nodiscard]] uint32_t engine_count() const noexcept { return n_; }
+    [[nodiscard]] uint64_t unrouted_orders() const noexcept {
+        return unrouted_orders_;
+    }
+    [[nodiscard]] uint64_t unrouted_cancels() const noexcept {
+        return unrouted_cancels_;
+    }
+    [[nodiscard]] uint64_t unrouted_amends() const noexcept {
+        return unrouted_amends_;
+    }
+    [[nodiscard]] uint64_t unrouted_links() const noexcept {
+        return unrouted_links_;
+    }
+    // Drain passes that hit the bound — nonzero means a fixpoint failed
+    // to converge within kMaxDrainPasses (alert-worthy).
+    [[nodiscard]] uint64_t drain_saturated() const noexcept {
+        return drain_saturated_;
+    }
+
+   private:
+    MatchingEngine* owner_of(uint64_t order_id) noexcept;
+    MatchingEngine* engine_for(uint32_t instrument_id) noexcept;
+
+    struct Entry {
+        MatchingEngine* engine;
+        uint32_t        instrument_id;
+    };
+    Entry entries_[kMaxEngines] = {};
+    uint32_t n_ = 0;
+    MemoryPool<Order>* orders_ = nullptr;
+    uint64_t unrouted_orders_  = 0;
+    uint64_t unrouted_cancels_ = 0;
+    uint64_t unrouted_amends_  = 0;
+    uint64_t unrouted_links_   = 0;
+    uint64_t drain_saturated_  = 0;
+};
+
 // --- Bounded latency histogram ----------------------------------------------
 // HDR-style log2 buckets, fixed storage — zero allocation. Bucket i counts
 // samples in [2^i, 2^{i+1}) ns; bucket 63 saturates at >= 2^62 ns.
