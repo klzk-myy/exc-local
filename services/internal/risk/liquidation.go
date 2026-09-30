@@ -447,6 +447,10 @@ type LiquidationEventRow struct {
 	PenaltyAmount             decimal.Decimal
 	ADLQuintile               *int
 	JournalEntryID            *int64
+	// Basis records the pricing provenance (mig 236): MARK for a fresh
+	// oracle mark, STALE_MARK for a Task-19.5.3.6 fallback-priced leg.
+	// Empty stores as MARK — the audit flag must never be silent.
+	Basis string
 }
 
 // ---------------------------------------------------------------------------
@@ -464,10 +468,11 @@ type LiquidationService struct {
 	dispatch accounts.OrderDispatcher // orders.Dispatcher in production
 	fund     *InsuranceFundService
 	auction  *AuctionEngine
-	margin   *MarginCallService // lifecycle hand-off (may be nil in tests)
-	nbp      *NBPService        // §13.6c post-liquidation eval (may be nil)
-	adl      *ADLEngine         // §13.11 depletion fallback (may be nil)
-	adv      ADVSource          // §13.4a/6a slicing yardstick (may be nil)
+	margin   *MarginCallService  // lifecycle hand-off (may be nil in tests)
+	nbp      *NBPService         // §13.6c post-liquidation eval (may be nil)
+	adl      *ADLEngine          // §13.11 depletion fallback (may be nil)
+	adv      ADVSource           // §13.4a/6a slicing yardstick (may be nil)
+	staleFb  StaleFallbackSource // Task 19.5.3.6 stale-price ladder (may be nil)
 	alerter  OpsAlerter
 	now      func() time.Time
 	logf     func(format string, args ...any)
@@ -506,8 +511,13 @@ type LiquidationDeps struct {
 	// inter-slice delay. Nil or unavailable ADV ⇒ unsliced closes — a
 	// liquidation never stalls on missing analytics (the §2.7
 	// pessimism for unknown ADV lives in the §13.12 margin add-on).
-	ADV     ADVSource
-	Alerter OpsAlerter
+	ADV ADVSource
+	// StaleFallback is the Task-19.5.3.6 stale-price ladder reader —
+	// oracle:fallback:{symbol} + :freeze keys. Nil keeps Phase-19
+	// behavior (stale marks close at their stored value); bound in
+	// production by NewRedisStaleFallbackSource.
+	StaleFallback StaleFallbackSource
+	Alerter       OpsAlerter
 	// SlippageBps is the synthetic-limit band for direct closes
 	// (default 200 = 2% — wider than normal flow, narrower than
 	// FORCE_CASH; liquidation must fill).
@@ -541,6 +551,7 @@ func NewLiquidationService(d LiquidationDeps) (*LiquidationService, error) {
 		queue: d.Queue, dispatch: d.Dispatch, fund: d.Fund,
 		auction: d.Auction, margin: d.MarginCall, nbp: d.NBP, adl: d.ADL,
 		adv:     d.ADV,
+		staleFb: d.StaleFallback,
 		alerter: d.Alerter,
 		now:     d.Now, logf: d.Logf, slippageBps: d.SlippageBps,
 	}
@@ -592,6 +603,14 @@ func (s *LiquidationService) ConsumeOnce(ctx context.Context) error {
 	defer s.releaseLock(ctx, job.AccountID, tok)
 
 	if err := s.liquidateAccount(ctx, *job); err != nil {
+		// Flash-crash cooling (Task 19.5.3.6): a FLASH_COOL symbol
+		// defers the job through the timed delayed queue — it is NOT a
+		// failure and never burns retry attempts.
+		var frozen errFlashFrozen
+		if stderrors.As(err, &frozen) {
+			s.logf("liquidation: %v — deferring acct %d", err, job.AccountID)
+			return s.queue.Release(ctx, *job)
+		}
 		// A mid-liquidation failure is retried through the same delayed
 		// protocol — the account lock still serializes the retry.
 		return s.strandGuard(ctx, *job, err)
@@ -727,7 +746,9 @@ func (s *LiquidationService) liquidateIsolated(ctx context.Context, p LiqPositio
 		}, lv)
 	}
 	defer s.releaseLock(ctx, p.AccountID, tok)
-	return s.closePosition(ctx, p, LiquidationReasonScanner, nil)
+	// Route through closeTranches — isolated positions ride the same
+	// stale-fallback ladder and ADV slicing as account-level closes.
+	return s.closeTranches(ctx, p, LiquidationReasonScanner, nil)
 }
 
 // ---------------------------------------------------------------------------
@@ -821,7 +842,7 @@ func (s *LiquidationService) liquidateAccount(ctx context.Context, job Liquidati
 // positions close directly through the normal pipeline (SubmitClose —
 // reduce-only synthetic limit IOC, never a separate fill path).
 func (s *LiquidationService) closePosition(ctx context.Context, p LiqPosition,
-	reason string, marginCallEvID *int64) error {
+	reason string, marginCallEvID *int64, basis string) error {
 
 	if s.auction != nil {
 		oi, err := s.store.OpenInterest(ctx, p.InstrumentID)
@@ -833,7 +854,7 @@ func (s *LiquidationService) closePosition(ctx context.Context, p LiqPosition,
 			return s.auction.Open(ctx, p, reason, marginCallEvID)
 		}
 	}
-	return s.directClose(ctx, p, reason, marginCallEvID, s.slippageBps)
+	return s.directClose(ctx, p, reason, marginCallEvID, s.slippageBps, basis)
 }
 
 // liquidationSliceDelay is the §13.4a/Task-19.3.16-item-6a inter-tranche
@@ -862,8 +883,36 @@ var (
 func (s *LiquidationService) closeTranches(ctx context.Context, p LiqPosition,
 	reason string, marginCallEvID *int64) error {
 
+	// Task 19.5.3.6: resolve the stale-price fallback BEFORE routing.
+	// A FLASH_COOL freeze defers the whole close (timed requeue — never
+	// a silent skip); a stale ref de-rates the working mark to the
+	// tier's pessimistic reference and tags every leg STALE_MARK.
+	fbPx, fbRef, fbErr := s.staleFallback(ctx, p, p.Symbol)
+	if fbErr != nil {
+		return fbErr
+	}
+	basis := LiquidationBasisMark
+	if fbRef != nil {
+		basis = LiquidationBasisStale
+		if fbPx.IsPositive() {
+			p.MarkPrice = fbPx
+		}
+		// Tiered routing: ≥15s stale closes ride the auction ladder
+		// only; >60s forces cash settlement at the widened band + P0.
+		if fbRef.ForceCash() {
+			s.raiseAlert(ctx, SeverityP1, "LIQUIDATION_FORCE_CASH_STALE",
+				fmt.Sprintf("pos %d %s stale >60s — FORCE_CASH at last mark ±10%%",
+					p.ID, p.Symbol), map[string]string{
+					"position_id": fmt.Sprint(p.ID), "symbol": p.Symbol})
+			return s.directClose(ctx, p, reason, marginCallEvID, 1000, basis)
+		}
+		if fbRef.AuctionOnly() && s.auction != nil {
+			return s.auction.Open(ctx, p, reason, marginCallEvID)
+		}
+	}
+
 	if s.adv == nil {
-		return s.closePosition(ctx, p, reason, marginCallEvID)
+		return s.closePosition(ctx, p, reason, marginCallEvID, basis)
 	}
 	mark := p.MarkPrice
 	if !mark.IsPositive() {
@@ -872,7 +921,7 @@ func (s *LiquidationService) closeTranches(ctx context.Context, p LiqPosition,
 	adv, err := s.adv.ADV(ctx, p.InstrumentID)
 	if err != nil || !adv.IsPositive() || !mark.IsPositive() ||
 		!p.Notional().GreaterThan(adv.Mul(advSliceTrigger)) {
-		return s.closePosition(ctx, p, reason, marginCallEvID)
+		return s.closePosition(ctx, p, reason, marginCallEvID, basis)
 	}
 	// Tranche qty in base units = 10% ADV notional ÷ mark, capped at
 	// the remaining position; sign follows the original quantity.
@@ -888,7 +937,7 @@ func (s *LiquidationService) closeTranches(ctx context.Context, p LiqPosition,
 		if p.Quantity.IsNegative() {
 			tr.Quantity = q.Neg()
 		}
-		if err := s.closePosition(ctx, tr, reason, marginCallEvID); err != nil {
+		if err := s.closePosition(ctx, tr, reason, marginCallEvID, basis); err != nil {
 			return err
 		}
 		remaining = remaining.Sub(q)
@@ -917,7 +966,7 @@ func (s *LiquidationService) closeTranches(ctx context.Context, p LiqPosition,
 // and persists the liquidation_events row. The fill arrives async via
 // the engine ack path; the row records the dispatch economics.
 func (s *LiquidationService) directClose(ctx context.Context, p LiqPosition,
-	reason string, marginCallEvID *int64, slippageBps int) error {
+	reason string, marginCallEvID *int64, slippageBps int, basis string) error {
 
 	ack, err := s.dispatch.SubmitClose(ctx, accounts.CloseOrderRequest{
 		AccountID:      p.AccountID,
@@ -950,6 +999,7 @@ func (s *LiquidationService) directClose(ctx context.Context, p LiqPosition,
 		Quantity:          p.Quantity.Abs(),
 		Price:             p.MarkPrice, // provisional — reconciled on fill
 		MarkPrice:         p.MarkPrice,
+		Basis:             basis,
 	})
 	if err != nil {
 		return excerrors.Wrap("INTERNAL_ERROR", "liquidation event row", err)

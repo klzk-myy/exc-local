@@ -35,6 +35,7 @@ type stack struct {
 	err     error
 	dir     string
 	engines []*itest.EngineProc
+	oracle  *itest.OracleProc
 	gw      *itest.GatewayProc
 	jwtKey  string
 	dataKey []byte
@@ -112,6 +113,24 @@ func bootStack(ctx context.Context) error {
 		}
 	}
 
+	// Phase-19.5: the price oracle is a required stack component — the
+	// order admission gate fails closed (PRICE_ORACLE_UNAVAILABLE) for
+	// margin instruments without published oracle health. Boot the
+	// scripted-sim oracle against the scratch Redis DB before the
+	// gateway so the gate sees a live oracle.
+	orcl, err := itest.StartOracle(ctx, env, dir, []string{
+		"EUR/USD", "GBP/USD", "USD/JPY", "USD/CHF",
+		"AUD/USD", "NZD/USD", "USD/CAD", "USD/MXN",
+		"USD/BRL", "EUR/GBP", "EUR/JPY", "EUR/CHF",
+	})
+	if err != nil {
+		return fmt.Errorf("oracle: %w", err)
+	}
+	stk.oracle = orcl
+	if err := orcl.WaitHealthy(ctx, env, "EUR/USD", 10*time.Second); err != nil {
+		return err
+	}
+
 	bin, err := itest.BuildGateway(ctx, env, dir)
 	if err != nil {
 		return err
@@ -155,6 +174,9 @@ func bootStack(ctx context.Context) error {
 func stopStack() {
 	if stk.gw != nil {
 		stk.gw.Stop()
+	}
+	if stk.oracle != nil {
+		stk.oracle.Stop()
 	}
 	for _, p := range stk.engines {
 		p.Stop()

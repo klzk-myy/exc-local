@@ -1377,3 +1377,60 @@ scheduler lands with Phase-24 cycles; mark-price oracle is the stub provider
 until Phase-19.5; option-margin linkage (19.3.25) is a documented
 post-Phase-22 back-fit; `127.0.0.1:55433` scratch-PG ITs env-gated in this
 shell (all gated suites green on the dev instance).
+
+## [2026-09-30] — PHASE-19.5 SETTLE (price oracle & mark price — all 7 tasks)
+
+**7/7 P19.5 spec checkpoints bound and green**
+(`tests/spec/checks/phase19_5.go`); all 44 DoD/SDD rows ticked with
+evidence annotations. The Phase-19 stub mark provider is retired as the
+primary source — `risk.NewChainedMarkPriceProvider` puts the oracle
+first and last-trade second.
+
+- **Oracle core (`internal/oracle`, `cmd/oracle`):** `Feed` contract +
+  scripted `SimFeed` + configurable vendor HTTP adapters (Refinitiv /
+  Bloomberg BFIX / ECB reference rates — `EXC_*_URL` envs); median mark +
+  VWAP index over the post-staleness/post-divergence cohort on a 1s
+  `PublishCadence`; per-symbol 5s freshness (`StaleAfter`, `lastBySym`
+  tracking); `DivergenceBps=25` outlier exclusion; `MinFeeds=2`
+  fail-closed floor → `UNAVAILABLE` health.
+- **Publication:** `RedisPublisher` writes the contracted keyspace
+  atomically (`mark:{sym}`, `mark_price:{sym}`, `oracle:mark:{sym}[:ts]`,
+  `index_price:{sym}`, `oracle:index:{sym}[:ts]`, `oracle:health:{sym}`,
+  `oracle:staleness:{sym}`) plus `mark:{sym}` pub/sub deltas;
+  `AeronMarkSink` mirrors each round on the §26 multicast band
+  (224.0.1.1:40456, stream 1201, LE binary frame) bound when
+  `EXC_AERON_DIR` is set — the C++ `PriceOracleFeed` refresher polls the
+  Redis keyspace as its authoritative source; `TickSink`/`LogTickSink`
+  seam ready for Phase-20 ClickHouse `oracle_ticks_history` ingestion.
+- **Consumers:** `oracle.Provider` → `risk.MarkPriceProvider` adapter;
+  `orderSvc.WithOracleGate` rejects margin-increasing orders with
+  `PRICE_ORACLE_UNAVAILABLE` on absent/UNAVAILABLE health; gateway
+  publishes `exchange_oracle_health` metric + raises P1 alert on
+  UNAVAILABLE transitions.
+- **Rates (`internal/oracle/rates`):** per-currency yield curves, ≥7
+  tenors, ACT/360 vs ACT/365 per-currency day-count, log-linear
+  interpolation; `curve:{ccy}` + `fwd_points:{pair}` publication with
+  the same 5s gate (`ErrStaleForwardPoints`); settlement consumes via
+  `OracleSwapRateFeed` (`internal/settlement/oracle_swap_feed.go`).
+- **Stale liquidation fallback (Task 19.5.3.6):** oracle-side
+  `FallbackTracker` publishes `oracle:fallback:{sym}[:freeze]`; risk-side
+  `StaleFallbackSource`/`RedisStaleFallbackSource` applies tiered
+  haircuts 2% (5–15s) / 5% + auction-only (15–60s) / 10% + FORCE_CASH
+  (>60s), pessimistic by side; flash-crash >5%/1s arms `FLASH_COOL` 5s
+  cooling that defers liquidation without burning retries; provenance
+  persisted via mig 236 `liquidation_events.liquidation_basis`
+  (`MARK`/`STALE_MARK`); fresh marks clear fallback keys and the
+  per-tranche recovery re-check halts the ladder when no longer
+  underwater.
+- **Errors:** 5 new §23 rows — `ORACLE_FEED_STALE`,
+  `ORACLE_DIVERGENCE_EXCEEDED`, `MARK_PRICE_STALE`,
+  `MARK_PRICE_OUT_OF_BOUNDS`, `STALE_FORWARD_POINTS` (registry
+  200 → **205** spec codes); `PRICE_ORACLE_UNAVAILABLE` pre-existed.
+
+Counts: migrations 150 → **151** pairs (236 round-tripped on dev PG) ·
+§23 table **205** rows · traceability **419/419 mapped, 0 defects** ·
+checkpoint impl bindings 191 → **198**. Honest seams: vendor adapters
+are endpoint/key-configured HTTP integrations — production vendor
+wire-protocol credentials plug into the same constructors; ClickHouse
+archive binds with Phase-20's owned ingestion pipeline; Aeron band is
+optional (Redis keyspace is the C++ contract per `PriceOracleFeed.hpp`).

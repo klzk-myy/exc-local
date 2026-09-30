@@ -54,6 +54,7 @@ import (
 	"exchange/internal/objectstore"
 	"exchange/internal/observability"
 	"exchange/internal/ops"
+	"exchange/internal/oracle"
 	"exchange/internal/orders"
 	"exchange/internal/pamm"
 	"exchange/internal/position"
@@ -1123,12 +1124,21 @@ func run() error {
 	// and realized-PnL accounting. Persisted in migration-071 tables.
 	gridEngine := bots.NewEngine(bots.NewPgStore(pool), orderSvc, orderStore, nil)
 
-	// Phase-19 mark placeholder: last-trade mark provider (the
-	// Phase-19.5 oracle swaps in composite marks without touching this
-	// seam). Fed by every engine fill below so auction floors and
-	// FORCE_CASH caps always price off a live mark; PgLastTradeFallback
-	// covers cold start.
-	markProv := risk.NewStubMarkPriceProvider().WithFallback(risk.PgLastTradeFallback(pool))
+	// Phase-19.5 mark source (Task 19.5.3.4): the PriceOracle's
+	// published Redis marks are primary — median of ≥2 fresh feeds with
+	// provenance + staleness on every read. The last-trade stub stays
+	// bound as the no-oracle dev fallback and as the fill-hook Observe
+	// target (the chain delegates writes through). Phase-19 consumers
+	// are untouched — the frozen MarkPriceProvider seam carries both.
+	stubMarkProv := risk.NewStubMarkPriceProvider().WithFallback(risk.PgLastTradeFallback(pool))
+	oracleProv := oracle.NewProvider(rdb.Client)
+	markProv := risk.NewChainedMarkPriceProvider(
+		oracle.NewRiskMarkProvider(oracleProv), stubMarkProv)
+	// Task 19.5.3.7 — fail-closed staleness interceptor: a symbol whose
+	// oracle health reads UNAVAILABLE (or absent) rejects
+	// position-increasing margin orders with PRICE_ORACLE_UNAVAILABLE
+	// inside checkAdmission; reduce_only bypasses it.
+	orderSvc.WithOracleGate(oracleProv)
 	// markCache is the Redis mark keyspace (mark:{symbol}) — the
 	// Phase-19.5 oracle writes these keys; today the fill hook publishes
 	// last-trade deltas through the same seam so the event-driven
@@ -2733,9 +2743,13 @@ func run() error {
 			ADL:        adlEng,
 			// §13.4a/6a ADV slicing yardstick — same instrument:adv:{id}
 			// mirror the margin add-on reads.
-			ADV:     advSrc,
-			Alerter: opsAlerter,
-			Logf:    func(f string, a ...any) { log.Warn(fmt.Sprintf(f, a...)) },
+			ADV: advSrc,
+			// Task 19.5.3.6 stale-price ladder: reads the oracle's
+			// oracle:fallback:{sym} + :freeze keys — tiered haircuts,
+			// auction-only ≥15s, FORCE_CASH >60s, flash-crash freeze.
+			StaleFallback: risk.NewRedisStaleFallbackSource(rdb.Client),
+			Alerter:       opsAlerter,
+			Logf:          func(f string, a ...any) { log.Warn(fmt.Sprintf(f, a...)) },
 		}); lerr != nil {
 			log.Warn("phase19 liquidation service unavailable", "err", lerr)
 		} else {
@@ -2784,6 +2798,74 @@ func run() error {
 			}()
 		}
 	}
+	// Phase-19.5 Task 19.5.3.7 step 3 — downstream cascade broadcast:
+	// the oracle publishes oracle:health:{symbol} every tick; this
+	// surface exposes it on /metrics (2=OK, 1=DEGRADED, 0=UNAVAILABLE)
+	// and pages L1 on an UNAVAILABLE transition — the conditional-
+	// trigger suspension path already reads the same keys (Phase-16
+	// CONDITIONAL_TRIGGER_ORACLE_STALE).
+	metReg.VecFunc("exchange_oracle_health",
+		"Phase-19.5 oracle health per symbol (2=OK,1=DEGRADED,0=UNAVAILABLE)",
+		"gauge", func() []observability.PullSample {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			var out []observability.PullSample
+			iter := rdb.Client.Scan(ctx, 0, "oracle:health:*", 256).Iterator()
+			for iter.Next(ctx) {
+				key := iter.Val()
+				sym := strings.TrimPrefix(key, "oracle:health:")
+				v, err := rdb.Client.Get(ctx, key).Result()
+				if err != nil {
+					continue
+				}
+				score := 0.0
+				switch oracle.HealthState(v) {
+				case oracle.HealthOK:
+					score = 2
+				case oracle.HealthDegraded:
+					score = 1
+				}
+				out = append(out, observability.PullSample{
+					Labels: []string{"symbol", sym}, Value: score})
+			}
+			return out
+		})
+	go func() {
+		// UNAVAILABLE-transition pager — reads the oracle-published
+		// health keys on a 5s cadence and raises PRICE_ORACLE_UNAVAILABLE
+		// on a fresh outage (edge-triggered, per symbol).
+		last := map[string]oracle.HealthState{}
+		t := time.NewTicker(5 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-sweepCtx.Done():
+				return
+			case <-t.C:
+			}
+			ctx, cancel := context.WithTimeout(sweepCtx, 2*time.Second)
+			iter := rdb.Client.Scan(ctx, 0, "oracle:health:*", 256).Iterator()
+			for iter.Next(ctx) {
+				key, sym := iter.Val(), strings.TrimPrefix(iter.Val(), "oracle:health:")
+				v, err := rdb.Client.Get(ctx, key).Result()
+				if err != nil {
+					continue
+				}
+				h := oracle.HealthState(v)
+				if h == oracle.HealthUnavailable && last[sym] != oracle.HealthUnavailable &&
+					opsAlerter != nil {
+					_ = opsAlerter.Raise(ctx, settlement.OpsAlert{
+						Severity: settlement.SeverityP1,
+						Code:     "PRICE_ORACLE_UNAVAILABLE",
+						Summary:  fmt.Sprintf("oracle UNAVAILABLE on %s — fewer than 2 fresh feeds; margin orders halting", sym),
+						Details:  map[string]string{"symbol": sym},
+					})
+				}
+				last[sym] = h
+			}
+			cancel()
+		}
+	}()
 	// Phase-19 Tasks 19.3.26/19.3.27/19.3.28 — the event-driven margin
 	// engine, isolated-margin service, volatility scaler and intraday
 	// collateral monitor. The engine consumes mark:* deltas (published

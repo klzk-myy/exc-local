@@ -123,6 +123,7 @@ func liqStoreFixture(t *testing.T) (*PgLiquidationStore, *pgxpool.Pool) {
 		"042_client_categorization.up.sql",
 		"106_positions_isolated_margin.up.sql",
 		"230_liquidation_risk.up.sql",
+		"236_liquidation_basis.up.sql",
 	} {
 		liqStoreMigExec(t, ctx, dsn, schema, migDir+"/"+m)
 	}

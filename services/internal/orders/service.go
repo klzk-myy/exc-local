@@ -158,6 +158,20 @@ type MarginCallGate interface {
 	HasMarginCallBlock(ctx context.Context, accountID int64) (bool, error)
 }
 
+// OracleGate is the Phase-19.5 Task 19.5.3.7 fail-closed staleness
+// interceptor — *oracle.Provider satisfies it via GateOrderAdmission.
+// Consulted inside checkAdmission for every position-increasing order
+// on a marginable instrument: while the symbol's oracle health reads
+// UNAVAILABLE (fewer than 2 fresh independent feeds — or a silent
+// oracle that never published health), admission rejects
+// PRICE_ORACLE_UNAVAILABLE (503). reduce_only bypasses it (closing
+// exposure must stay possible during an oracle outage — the §13.4
+// stale-price ladder handles liquidation pricing). nil skips the gate
+// (unwired test/dev construction); a probe error fails closed.
+type OracleGate interface {
+	GateOrderAdmission(ctx context.Context, symbol string) error
+}
+
 // AdmissionObserver is the Phase-14 Task 14.3.2 auto-halt telemetry
 // seam — one call per Submit verdict carrying the admission-path
 // latency and the systemic-error classification
@@ -197,6 +211,7 @@ type Service struct {
 	coolingOff  CoolingOffGate
 	exposure    ExposureGate
 	marginCall  MarginCallGate
+	oracleGate  OracleGate
 	batch       BatchRateLimiter
 	commission  CommissionEstimator
 	admission   AdmissionObserver
@@ -296,6 +311,11 @@ func (s *Service) WithAdmission(o AdmissionObserver) { s.admission = o }
 // after the order dispatcher it needs for the activation saga, so the
 // gate attaches here (same pattern as WithAdmission).
 func (s *Service) WithCoolingOff(g CoolingOffGate) { s.coolingOff = g }
+
+// WithOracleGate binds the Task 19.5.3.7 oracle-health admission
+// interceptor. Called once at wiring time; nil disables (the fail-closed
+// path lives in GateOrderAdmission itself — absent health IS unavailable).
+func (s *Service) WithOracleGate(g OracleGate) { s.oracleGate = g }
 
 // WithMarginCall binds the Task 19.3.3 §13.6d margin-call order-entry
 // block post-construction — cmd/gateway builds MarginCallService after
@@ -495,6 +515,18 @@ func (s *Service) checkAdmission(ctx context.Context, acct *Account,
 		if blocked {
 			return codeErr("MARGIN_CALL_EXCEEDED",
 				"margin call active — position-increasing orders blocked (spec §13.6d)")
+		}
+	}
+	// Phase-19.5 Task 19.5.3.7 — oracle staleness interceptor: a symbol
+	// whose oracle health is UNAVAILABLE (or absent — a silent oracle
+	// cannot attest freshness) rejects position-increasing margin
+	// orders with PRICE_ORACLE_UNAVAILABLE. reduce_only bypasses it —
+	// closing exposure during an oracle outage rides the §13.4
+	// stale-price liquidation ladder. A probe error fails closed.
+	if !reduceOnly && s.oracleGate != nil &&
+		acct.Type != "SPOT" && inst.MaxLeverage > 0 {
+		if err := s.oracleGate.GateOrderAdmission(ctx, inst.Symbol); err != nil {
+			return err // PRICE_ORACLE_UNAVAILABLE (503) / health read failure
 		}
 	}
 	// Phase-14 Tasks 14.3.13/14.3.16 — product-profile instrument_scope +

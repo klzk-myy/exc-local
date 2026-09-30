@@ -41,6 +41,7 @@ tests/soak/*report*.json
 /snap/
 services/wal-recovery
 services/risk
+services/oracle
 
 # Phase-08 load-test artifacts (harness + report are tracked; bulk output is not)
 tests/load/results/

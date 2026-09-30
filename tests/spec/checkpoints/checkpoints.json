@@ -4520,10 +4520,10 @@
       "phase": "19",
       "task": "19.3.1",
       "index": 1,
-      "text": "CROSS/ISOLATED/PORTFOLIO margin modes",
+      "text": "CROSS/ISOLATED/PORTFOLIO margin modes — defined first, validated against spec — bound P19-T19.3.1-C1 in tests/spec/checks/phase19.go — structural + go test legs",
       "file": "Phase-19-Multi-Asset-Margin.md",
       "line": 46,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -4531,10 +4531,10 @@
       "phase": "19",
       "task": "19.3.2",
       "index": 1,
-      "text": "FX leverage ESMA/CFTC/professional",
+      "text": "FX leverage ESMA/CFTC/professional — defined first, validated against spec — bound P19-T19.3.2-C1",
       "file": "Phase-19-Multi-Asset-Margin.md",
       "line": 73,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -4542,10 +4542,10 @@
       "phase": "19",
       "task": "19.3.3",
       "index": 1,
-      "text": "margin call notification at 0.90 utilization with 15min deposit window",
+      "text": "margin call notification at 0.90 utilization with 15min deposit window — defined first, validated against spec — bound P19-T19.3.3-C1 (margin-call lifecycle incl. MARGIN_CALL_EXCEEDED order gate)",
       "file": "Phase-19-Multi-Asset-Margin.md",
       "line": 134,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -4553,10 +4553,10 @@
       "phase": "19",
       "task": "19.3.3",
       "index": 2,
-      "text": "liquidation auction CALL 5s / EXTEND ≤ 60s",
+      "text": "liquidation auction CALL 5s / EXTEND ≤ 60s — defined first, validated against spec — bound P19-T19.3.3-C2 (auction phases/floors/decay)",
       "file": "Phase-19-Multi-Asset-Margin.md",
       "line": 135,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -4564,10 +4564,10 @@
       "phase": "19",
       "task": "19.3.3",
       "index": 3,
-      "text": "floors ×0.98/×1.02, FORCE_CASH ×0.95/×1.05",
+      "text": "floors ×0.98/×1.02, FORCE_CASH ×0.95/×1.05 — defined first, validated against spec — bound P19-T19.3.3-C3 (FORCE_CASH legs)",
       "file": "Phase-19-Multi-Asset-Margin.md",
       "line": 136,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -4575,10 +4575,10 @@
       "phase": "19",
       "task": "19.3.3",
       "index": 4,
-      "text": "LP rebate 0.05% from insurance fund",
+      "text": "LP rebate 0.05% from insurance fund — defined first, validated against spec — bound P19-T19.3.3-C4 (LP rebate from insurance fund)",
       "file": "Phase-19-Multi-Asset-Margin.md",
       "line": 137,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -4586,10 +4586,10 @@
       "phase": "19",
       "task": "19.3.4",
       "index": 1,
-      "text": "insurance fund",
+      "text": "insurance fund — defined first, validated against spec — bound P19-T19.3.4-C1",
       "file": "Phase-19-Multi-Asset-Margin.md",
       "line": 163,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -4597,10 +4597,10 @@
       "phase": "19",
       "task": "19.3.5",
       "index": 1,
-      "text": "exposure limits",
+      "text": "exposure limits — defined first, validated against spec — bound P19-T19.3.5-C1",
       "file": "Phase-19-Multi-Asset-Margin.md",
       "line": 188,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -4608,10 +4608,10 @@
       "phase": "19",
       "task": "19.3.6",
       "index": 1,
-      "text": "GROSS-NET settlement configurable per instrument",
+      "text": "GROSS-NET settlement configurable per instrument — defined first, validated against spec — bound P19-T19.3.6-C1",
       "file": "Phase-19-Multi-Asset-Margin.md",
       "line": 214,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -4619,10 +4619,10 @@
       "phase": "19",
       "task": "19.3.7",
       "index": 1,
-      "text": "PB credit limit enforcement (NOP/DSL)",
+      "text": "PB credit limit enforcement (NOP/DSL) — defined first, validated against spec — bound P19-T19.3.7-C1",
       "file": "Phase-19-Multi-Asset-Margin.md",
       "line": 243,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -4630,10 +4630,10 @@
       "phase": "19",
       "task": "19.3.8",
       "index": 1,
-      "text": "collateral haircuts + concentration (§13.6b, §24 #145)",
+      "text": "collateral haircuts + concentration (§13.6b, §24 #145) — defined first, validated against spec — bound P19-T19.3.8-C1",
       "file": "Phase-19-Multi-Asset-Margin.md",
       "line": 268,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -4641,10 +4641,10 @@
       "phase": "19",
       "task": "19.3.9",
       "index": 1,
-      "text": "retail NBP with insurance-fund absorption (§13.6c, §24 #133)",
+      "text": "retail NBP with insurance-fund absorption (§13.6c, §24 #133) — defined first, validated against spec — bound P19-T19.3.9-C1",
       "file": "Phase-19-Multi-Asset-Margin.md",
       "line": 301,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -4652,10 +4652,10 @@
       "phase": "19",
       "task": "19.3.10",
       "index": 1,
-      "text": "mutual bilateral credit + atomic reservations (§13.8, §24 #165)",
+      "text": "mutual bilateral credit + atomic reservations (§13.8, §24 #165) — defined first, validated against spec — bound P19-T19.3.10-C1",
       "file": "Phase-19-Multi-Asset-Margin.md",
       "line": 330,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -4663,10 +4663,10 @@
       "phase": "19",
       "task": "19.3.11",
       "index": 1,
-      "text": "Cross-shard portfolio margin coherence (§13.1, §24 #176)",
+      "text": "Cross-shard portfolio margin coherence (§13.1, §24 #176) — defined first, validated against spec — bound P19-T19.3.11-C1",
       "file": "Phase-19-Multi-Asset-Margin.md",
       "line": 360,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -4674,10 +4674,10 @@
       "phase": "19",
       "task": "19.3.12",
       "index": 1,
-      "text": "Internal position transfers and sub-account allocation (§13.9, §24 #190)",
+      "text": "Internal position transfers and sub-account allocation (§13.9, §24 #190) — defined first, validated against spec — bound P19-T19.3.12-C1",
       "file": "Phase-19-Multi-Asset-Margin.md",
       "line": 388,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -4685,10 +4685,10 @@
       "phase": "19",
       "task": "19.3.13",
       "index": 1,
-      "text": "margin model validation (§13.10, §24 #206)",
+      "text": "margin model validation (§13.10, §24 #206) — defined first, validated against spec — bound P19-T19.3.13-C1",
       "file": "Phase-19-Multi-Asset-Margin.md",
       "line": 413,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -4696,10 +4696,10 @@
       "phase": "19",
       "task": "19.3.15",
       "index": 1,
-      "text": "netting/hedging mode",
+      "text": "netting/hedging mode — defined first, validated against spec — bound P19-T19.3.15-C1",
       "file": "Phase-19-Multi-Asset-Margin.md",
       "line": 458,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -4707,10 +4707,10 @@
       "phase": "19",
       "task": "19.3.16",
       "index": 1,
-      "text": "margin level % display",
+      "text": "margin level % display — defined first, validated against spec — bound P19-T19.3.16-C1 (margin level + thresholds)",
       "file": "Phase-19-Multi-Asset-Margin.md",
       "line": 498,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -4718,10 +4718,10 @@
       "phase": "19",
       "task": "19.3.16",
       "index": 2,
-      "text": "stop-out thresholds per tier",
+      "text": "stop-out thresholds per tier — defined first, validated against spec — bound P19-T19.3.16-C2 (ADV slicing + early halt)",
       "file": "Phase-19-Multi-Asset-Margin.md",
       "line": 499,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -4729,10 +4729,10 @@
       "phase": "19",
       "task": "19.3.17",
       "index": 1,
-      "text": "tiered leverage",
+      "text": "tiered leverage — defined first, validated against spec — bound P19-T19.3.17-C1",
       "file": "Phase-19-Multi-Asset-Margin.md",
       "line": 528,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -4740,10 +4740,10 @@
       "phase": "19",
       "task": "19.3.18",
       "index": 1,
-      "text": "correlation-based margin offset",
+      "text": "correlation-based margin offset — defined first, validated against spec — bound P19-T19.3.18-C1",
       "file": "Phase-19-Multi-Asset-Margin.md",
       "line": 558,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -4751,10 +4751,10 @@
       "phase": "19",
       "task": "19.3.19",
       "index": 1,
-      "text": "ADL priority is recomputed and published at the liquidation cadence (§24 #269)",
+      "text": "ADL priority is recomputed and published at the liquidation cadence (§24 #269) — defined first, validated against spec — bound P19-T19.3.19-C1 — adl.go ADLIndicatorPublisher recompute+republish on scanner cadence (§24 #269)",
       "file": "Phase-19-Multi-Asset-Margin.md",
       "line": 569,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -4762,10 +4762,10 @@
       "phase": "19",
       "task": "19.3.20",
       "index": 1,
-      "text": "Cross-shard margin 2PC timeout and retail NBP restitution fail closed (§24 #320)",
+      "text": "Cross-shard margin 2PC timeout and retail NBP restitution fail closed (§24 #320) — defined first, validated against spec — bound P19-T19.3.20-C1",
       "file": "Phase-19-Multi-Asset-Margin.md",
       "line": 589,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -4773,10 +4773,10 @@
       "phase": "19",
       "task": "19.3.21",
       "index": 1,
-      "text": "independent margin validation with floors, calibrated segmented insurance custody, and intraday client-money guard (§24 #344)",
+      "text": "independent margin validation with floors, calibrated segmented insurance custody, and intraday client-money guard (§24 #344) — defined first, validated against spec — bound P19-T19.3.21-C1",
       "file": "Phase-19-Multi-Asset-Margin.md",
       "line": 609,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -4784,10 +4784,10 @@
       "phase": "19",
       "task": "19.3.22",
       "index": 1,
-      "text": "per-account liquidation history with economics and audit links (§24 #360)",
+      "text": "per-account liquidation history with economics and audit links (§24 #360) — defined first, validated against spec — bound P19-T19.3.22-C1",
       "file": "Phase-19-Multi-Asset-Margin.md",
       "line": 627,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -4795,10 +4795,10 @@
       "phase": "19",
       "task": "19.3.23",
       "index": 1,
-      "text": "runtime leverage and margin-mode change within caps and compatibility guards (§24 #366)",
+      "text": "runtime leverage and margin-mode change within caps and compatibility guards (§24 #366) — defined first, validated against spec — bound P19-T19.3.23-C1",
       "file": "Phase-19-Multi-Asset-Margin.md",
       "line": 645,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -4806,10 +4806,10 @@
       "phase": "19",
       "task": "19.3.24",
       "index": 1,
-      "text": "entity leverage matrix with most-restrictive-wins enforcement (§24 #371)",
+      "text": "entity leverage matrix with most-restrictive-wins enforcement (§24 #371) — defined first, validated against spec — bound P19-T19.3.24-C1",
       "file": "Phase-19-Multi-Asset-Margin.md",
       "line": 666,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -4817,10 +4817,10 @@
       "phase": "19",
       "task": "19.3.25",
       "index": 1,
-      "text": "option spread margin offsets (§22 Task 22.3.13)",
+      "text": "option spread margin offsets (§22 Task 22.3.13) — defined first, validated against spec — bound P19-T19.3.25-C1 — seam stubbed (option_margin.go) pending Phase-22 mechanics",
       "file": "Phase-19-Multi-Asset-Margin.md",
       "line": 718,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -4828,10 +4828,10 @@
       "phase": "19",
       "task": "19.3.25",
       "index": 2,
-      "text": "American option intra-day assignment pipeline (§22 Task 22.3.10)",
+      "text": "American option intra-day assignment pipeline (§22 Task 22.3.10) — defined first, validated against spec — bound P19-T19.3.25-C2 — assignment-linkage seam stubbed (spread_offsets.go)",
       "file": "Phase-19-Multi-Asset-Margin.md",
       "line": 719,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -4839,10 +4839,10 @@
       "phase": "19",
       "task": "19.3.26",
       "index": 1,
-      "text": "event-driven mark price margin engine and priority queue liquidation (§24 #410)",
+      "text": "event-driven mark price margin engine and priority queue liquidation (§24 #410) — defined first, validated against spec — bound P19-T19.3.26-C1",
       "file": "Phase-19-Multi-Asset-Margin.md",
       "line": 746,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -4850,10 +4850,10 @@
       "phase": "19",
       "task": "19.3.27",
       "index": 1,
-      "text": "isolated margin position sub-allocation and balance protection (§24 #411)",
+      "text": "isolated margin position sub-allocation and balance protection (§24 #411) — defined first, validated against spec — bound P19-T19.3.27-C1",
       "file": "Phase-19-Multi-Asset-Margin.md",
       "line": 774,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -4861,10 +4861,10 @@
       "phase": "19",
       "task": "19.3.28",
       "index": 1,
-      "text": "intraday dynamic collateral haircut re-evaluation and volatility scaling (§24 #412)",
+      "text": "intraday dynamic collateral haircut re-evaluation and volatility scaling (§24 #412) — defined first, validated against spec — bound P19-T19.3.28-C1",
       "file": "Phase-19-Multi-Asset-Margin.md",
       "line": 798,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -4872,10 +4872,10 @@
       "phase": "19.5",
       "task": "19.5.3.1",
       "index": 1,
-      "text": "at least 2 independent oracle sources",
+      "text": "at least 2 independent oracle sources — defined first, validated against spec — bound in tests/spec/checks/phase19_5.go — corpus 7/7 pass",
       "file": "Phase-19.5-Price-Oracle-Mark-Price.md",
       "line": 45,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -4883,10 +4883,10 @@
       "phase": "19.5",
       "task": "19.5.3.2",
       "index": 1,
-      "text": "mark price median of ≥2 feeds",
+      "text": "mark price median of ≥2 feeds — defined first, validated against spec — bound in tests/spec/checks/phase19_5.go — corpus 7/7 pass",
       "file": "Phase-19.5-Price-Oracle-Mark-Price.md",
       "line": 70,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -4894,10 +4894,10 @@
       "phase": "19.5",
       "task": "19.5.3.3",
       "index": 1,
-      "text": "5-second staleness gate fail-closed",
+      "text": "5-second staleness gate fail-closed — defined first, validated against spec — bound in tests/spec/checks/phase19_5.go — corpus 7/7 pass",
       "file": "Phase-19.5-Price-Oracle-Mark-Price.md",
       "line": 94,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {
@@ -4905,10 +4905,10 @@
       "phase": "19.5",
       "task": "19.5.3.4",
       "index": 1,
-      "text": "single PriceOracle consumed by margin/derivatives/auto-halt",
+      "text": "single PriceOracle consumed by margin/derivatives/auto-halt — defined first, validated against spec — bound in tests/spec/checks/phase19_5.go — corpus 7/7 pass",
       "file": "Phase-19.5-Price-Oracle-Mark-Price.md",
       "line": 118,
-      "checked": false,
+      "checked": true,
       "shard": 2
     },
     {
@@ -4916,10 +4916,10 @@
       "phase": "19.5",
       "task": "19.5.3.5",
       "index": 1,
-      "text": "yield-curve feeds in PriceOracle (§15.3, §24 #134)",
+      "text": "yield-curve feeds in PriceOracle (§15.3, §24 #134) — defined first, validated against spec — bound in tests/spec/checks/phase19_5.go — corpus 7/7 pass",
       "file": "Phase-19.5-Price-Oracle-Mark-Price.md",
       "line": 143,
-      "checked": false,
+      "checked": true,
       "shard": 3
     },
     {
@@ -4927,10 +4927,10 @@
       "phase": "19.5",
       "task": "19.5.3.6",
       "index": 1,
-      "text": "stale-price liquidation fallback (§13.4 extension, §24 #196)",
+      "text": "stale-price liquidation fallback (§13.4 extension, §24 #196) — defined first, validated against spec — bound in tests/spec/checks/phase19_5.go — corpus 7/7 pass",
       "file": "Phase-19.5-Price-Oracle-Mark-Price.md",
       "line": 170,
-      "checked": false,
+      "checked": true,
       "shard": 0
     },
     {
@@ -4938,10 +4938,10 @@
       "phase": "19.5",
       "task": "19.5.3.7",
       "index": 1,
-      "text": "Price oracle multi-provider divergence and staleness fail closed (§24 #321)",
+      "text": "Price oracle multi-provider divergence and staleness fail closed (§24 #321) — defined first, validated against spec — bound in tests/spec/checks/phase19_5.go — corpus 7/7 pass",
       "file": "Phase-19.5-Price-Oracle-Mark-Price.md",
       "line": 191,
-      "checked": false,
+      "checked": true,
       "shard": 1
     },
     {

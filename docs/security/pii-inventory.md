@@ -1,6 +1,6 @@
 # PII Inventory — GDPR Art. 30 Record + Encryption/Access Map
 
-**Generated:** 2026-09-30 00:18 UTC by `scripts/security/gen-pii-inventory.py` (Task 13.5.3.2) from 150 `*.up.sql` migrations (207 tables, 2370 columns). Do not hand-edit; update the generator's ANNOTATIONS map and re-run. Companion artifacts: `pii-catalog.csv` (same rows, machine-checkable), `pii-audit-report.md` (verification evidence), `gdpr-erasure-runbook.md` (Art. 17 procedure).
+**Generated:** 2026-09-30 01:08 UTC by `scripts/security/gen-pii-inventory.py` (Task 13.5.3.2) from 151 `*.up.sql` migrations (207 tables, 2371 columns). Do not hand-edit; update the generator's ANNOTATIONS map and re-run. Companion artifacts: `pii-catalog.csv` (same rows, machine-checkable), `pii-audit-report.md` (verification evidence), `gdpr-erasure-runbook.md` (Art. 17 procedure).
 
 PII classes: **DIRECT_ID** (name/address/residency) · **CONTACT** (email/phone) · **GOV_ID** (TIN/ID documents) · **FINANCIAL** (bank identifiers) · **AUTH_SECRET** (credentials — hashed/sealed, tracked for erasure) · **PSEUDONYMOUS** (IP/UA/fingerprint/geo/actor ids) · **LINKAGE** (user_id/account_id re-identification joins) · **FREE_TEXT** (may embed incidental PII) · **ORG_CONTACT** (institutional contacts).
 

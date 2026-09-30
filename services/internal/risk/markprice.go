@@ -158,6 +158,61 @@ func (p *StubMarkPriceProvider) GetMarkPriceWithProvenance(symbol string) (MarkP
 		ValidAt: at}, nil
 }
 
+// ---------------------------------------------------------------------------
+// ChainedMarkPriceProvider — oracle-primary / last-trade fallback
+// ---------------------------------------------------------------------------
+
+// ChainedMarkPriceProvider is the Phase-19.5 wiring: the oracle adapter
+// is primary; when it has no mark for a symbol (cold start, symbol
+// outside the oracle universe) the last-trade stub serves. Errors and
+// ErrMarkNotFound on the primary fall through — a degraded oracle must
+// not blind the margin path (provenance still reports the real source).
+//
+// Observe delegates to the fallback stub — the fill hook keeps feeding
+// the last-trade book regardless of which provider answered.
+type ChainedMarkPriceProvider struct {
+	Primary  MarkPriceProvider
+	Fallback *StubMarkPriceProvider
+}
+
+// NewChainedMarkPriceProvider wires primary-over-fallback.
+func NewChainedMarkPriceProvider(primary MarkPriceProvider,
+	fallback *StubMarkPriceProvider) *ChainedMarkPriceProvider {
+	return &ChainedMarkPriceProvider{Primary: primary, Fallback: fallback}
+}
+
+// GetMarkPrice implements MarkPriceProvider.
+func (c *ChainedMarkPriceProvider) GetMarkPrice(symbol string) (decimal.Decimal, error) {
+	mp, err := c.GetMarkPriceWithProvenance(symbol)
+	if err != nil {
+		return decimal.Zero, err
+	}
+	return mp.Price, nil
+}
+
+// GetMarkPriceWithProvenance implements MarkPriceProvider — primary
+// first, stub fallback. A stale primary mark is returned AS stale
+// (Stale=true carries the signal; callers apply their own gate).
+func (c *ChainedMarkPriceProvider) GetMarkPriceWithProvenance(symbol string) (MarkPrice, error) {
+	if c.Primary != nil {
+		if mp, err := c.Primary.GetMarkPriceWithProvenance(symbol); err == nil {
+			return mp, nil
+		}
+	}
+	if c.Fallback == nil {
+		return MarkPrice{}, ErrMarkNotFound
+	}
+	return c.Fallback.GetMarkPriceWithProvenance(symbol)
+}
+
+// Observe feeds the last-trade stub — the fill hook's writer path is
+// unchanged by the oracle binding (MarkObserver seam compatibility).
+func (c *ChainedMarkPriceProvider) Observe(symbol string, price decimal.Decimal, at time.Time) {
+	if c.Fallback != nil {
+		c.Fallback.Observe(symbol, price, at)
+	}
+}
+
 // PgLastTradeFallback builds the synchronous PostgreSQL last-trade lookup
 // used as the stub's cold path: latest trades.price for the symbol.
 // Absent instrument or zero trades → ok=false. Errors collapse to

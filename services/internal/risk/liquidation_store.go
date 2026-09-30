@@ -303,19 +303,24 @@ func (s *PgLiquidationStore) AccountsForScan(ctx context.Context) ([]int64, erro
 func (s *PgLiquidationStore) RecordLiquidationEvent(ctx context.Context,
 	ev LiquidationEventRow) (int64, error) {
 
+	basis := ev.Basis
+	if basis == "" {
+		basis = LiquidationBasisMark // mig 236 — never silent
+	}
 	var id int64
 	err := s.Pool.QueryRow(ctx, `
 		INSERT INTO liquidation_events
 		    (account_id, position_id, instrument_id, auction_id, margin_call_event_id,
 		     kind, side, quantity, price, mark_price,
-		     insurance_fund_contribution, penalty_amount, adl_quintile, journal_entry_id)
+		     insurance_fund_contribution, penalty_amount, adl_quintile, journal_entry_id,
+		     liquidation_basis)
 		VALUES ($1, $2, $3, $4, $5, $6, $7::position_side_enum,
-		        $8::numeric, $9::numeric, $10::numeric, $11::numeric, $12::numeric, $13, $14)
+		        $8::numeric, $9::numeric, $10::numeric, $11::numeric, $12::numeric, $13, $14, $15)
 		RETURNING id`,
 		ev.AccountID, ev.PositionID, ev.InstrumentID, ev.AuctionID, ev.MarginCallEventID,
 		ev.Kind, ev.Side, ev.Quantity.String(), ev.Price.String(), ev.MarkPrice.String(),
 		ev.InsuranceFundContribution.String(), ev.PenaltyAmount.String(),
-		ev.ADLQuintile, ev.JournalEntryID).Scan(&id)
+		ev.ADLQuintile, ev.JournalEntryID, basis).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("liquidation event acct %d pos %d: %w",
 			ev.AccountID, ev.PositionID, err)

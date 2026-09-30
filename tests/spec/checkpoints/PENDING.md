@@ -15,13 +15,6 @@ r.Register("P05-T5.3.1-C1", func(ctx context.Context, env *spec.Env) spec.Result
 | `P08.5-T8.5.3.1-C1` | 8.5.3.1 (Phase-08.5-PreProduction-LoadTest.md:45) | [ ] | 75k/sec staging gate |
 | `P08.5-T8.5.3.2-C1` | 8.5.3.2 (Phase-08.5-PreProduction-LoadTest.md:55) | [ ] | isolated demo environment mirrors the production API without real funds (§24 #266) |
 | `P08.5-T8.5.3.3-C1` | 8.5.3.3 (Phase-08.5-PreProduction-LoadTest.md:75) | [ ] | High-stress error injection and degradation mode hysteresis validated (§24 #308) |
-| `P19.5-T19.5.3.1-C1` | 19.5.3.1 (Phase-19.5-Price-Oracle-Mark-Price.md:45) | [ ] | at least 2 independent oracle sources |
-| `P19.5-T19.5.3.2-C1` | 19.5.3.2 (Phase-19.5-Price-Oracle-Mark-Price.md:70) | [ ] | mark price median of ≥2 feeds |
-| `P19.5-T19.5.3.3-C1` | 19.5.3.3 (Phase-19.5-Price-Oracle-Mark-Price.md:94) | [ ] | 5-second staleness gate fail-closed |
-| `P19.5-T19.5.3.4-C1` | 19.5.3.4 (Phase-19.5-Price-Oracle-Mark-Price.md:118) | [ ] | single PriceOracle consumed by margin/derivatives/auto-halt |
-| `P19.5-T19.5.3.5-C1` | 19.5.3.5 (Phase-19.5-Price-Oracle-Mark-Price.md:143) | [ ] | yield-curve feeds in PriceOracle (§15.3, §24 #134) |
-| `P19.5-T19.5.3.6-C1` | 19.5.3.6 (Phase-19.5-Price-Oracle-Mark-Price.md:170) | [ ] | stale-price liquidation fallback (§13.4 extension, §24 #196) |
-| `P19.5-T19.5.3.7-C1` | 19.5.3.7 (Phase-19.5-Price-Oracle-Mark-Price.md:191) | [ ] | Price oracle multi-provider divergence and staleness fail closed (§24 #321) |
 | `P20-T20.3.1-C1` | 20.3.1 (Phase-20-Analytics-Reporting.md:47) | [ ] | ClickHouse for tick history + analytics |
 | `P20-T20.3.2-C1` | 20.3.2 (Phase-20-Analytics-Reporting.md:71) | [ ] | tick history retention (90d raw / 5yr aggregates) |
 | `P20-T20.3.3-C1` | 20.3.3 (Phase-20-Analytics-Reporting.md:93) | [ ] | OHLCV at multiple timeframes |

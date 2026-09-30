@@ -249,6 +249,88 @@ func (g *GatewayProc) Stop() {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Oracle (Phase-19.5 — required stack component: margin order admission
+// fails closed on PRICE_ORACLE_UNAVAILABLE when no oracle publishes)
+// ---------------------------------------------------------------------------
+
+// OracleProc is a running services/cmd/oracle binary.
+type OracleProc struct {
+	Cmd     *exec.Cmd
+	LogPath string
+}
+
+// StartOracle spawns the oracle in scripted-sim mode (EXC_ORACLE_SIM=1 —
+// two independent SimFeeds self-driven by cmd/oracle's jitter ticker)
+// publishing the contracted keyspace into the suite's scratch Redis DB.
+// symbols overrides the instruments-table universe so the oracle boots
+// before the fixture seeds rows.
+func StartOracle(ctx context.Context, e *Env, dir string, symbols []string) (*OracleProc, error) {
+	bin, err := BuildCmd(ctx, e, "./cmd/oracle", "oracle", dir)
+	if err != nil {
+		return nil, err
+	}
+	logPath := filepath.Join(dir, "oracle.log")
+	lf, err := os.Create(logPath)
+	if err != nil {
+		return nil, err
+	}
+	cmd := exec.CommandContext(ctx, bin)
+	cmd.Env = append(os.Environ(),
+		"EXC_ORACLE_SIM=1",
+		"EXC_ORACLE_SYMBOLS="+strings.Join(symbols, ","),
+		"EXC_POSTGRES_DSN="+e.PostgresDSN,
+		"EXC_REDIS_ADDR="+e.RedisAddr,
+		"EXC_REDIS_DB="+strconv.Itoa(e.RedisDB),
+		"EXC_LOGGING_FORMAT=text",
+	)
+	cmd.Dir = dir
+	cmd.Stdout, cmd.Stderr = lf, lf
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		lf.Close()
+		return nil, fmt.Errorf("oracle spawn: %w", err)
+	}
+	return &OracleProc{Cmd: cmd, LogPath: logPath}, nil
+}
+
+// WaitHealthy polls Redis until oracle:health:{symbol} reports OK or
+// DEGRADED (fresh marks published) or timeout.
+func (o *OracleProc) WaitHealthy(ctx context.Context, e *Env, symbol string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if err := o.Cmd.Process.Signal(syscall.Signal(0)); err != nil {
+			b, _ := os.ReadFile(o.LogPath)
+			return fmt.Errorf("oracle exited before healthy: %w\n%s", err, tail(string(b), 30))
+		}
+		rdb := e.RedisClient()
+		if rdb != nil {
+			v, err := rdb.Get(ctx, "oracle:health:"+symbol).Result()
+			rdb.Close()
+			if err == nil && (v == "OK" || v == "DEGRADED") {
+				return nil
+			}
+		}
+		time.Sleep(150 * time.Millisecond)
+	}
+	b, _ := os.ReadFile(o.LogPath)
+	return fmt.Errorf("oracle:health:%s never reached OK in %s\n%s",
+		symbol, timeout, tail(string(b), 30))
+}
+
+// Stop SIGTERMs the oracle.
+func (o *OracleProc) Stop() {
+	_ = o.Cmd.Process.Signal(syscall.SIGTERM)
+	done := make(chan struct{})
+	go func() { _, _ = o.Cmd.Process.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		_ = o.Cmd.Process.Kill()
+		<-done
+	}
+}
+
 // FreePort asks the kernel for a free TCP port.
 func FreePort() (int, error) {
 	l, err := net.Listen("tcp", "127.0.0.1:0")

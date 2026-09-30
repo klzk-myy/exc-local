@@ -291,6 +291,14 @@ var specCodes = []CodeDef{
 	// Allocation + Post-Trade Allocation matrix codes; §24 #200/#237).
 	specRow("ALLOCATION_SUM_MISMATCH", 400, "FIX AllocationInstruction (35=J) rejected: the sum of NoAllocs(78) AllocQty(80) legs does not exactly equal the referenced executed quantity — over/under-allocation is never booked; wire surface is 35=P with AllocRejCode(88)=4 per the §27.1 Allocation matrix (Phase-18 Task 18.3.13)"),
 	specRow("ALLOCATION_INVALID", 400, "FIX AllocationInstruction rejected for a structural fault — unresolvable ExecID/OrderID reference, AllocAccount(79) outside the master-account hierarchy, unknown AllocType(626) method, non-positive leg quantity/weight, or amend against a non-ACCEPTED/settlement-locked instruction (Phase-18 Task 18.3.13)"),
+	// Phase-19.5 — Price Oracle & Mark Price (spec §27.1 Mark Price /
+	// Index Oracle / Staleness Gates / Yield Curves matrix codes;
+	// §24 #45/#120/#134/#196/#321).
+	specRow("ORACLE_FEED_STALE", 503, "Oracle feed's newest quote exceeds the 5-second staleness gate; source excluded from the mark cohort (Phase-19.5 Task 19.5.3.3 Staleness Gates; §27.1 Index Oracle/Staleness Gates matrix rows — registered with the Task 19.5.3 landing)"),
+	specRow("ORACLE_DIVERGENCE_EXCEEDED", 503, "Oracle source diverges from the cohort median by >25bps; outlier discarded, mark computed from remaining coherent sources (Phase-19.5 Task 19.5.3.7; §27.1 Index Oracle matrix row)"),
+	specRow("MARK_PRICE_STALE", 503, "Published mark price exceeded the consumer's staleness window; margin/liquidation evaluation deferred to the stale-price ladder (Phase-19.5 Task 19.5.3.3; §27.1 Mark Price matrix row)"),
+	specRow("MARK_PRICE_OUT_OF_BOUNDS", 400, "Mark/reference price outside the instrument's sanity band; rejected before valuation (Phase-19.5 Task 19.5.3.2; §27.1 Mark Price matrix row)"),
+	specRow("STALE_FORWARD_POINTS", 503, "Tom-Next / forward swap points past their staleness window; forward/rollover pricing halted (Phase-19.5 Task 19.5.3.5; §27.1 Yield Curves matrix row)"),
 }
 
 // localCodes are emitted by the gateway but carry no spec §23 row yet.
