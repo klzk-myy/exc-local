@@ -18,6 +18,9 @@ rule_files:
   # Phase-07/09: L0–L3 error-tier, Aeron/bridge/JetStream, SLO burn,
   # PTP and edge rules.
   - rules/exchange-alerts.yml
+  # Phase-09 Task 9.3.14: SLI recording rules — the exchange_sli:* series
+  # the SLO dashboard + error-budget review consume.
+  - rules/sli-recording.yml
   # Phase-13 Task 13.3.3: domain alert rules (latency, throughput,
   # queue depth, WAL lag, memory, CPU, degradation, circuit breaker,
   # reconciliation, DR, settlement, funding).

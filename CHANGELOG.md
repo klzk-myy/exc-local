@@ -2112,3 +2112,24 @@ when the K8s API is unreachable; quarantine remains operator-owned in that
 mode.
 
 **Census:** 75 → 67 annotated-open rows, all env-bound.
+
+### [2026-09-30 20:45 UTC] — Gap-closure round 4: geo-block, SLI rules, CH replicated DR
+
+**Verification (all live):**
+- Geo-block: haproxy:2.9 edge, `geo_blocked src -f` + client CIDR → 451 at
+  https_in (`srv:<NOSRV>`); cleared map + reload → 200. FIX unaffected
+  structurally (HTTP-frontend-only ACL; FIX = private connectivity).
+- SLI: authored `deploy/prometheus/rules/sli-recording.yml` (13 record: rules
+  — none existed; prior annotation overstated) + `slo.json` dashboard;
+  promtool 13/13; live Prometheus evaluated exchange_sli:* = 1 from the
+  running sentinel_exporter scrapes.
+- ClickHouse: `ch_replication_drill.sh` — keeper + 2-node ReplicatedMergeTree;
+  200/200 rows in 111ms (≪60s RPO); SIGKILL → survivor 200 rows + writes, 203ms.
+
+**Checklist:** 3 rows ticked (:342 geo-block, :365 SLI, Phase-04:185 CH DR
+targets); :146 annotation refreshed to reflect 3/4 tabletops EXECUTED+PASS.
+Census 67 → 64 annotated-open.
+
+**Decision:** keeper 25.8 config — raft_configuration is a keeper_server
+sibling (not a coordination_settings child) and tcp_port binds loopback
+without top-level listen_host. Recorded inline in the drill script.

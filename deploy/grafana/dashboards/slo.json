@@ -1,0 +1,133 @@
+{
+  "uid": "exc-slo",
+  "title": "Exchange — SLO & Error Budget",
+  "description": "Service-level indicators from the exchange_sli:* recording rules (deploy/prometheus/rules/sli-recording.yml): REST availability vs 99.9% SLO, error-budget burn multiples (14.4x/6x/1x thresholds), p99 latency vs the 5ms golden-signal SLO, edge target availability, Redis HA availability. Task 9.3.14 item 4.",
+  "tags": ["exchange", "slo", "error-budget"],
+  "timezone": "utc",
+  "editable": true,
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "15s",
+  "time": {"from": "now-6h", "to": "now"},
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "REST availability (5m)",
+      "description": "1 − exchange_sli:http_error_ratio:rate5m. SLO: 99.9%.",
+      "gridPos": {"h": 6, "w": 6, "x": 0, "y": 0},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "red", "value": null},
+            {"color": "orange", "value": 0.999},
+            {"color": "green", "value": 0.9995}
+          ]}
+        },
+        "overrides": []
+      },
+      "targets": [{"expr": "1 - exchange_sli:http_error_ratio:rate5m", "refId": "A"}]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Error-budget burn (1h)",
+      "description": "exchange_sli:error_budget_burn:rate1h — burn multiple vs the 99.9% budget. >1 = burning faster than budget allows.",
+      "gridPos": {"h": 6, "w": 6, "x": 6, "y": 0},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "green", "value": null},
+            {"color": "orange", "value": 1},
+            {"color": "red", "value": 6}
+          ]}
+        },
+        "overrides": []
+      },
+      "targets": [{"expr": "exchange_sli:error_budget_burn:rate1h", "refId": "A"}]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "REST p99 latency (5m)",
+      "description": "exchange_sli:http_latency_p99_seconds:rate5m. SLO: 5ms REST (spec §19.3).",
+      "gridPos": {"h": 6, "w": 6, "x": 12, "y": 0},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "green", "value": null},
+            {"color": "orange", "value": 0.005},
+            {"color": "red", "value": 0.01}
+          ]}
+        },
+        "overrides": []
+      },
+      "targets": [{"expr": "exchange_sli:http_latency_p99_seconds:rate5m", "refId": "A"}]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Redis primary availability (5m)",
+      "description": "exchange_sli:redis_master_availability:rate5m — sentinel exporter view; pairs with the 5s RPO / 30s RTO budget.",
+      "gridPos": {"h": 6, "w": 6, "x": 18, "y": 0},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "red", "value": null},
+            {"color": "green", "value": 0.99}
+          ]}
+        },
+        "overrides": []
+      },
+      "targets": [{"expr": "exchange_sli:redis_master_availability:rate5m", "refId": "A"}]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Error ratio — 5m / 1h / 6h / 3d windows",
+      "description": "exchange_sli:http_error_ratio:* — the raw SLI the burn multiples derive from.",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 6},
+      "fieldConfig": {"defaults": {"unit": "percentunit"}, "overrides": []},
+      "targets": [
+        {"expr": "exchange_sli:http_error_ratio:rate5m", "legendFormat": "5m", "refId": "A"},
+        {"expr": "exchange_sli:http_error_ratio:rate1h", "legendFormat": "1h", "refId": "B"},
+        {"expr": "exchange_sli:http_error_ratio:rate6h", "legendFormat": "6h", "refId": "C"},
+        {"expr": "exchange_sli:http_error_ratio:rate3d", "legendFormat": "3d", "refId": "D"}
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Error-budget burn multiples (alert thresholds 14.4× / 6× / 1×)",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 6},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "targets": [
+        {"expr": "exchange_sli:error_budget_burn:rate5m", "legendFormat": "5m (fast-burn window)", "refId": "A"},
+        {"expr": "exchange_sli:error_budget_burn:rate1h", "legendFormat": "1h", "refId": "B"},
+        {"expr": "exchange_sli:error_budget_burn:rate6h", "legendFormat": "6h", "refId": "C"},
+        {"expr": "exchange_sli:error_budget_burn:rate3d", "legendFormat": "3d", "refId": "D"}
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Edge target availability per scrape job",
+      "description": "exchange_sli:target_availability:rate5m by job — blast-radius view when an edge or service tier goes dark.",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 14},
+      "fieldConfig": {"defaults": {"unit": "percentunit"}, "overrides": []},
+      "targets": [{"expr": "exchange_sli:target_availability:rate5m", "legendFormat": "{{job}}", "refId": "A"}]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Sentinel quorum availability",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 14},
+      "fieldConfig": {"defaults": {"unit": "percentunit"}, "overrides": []},
+      "targets": [{"expr": "exchange_sli:sentinel_quorum_availability:rate5m", "legendFormat": "quorum_ok 5m avg", "refId": "A"}]
+    }
+  ]
+}

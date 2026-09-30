@@ -1,0 +1,76 @@
+# SLI recording rules — Task 9.3.14 SLO instrumentation.
+#
+# These rules pre-compute the service-level indicators the SLO dashboard and
+# monthly error-budget review consume, so the same ratio is never re-derived
+# ad hoc per panel. Input series are emitted by services/internal/observability
+# (http_requests_total, http_request_duration_seconds_bucket,
+# exchange_errors_total{tier}) and the sentinel exporter.
+#
+# SLO inputs (spec §19.8 / §24): REST availability 99.9% -> error budget 1e-3.
+# Burn-rate multipliers follow the Google SRE multiwindow model already used
+# by the alert rules (14.4x fast, 6x medium, 1x slow).
+
+groups:
+  - name: exchange.sli
+    interval: 15s
+    rules:
+      # Availability SLI — L0|L1|L2 errors over total HTTP requests.
+      - record: exchange_sli:http_error_ratio:rate5m
+        expr: |
+          sum(rate(exchange_errors_total{tier=~"L0|L1|L2"}[5m]))
+            /
+          sum(rate(http_requests_total[5m]))
+
+      - record: exchange_sli:http_error_ratio:rate1h
+        expr: |
+          sum(rate(exchange_errors_total{tier=~"L0|L1|L2"}[1h]))
+            /
+          sum(rate(http_requests_total[1h]))
+
+      - record: exchange_sli:http_error_ratio:rate6h
+        expr: |
+          sum(rate(exchange_errors_total{tier=~"L0|L1|L2"}[6h]))
+            /
+          sum(rate(http_requests_total[6h]))
+
+      - record: exchange_sli:http_error_ratio:rate3d
+        expr: |
+          sum(rate(exchange_errors_total{tier=~"L0|L1|L2"}[3d]))
+            /
+          sum(rate(http_requests_total[3d]))
+
+      # Error-budget burn multiples vs the 99.9% REST SLO (budget 1e-3).
+      - record: exchange_sli:error_budget_burn:rate5m
+        expr: exchange_sli:http_error_ratio:rate5m / 0.001
+
+      - record: exchange_sli:error_budget_burn:rate1h
+        expr: exchange_sli:http_error_ratio:rate1h / 0.001
+
+      - record: exchange_sli:error_budget_burn:rate6h
+        expr: exchange_sli:http_error_ratio:rate6h / 0.001
+
+      - record: exchange_sli:error_budget_burn:rate3d
+        expr: exchange_sli:http_error_ratio:rate3d / 0.001
+
+      # Latency SLI — REST p99 against the 5ms golden-signal SLO.
+      - record: exchange_sli:http_latency_p99_seconds:rate5m
+        expr: |
+          histogram_quantile(0.99,
+            sum by (le) (rate(http_request_duration_seconds_bucket[5m])))
+
+      - record: exchange_sli:http_latency_p99_seconds:rate1h
+        expr: |
+          histogram_quantile(0.99,
+            sum by (le) (rate(http_request_duration_seconds_bucket[1h])))
+
+      # Edge/target availability SLI — fraction of scrape targets up per job.
+      - record: exchange_sli:target_availability:rate5m
+        expr: avg by (job) (up)
+
+      # Redis HA SLI — primary reachability across the 5m window as seen by
+      # the sentinel exporter (pairs with the 5s RPO / 30s RTO budget).
+      - record: exchange_sli:redis_master_availability:rate5m
+        expr: avg_over_time(redis_master_up[5m])
+
+      - record: exchange_sli:sentinel_quorum_availability:rate5m
+        expr: avg_over_time(sentinel_quorum_ok[5m])
