@@ -183,8 +183,11 @@ WalStatus Wal::open() {
 
 WalStatus Wal::init_fresh() {
     if (direct_ || opt_.direct_io) {
-        // Staged write path: header sits in the staging buffer until the first
-        // batch flush writes one aligned block covering [0, 4KB).
+        // Staged write path: the header block is persisted immediately.
+        // Deferring it to the first batch flush left a 0-byte segment on
+        // disk between open()/rotate() and the first flush — the recovery
+        // scan reads that as BadHeader and fails closed (WAL_RECOVERY_HALT
+        // on a clean boot, or after a mid-run rotation crash window).
         const WalStatus s = ensure_stage_capacity(2 * kWalBlockSize);
         if (s != WalStatus::Ok) return s;
         WalFileHeader h{kWalMagic, kWalVersion, shard_id_};
@@ -192,6 +195,9 @@ WalStatus Wal::init_fresh() {
         staged_ = sizeof(h);
         logical_ = sizeof(h);
         physical_ = 0;
+        const WalStatus fs = flush_direct();
+        if (fs != WalStatus::Ok) return fs;
+        if (::fsync(fd_) != 0) return note_errno(errno_status(errno));
     } else {
         const WalStatus s = ensure_map_capacity(kWalBlockSize);
         if (s != WalStatus::Ok) return s;

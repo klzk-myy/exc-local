@@ -65,6 +65,7 @@ void on_term_sig(int /*sig*/) { g_stop.store(true, std::memory_order_release); }
 void usage(const char* argv0) {
     std::fprintf(stderr,
                  "usage: %s [-shard <n>] [-ipc-base <name>] [-wal-dir <dir>]\n"
+                 "          [-wal-direct-io]\n"
                  "          [-poison-log <path>] [-idle-sleep-ns <ns>]\n"
                  "          [-instrument-id <n>] [-dev-all-accounts]\n"
                  "          [-snap-dir <dir>] [-snapshot-trades <n>]\n"
@@ -260,6 +261,7 @@ int main(int argc, char** argv) {
     uint32_t instrument_id = 7;  // served book instrument (dev soak default)
     std::string ipc_base{exch::SharedMemChannel::kDefaultBase};
     std::string wal_dir = "wal";
+    bool wal_direct = false;  // -wal-direct-io: O_DIRECT block flushing
     std::string poison_path = "poison_pill.log";
     int64_t idle_sleep_ns = 0;
     bool dev_all_accounts = false;
@@ -313,6 +315,14 @@ int main(int argc, char** argv) {
                 return 2;
             }
             wal_dir = argv[i];
+        } else if (std::strcmp(argv[i], "-wal-direct-io") == 0) {
+            // Spec Phase-01 Task 1.3.6 production mode: O_DIRECT staged
+            // block flushing bypasses the page cache — mmap+fsync mode pays
+            // dirty-writeback cliffs inside fsync on the matching thread
+            // (observed 10-110ms stalls under a 50k/s soak probe). The WAL
+            // falls back to buffered pwrite on filesystems that reject
+            // O_DIRECT.
+            wal_direct = true;
         } else if (std::strcmp(argv[i], "-poison-log") == 0) {
             if (++i >= argc) {
                 usage(argv[0]);
@@ -501,7 +511,9 @@ int main(int argc, char** argv) {
     }
     const std::string wal_path =
         (shard_dir / (std::to_string(resume_base) + ".wal")).string();
-    exch::Wal wal(wal_path, static_cast<uint16_t>(shard));
+    exch::WalOptions wal_opt;
+    wal_opt.direct_io = wal_direct;
+    exch::Wal wal(wal_path, static_cast<uint16_t>(shard), wal_opt);
     if (wal.open() != exch::WalStatus::Ok) {
         std::fprintf(stderr, "FATAL: wal open failed path=%s errno=%d\n", wal_path.c_str(),
                      wal.last_errno());

@@ -260,19 +260,22 @@ TEST(WalDirect, ShortZeroPad) {
     const std::string p = (dir / "0.wal").string();
     WalOptions o;
     o.direct_io = true;
-    // staged = 8 (header) + (25 + 4056) = 4089 -> pad = 7 bytes, < sentinel.
+    // The header persists as its own block at open (a 0-byte segment scans
+    // as BadHeader on recovery), so the first batch lands alone in block 1:
+    // staged = 25 + 4065 = 4090 -> pad = 6 bytes, < sentinel.
     {
         Wal w(p, 1, o);
         ASSERT_EQ(w.open(), WalStatus::Ok);
-        const auto pay = payload_for(0, 4056);
+        EXPECT_EQ(w.physical_offset(), kWalBlockSize);  // header block sealed
+        const auto pay = payload_for(0, 4065);
         ASSERT_EQ(w.append(WalEventType::TRADE, pay.data(),
                            static_cast<uint32_t>(pay.size())),
                   WalStatus::Ok);
         ASSERT_EQ(w.flush(), WalStatus::Ok);
-        EXPECT_EQ(w.physical_offset(), kWalBlockSize);  // exactly one block
-        EXPECT_EQ(w.logical_offset(), 8u + 25u + 4056u);
+        EXPECT_EQ(w.physical_offset(), 2 * kWalBlockSize);  // header + batch
+        EXPECT_EQ(w.logical_offset(), 8u + 25u + 4065u);
     }
-    EXPECT_EQ(file_size(p), kWalBlockSize);
+    EXPECT_EQ(file_size(p), 2 * kWalBlockSize);
     WalReader r;
     ASSERT_EQ(r.open(p), WalStatus::Ok);
     std::vector<WalEntryView> got;
@@ -492,7 +495,7 @@ TEST(WalCrashRecovery, DirectModeTornTail) {
     const std::string p = (dir / "0.wal").string();
     WalOptions o;
     o.direct_io = true;
-    uint64_t logical_end = 0;
+    uint64_t torn_at = 0;
     {
         Wal w(p, 6, o);
         ASSERT_EQ(w.open(), WalStatus::Ok);
@@ -502,16 +505,15 @@ TEST(WalCrashRecovery, DirectModeTornTail) {
                       WalStatus::Ok);
         }
         ASSERT_EQ(w.flush(), WalStatus::Ok);
-        logical_end = w.logical_offset();
+        torn_at = w.physical_offset();  // end of committed blocks
     }
-    // Torn final block: garbage bytes land after the committed stream.
+    // Torn final block: garbage bytes land after the committed blocks.
     {
         const int fd = ::open(p.c_str(), O_WRONLY);
         ASSERT_GE(fd, 0);
         std::vector<uint8_t> junk(300);
         for (size_t i = 0; i < junk.size(); ++i) junk[i] = uint8_t(0xA5 ^ i);
-        ASSERT_EQ(::pwrite(fd, junk.data(), junk.size(),
-                           static_cast<off_t>(logical_end)),
+        ASSERT_EQ(::pwrite(fd, junk.data(), junk.size(), static_cast<off_t>(torn_at)),
                   static_cast<ssize_t>(junk.size()));
         ::fsync(fd);
         ::close(fd);
@@ -520,7 +522,7 @@ TEST(WalCrashRecovery, DirectModeTornTail) {
         Wal w(p, 6, o);
         ASSERT_EQ(w.open(), WalStatus::Ok);
         EXPECT_TRUE(w.last_scan().corrupt);
-        EXPECT_EQ(w.last_scan().valid_end, logical_end);
+        EXPECT_EQ(w.last_scan().valid_end, torn_at);
         EXPECT_EQ(w.tail_seq(), 12u);
         // Physical write position realigned to the containing 4KB boundary.
         EXPECT_EQ(w.physical_offset() % kWalBlockSize, 0u);
