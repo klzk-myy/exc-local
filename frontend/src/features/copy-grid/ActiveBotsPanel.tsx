@@ -46,9 +46,7 @@ export function ActiveBotsPanel({ onCount }: { onCount?: (n: number) => void }) 
 
   const control = useMutation({
     mutationFn: async (bot: GridBot) =>
-      bot.status === 'PAUSED'
-        ? resumeGridBot(apiClient, bot.id)
-        : pauseGridBot(apiClient, bot.id),
+      bot.status === 'PAUSED' ? resumeGridBot(apiClient, bot.id) : pauseGridBot(apiClient, bot.id),
     onError: setControlErr,
     onSuccess: async () => {
       setControlErr(null);

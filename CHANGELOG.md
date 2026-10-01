@@ -2226,3 +2226,13 @@ Full `tests/integration` run with every gate enabled (`EXC_PG_TEST` + `EXC_REDIS
 - **Doc sync:** stale "unwired"/"Prices: nil" notes superseded in spec §15.7/§16.7 honest-seams lists, Phase-15:360, Phase-16:228/:235, Phase-19.5 Task 19.5.3.4 (consumer set now complete), CLAUDE.md ×2.
 - **Decision:** the fixing scheduler consumes the oracle's *published Redis mark* rather than binding a vendor feed directly — the oracle service stays the sole owner of feed aggregation, divergence exclusion, and staleness policy (single-consumer-per-keyspace rule, Task 19.5.3.4).
 - **Census:** unchanged at **53** — this was an unlisted seam, not a checklist row.
+
+## [2026-10-01 01:20 UTC] — First push to origin (64 commits) + CI-exposed fixes
+
+- **Push:** `af986e5..c181438 master` — entire implementation now backed up on origin; remote CI triggered (run 36799595331 + security workflow).
+- **Phase-08:129 ticked** — `error-scenarios` job executed for the first time on GitHub-hosted CI: SUCCESS 1m22s (`ubuntu-latest`, job 110170721767). The clean-container CI-equivalent from round 8b is superseded by real remote evidence.
+- **Two latent defects caught by the first remote run** (both classes of failure invisible to this host):
+  - `core/include/risk/PriceOracleFeed.hpp` — four `std::string` fields declared without `#include <string>`; compiled locally only via transitive-include luck, failed hard on the runner's GCC 13 include order. All six CMake-dependent jobs failed on it (build+lint, unit tests, 4 spec shards). Fixed; swept every other header for the same pattern — clean.
+  - Frontend `prettier --check` — 7 files had never been formatted to repo style (LoginPage, RegisterPage, ActiveBotsPanel, CopyGrid.test, reports/panels, SecurityPanel, useInputHelper.test). `prettier --write` applied; `--check .` green.
+- **Passed remotely:** error-scenarios, observability budgets + blue-green gate, migrations on ephemeral PG16.
+- **Census:** 53 → **52**.

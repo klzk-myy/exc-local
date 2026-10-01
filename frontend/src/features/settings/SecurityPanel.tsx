@@ -142,11 +142,7 @@ function AntiPhishingForm() {
           mut.mutate();
         }}
       >
-        <Field
-          label="Anti-phishing code"
-          required
-          error={codeErr}
-        >
+        <Field label="Anti-phishing code" required error={codeErr}>
           {(id, describedBy, invalid) => (
             <input
               id={id}

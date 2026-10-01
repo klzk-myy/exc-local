@@ -77,8 +77,9 @@ export default function RegisterPage() {
         <div className={cardCls} role="status">
           <h1 className="mb-2 text-xl font-semibold">Verify your email</h1>
           <p className="mb-4 text-sm text-neutral-300">
-            We sent a verification link to <strong>{email.value}</strong>. Confirm it to activate your
-            account — the link expires shortly and you can request a new one by registering again.
+            We sent a verification link to <strong>{email.value}</strong>. Confirm it to activate
+            your account — the link expires shortly and you can request a new one by registering
+            again.
           </p>
           <button
             type="button"

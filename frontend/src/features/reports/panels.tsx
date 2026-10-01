@@ -161,7 +161,9 @@ function AccountProofSection() {
           <dl className="mt-2 space-y-1 text-xs">
             <div className="flex justify-between gap-2">
               <dt className="text-neutral-500">Leaf</dt>
-              <dd className="break-all font-mono text-neutral-400">#{pr.leafIndex ?? '—'} · {pr.leafHash || '—'}</dd>
+              <dd className="break-all font-mono text-neutral-400">
+                #{pr.leafIndex ?? '—'} · {pr.leafHash || '—'}
+              </dd>
             </div>
             <div className="flex justify-between gap-2">
               <dt className="text-neutral-500">Salt</dt>
@@ -177,9 +179,9 @@ function AccountProofSection() {
             ))}
           </ol>
           <p className="mt-2 text-[11px] leading-snug text-neutral-500">
-            Verify offline: hash(leaf ‖ salt), then fold each sibling —
-            sibling on <em>left</em>: hash(sibling ‖ node), on <em>right</em>: hash(node ‖ sibling).
-            The result must equal snapshot #{pr.snapshotId ?? '—'} root{' '}
+            Verify offline: hash(leaf ‖ salt), then fold each sibling — sibling on <em>left</em>:
+            hash(sibling ‖ node), on <em>right</em>: hash(node ‖ sibling). The result must equal
+            snapshot #{pr.snapshotId ?? '—'} root{' '}
             <span className="break-all font-mono">{pr.merkleRoot}</span>.
           </p>
         </article>

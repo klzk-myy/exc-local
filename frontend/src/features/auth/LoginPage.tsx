@@ -153,9 +153,7 @@ export default function LoginPage() {
           <button
             type="submit"
             className={`${btnPrimary} w-full`}
-            disabled={
-              mut.isPending || (totpStep ? !totp.valid : !email.valid || !password.valid)
-            }
+            disabled={mut.isPending || (totpStep ? !totp.valid : !email.valid || !password.valid)}
           >
             {mut.isPending ? 'Signing in…' : totpStep ? 'Verify code' : 'Sign in'}
           </button>

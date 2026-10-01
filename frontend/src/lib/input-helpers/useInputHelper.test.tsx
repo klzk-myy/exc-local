@@ -18,7 +18,9 @@ describe('useInputHelper', () => {
     const live = renderHook(() => useInputHelper('GET /api/v1/copy/strategies'));
     expect(live.result.current.isStub).toBe(false);
     // Phase-20 landed trade confirmations — live now.
-    const confirmations = renderHook(() => useInputHelper('GET /api/v1/account/confirmations/{trade_id}'));
+    const confirmations = renderHook(() =>
+      useInputHelper('GET /api/v1/account/confirmations/{trade_id}'),
+    );
     expect(confirmations.result.current.isStub).toBe(false);
   });
 

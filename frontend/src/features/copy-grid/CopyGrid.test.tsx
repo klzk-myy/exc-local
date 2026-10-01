@@ -146,9 +146,7 @@ describe('ActiveBotsPanel pause/resume', () => {
     'GET /api/v1/bots/grid': {
       status: 200,
       body: {
-        data: [
-          { bot_id: 'b1', symbol: 'EUR/USD', status, grid_count: 11, realized_pnl: '3.5' },
-        ],
+        data: [{ bot_id: 'b1', symbol: 'EUR/USD', status, grid_count: 11, realized_pnl: '3.5' }],
       },
     },
   });
@@ -166,9 +164,9 @@ describe('ActiveBotsPanel pause/resume', () => {
     expect(pauseBtn).toBeEnabled();
     fireEvent.click(pauseBtn);
     await waitFor(() => {
-      expect(
-        calls.some((c) => c.method === 'POST' && c.url.includes('/bots/grid/b1/pause')),
-      ).toBe(true);
+      expect(calls.some((c) => c.method === 'POST' && c.url.includes('/bots/grid/b1/pause'))).toBe(
+        true,
+      );
     });
   });
 
@@ -185,9 +183,9 @@ describe('ActiveBotsPanel pause/resume', () => {
     expect(resumeBtn).toBeEnabled();
     fireEvent.click(resumeBtn);
     await waitFor(() => {
-      expect(
-        calls.some((c) => c.method === 'POST' && c.url.includes('/bots/grid/b1/resume')),
-      ).toBe(true);
+      expect(calls.some((c) => c.method === 'POST' && c.url.includes('/bots/grid/b1/resume'))).toBe(
+        true,
+      );
     });
   });
 
