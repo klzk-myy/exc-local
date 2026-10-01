@@ -50,6 +50,7 @@ CREATE TABLE orders (
     avg_fill_price  DECIMAL(20,8),
     shard_id        SMALLINT,
     book_seq        BIGINT,
+    order_seq       BIGINT          NOT NULL DEFAULT 0,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 )`
@@ -199,8 +200,9 @@ func TestPgStoreBookAndTickerIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	ins := `INSERT INTO orders (account_id, instrument_id, side, order_type,
-	        quantity, price, time_in_force, status, filled_qty, book_seq)
-	        VALUES ($1,$2,$3,'LIMIT',$4,$5,'GTC',$6,$7,$8)`
+	        quantity, price, time_in_force, status, filled_qty, book_seq,
+	        order_seq)
+	        VALUES ($1,$2,$3,'LIMIT',$4,$5,'GTC',$6,$7,$8,$9)`
 	for _, r := range []struct {
 		side   string
 		qty    float64
@@ -216,9 +218,17 @@ func TestPgStoreBookAndTickerIntegration(t *testing.T) {
 		{"BUY", 9000, 1.00000, "FILLED", 9000, 39},
 	} {
 		if _, err := pool.Exec(ctx, ins, 1, iid, r.side, r.qty, r.price,
-			r.status, r.filled, r.seq); err != nil {
+			r.status, r.filled, r.seq, r.seq+1000); err != nil {
 			t.Fatalf("seed order: %v", err)
 		}
+	}
+	// order_seq=0 rows are never engine-dispatched — a direct-INSERT row
+	// must not render as book liquidity (phantom-depth guard).
+	if _, err := pool.Exec(ctx, `INSERT INTO orders (account_id,
+	        instrument_id, side, order_type, quantity, price, time_in_force,
+	        status, filled_qty) VALUES (1,$1,'BUY','LIMIT',7000,0.5,'GTC',
+	        'ACTIVE',0)`, iid); err != nil {
+		t.Fatalf("seed phantom: %v", err)
 	}
 	snap, err := s.Snapshot(ctx, "EUR/USD", 20)
 	if err != nil {

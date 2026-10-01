@@ -23,7 +23,7 @@ import {
 
 import { wsClient } from '@/app/runtime';
 import { useWsStatus, type WsClient } from '@/lib/ws';
-import { Dec, maxDec } from '@/lib/decimal/decimal';
+import { Dec, maxDec, minDec } from '@/lib/decimal/decimal';
 import { formatPrice, priceDecimals } from '@/lib/trading/fx';
 import { bookMid, cumulate, depthAtPrice } from '@/lib/trading/projections';
 import { useChannelHealth, useDepthBook, useMarketFeed } from '@/lib/trading/marketStore';
@@ -71,8 +71,22 @@ export function DepthChart({ symbol, client = wsClient }: DepthChartProps) {
     if (!mid) return null;
 
     const worstBid = book.bids.at(-1)?.price ?? mid;
-    const bestAsk = book.asks.at(-1)?.price ?? mid;
-    const dev = maxDec(mid.sub(worstBid), bestAsk.sub(mid));
+    const worstAsk = book.asks.at(-1)?.price ?? mid;
+    // Default viewport scales off the inside market so one deep outlier
+    // level can't compress the visible book into a sliver: the zoom-1
+    // half-span is capped at 50× the mid→best distance (~25× the inside
+    // spread), floored at ~5bp of mid for degenerate/one-sided books.
+    // Outlier levels beyond the cap are clipped from the chart but stay
+    // listed in the Levels table below.
+    const halfSpread = maxDec(
+      mid.sub(book.bids[0]?.price ?? mid),
+      (book.asks[0]?.price ?? mid).sub(mid),
+    );
+    const sideCap = halfSpread.isPositive()
+      ? halfSpread.mul(Dec.of('50'))
+      : mid.mul(Dec.of('0.05'));
+    const spanFloor = mid.mul(Dec.of('0.0005'));
+    const dev = maxDec(spanFloor, minDec(maxDec(mid.sub(worstBid), worstAsk.sub(mid)), sideCap));
     const halfSpan = dev.mul(Dec.of(Math.max(0.05, Math.min(1, zoom)).toFixed(4)));
     const lo = mid.sub(halfSpan);
     const hi = mid.add(halfSpan);

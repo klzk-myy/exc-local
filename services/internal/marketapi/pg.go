@@ -332,9 +332,12 @@ func (s *PgStore) Klines(ctx context.Context, symbol, timeframe string,
 // Snapshot derives the persisted L2 book from resting orders: status
 // ACTIVE/PARTIALLY_FILLED rows with a price contribute (quantity -
 // filled_qty) to their level. seq is the max engine-assigned book_seq on
-// the resting rows — the durable cursor clients replay against. This is
-// the stored-state view; the Phase-06 conflation engine can front it with
-// a hotter source without changing the contract.
+// the resting rows — the durable cursor clients replay against. Only
+// engine-dispatched rows count (order_seq > 0): a directly-inserted row
+// carries no engine sequence and would render phantom liquidity the
+// matching core cannot fill against. This is the stored-state view; the
+// Phase-06 conflation engine can front it with a hotter source without
+// changing the contract.
 func (s *PgStore) Snapshot(ctx context.Context, symbol string, depth int) (*BookSnapshot, error) {
 	inst, err := s.InstrumentBySymbol(ctx, symbol)
 	if err != nil {
@@ -350,6 +353,7 @@ func (s *PgStore) Snapshot(ctx context.Context, symbol string, depth int) (*Book
 		FROM orders o JOIN instruments i ON i.id = o.instrument_id
 		WHERE i.symbol = $1
 		  AND o.status IN ('ACTIVE', 'PARTIALLY_FILLED')
+		  AND o.order_seq > 0
 		  AND o.price IS NOT NULL
 		GROUP BY o.side, o.price
 		HAVING SUM(o.quantity - o.filled_qty) > 0`, symbol)
