@@ -35,7 +35,7 @@ function devCspRelaxation(): Plugin {
     apply: 'serve',
     transformIndexHtml(html) {
       return html.replace(
-        /(<meta http-equiv="Content-Security-Policy" content=")[^"]*(")/,
+        /(<meta\s+http-equiv="Content-Security-Policy"\s+content=")[^"]*(")/,
         `$1${DEV_CSP}$2`,
       );
     },
