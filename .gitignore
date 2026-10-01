@@ -184,3 +184,8 @@ DESIGN.md
 IMPLEMENTATION_PROMPT.md
 MEMORY.md
 WORKFLOWS.md
+
+# Build byproducts accidentally committed
+/Testing/
+tests/spec/exchange-testspec
+tests/chaos/bin/
