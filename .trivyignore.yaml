@@ -242,6 +242,23 @@ vulnerabilities:
             usr/lib/trino/secrets-plugin/keystore-secrets-plugin/jackson-databind-2.22.1.jar]
     expired_at: 2026-12-27
     statement: "jackson-databind in trino core+plugin jars (bundled upstream)"
+  # jackson-core 2.22.1/3.2.1 bundled in the same image — both CVEs are DoS
+  # inside the JSON tokenizer, fixed upstream at 2.18.11/2.21.7/2.22.3 and
+  # 3.1.7/3.2.2+; no trino release carries the fix yet (483 is the latest
+  # tag, verified 2026-10-01). Dev cold-tier federation only; re-review on
+  # every trino tag bump.
+  - id: CVE-2026-89407
+    paths: [usr/lib/trino/lib/com.fasterxml.jackson.core_jackson-core-2.22.1.jar,
+            usr/lib/trino/plugin/resource-group-managers/tools.jackson.core_jackson-core-3.2.1.jar,
+            usr/lib/trino/secrets-plugin/keystore-secrets-plugin/jackson-core-2.22.1.jar]
+    expired_at: 2026-12-27
+    statement: "jackson-core regex-backtracking DoS in trino core+plugin jars (bundled upstream)"
+  - id: CVE-2026-89425
+    paths: [usr/lib/trino/lib/com.fasterxml.jackson.core_jackson-core-2.22.1.jar,
+            usr/lib/trino/plugin/resource-group-managers/tools.jackson.core_jackson-core-3.2.1.jar,
+            usr/lib/trino/secrets-plugin/keystore-secrets-plugin/jackson-core-2.22.1.jar]
+    expired_at: 2026-12-27
+    statement: "jackson-core unbounded StringBuilder DoS in trino core+plugin jars (bundled upstream)"
 
   # ── openssl inside redis:7.2-alpine (compose dev redis). Alpine pkg
   #    fixed at 3.3.7-r2; upstream tag not yet republished — flat entries
