@@ -2418,3 +2418,24 @@ legacy debt stays visible but non-blocking. Verified locally: 0 issues.
 allowlist confirmed green), dependency cooldown.
 
 **Census:** unchanged at **52** (CI/security repair, no checklist rows).
+
+## [2026-10-01 03:10 UTC] — First fully-green hosted pipeline (verified)
+
+Remediation rounds 3–4 confirmed on the remote, twice:
+
+| Commit | CI run | Security run | Result |
+|---|---|---|---|
+| `2cd4ff8` | 36807314197 | 36807314275 | ✅ 10/10 + 5/5 |
+| `7b1f1f4` | 36808816492 | 36808816493 | ✅ 10/10 + 5/5 |
+
+Every previously-unexercised gate now runs and passes on a fresh runner:
+diff-scoped clang-tidy (`0 TUs → skip` path proven), merge-base-scoped
+golangci-lint, Trivy fs + image scan (incl. rebuilt postgres image and
+trino:483), gitleaks with the exact-value allowlist, the full
+`go test -race` suite inside the 20-min cap, and all four spec shards
+with committed evidence + `pending` semantics for env-bound gates.
+
+**Decision (recorded):** all three lint/scan gates now share the house
+incremental-adoption policy — changed lines/TUs are held to the full bar,
+pre-existing tree debt stays visible but non-blocking, `*_ALL=1` envs
+give full-tree audits, and unresolvable diff bases fail closed.
