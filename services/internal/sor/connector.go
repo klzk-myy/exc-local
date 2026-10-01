@@ -54,6 +54,9 @@ type LoopbackConnector struct {
 	orders map[string]*VenueOrder // extID → submitted order
 	extSeq atomic.Int64
 	closed atomic.Bool
+	// emitMu excludes in-flight emits from Close's channel close — the
+	// closed check alone is a TOCTOU against close(l.events).
+	emitMu sync.RWMutex
 }
 
 // NewLoopbackConnector builds a named loopback venue.
@@ -115,6 +118,8 @@ func (l *LoopbackConnector) Events() <-chan VenueEvent { return l.events }
 // Close terminates the venue.
 func (l *LoopbackConnector) Close() {
 	if l.closed.CompareAndSwap(false, true) {
+		l.emitMu.Lock()
+		defer l.emitMu.Unlock()
 		close(l.events)
 	}
 }
@@ -175,7 +180,12 @@ func (l *LoopbackConnector) schedule(ctx context.Context, extID string, o *Venue
 // matching real connector failure semantics.
 func (l *LoopbackConnector) emit(frame []byte) {
 	ev, err := parseExecReport(l.venueID, frame, time.Now())
-	if err != nil || l.closed.Load() {
+	if err != nil {
+		return
+	}
+	l.emitMu.RLock()
+	defer l.emitMu.RUnlock()
+	if l.closed.Load() {
 		return
 	}
 	l.events <- *ev

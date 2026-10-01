@@ -57,11 +57,18 @@ async function seedBook(): Promise<void> {
   // runs makes level assertions non-deterministic.
   const cancel = await ctx.delete(`/api/v1/orders/all?symbol=${encodeURIComponent(SYMBOL)}`);
   expect(cancel.ok(), `mass cancel ${cancel.status()}`).toBeTruthy();
-  for (const [side, price] of [['BUY', '1.09990'], ['SELL', '1.10010']] as const) {
+  for (const [side, price] of [
+    ['BUY', '1.09990'],
+    ['SELL', '1.10010'],
+  ] as const) {
     const res = await ctx.post('/api/v1/orders', {
       data: {
-        symbol: SYMBOL, side, type: 'LIMIT', price,
-        quantity: '1000', time_in_force: 'GTC',
+        symbol: SYMBOL,
+        side,
+        type: 'LIMIT',
+        price,
+        quantity: '1000',
+        time_in_force: 'GTC',
       },
     });
     expect(res.ok(), `seed ${side} ${res.status()}: ${await res.text()}`).toBeTruthy();
@@ -119,10 +126,7 @@ async function apiBalance(api: APIRequestContext, currency: string): Promise<Wal
 }
 
 function pollApiBalance(api: APIRequestContext, currency: string, cell: 'free' | 'used') {
-  return expect.poll(
-    async () => (await apiBalance(api, currency))[cell],
-    { timeout: 30_000 },
-  );
+  return expect.poll(async () => (await apiBalance(api, currency))[cell], { timeout: 30_000 });
 }
 
 /** Read a Balances row's Free/Used cells as numbers ("1,100.10" → 1100.10).
@@ -136,8 +140,7 @@ async function balanceRow(page: Page, currency: string) {
     .first();
   await row.waitFor({ state: 'attached', timeout: 4_000 });
   const cells = row.getByRole('cell');
-  const parse = async (i: number) =>
-    Number((await cells.nth(i).textContent())?.replace(/,/g, ''));
+  const parse = async (i: number) => Number((await cells.nth(i).textContent())?.replace(/,/g, ''));
   return { free: await parse(1), used: await parse(2), total: await parse(3) };
 }
 
@@ -185,9 +188,9 @@ test.describe('smoke path', () => {
 
     // ── 2. subscribe — the book renders WS depth frames ───────────────
     await page.goto(SYMBOL_URL);
-    await expect(
-      page.getByRole('rowgroup', { name: /depth$/ }).first(),
-    ).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('rowgroup', { name: /depth$/ }).first()).toBeVisible({
+      timeout: 15_000,
+    });
     await expect(page.getByLabel('ask 1.10010000')).toBeVisible();
     await expect(page.getByLabel('bid 1.09990000')).toBeVisible();
 
@@ -206,18 +209,18 @@ test.describe('smoke path', () => {
     const dialog = page.getByRole('dialog', { name: 'Confirm order' });
     await expect(dialog).toBeVisible();
     await dialog.getByRole('button', { name: 'Confirm Buy' }).click();
-    await expect(
-      page.getByTestId('order-notices').getByText(/accepted|filled/i),
-    ).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('order-notices').getByText(/accepted|filled/i)).toBeVisible({
+      timeout: 15_000,
+    });
 
     // Settlement proof (PHYSICAL_DELIVERY): 1000 EUR/USD @1.10010 moves
     // 1,100.10 USD available→locked pending T+2 delivery. REST waits for
     // the async journal leg; the Balances table then renders it.
-    await pollApiBalance(api, 'USD', 'used').toBeCloseTo(usdBefore.used + 1100.10, 2);
+    await pollApiBalance(api, 'USD', 'used').toBeCloseTo(usdBefore.used + 1100.1, 2);
     await page.goto('/portfolio');
     const usdAfterBuy = await readBalance(page, 'USD');
-    expect(usdAfterBuy.used).toBeCloseTo(usdBefore.used + 1100.10, 2);
-    expect(usdAfterBuy.free).toBeCloseTo(usdBefore.free - 1100.10, 2);
+    expect(usdAfterBuy.used).toBeCloseTo(usdBefore.used + 1100.1, 2);
+    expect(usdAfterBuy.free).toBeCloseTo(usdBefore.free - 1100.1, 2);
     expect(usdAfterBuy.total).toBeCloseTo(usdBefore.total, 2);
     const eurBefore = await readBalance(page, 'EUR');
 
@@ -230,9 +233,9 @@ test.describe('smoke path', () => {
     await entry.getByRole('button', { name: 'Review Sell Limit' }).click();
     await expect(dialog).toBeVisible();
     await dialog.getByRole('button', { name: 'Confirm Sell' }).click();
-    await expect(
-      page.getByTestId('order-notices').getByText(/accepted|filled/i),
-    ).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('order-notices').getByText(/accepted|filled/i)).toBeVisible({
+      timeout: 15_000,
+    });
 
     // The sell leg segregates the 1,000 EUR deliverable — both legs now
     // sit pending settlement, i.e. the spot exposure is closed out.

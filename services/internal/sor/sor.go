@@ -354,11 +354,16 @@ func (r *Router) Route(ctx context.Context, parent *ParentOrder, book BookView) 
 			return nil, fmt.Errorf("sor: shadow create: %w", err)
 		}
 		clOrdID := fmt.Sprintf("sor:%d:%d", parent.OrderID, i+1)
+		// Subscribe before Submit: a venue that acks faster than the
+		// round-trip back into awaitAck would otherwise fan its report
+		// to zero awaiters and burn the whole budget.
+		ch, unsub := r.sub(v.VenueID())
 		extID, err := v.Submit(ctx, &VenueOrder{
 			ClOrdID: clOrdID, Symbol: parent.Symbol, Side: parent.Side,
 			Qty: parent.Qty, LimitPrice: parent.LimitPrice,
 		})
 		if err != nil {
+			unsub()
 			lastErr = err
 			shadow.State = StateCancelled
 			shadow.LastError = err.Error()
@@ -372,21 +377,24 @@ func (r *Router) Route(ctx context.Context, parent *ParentOrder, book BookView) 
 		now := r.Now()
 		shadow.RoutedAt = &now
 		if err := r.Store.UpdateShadow(ctx, shadow); err != nil {
+			unsub()
 			return nil, fmt.Errorf("sor: shadow persist: %w", err)
 		}
 		// Wait for the venue ack/fill inside the 500ms budget.
-		if err := r.awaitAck(ctx, v.VenueID(), extID, timeout); err != nil {
+		if err := r.awaitAck(ctx, ch, v.VenueID(), extID, timeout); err != nil {
 			// Timeout or reject — auto-cancel then walk to next venue.
 			_ = v.Cancel(ctx, extID)
-			r.cancelAndWait(ctx, v.VenueID(), extID, timeout/2)
+			r.cancelAndWait(ctx, ch, v.VenueID(), extID, timeout/2)
 			shadow.State = StateCancelled
 			shadow.LastError = err.Error()
 			now = r.Now()
 			shadow.CompletedAt = &now
 			_ = r.Store.UpdateShadow(ctx, shadow)
 			lastErr = err
+			unsub()
 			continue
 		}
+		unsub()
 		return &RouteResult{Shadow: shadow}, nil
 	}
 	if lastErr == nil {
@@ -397,12 +405,10 @@ func (r *Router) Route(ctx context.Context, parent *ParentOrder, book BookView) 
 }
 
 // awaitAck blocks for the venue ack (first event for extID) inside the
-// budget. Events are matched by external order id on the connector's
-// shared feed — consumed by Run's fan-in; here we subscribe a private
-// per-call channel so the steady-state consumer never competes.
-func (r *Router) awaitAck(ctx context.Context, venueID, extID string, budget time.Duration) error {
-	ch, unsub := r.sub(venueID)
-	defer unsub()
+// budget. Events are matched by external order id on the caller's
+// pre-registered feed channel — the subscription is taken before Submit
+// so a fast venue ack can never be fanned to zero awaiters.
+func (r *Router) awaitAck(ctx context.Context, ch <-chan VenueEvent, venueID, extID string, budget time.Duration) error {
 	t := time.NewTimer(budget)
 	defer t.Stop()
 	for {
@@ -428,9 +434,7 @@ func (r *Router) awaitAck(ctx context.Context, venueID, extID string, budget tim
 // cancelAndWait drains the venue feed until the cancel confirms or the
 // budget lapses — the ROUTED→cancelled transition is never left
 // dangling before the next venue attempt.
-func (r *Router) cancelAndWait(ctx context.Context, venueID, extID string, budget time.Duration) {
-	ch, unsub := r.sub(venueID)
-	defer unsub()
+func (r *Router) cancelAndWait(ctx context.Context, ch <-chan VenueEvent, venueID, extID string, budget time.Duration) {
 	t := time.NewTimer(budget)
 	defer t.Stop()
 	for {
@@ -577,10 +581,13 @@ func (r *Router) ReleaseForLocal(ctx context.Context, parentOrderID int64) (bool
 	}
 	for _, v := range r.Venues {
 		if v.VenueID() == open.VenueID {
+			ch, unsub := r.sub(v.VenueID())
 			if err := v.Cancel(ctx, open.ExternalOrderID); err != nil {
+				unsub()
 				return false, err
 			}
-			r.cancelAndWait(ctx, v.VenueID(), open.ExternalOrderID, r.Timeout/2)
+			r.cancelAndWait(ctx, ch, v.VenueID(), open.ExternalOrderID, r.Timeout/2)
+			unsub()
 			break
 		}
 	}
