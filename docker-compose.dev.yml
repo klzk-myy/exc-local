@@ -193,7 +193,10 @@ services:
   # (exc-archive-s3gw) and the file-metastore volume chmod are provisioned by
   # deploy/scripts/trino_federation.sh — see deploy/trino/README.md.
   trino:
-    image: trinodb/trino:476
+    # 476→483 (2026-10-01): clears ~120 fixed HIGH/CRITICAL CVEs flagged by
+    # the Trivy image gate (el9 OS pkgs + bundled jars); launcher gobinary
+    # stdlib CVEs stay path-scoped in .trivyignore.yaml.
+    image: trinodb/trino:483
     ports:
       - "18443:8080"
     volumes:

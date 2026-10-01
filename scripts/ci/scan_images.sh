@@ -48,10 +48,18 @@ scan() { # $1 = image ref, $2 = origin
 }
 
 # --- 1. Build + scan every tracked Dockerfile --------------------------------
+# Skip list — Dockerfiles whose build context needs artifacts that CI does
+# not produce (compiled binaries, secrets). Their images are drill-scoped
+# stubs, never deployed; their base images are still covered when they
+# appear in compose.
+SKIP_DOCKERFILES='deploy/k8s/kind-overlay/Dockerfile'  # copies drill-compiled bin/settlement (gitignored artifact, built by kind_hpa_drill.sh)
 mapfile -t dockerfiles < <(git ls-files '*Dockerfile' 'Dockerfile' 2>/dev/null \
     | grep -v 'node_modules' || true)
 for df in "${dockerfiles[@]:-}"; do
     [ -n "$df" ] || continue
+    case " $SKIP_DOCKERFILES " in
+        *" $df "*) echo "── skipping $df (drill-scoped; build context needs artifacts CI does not produce)"; continue ;;
+    esac
     tag="scan-gate/$(dirname "$df" | tr '/.' '__'):local"
     echo "── docker build -f $df -t $tag"
     docker build --quiet -f "$df" -t "$tag" "$(dirname "$df")"

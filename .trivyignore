@@ -19,3 +19,22 @@
 # REVIEW: on every compose base-image tag bump, or 2026-12-27 at latest.
 CVE-2026-14456   # openssl DoS via unbounded memory (libcrypto3/libssl3) — upstream alpine, fixed 3.5.8-r0
 CVE-2026-45447   # openssl heap UAF in PKCS7_verify (libcrypto3/libssl3) — upstream alpine, fixed 3.5.7-r0
+
+# libexpat1 inside postgres:16-bookworm (dev postgres image +
+# deploy/postgres/Dockerfile). Debian tracker marks these fixed at
+# 2.5.0-1+deb12u4, but bookworm-security still only publishes deb12u3 —
+# --only-upgrade confirmed candidate=deb12u3. Suppressed pending Debian
+# publication to bookworm-security.
+# REVIEW: on every postgres:16-bookworm base repull, or 2026-12-27 latest.
+CVE-2024-28757   # expat XML Entity Expansion — bookworm pkg not yet published
+CVE-2025-59375   # expat large dynamic allocations — bookworm pkg not yet published
+CVE-2026-25210   # expat integer overflow info disclosure — bookworm pkg not yet published
+CVE-2026-45186   # expat DoS via crafted XML — bookworm pkg not yet published
+CVE-2026-66046   # expat quadratic-complexity DoS — bookworm pkg not yet published
+CVE-2026-93990   # expat UTF-16 XML injection — bookworm pkg not yet published
+
+# openssl inside redis:7.2-alpine (compose dev redis). Alpine pkg fixed at
+# 3.3.7-r2; the upstream tag has not been republished with it yet.
+# REVIEW: on redis:7.2-alpine tag bump, or 2026-12-27 latest.
+CVE-2026-75804   # openssl QUIC flow-control DoS (libcrypto3/libssl3) — upstream alpine
+CVE-2026-84782   # openssl DTLS retransmission info disclosure — upstream alpine

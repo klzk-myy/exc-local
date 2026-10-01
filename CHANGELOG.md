@@ -2374,3 +2374,47 @@ manifests; `lint_cpp.sh` skip/select/fail paths exercised;
 `go build`/`go vet` green in `services` + `tests/pentest`.
 
 **Census:** unchanged at **52** (CI/security repair, no checklist rows).
+
+## [2026-10-01 02:45 UTC] — Hosted-CI remediation round 4: image-scan leg, module-graph ripple, golangci diff-scope
+
+Run `36805929965` (on `0dfe215`) proved the tidy diff-scope works remotely
+(`0 TUs changed — tidy skipped`, format clean) but surfaced the next
+layer:
+
+**`replace`-module graph ripple (one root cause, four failures):**
+bumping `services/go.mod` invalidated every module that `replace exchange
+=> ../../services` — `tests/spec`, `tests/integration/error_scenarios`,
+`tests/chaos/tool` all failed `-mod=readonly` resolution ("updates to
+go.mod needed") in the error-scenarios job, the unit-tests job, all four
+spec shards, and the dependency-audit govulncheck pass. Re-tidied all
+seven replace-dependent modules (xxhash + transitive bumps).
+
+**golangci-lint — diff-scoped like clang-tidy:** first run to reach the
+step exposed pre-existing errcheck debt tree-wide. The action's
+`only-new-issues` is PR-only, so push events now resolve the same merge
+base (`event.before`/PR base → `HEAD~1` fallback) and pass
+`--new-from-merge-base` — new commits are held to the full linter bar,
+legacy debt stays visible but non-blocking. Verified locally: 0 issues.
+
+**Trivy image leg (first run ever to reach it):**
+- `scan_images.sh` — `deploy/k8s/kind-overlay/Dockerfile` skipped: its
+  build context needs `bin/settlement` (gitignored, drill-compiled). The
+  image is a kind-drill stub, never deployed.
+- `deploy/postgres/Dockerfile` — added `--only-upgrade libexpat1`; fix
+  published in tracker (deb12u4) though bookworm-security still serves
+  deb12u3 — belt-and-suspenders until republish.
+- `.trivyignore`(+`.yaml` mirror) — libexpat1 ×6 (Debian tracker fixed,
+  bookworm-security unpublished; confirmed via `apt-cache policy`) and
+  redis:7.2-alpine openssl ×2 (alpine pkg fixed 3.3.7-r2, tag not
+  republished). Same upstream-class as existing openssl entries.
+- `docker-compose.dev.yml` trino **476→483**: clears ~120 fixed
+  HIGH/CRITICALs (el9 OS pkgs + bundled jars); remaining 22 findings are
+  upstream launcher gobinary + bundled plugin jars — path-scoped in
+  `.trivyignore.yaml` per established mechanism.
+- Verified locally: postgres-built image, redis, trino:483 all scan clean
+  (0 HIGH/CRITICAL) under the same flags CI uses.
+
+**Passed remotely:** migrations, frontend, observability, gitleaks (new
+allowlist confirmed green), dependency cooldown.
+
+**Census:** unchanged at **52** (CI/security repair, no checklist rows).

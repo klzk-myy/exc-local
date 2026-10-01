@@ -25,6 +25,29 @@ vulnerabilities:
       nats:2.11-alpine. Fixed by alpine pkg 3.5.7-r0; requires upstream
       tag republish. Dev-infra image only.
 
+  # ── libexpat1 inside postgres:16-bookworm — Debian tracker fixed at
+  #    deb12u4 but bookworm-security still publishes deb12u3 only
+  #    (apt-cache policy confirmed candidate=deb12u3). Flat-suppressed in
+  #    .trivyignore too; repeated here for --ignorefile mode. ──
+  - id: CVE-2024-28757
+    expired_at: 2026-12-27
+    statement: "expat XML Entity Expansion — bookworm-security not yet published"
+  - id: CVE-2025-59375
+    expired_at: 2026-12-27
+    statement: "expat large dynamic allocations — bookworm-security not yet published"
+  - id: CVE-2026-25210
+    expired_at: 2026-12-27
+    statement: "expat integer overflow — bookworm-security not yet published"
+  - id: CVE-2026-45186
+    expired_at: 2026-12-27
+    statement: "expat DoS via crafted XML — bookworm-security not yet published"
+  - id: CVE-2026-66046
+    expired_at: 2026-12-27
+    statement: "expat quadratic-complexity DoS — bookworm-security not yet published"
+  - id: CVE-2026-93990
+    expired_at: 2026-12-27
+    statement: "expat UTF-16 XML injection — bookworm-security not yet published"
+
   # ── usr/local/bin/gosu inside postgres:16-bookworm (docker-compose dev
   #    postgres + deploy/postgres Dockerfile inherit it). gosu is built by
   #    upstream (tianon/gosu) with go1.24.6; every finding below is a Go
@@ -71,7 +94,7 @@ vulnerabilities:
     expired_at: 2026-12-27
     statement: "net/http2 SETTINGS_MAX_FRAME_SIZE DoS — gosu + nats-server upstream binaries"
   - id: CVE-2026-33818
-    paths: [usr/local/bin/gosu, usr/local/bin/nats-server]
+    paths: [usr/local/bin/gosu, usr/local/bin/nats-server, usr/lib/trino/bin/linux-amd64/launcher]
     expired_at: 2026-12-27
     statement: "encoding/asn1 DoS — gosu + nats-server upstream binaries"
   - id: CVE-2026-39820
@@ -79,11 +102,11 @@ vulnerabilities:
     expired_at: 2026-12-27
     statement: "net/mail DoS — gosu + nats-server upstream binaries"
   - id: CVE-2026-39821
-    paths: [usr/local/bin/gosu, usr/local/bin/nats-server]
+    paths: [usr/local/bin/gosu, usr/local/bin/nats-server, usr/lib/trino/bin/linux-amd64/launcher]
     expired_at: 2026-12-27
     statement: "net/http idna/Punycode mishandling — gosu + nats-server upstream binaries"
   - id: CVE-2026-39822
-    paths: [usr/local/bin/gosu, usr/local/bin/nats-server]
+    paths: [usr/local/bin/gosu, usr/local/bin/nats-server, usr/lib/trino/bin/linux-amd64/launcher]
     expired_at: 2026-12-27
     statement: "os.Root symlink-following — gosu + nats-server upstream binaries"
   - id: CVE-2026-39836
@@ -99,23 +122,23 @@ vulnerabilities:
     expired_at: 2026-12-27
     statement: "mime DoS — gosu + nats-server upstream binaries"
   - id: CVE-2026-56853
-    paths: [usr/local/bin/gosu, usr/local/bin/nats-server]
+    paths: [usr/local/bin/gosu, usr/local/bin/nats-server, usr/lib/trino/bin/linux-amd64/launcher]
     expired_at: 2026-12-27
     statement: "net/http unencrypted HTTP/2 — gosu + nats-server upstream binaries"
   - id: CVE-2026-56858
-    paths: [usr/local/bin/gosu, usr/local/bin/nats-server]
+    paths: [usr/local/bin/gosu, usr/local/bin/nats-server, usr/lib/trino/bin/linux-amd64/launcher]
     expired_at: 2026-12-27
     statement: "html/template XSS — gosu + nats-server upstream binaries"
   - id: CVE-2026-56859
-    paths: [usr/local/bin/gosu, usr/local/bin/nats-server]
+    paths: [usr/local/bin/gosu, usr/local/bin/nats-server, usr/lib/trino/bin/linux-amd64/launcher]
     expired_at: 2026-12-27
     statement: "encoding/xml DoS — gosu + nats-server upstream binaries"
   - id: CVE-2026-56860
-    paths: [usr/local/bin/gosu, usr/local/bin/nats-server]
+    paths: [usr/local/bin/gosu, usr/local/bin/nats-server, usr/lib/trino/bin/linux-amd64/launcher]
     expired_at: 2026-12-27
     statement: "net/url DoS — gosu + nats-server upstream binaries"
   - id: CVE-2026-56862
-    paths: [usr/local/bin/gosu, usr/local/bin/nats-server]
+    paths: [usr/local/bin/gosu, usr/local/bin/nats-server, usr/lib/trino/bin/linux-amd64/launcher]
     expired_at: 2026-12-27
     statement: "crypto/tls DoS — gosu + nats-server upstream binaries"
 
@@ -163,3 +186,69 @@ vulnerabilities:
     paths: [usr/local/bin/nats-server]
     expired_at: 2026-12-27
     statement: "x/crypto/ssh flaw — nats-server upstream binary (fixed v0.55.0)"
+
+  # ── trinodb/trino:483 (dev cold-tier federation; compose trino svc) ──
+  # 476→483 cleared the el9/jar debt; remaining findings live in the
+  # upstream launcher Go binary (built with go1.26.4) and bundled plugin
+  # jars — remediable only by an upstream trino release. Path-scoped to
+  # the exact binary/jars; re-review on every trino tag bump.
+  - id: CVE-2026-46600
+    paths: [usr/lib/trino/bin/linux-amd64/launcher]
+    expired_at: 2026-12-27
+    statement: "x/net dnsmessage DoS — trino launcher upstream binary"
+  - id: CVE-2026-56852
+    paths: [usr/lib/trino/bin/linux-amd64/launcher]
+    expired_at: 2026-12-27
+    statement: "x/text — trino launcher upstream binary (fixed v0.39.0)"
+  - id: CVE-2026-2332
+    paths: [usr/lib/trino/plugin/ranger/org.eclipse.jetty_jetty-http-11.0.26.jar]
+    expired_at: 2026-12-27
+    statement: "jetty-http in trino ranger plugin (bundled upstream jar)"
+  - id: CVE-2026-43871
+    paths: [usr/lib/trino/plugin/delta-lake/org.apache.thrift_libthrift-0.23.0.jar]
+    expired_at: 2026-12-27
+    statement: "libthrift in trino delta-lake plugin (bundled upstream jar)"
+  - id: CVE-2026-54399
+    paths: [usr/lib/trino/plugin/clickhouse/com.clickhouse_clickhouse-jdbc-0.9.8-all.jar]
+    expired_at: 2026-12-27
+    statement: "httpcore5 in trino clickhouse plugin (bundled upstream jar)"
+  - id: CVE-2026-54428
+    paths: [usr/lib/trino/plugin/clickhouse/com.clickhouse_clickhouse-jdbc-0.9.8-all.jar]
+    expired_at: 2026-12-27
+    statement: "httpcore5-h2 in trino clickhouse plugin (bundled upstream jar)"
+  - id: CVE-2026-59902
+    paths: [usr/lib/trino/plugin/delta-lake/io.netty_netty-transport-sctp-4.2.16.Final.jar]
+    expired_at: 2026-12-27
+    statement: "netty-sctp in trino delta-lake plugin (bundled upstream jar)"
+  - id: CVE-2026-75595
+    paths: [usr/lib/trino/plugin/cassandra/io.netty_netty-handler-4.2.16.Final.jar]
+    expired_at: 2026-12-27
+    statement: "netty-handler in trino cassandra plugin (bundled upstream jar)"
+  - id: CVE-2026-68497
+    paths: [usr/lib/trino/lib/com.fasterxml.jackson.core_jackson-databind-2.22.1.jar,
+            usr/lib/trino/plugin/resource-group-managers/tools.jackson.core_jackson-databind-3.2.1.jar,
+            usr/lib/trino/secrets-plugin/keystore-secrets-plugin/jackson-databind-2.22.1.jar]
+    expired_at: 2026-12-27
+    statement: "jackson-databind in trino core+plugin jars (bundled upstream)"
+  - id: CVE-2026-91776
+    paths: [usr/lib/trino/lib/com.fasterxml.jackson.core_jackson-databind-2.22.1.jar,
+            usr/lib/trino/plugin/resource-group-managers/tools.jackson.core_jackson-databind-3.2.1.jar,
+            usr/lib/trino/secrets-plugin/keystore-secrets-plugin/jackson-databind-2.22.1.jar]
+    expired_at: 2026-12-27
+    statement: "jackson-databind in trino core+plugin jars (bundled upstream)"
+  - id: CVE-2026-91777
+    paths: [usr/lib/trino/lib/com.fasterxml.jackson.core_jackson-databind-2.22.1.jar,
+            usr/lib/trino/plugin/resource-group-managers/tools.jackson.core_jackson-databind-3.2.1.jar,
+            usr/lib/trino/secrets-plugin/keystore-secrets-plugin/jackson-databind-2.22.1.jar]
+    expired_at: 2026-12-27
+    statement: "jackson-databind in trino core+plugin jars (bundled upstream)"
+
+  # ── openssl inside redis:7.2-alpine (compose dev redis). Alpine pkg
+  #    fixed at 3.3.7-r2; upstream tag not yet republished — flat entries
+  #    in .trivyignore too. Re-review on redis tag bump. ──
+  - id: CVE-2026-75804
+    expired_at: 2026-12-27
+    statement: "openssl QUIC flow-control DoS (libcrypto3/libssl3) — redis:7.2-alpine upstream"
+  - id: CVE-2026-84782
+    expired_at: 2026-12-27
+    statement: "openssl DTLS retransmission info disclosure — redis:7.2-alpine upstream"
