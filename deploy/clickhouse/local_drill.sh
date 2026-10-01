@@ -53,6 +53,7 @@ clickhouse:
     - system.*
     - INFORMATION_SCHEMA.*
     - information_schema.*
+    - ${SCRATCH_DB}.*
   timeout: 15m
 s3:
   access_key: ${S3_ACCESS}
@@ -82,9 +83,17 @@ case "${1:-drill}" in
 drill|restore)
     write_ctr_config
     if [[ ${1:-drill} == drill ]]; then
+        # clean-slate: a prior drill run may have left a same-named remote
+        # backup (resume state) or a half-dropped scratch db (Atomic-engine
+        # orphan dirs); both must go before create_remote/restore_remote.
+        docker exec "$CH_CONTAINER" \
+            "$CHB_BIN" -c /tmp/drill-config.yml delete remote "$name" \
+            >/dev/null 2>&1 || true
+        chq "DROP DATABASE IF EXISTS $SCRATCH_DB SYNC" || true
         echo ">> create_remote $name"
         docker exec "$CH_CONTAINER" \
-            "$CHB_BIN" -c /tmp/drill-config.yml create_remote "$name"
+            "$CHB_BIN" -c /tmp/drill-config.yml create_remote "$name" \
+            --tables "exchange_analytics.*"
     fi
     counts exchange_analytics "$DRILL_WORKDIR/src.tsv"
 

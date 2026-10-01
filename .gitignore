@@ -193,3 +193,7 @@ tests/chaos/bin/
 # DR drill chaos evidence — bulk run dirs regenerable; results.jsonl +
 # report + small logs remain committed as the DORA artifact
 docs/incidents/drills/*/evidence/chaos/
+
+# DR drill per-leg workdirs (staged WAL copies, restored segments — bulk,
+# regenerable; reports + results.jsonl + small logs stay committed)
+docs/incidents/drills/*/evidence/d[0-9]*/

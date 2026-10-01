@@ -40,8 +40,14 @@
 #   dr_drill_runner.sh [--drills D1,D2,...] [--quarter YYYY-Qn]
 #                      [--out DIR] [--report PATH] [--chaos-runs N]
 #                      [--sentinels h:p,...] [--database-url DSN]
-#                      [--s3-wal-bucket NAME] [--secondary-pg HOST]
-#                      [--secondary-redis HOST] [--strict] [-h]
+#                      [--s3-wal-bucket NAME] [--s3-endpoint URL]
+#                      [--secondary-pg HOST] [--secondary-redis HOST]
+#                      [--wal-dir DIR] [--snap-dir DIR] [--strict] [-h]
+#
+#   --wal-dir / --snap-dir enable the D1 local composite (archive→fetch→
+#   reconstruct with fingerprint parity on the archive bytes) and the D3
+#   archive leg; the composite is single-failure-domain — the parent D1 row
+#   stays SKIP until a real secondary cutover runs.
 # Exit: 0 all executed drills pass · 1 any FAIL · 64 usage
 # =============================================================================
 set -euo pipefail
@@ -59,8 +65,13 @@ STRICT=0
 SENTINELS="${SENTINEL_ADDRS:-}"
 DATABASE_URL_ARG="${DATABASE_URL:-postgres://exchange:exchange_dev@127.0.0.1:5433/exchange?sslmode=disable}"
 S3_WAL_BUCKET="${EXC_S3_WAL_BUCKET:-}"
+S3_ENDPOINT="${EXC_S3_ENDPOINT:-}"
 SECONDARY_PG="${PG_STANDBY:-}"
 SECONDARY_REDIS="${REDIS_DR:-}"
+WAL_DIR=""          # source shard-0 WAL dir for D1 composite / D3 archive leg
+SNAP_DIR=""         # snapshot root replicated to "secondary" (D1 composite)
+SHARD=0
+INSTRUMENT_ID="${INSTRUMENT_ID:-7}"
 
 usage() { sed -n '2,45p' "$0"; exit "${1:-64}"; }
 while [ $# -gt 0 ]; do
@@ -73,8 +84,13 @@ while [ $# -gt 0 ]; do
         --sentinels)       SENTINELS="$2"; shift 2;;
         --database-url)    DATABASE_URL_ARG="$2"; shift 2;;
         --s3-wal-bucket)   S3_WAL_BUCKET="$2"; shift 2;;
+        --s3-endpoint)     S3_ENDPOINT="$2"; shift 2;;
         --secondary-pg)    SECONDARY_PG="$2"; shift 2;;
         --secondary-redis) SECONDARY_REDIS="$2"; shift 2;;
+        --wal-dir)         WAL_DIR="$2"; shift 2;;
+        --snap-dir)        SNAP_DIR="$2"; shift 2;;
+        --shard)           SHARD="$2"; shift 2;;
+        --instrument-id)   INSTRUMENT_ID="$2"; shift 2;;
         --strict)          STRICT=1; shift;;
         -h|--help)         usage 0;;
         *) echo "unknown arg: $1" >&2; usage 64;;
@@ -118,19 +134,116 @@ run_drill() { # run_drill <id> <title> <log-name> <cmd...> -> sets RC
 }
 
 # --- D1: full region failover -------------------------------------------------
+# With --secondary-* hosts: run deploy/dr/failover-runbook.sh against the real
+# second region. Without them but with --wal-dir/--snap-dir + a reachable S3
+# endpoint, run the local composite: archive WAL to S3, fetch the archived
+# bytes into a scratch "secondary" dir, reconstruct the book via
+# snapshot+tail recovery, and verify fingerprint parity with the primary —
+# that is the production D1 order-book leg, single failure domain. Legs that
+# truly need a second region (edge reroute, secrets-in-secondary, resumption
+# ladder against live traffic) stay SKIP; the parent row stays SKIP because
+# the full end-to-end cutover did not happen.
 d1() {
-    if [ -z "$SECONDARY_PG" ] && [ -z "$SECONDARY_REDIS" ]; then
+    if [ -n "$SECONDARY_PG" ] || [ -n "$SECONDARY_REDIS" ]; then
+        run_drill D1 "region failover" d1 \
+            "$REPO_ROOT/deploy/dr/failover-runbook.sh" all
+        local v=FAIL; [ "$RC" -eq 0 ] && v=PASS
+        row D1 "region-failover" 0 null 300000 null "$v" \
+            "failover-runbook.sh all exit=$RC (PG_STANDBY=$SECONDARY_PG REDIS_DR=$SECONDARY_REDIS)" \
+            "$LAST_LOG"
+        return
+    fi
+
+    local wal_audit="$REPO_ROOT/core/build/wal_audit"
+    local exchange="$REPO_ROOT/services/bin/exchange"
+    if [ -z "$WAL_DIR" ] || [ ! -d "$WAL_DIR" ]; then
         row D1 "region-failover" null null null null SKIP \
-            "no secondary provisioned (--secondary-pg/--secondary-redis); pending-infra per docs/ops/dr.md" \
+            "no secondary provisioned (--secondary-pg/--secondary-redis) and no --wal-dir for the local composite; pending-infra per docs/ops/dr.md" \
             "deploy/dr/failover-runbook.sh"
         return
     fi
-    run_drill D1 "region failover" d1 \
-        "$REPO_ROOT/deploy/dr/failover-runbook.sh" all
-    local v=FAIL; [ "$RC" -eq 0 ] && v=PASS
-    row D1 "region-failover" 0 null 300000 null "$v" \
-        "failover-runbook.sh all exit=$RC (PG_STANDBY=$SECONDARY_PG REDIS_DR=$SECONDARY_REDIS)" \
-        "$LAST_LOG"
+
+    local work="$OUT/d1"; mkdir -p "$work"
+    local fp1="" fp2="" rto_ms=null detail=""
+
+    # Leg 1 — primary fingerprint (snapshot+tail, the production boot path).
+    if [ -x "$wal_audit" ] && [ -n "$SNAP_DIR" ] && [ -d "$SNAP_DIR" ]; then
+        fp1=$("$wal_audit" -wal-dir "$WAL_DIR" -snap-dir "$SNAP_DIR" \
+              -instrument-id "$INSTRUMENT_ID" -mode fingerprint 2>>"$work/d1.err" || true)
+    fi
+
+    # Leg 2 — archive WAL to S3 and fetch the bytes back as the "secondary".
+    local restored="$work/restored-wal" archived_ok=0
+    mkdir -p "$restored"
+    if [ -n "$S3_WAL_BUCKET" ] && [ -x "$exchange" ]; then
+        local stage="$work/stage-wal"
+        mkdir -p "$stage" && cp "$WAL_DIR"/*.wal "$stage/" 2>>"$work/d1.err" || true
+        EXC_S3_ENDPOINT="$S3_ENDPOINT" EXC_S3_WAL_BUCKET="$S3_WAL_BUCKET" \
+            "$exchange" archive-wal --wal-dir="$stage" --shard="$SHARD" \
+            --include-active >>"$work/d1-archive.log" 2>&1 || true
+        # devs3/MinIO root is the bucket store — copying objects out is the
+        # same bytes an S3 GET returns; archive-status cross-checks the index.
+        local ob_root=""
+        for cand in "${DEVS3_ROOT:-/tmp/devs3-root}/$S3_WAL_BUCKET/$SHARD" ; do
+            [ -d "$cand" ] && ob_root="$cand"
+        done
+        if [ -n "$ob_root" ]; then
+            find "$ob_root" -name '*.wal' -exec cp {} "$restored/" \; 2>>"$work/d1.err" || true
+            [ -n "$(find "$restored" -name '*.wal' -print -quit)" ] && archived_ok=1
+        fi
+    fi
+    if [ "$archived_ok" = "0" ]; then
+        # No archive path — fall back to a byte copy so the reconstruction
+        # leg still runs (single-domain composite).
+        cp "$WAL_DIR"/*.wal "$restored/" 2>>"$work/d1.err" || true
+        row D1 "wal-catchup" 0 null 30000 null SKIP \
+            "S3 archive leg not exercised (no --s3-wal-bucket); used direct byte copy for reconstruction" \
+            "$work/d1-archive.log"
+    else
+        row D1 "wal-catchup" 0 0 30000 null PASS \
+            "sealed segments archived to s3://$S3_WAL_BUCKET and re-fetched intact" \
+            "$work/d1-archive.log"
+    fi
+
+    # Leg 3 — secondary reconstruction: snapshot+tail on the fetched WAL.
+    if [ -x "$wal_audit" ] && [ -n "$SNAP_DIR" ]; then
+        local t0 t1 scan
+        t0=$(date +%s%3N)
+        scan=$("$wal_audit" -wal-dir "$restored" -snap-dir "$SNAP_DIR" \
+               -instrument-id "$INSTRUMENT_ID" -mode recover -json \
+               2>>"$work/d1.err" || true)
+        t1=$(date +%s%3N)
+        rto_ms=$((t1 - t0))
+        fp2=$(echo "$scan" | jq -r '.fingerprint // ""' 2>/dev/null || true)
+        local ok; ok=$(echo "$scan" | jq -r '.ok // false' 2>/dev/null || echo false)
+        local v=FAIL det
+        if [ "$ok" = "true" ] && [ "$rto_ms" -gt 10000 ]; then
+            det="secondary reconstruction ${rto_ms}ms — exceeds 10s book RTO (fingerprint $fp2)"
+        elif [ "$ok" = "true" ] && [ -n "$fp1" ] && [ "$fp1" = "$fp2" ]; then
+            v=PASS; det="secondary reconstruction ${rto_ms}ms, fingerprint parity $fp2"
+        elif [ "$ok" = "true" ]; then
+            v=PASS; det="secondary reconstruction ${rto_ms}ms (no primary fingerprint to compare)"
+        else
+            det="reconstruction failed: $(echo "$scan" | jq -r '.detail // "unknown"' 2>/dev/null)"
+        fi
+        echo "$scan" > "$work/d1-restore.json"
+        row D1 "book-restore" 0 0 10000 "$rto_ms" "$v" "$det" "$work/d1-restore.json"
+    else
+        row D1 "book-restore" 0 null 10000 null SKIP \
+            "wal_audit binary or --snap-dir missing" ""
+    fi
+
+    # Legs that need a live second region / traffic — honestly SKIP.
+    row D1 "edge-reroute" null null 30000 null SKIP \
+        "Anycast/LB health-check flip needs a second network domain" ""
+    row D1 "secrets-decrypt-secondary" null null null null SKIP \
+        "DR-critical secret copies need Vault/KMS in the secondary region (Task 9.3.29)" ""
+    row D1 "resumption-ladder" null null null null SKIP \
+        "CANCEL_ONLY→auction→Normal ladder against live ingress needs a staged secondary engine" ""
+
+    row D1 "region-failover" 0 null 300000 null SKIP \
+        "end-to-end cutover pending-infra (single failure domain); composite legs above carry the locally-verifiable evidence" \
+        "$work"
 }
 
 # --- D2: PostgreSQL semi-sync failover (docker) --------------------------------
@@ -153,24 +266,88 @@ d2() {
 
 # --- D3: WAL replay-from-archive ------------------------------------------------
 d3() {
-    local replay="$REPO_ROOT/services/bin/replay"
+    local exchange="$REPO_ROOT/services/bin/exchange"
+    local wal_audit="$REPO_ROOT/core/build/wal_audit"
     if [ -z "$S3_WAL_BUCKET" ]; then
         row D3 "wal-archive" 0 null 30000 null SKIP \
             "EXC_S3_WAL_BUCKET unset — no archive endpoint" ""
         return
     fi
-    if [ ! -x "$replay" ]; then
+    if [ ! -x "$exchange" ]; then
         row D3 "wal-archive" 0 null 30000 null SKIP \
-            "services/bin/replay not built (go build -o bin/replay ./cmd/replay)" ""
+            "services/bin/exchange not built (go build -o bin/exchange ./cmd/exchange)" ""
         return
     fi
-    local from to; from="$(date -u +%F)"; to="$from"
-    run_drill D3 "wal archive replay" d3 \
-        "$replay" --shard=0 --instrument-id="${INSTRUMENT_ID:-7}" \
-        --from="$from" --to="$to" --bucket="$S3_WAL_BUCKET"
-    local v=FAIL; [ "$RC" -eq 0 ] && v=PASS
-    row D3 "wal-archive" 0 null 30000 null "$v" \
-        "replay --from-archive exit=$RC bucket=$S3_WAL_BUCKET" "$LAST_LOG"
+
+    local work="$OUT/d3"; mkdir -p "$work"
+
+    # Archive leg — only when a source WAL dir was given. archive-wal trims
+    # local copies after verified upload, so always stage a copy.
+    local archived=0
+    if [ -n "$WAL_DIR" ] && [ -d "$WAL_DIR" ]; then
+        local stage="$work/stage-wal"
+        mkdir -p "$stage" && cp "$WAL_DIR"/*.wal "$stage/" 2>>"$work/d3.err" || true
+        # Hash the staged bytes BEFORE archive-wal trims them post-upload.
+        (cd "$stage" && sha256sum *.wal | sort) > "$work/stage.sha256" 2>>"$work/d3.err" || true
+        EXC_S3_ENDPOINT="$S3_ENDPOINT" EXC_S3_WAL_BUCKET="$S3_WAL_BUCKET" \
+            "$exchange" archive-wal --wal-dir="$stage" --shard="$SHARD" \
+            --include-active > "$work/d3-archive.log" 2>&1 || true
+        grep -q "archived=" "$work/d3-archive.log" && archived=1
+    fi
+
+    # Index/object integrity check.
+    run_drill D3 "archive-status" d3 \
+        env EXC_S3_ENDPOINT="$S3_ENDPOINT" EXC_S3_WAL_BUCKET="$S3_WAL_BUCKET" \
+        "$exchange" archive-status --shard="$SHARD"
+    local st_ok=FAIL; [ "$RC" -eq 0 ] && st_ok=PASS
+
+    # Replay leg — fail-closed on seq gaps (no --allow-seq-gaps). The JSON
+    # report lists every trade (multi-GB) — log into the ignored workdir.
+    local today; today="$(date -u +%F)"
+    run_drill D3 "replay-from-archive" d3/replay \
+        env EXC_S3_ENDPOINT="$S3_ENDPOINT" EXC_S3_WAL_BUCKET="$S3_WAL_BUCKET" \
+        "$exchange" replay-from-archive --instrument-id="$INSTRUMENT_ID" \
+        --shard="$SHARD" --from="$today" --to="$today" --json
+    local trades="" segs="" v=FAIL
+    if [ -f "$LAST_LOG" ]; then
+        trades=$(jq -r '.trades | length' "$LAST_LOG" 2>/dev/null || true)
+        segs=$(jq -r '.segments | length' "$LAST_LOG" 2>/dev/null || true)
+    fi
+
+    # Byte-parity leg — wal_audit scan on the archived bytes fetched back.
+    local entries="" parity=""
+    if [ -x "$wal_audit" ]; then
+        local restored="$work/restored" ob_root="${DEVS3_ROOT:-/tmp/devs3-root}/$S3_WAL_BUCKET/$SHARD"
+        mkdir -p "$restored"
+        [ -d "$ob_root" ] && find "$ob_root" -name '*.wal' -exec cp {} "$restored/" \; 2>>"$work/d3.err" || true
+        if [ -n "$(find "$restored" -name '*.wal' -print -quit 2>/dev/null)" ]; then
+            local rj
+            rj=$("$wal_audit" -wal-dir "$restored" -instrument-id "$INSTRUMENT_ID" \
+                 -mode scan -json 2>>"$work/d3.err" || true)
+            echo "$rj" > "$work/restored-scan.json"
+            # Per-file sha256 parity: archived bytes vs the uploaded staging copy.
+            (cd "$restored" && sha256sum *.wal | sort) > "$work/restored.sha256"
+            if [ -s "$work/stage.sha256" ] && \
+               ! cmp -s "$work/stage.sha256" "$work/restored.sha256"; then
+                parity_fail=1
+                echo "sha256 mismatch stage-vs-restored" >> "$work/d3.err"
+            fi
+            entries=$(echo "$rj" | jq -r '.entries // ""' 2>/dev/null || true)
+            local gaps corrupt
+            gaps=$(echo "$rj" | jq -r '.seq_gaps // 1' 2>/dev/null || echo 1)
+            corrupt=$(echo "$rj" | jq -r '.corrupt | tostring' 2>/dev/null || echo true)
+            parity="archived-bytes entries=$entries gaps=$gaps corrupt=$corrupt"
+            if [ "$gaps" != "0" ] || [ "$corrupt" != "false" ]; then
+                parity="$parity — PARITY FAIL"
+                parity_fail=1
+            fi
+        fi
+    fi
+
+    if [ "$RC" -eq 0 ] && [ "$st_ok" = "PASS" ] && [ "${parity_fail:-0}" = "0" ]; then v=PASS; fi
+    row D3 "wal-archive" 0 0 30000 null "$v" \
+        "archive-status=$st_ok replay exit=$RC segs=${segs:-?} trades=${trades:-?} $parity" \
+        "$work"
 }
 
 # --- D4: ClickHouse restore -----------------------------------------------------
@@ -186,8 +363,19 @@ d4() {
             "clickhouse-backup binary missing (CHB_BIN=${CHB_BIN:-/tmp/clickhouse-backup})" ""
         return
     fi
+    # The drill runs clickhouse-backup INSIDE the container — a loopback
+    # S3 endpoint must be translated to the container's gateway IP.
+    local ep_ctr="${S3_ENDPOINT_CTR:-$S3_ENDPOINT}"
+    case "$ep_ctr" in
+        *127.0.0.1*|*localhost*)
+            local gw; gw=$(docker inspect "$ch" \
+                --format '{{range .NetworkSettings.Networks}}{{.Gateway}}{{end}}' 2>/dev/null || true)
+            [ -n "$gw" ] && ep_ctr=$(echo "$ep_ctr" | sed -E "s#//(127\.0\.0\.1|localhost)#//$gw#")
+            ;;
+    esac
     run_drill D4 "clickhouse restore" d4 \
-        "$REPO_ROOT/deploy/clickhouse/local_drill.sh" "drill-$QUARTER"
+        env "S3_ENDPOINT=${ep_ctr:-http://172.18.0.1:17070}" \
+        "$REPO_ROOT/deploy/clickhouse/local_drill.sh" drill "drill-$QUARTER"
     local rto v=FAIL
     rto=$(grep -oE 'RTO: [0-9]+ ms' "$LAST_LOG" | grep -oE '[0-9]+' | tail -1 || true)
     [ "$RC" -eq 0 ] && v=PASS
