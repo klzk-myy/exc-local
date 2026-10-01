@@ -55,3 +55,63 @@ tests/load/snapshots/
 # deploy/crons/sbom-scan.sh nightly)
 reports/sbom/
 tests/load/errblast/errblast
+
+# Compiled test binaries + coverage/profile artifacts
+*.test
+coverage.out
+*.coverprofile
+*.prof
+perf.data*
+
+# C++ objects + core dumps (vendored .a libs in core/third_party stay tracked)
+*.o
+*.so
+*.core
+vgcore.*
+
+# Python caches (scripts/ci + scripts/security generators)
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Editor/OS cruft + merge leftovers
+*.swp
+*.swo
+*~
+*.orig
+*.bak
+*.tmp
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.code-workspace
+nohup.out
+
+# ctest runtime dirs — root Testing/* stubs are tracked evidence;
+# this guards against new runs leaking Testing/ trees elsewhere
+Testing/
+
+# Env files + private keys — secrets must never be committed
+# (kind-overlay's throwaway secrets.yaml stays tracked deliberately)
+.env
+.env.*
+*.env
+*.key
+.envrc
+.direnv/
+!.env.example
+!.env.sample
+!*.env.example
+
+# Per-device IDs (also excluded via .git/info/exclude; listed for all clones)
+.mimocode-project-id
+
+# Runtime dirs when binaries are launched from a module cwd
+# (root /wal/, /snapshots/, /snap/ already covered above)
+core/wal/
+core/snapshots/
+core/snap/
+services/wal/
+services/snapshots/
+/bin/
