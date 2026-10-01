@@ -38,12 +38,9 @@ tests/soak/soak
 tests/soak/*report*.json
 
 # Local runtime dirs/binaries from manual engine/CLI runs
+# (services/<daemon> binaries are ignored by services/.gitignore — one entry
+# per services/cmd/<name>; regenerate with `ls cmd/ | sed 's|^|/|'`)
 /snap/
-services/wal-recovery
-services/risk
-services/oracle
-services/secretdrill
-services/sentinel_exporter
 deploy/haproxy/test/stub_go
 deploy/haproxy/test/run/
 
@@ -106,6 +103,45 @@ Testing/
 
 # Per-device IDs (also excluded via .git/info/exclude; listed for all clones)
 .mimocode-project-id
+
+# Other per-device agent/tool caches — same class as .claude/.gitnexus/.mimocode
+.cursor/
+.codeium/
+.windsurf/
+.opencode/
+.aider*
+.continue/
+.junie/
+.trunk/
+.fleet/
+
+# JS/TS artifacts outside frontend/ too (frontend/.gitignore covers its own)
+dist/
+coverage/
+*.tsbuildinfo
+.eslintcache
+.stylelintcache
+.vite/
+.nyc_output/
+playwright-report/
+test-results/
+npm-debug.log*
+yarn-error.log
+pnpm-debug.log*
+
+# Python envs (scripts/ci, scripts/security generators)
+venv/
+.venv/
+
+# Report/build byproducts not already tracked as evidence
+*.sarif
+junit*.xml
+/out/
+/tmp/
+*.patch
+*.diff
+desktop.ini
+*.iml
 
 # Runtime dirs when binaries are launched from a module cwd
 # (root /wal/, /snapshots/, /snap/ already covered above)

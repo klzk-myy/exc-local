@@ -1,10 +1,35 @@
-# Built service binaries (go build ./cmd/<svc>)
+# Built service binaries (go build ./cmd/<svc> lands the binary at services/<svc>).
+# One entry per services/cmd/<name> directory — keep in sync when daemons are
+# added or renamed (regenerate: `ls cmd/ | sed 's|^|/|'`).
+/admin
+/analytics
+/archiver
+/bridge
+/compliance
+/dbexec
+/devs3
+/exchange
+/fix
 /gateway
 /marketdata
-/fix
+/natsctl
+/openapi-gen
+/oracle
+/postmortem-archive
+/recovery
+/recovery-orchestrator
+/replay
+/retention
+/risk
+/route-dump
+/s3-market-data-exporter
+/secretdrill
+/sentinel_exporter
 /settlement
-/compliance
-/admin
+/snapshot_builder
+/swapdrill
+/wal-recovery
+/watchdogd
 /bin/
 
 # Local config override — copy config.example.yaml
