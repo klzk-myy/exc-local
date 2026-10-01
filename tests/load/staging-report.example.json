@@ -1,0 +1,38 @@
+{
+  "_comment": "Evidence contract for spec checkpoint P08.5-T8.5.3.1-C1 (Phase-08.5 Task 8.5.3.1 — 75k/sec staging gate, §8.5.7 AC rows 1-10). A recorded staging run drops staging-report.json at tests/load/results/<run>/ and the artifact-gated checker ckP085StagingGate (tests/spec/checks/phase085.go) validates it. duration_s >= 14400 (4h) qualifies; unmeasured fields (absent) never count as pass — run.sh BLOCKED rule.",
+  "run": "staging-YYYYMMDDTHHMMSSZ-shard0",
+  "env": "staging",
+  "started_utc": "2026-01-01T00:00:00Z",
+  "ended_utc": "2026-01-01T04:00:00Z",
+  "duration_s": 14400.0,
+  "target_rate": 75000,
+  "throughput": {
+    "min_1s": 75120.0,
+    "mean_1s": 75410.0,
+    "max_1s": 76800.0
+  },
+  "latency_ns": {
+    "p50": 3200.0,
+    "p99": 41000.0,
+    "p999": 3800000.0
+  },
+  "duplicate_trade_ids": 0,
+  "postgres_replica_lag_ms_max": 850.0,
+  "ws": {
+    "connections": 10240,
+    "drops": 0,
+    "fanout_p99_ms": 31.5
+  },
+  "l3_delta_mismatches": 0,
+  "recovery_drill": {
+    "offset_s": 7200,
+    "recovery_ms": 4200.0,
+    "orders_lost": 0
+  },
+  "pagerduty_alerts": 0,
+  "wal_lag_alerts": 0,
+  "memory": {
+    "peak_bytes": 9663676416,
+    "limit_bytes": 12884901888
+  }
+}

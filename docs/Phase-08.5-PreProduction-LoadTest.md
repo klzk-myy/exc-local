@@ -42,7 +42,7 @@ Staging load test at 75k orders/sec (1.5x production target), validating replica
 * [ ] Zero PagerDuty alerts *(env-bound: PD egress path egress-verified 2026-10-01: `deploy/scripts/pagerduty_egress_drill.sh` PASS — production alertmanager.yml check-config'd + run under real prom/alertmanager v0.26.0; p0 trigger→pagerduty-p0 (critical/key-p0), p2→pagerduty-p2-ticket (warning), resolve event, slack egress, zero notifier errors, via PD Events API v2 `url:` override to a recording mock; residual env-bound: PD account acceptance)*
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: 75k/sec staging gate — defined first, validated against spec — **deferred: environment-bound** (requires a provisioned staging cluster; no code artifact can discharge it — checkpoint `P08.5-T8.5.3.1-C1` stays pending, errblast + soak harnesses are the executable substrate)
+- [ ] Spec checkpoint: 75k/sec staging gate — defined first, validated against spec — **deferred: environment-bound** (requires a provisioned staging cluster; artifact-gated checker `ckP085StagingGate` registered 2026-10-01 — a recorded `tests/load/results/<run>/staging-report.json` (schema: `tests/load/staging-report.example.json`) with duration ≥4h discharges it: measured-violation → FAIL, unmeasured → pending per run.sh BLOCKED rule; checkpoint `P08.5-T8.5.3.1-C1` stays pending until evidence lands)
 - [ ] All spec checkpoints pass after implementation *(open — env-bound: the registered soak/staging checkpoints skip honestly until a qualifying 72h artifact or provisioned staging cluster exists; all other checkpoints pass)*
 
 ---

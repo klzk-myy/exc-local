@@ -55,7 +55,7 @@ shard owns a non-empty proper subset — no single shard runs all.
 | `timeout`   | implemented; exceeded per-checkpoint `--timeout`     | **yes**  |
 | `error`     | implemented; panicked / harness error                | **yes**  |
 | `skip`      | implemented; dependency absent (env-gated)           | no¹      |
-| `pending`   | doc checkbox `[ ]` and no implementation registered  | no       |
+| `pending`   | doc checkbox `[ ]` and no implementation registered, or an env-bound implementation reports pending (artifact-gated) | no       |
 | `missing`   | doc checkbox `[x]` but NO implementation registered  | **yes**  |
 | `vanished`  | in committed corpus, absent from docs, was `[x]`     | **yes**  |
 | `dropped`   | in committed corpus, absent from docs, was `[ ]`     | no (warn)|

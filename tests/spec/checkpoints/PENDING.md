@@ -12,4 +12,3 @@ r.Register("P05-T5.3.1-C1", func(ctx context.Context, env *spec.Env) spec.Result
 
 | Checkpoint | Task | Status | Text |
 |---|---|---|---|
-| `P08.5-T8.5.3.1-C1` | 8.5.3.1 (Phase-08.5-PreProduction-LoadTest.md:45) | [ ] | 75k/sec staging gate — defined first, validated against spec — **deferred: environment-bound** (req… |

@@ -2364,7 +2364,7 @@
       "phase": "08.5",
       "task": "8.5.3.1",
       "index": 1,
-      "text": "75k/sec staging gate — defined first, validated against spec — **deferred: environment-bound** (requires a provisioned staging cluster; no code artifact can discharge it — checkpoint `P08.5-T8.5.3.1-C1` stays pending, errblast + soak harnesses are the executable substrate)",
+      "text": "75k/sec staging gate — defined first, validated against spec — **deferred: environment-bound** (requires a provisioned staging cluster; artifact-gated checker `ckP085StagingGate` registered 2026-10-01 — a recorded `tests/load/results/\u003crun\u003e/staging-report.json` (schema: `tests/load/staging-report.example.json`) with duration ≥4h discharges it: measured-violation → FAIL, unmeasured → pending per run.sh BLOCKED rule; checkpoint `P08.5-T8.5.3.1-C1` stays pending until evidence lands)",
       "file": "Phase-08.5-PreProduction-LoadTest.md",
       "line": 45,
       "checked": false,

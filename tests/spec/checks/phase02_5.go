@@ -42,10 +42,11 @@ func soakArtifactsDir(env *spec.Env) string {
 	return env.Path("tests", "soak", "artifacts")
 }
 
-// latestSoakRun returns the newest artifacts/<run> dir containing the named
-// file, or "" when none exists. A `latest` symlink wins when present.
-func latestSoakRun(env *spec.Env, filename string) (string, error) {
-	base := soakArtifactsDir(env)
+// latestArtifactRun returns the newest <base>/<run> dir containing the named
+// file, or "" when none exists. A `latest` symlink wins when present. Shared
+// convention for artifact-gated checkpoints (soak runs under
+// tests/soak/artifacts/, staging runs under tests/load/results/).
+func latestArtifactRun(base, filename string) (string, error) {
 	if link := filepath.Join(base, "latest"); pathExists(filepath.Join(link, filename)) {
 		return link, nil
 	}
@@ -64,6 +65,12 @@ func latestSoakRun(env *spec.Env, filename string) (string, error) {
 	}
 	sort.Strings(dirs) // run dirs are ts-prefixed → last is newest
 	return filepath.Join(base, dirs[len(dirs)-1]), nil
+}
+
+// latestSoakRun returns the newest artifacts/<run> dir containing the named
+// file, or "" when none exists. A `latest` symlink wins when present.
+func latestSoakRun(env *spec.Env, filename string) (string, error) {
+	return latestArtifactRun(soakArtifactsDir(env), filename)
 }
 
 type soakReportJSON struct {

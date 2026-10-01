@@ -5,6 +5,4 @@ package checkpoints
 // PendingStubs lists extracted checkpoint IDs with no registered
 // implementation at generation time — the scaffold the runner reports
 // as pending/missing.
-var PendingStubs = []string{
-	"P08.5-T8.5.3.1-C1", // Phase-08.5-PreProduction-LoadTest.md:45 [75k/sec staging gate — defined first, validated against spe…]
-}
+var PendingStubs = []string{}
