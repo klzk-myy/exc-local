@@ -16,12 +16,12 @@
 #include <system_error>
 #include <thread>
 #include <unordered_map>
-#include <unordered_set>
 
 #include <fcntl.h>
 #include <unistd.h>
 
 #include "matching/MatchingEngine.hpp"
+#include "recovery/DenseLedger.hpp"
 #include "utils/TimeUtils.hpp"
 #include "wal/Wal.hpp"
 
@@ -86,8 +86,11 @@ struct RecoveryManager::BookState {
     // Cumulative journaled fill qty per order id — the derived-vs-orphan
     // ledger for TRADE replay (seeded with filled_qty_units of
     // snapshot-restored orders; accrued on both legs of every consumed
-    // journaled trade).
-    std::unordered_map<uint64_t, int64_t> journaled_fills;
+    // journaled trade). DenseLedger: order ids are BIGSERIAL-dense, so a
+    // chunked index replaces ~50ns-per-node unordered_map inserts with
+    // ~4ns direct writes (Phase-02.5: the replay ledgers dominated the
+    // 19.9s restart-to-ready vs the <10s AC).
+    recovery::DenseLedger<int64_t> journaled_fills;
 };
 
 namespace {
@@ -349,8 +352,13 @@ RecoveryResult RecoveryManager::recover(
     try {
         std::vector<BookState> states(bindings.size());
         std::unordered_map<uint32_t, BookState*> by_instrument;
-        std::unordered_map<uint64_t, BookState*> order_owner;
-        std::unordered_set<uint64_t> applied_trades;
+        // order_owner: order id -> states[] index + 1 (0 = unseen). The
+        // "seen-ever" ledger for CANCEL/MODIFY routing and trade-leg
+        // classification — journaled order ids stay set even after the
+        // order is consumed, which is what separates an engine-derived
+        // fill from an orphan row.
+        recovery::DenseLedger<uint32_t> order_owner;
+        recovery::DenseSet applied_trades;
 
         for (std::size_t i = 0; i < bindings.size(); ++i) {
             states[i].instrument_id = bindings[i].instrument_id;
@@ -737,7 +745,8 @@ RecoveryResult RecoveryManager::recover(
         }
 
         // --- Phase 4: snapshot restore (first book mutation) -----------------
-        for (auto& bs : states) {
+        for (std::size_t bsi = 0; bsi < states.size(); ++bsi) {
+            auto& bs = states[bsi];
             if (!restore_snapshot(res, bs)) {
                 res.books.push_back(bs.report);
                 wal_tail_ = res.wal_tail;
@@ -755,8 +764,8 @@ RecoveryResult RecoveryManager::recover(
                 for (uint32_t i = 0; i < n; ++i) {
                     const PriceLevel* lvl = b->level(side, i);
                     for (const Order* o = lvl->head; o != nullptr; o = o->next) {
-                        order_owner[o->id] = &bs;
-                        bs.journaled_fills[o->id] = o->filled_qty_units;
+                        order_owner.set(o->id, static_cast<uint32_t>(bsi) + 1);
+                        bs.journaled_fills.set(o->id, o->filled_qty_units);
                         if (o->timestamp_ns > max_ts) max_ts = o->timestamp_ns;
                         if (o->ingress_seq > max_seq) max_seq = o->ingress_seq;
                     }
@@ -1030,12 +1039,12 @@ RecoveryResult RecoveryManager::recover(
                         std::memcpy(&p, ev.payload, sizeof(p));
                         order_id = p.order_id;
                     }
-                    const auto it = order_owner.find(order_id);
-                    if (it == order_owner.end()) {
+                    const uint32_t owner_idx = order_owner.get(order_id);
+                    if (owner_idx == 0) {
                         ++res.dedup_skips;  // unknown order — already gone
                         continue;
                     }
-                    target = it->second;
+                    target = &states[owner_idx - 1];
                 }
 
                 BookState& bs = *target;
@@ -1151,7 +1160,9 @@ RecoveryResult RecoveryManager::recover(
                         // ev.seq; derived fills/cancels consume next.
                         bs.engine->set_replay_wal_seq(ev.seq);
                         bs.engine->on_order_received_ex(o, aux);
-                        order_owner[p.order_id] = &bs;
+                        order_owner.set(
+                            p.order_id,
+                            static_cast<uint32_t>(&bs - states.data()) + 1);
                         if (bs.book->book_seq() != seq_before ||
                             bs.engine->stops().pending(p.order_id)) {
                             ++res.mutations_applied;
@@ -1303,12 +1314,11 @@ RecoveryResult RecoveryManager::recover(
                         if (p.trade_id > res.max_trade_id) {
                             res.max_trade_id = p.trade_id;
                         }
-                        if (applied_trades.count(p.trade_id) != 0) {
+                        if (applied_trades.insert(p.trade_id)) {
                             ++res.dedup_skips;
                             ++bs.dedup_skips;
                             break;  // same trade_id already consumed — no-op
                         }
-                        applied_trades.insert(p.trade_id);
                         // Resolve the resting maker leg: both resting → the
                         // leg whose price the trade prints at; exactly one
                         // resting → that leg. (A partial taker's remainder
@@ -1359,7 +1369,7 @@ RecoveryResult RecoveryManager::recover(
                                     actual = rec->filled_total_units;
                                 }
                                 const int64_t jr =
-                                    bs.journaled_fills[leg->id];
+                                    bs.journaled_fills.get(leg->id);
                                 if (jr + p.qty_units <= actual) continue;
                                 if (p.qty_units > remaining_qty_units(*leg)) {
                                     set_fail(res, RecoveryStatus::ApplyFailed,
@@ -1397,8 +1407,8 @@ RecoveryResult RecoveryManager::recover(
                             // replay; otherwise the maker was consumed by
                             // earlier entries — an idempotent no-op either
                             // way.
-                            if (order_owner.count(p.buy_order_id) != 0 ||
-                                order_owner.count(p.sell_order_id) != 0) {
+                            if (order_owner.contains(p.buy_order_id) ||
+                                order_owner.contains(p.sell_order_id)) {
                                 ++bs.trades_derived;
                                 ++res.trades_derived;
                             } else {
@@ -1416,7 +1426,7 @@ RecoveryResult RecoveryManager::recover(
                                 actual_filled = rec->filled_total_units;
                             }
                             const int64_t journaled =
-                                bs.journaled_fills[maker->id];
+                                bs.journaled_fills.get(maker->id);
                             if (journaled + p.qty_units <= actual_filled) {
                                 // The replayed aggressor's walk_match
                                 // already re-derived this fill — do not
@@ -1456,8 +1466,8 @@ RecoveryResult RecoveryManager::recover(
                         // order's filled accumulates whether it filled as
                         // maker or as aggressor (a resting taker remainder
                         // is resolvable only through this ledger).
-                        bs.journaled_fills[p.buy_order_id] += p.qty_units;
-                        bs.journaled_fills[p.sell_order_id] += p.qty_units;
+                        bs.journaled_fills.ref(p.buy_order_id) += p.qty_units;
+                        bs.journaled_fills.ref(p.sell_order_id) += p.qty_units;
                         break;
                     }
                     default:
