@@ -35,6 +35,12 @@ var Streams = []string{
 	// FlatBuffers wire-event subjects, and per-LP ordering is a distinct
 	// ordering domain from the engine's {shard}.{symbol} key.
 	"quotes",
+	// Ops-alert trail (Task 13.3.2 + §5.3): ops.alerts.{settlement,
+	// reconciliation, risk, monitoring, backoffice} — the durable
+	// P1/P2 page path. Without it every OpsAlert publish fails
+	// PubAck-less and the reconciliation/liquidation alert trail is
+	// silent.
+	"ops",
 }
 
 const (

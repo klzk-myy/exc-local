@@ -35,13 +35,14 @@ func TestSubjectRejectsBadTokens(t *testing.T) {
 }
 
 func TestStreamConfigCanonical(t *testing.T) {
-	// 10 canonical streams — trades, settlements, compliance, analytics,
+	// 11 canonical streams — trades, settlements, compliance, analytics,
 	// funding, margin-events, surveillance, l3 (Phase-17 Task 17.3.2),
 	// quotes (Task 7.3.9 feed seam, consumed by marketdata LPBookProducer),
 	// account (account.balance.changed.*/account.swap.charged.* — the
-	// settlement publisher's PubAck subjects need a bound stream).
-	if len(Streams) != 10 {
-		t.Fatalf("expected 10 canonical streams, got %d: %v", len(Streams), Streams)
+	// settlement publisher's PubAck subjects need a bound stream), ops
+	// (ops.alerts.* durable alert trail).
+	if len(Streams) != 11 {
+		t.Fatalf("expected 11 canonical streams, got %d: %v", len(Streams), Streams)
 	}
 	found := map[string]bool{}
 	for _, name := range Streams {
