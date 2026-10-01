@@ -110,7 +110,7 @@ Implement the PriceOracle service: aggregate prices from Refinitiv, Bloomberg BF
 
 **Definition of Done (Acceptance Criteria):**
 * [x] Single PriceOracle service — services/cmd/oracle is the sole aggregator
-* [x] All consumers read from same source — oracle.Provider→risk.MarkPriceProvider chain; one Redis keyspace
+* [x] All consumers read from same source — oracle.Provider→risk.MarkPriceProvider chain; one Redis keyspace (benchmark-fixing scheduler bound 2026-10-01 via `RedisFixingMarkSource` on the same `mark:{sym}`/`oracle:mark:{sym}:ts` pair — completes the consumer set)
 * [x] No duplicate oracle integrations — single seam — gateway binds NewChainedMarkPriceProvider(oracle,last-trade)
 * [x] Circuit breaker cascades to consumers — oracle:health:{sym}+fallback keys consumed by orders gate + risk fallback
 

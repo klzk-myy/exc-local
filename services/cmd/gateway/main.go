@@ -3052,9 +3052,9 @@ func run() error {
 	// #401). The auction + fixing control keys ride the extended
 	// admin.RedisStatusFeed surface (same instrument:auction:{symbol}
 	// family the reopening CALL owns). The fixing scheduler's
-	// PriceSource stays unwired until the Phase-19.5 oracle lands —
-	// every due fixing then records SKIPPED with the reason rather than
-	// a fabricated rate (spec §2.7).
+	// PriceSource reads the oracle's published mark (RedisFixingMarkSource)
+	// — absent/stale marks still record SKIPPED with the reason rather
+	// than a fabricated rate (spec §2.7).
 	instCalStore := instruments.NewCalendarStore(pool)
 	instFeed := admin.RedisStatusFeed{C: rdb.Client}
 	sessionCal, err := instruments.NewSessionCalendar()
@@ -3471,11 +3471,14 @@ func run() error {
 		Pool:     pool,
 		Store:    instCalStore,
 		Holidays: instHolCal,
-		Prices:   nil, // Phase-19.5 oracle seam — SKIPPED records until wired
-		Feed:     instFeed,
-		Orders:   instruments.NewPgFixingOrders(pool),
-		WS:       wsSrv,
-		Logf:     func(f string, a ...any) { log.Warn(fmt.Sprintf("fixing scheduler: "+f, a...)) },
+		// Phase-19.5 oracle seam now wired: the recorded fix is the
+		// oracle mark live at the firing instant (staleness-bounded —
+		// absent/stale marks still record SKIPPED, never fabricated).
+		Prices: oracle.NewRedisFixingMarkSource(rdb),
+		Feed:   instFeed,
+		Orders: instruments.NewPgFixingOrders(pool),
+		WS:     wsSrv,
+		Logf:   func(f string, a ...any) { log.Warn(fmt.Sprintf("fixing scheduler: "+f, a...)) },
 	})
 	if err != nil {
 		return fmt.Errorf("fixing scheduler: %w", err)

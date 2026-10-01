@@ -362,7 +362,7 @@ func (s *FixingScheduler) fire(ctx context.Context, e CalendarEntry,
 	var rate decimal.Decimal
 	var source, skipReason string
 	if s.prices == nil {
-		status, skipReason = "SKIPPED", "price source unwired (Phase-19.5 oracle seam absent)"
+		status, skipReason = "SKIPPED", "price source unwired"
 	} else {
 		fr, err := s.prices.FixingRate(ctx, e.Symbol, e.Benchmark, scheduledAt)
 		switch {

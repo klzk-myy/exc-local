@@ -23,6 +23,7 @@ import (
 
 	"exchange/internal/admin"
 	"exchange/internal/db"
+	"exchange/pkg/decimal"
 )
 
 func pgGate(t *testing.T) (*pgxpool.Pool, context.Context) {
@@ -485,6 +486,77 @@ func TestFixingSchedulerIntegration(t *testing.T) {
 		SELECT count(*) FROM benchmark_fixings WHERE symbol=$1`,
 		itSymbol).Scan(&cnt); err != nil || cnt != before {
 		t.Fatalf("refire must be idempotent: %d→%d %v", before, cnt, err)
+	}
+}
+
+// Wired PriceSource → RECORDED row carrying the rate + provenance (the
+// production path since 2026-10-01: gateway binds
+// oracle.NewRedisFixingMarkSource reading the published mark keyspace).
+type stubPriceSource struct {
+	rate   string
+	source string
+	err    error
+}
+
+func (s stubPriceSource) FixingRate(_ context.Context, _, _ string,
+	_ time.Time) (*FixingRate, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	d, err := decimal.NewFromString(s.rate)
+	if err != nil {
+		return nil, err
+	}
+	return &FixingRate{Rate: d, Source: s.source}, nil
+}
+
+func TestFixingSchedulerRecordsRateWhenPriced(t *testing.T) {
+	pool, ctx := pgGate(t)
+	ensureSchema(t, ctx, pool)
+	p := seedPrincipals(t, ctx, pool)
+	cleanupSymbol(t, ctx, pool, itSymbol)
+	t.Cleanup(func() { cleanupSymbol(t, ctx, pool, itSymbol) })
+
+	store := admin.NewStore(pool)
+	feed := newFakeFeed()
+	instSvc, err := admin.NewInstrumentService(admin.InstrumentDeps{
+		Pool: pool, Roles: store.StrongestRole, Feed: feed})
+	if err != nil {
+		t.Fatal(err)
+	}
+	instID := insertInstrument(t, ctx, pool, "DRAFT")
+	if _, err := instSvc.Transition(ctx, admin.AdminActor{UserID: p.reviewer},
+		instID, admin.LcOpActivate, admin.TransitionInput{}); err != nil {
+		t.Fatalf("activate: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO auction_calendar
+		    (instrument_id, symbol, auction_type, benchmark, trigger_time,
+		     timezone, recurrence, enabled)
+		VALUES ($1,$2,'BENCHMARK_FIXING','ECB_REF_1415','14:15','Europe/Berlin',
+		        'MON-FRI', true)`, instID, itSymbol); err != nil {
+		t.Fatalf("seed fixing calendar: %v", err)
+	}
+
+	sched, err := NewFixingScheduler(FixingDeps{
+		Pool: pool, Store: NewCalendarStore(pool), Feed: feed,
+		Prices: stubPriceSource{rate: "1.08525000", source: "oracle-mark:ecb"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sched.Tick(ctx)
+
+	var status, rate, src string
+	if err := pool.QueryRow(ctx, `
+		SELECT status, rate::text, rate_source FROM benchmark_fixings
+		 WHERE symbol=$1 AND benchmark='ECB_REF_1415'
+		 ORDER BY id DESC LIMIT 1`, itSymbol).Scan(&status, &rate, &src); err != nil {
+		t.Fatalf("fixing record: %v", err)
+	}
+	if status != "RECORDED" || rate != "1.08525000" || src != "oracle-mark:ecb" {
+		t.Fatalf("recorded fix wrong: status=%s rate=%s source=%s",
+			status, rate, src)
 	}
 }
 
