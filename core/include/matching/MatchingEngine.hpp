@@ -883,9 +883,10 @@ private:
     void publish_depth() noexcept;
     void flush_depth() noexcept;
     // L2 depth coalesce window — the spec's feed contract is a 100ms
-    // conflated top-20 stream (§10.2); 1ms keeps sub-millisecond freshness
-    // on a quiet book while bounding serialize work to ~1k frames/s hot.
-    static constexpr uint64_t kDepthPubIntervalNs = 1'000'000;
+    // conflated top-20 stream (§10.2) that is explicitly allowed to lag the
+    // internal book (§6.6b); 10ms stays 10x fresher than contract while
+    // bounding serialize work to ~100 frames/s under sustained load.
+    static constexpr uint64_t kDepthPubIntervalNs = 10'000'000;
 
     // --- Task 2.3.13/2.3.15/2.3.20 helpers -------------------------------------
     // §7.1/§6.9 amend gate: per-state reject code, nullptr when amends are

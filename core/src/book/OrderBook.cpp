@@ -246,6 +246,13 @@ BookError OrderBook::add_order(const Order& tmpl, Order** out) noexcept {
               : insert_level_at(tmpl.side, idx, tmpl.price_ticks);
     level_insert_priority(*lvl, o);
     lvl->total_qty_units = new_total;
+    // visible_* mirrors total_qty_units for L2-visible members only — the
+    // aggregate is a subset of new_total, so the checked add above already
+    // bounds it (visible_qty_units <= total_qty_units, always).
+    if (l2_visible(*o)) {
+        lvl->visible_qty_units += rem;
+        ++lvl->visible_count;
+    }
     index_insert(o);
     ++live_orders_;
     ++book_seq_;
@@ -273,6 +280,10 @@ BookError OrderBook::cancel_order(uint64_t id, Order* snapshot_out) noexcept {
 
     lvl->unlink(o);
     lvl->total_qty_units = new_total;
+    if (l2_visible(*o)) {
+        lvl->visible_qty_units -= remaining_qty_units(*o);
+        --lvl->visible_count;
+    }
     if (lvl->empty()) remove_level_at(o->side, idx);
     index_remove(o);
     orders_->free(o);
@@ -322,6 +333,7 @@ BookError OrderBook::modify_order(uint64_t id, int64_t new_price_ticks,
         o->qty_units = new_qty_units;
         o->quantity = Decimal::from_mantissa(new_qty_units);
         src->total_qty_units = new_total;
+        if (l2_visible(*o)) src->visible_qty_units -= delta;
         ++book_seq_;
         return BookError::OK;
     }
@@ -359,8 +371,16 @@ BookError OrderBook::modify_order(uint64_t id, int64_t new_price_ticks,
     }
 
     // Commit — unfailable below.
+    // l2_visible() is constant over a resting order's lifetime (type/flags
+    // never change in place), so one evaluation covers the src unlink and
+    // the dst re-insert below.
+    const bool vis = l2_visible(*o);
     src->unlink(o);
     src->total_qty_units = src_total_after;
+    if (vis) {
+        src->visible_qty_units -= remaining_qty_units(*o);
+        --src->visible_count;
+    }
     if (src->empty()) remove_level_at(o->side, src_idx);
 
     o->price_ticks = new_price_ticks;
@@ -387,6 +407,10 @@ BookError OrderBook::modify_order(uint64_t id, int64_t new_price_ticks,
     }
     level_insert_priority(*dst, o);
     dst->total_qty_units = dst_total;
+    if (vis) {
+        dst->visible_qty_units += new_rem;
+        ++dst->visible_count;
+    }
     ++book_seq_;
     return BookError::OK;
 }
@@ -413,11 +437,14 @@ BookError OrderBook::apply_fill(Order* maker, int64_t fill_units,
 
     lvl->total_qty_units = new_total;
     maker->filled_qty_units = new_filled;
+    const bool vis = l2_visible(*maker);
+    if (vis) lvl->visible_qty_units -= fill_units;
     // Post-fill copy-out: the caller's fill report wants the terminal
     // filled_qty — the maker pointer dies below when it fully fills.
     if (snapshot_out != nullptr) *snapshot_out = *maker;
     if (maker->filled_qty_units >= maker->qty_units) {
         lvl->unlink(maker);
+        if (vis) --lvl->visible_count;
         if (lvl->empty()) remove_level_at(maker->side, idx);
         index_remove(maker);
         orders_->free(maker);   // maker pointer is dead past this point

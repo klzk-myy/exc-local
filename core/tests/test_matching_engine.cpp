@@ -573,9 +573,10 @@ TEST(MatchingEngine, IpcPublishesFillsAndCancels) {
     const uint64_t s0 = chan.sends;
     e.on_order_received(mk(pool, 2, Side::BUY, OrderType::LIMIT, P(5000), 40, 2));
     // Trade fill publishes immediately; the depth snapshot is conflated —
-    // it lands on the next on_time_tick flush (spec §10.2 conflation).
+    // it lands on the first on_time_tick past the coalesce window
+    // (spec §10.2 conflation).
     EXPECT_GE(chan.sends, s0 + 1);
-    e.on_time_tick(1);
+    e.on_time_tick(100'000'000);  // 100ms — beyond the 10ms coalesce window
     EXPECT_GE(chan.sends, s0 + 2);
     EXPECT_EQ(pub.published(), chan.sends);
     EXPECT_EQ(pub.drops(), 0u);

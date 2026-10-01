@@ -166,18 +166,29 @@ uint32_t EngineLoop::spin_once() noexcept {
         }
     }
 
-    const int64_t t1 = static_cast<int64_t>(steady_ns());
-    const int64_t cyc = t1 - t0;
+    // Cycle-cost accounting only when the cycle did work — at 50k+ orders/s
+    // the loop iterates ~20M times/s and the vast majority drain nothing;
+    // a histogram record + second clock read + three atomic ops on every
+    // empty spin was ~20% of the matching core in profiling (Phase-02.5).
+    // Empty cycles can't stall (they take ~100ns), so skipping their stats
+    // changes nothing the watchdog or STALL detection observes — both key
+    // off beat staleness, which still stamps every iteration.
+    int64_t beat_ns = t0;
+    if (drained > 0) {
+        const int64_t t1 = static_cast<int64_t>(steady_ns());
+        const int64_t cyc = t1 - t0;
+        beat_ns = t1;
+        stats_.last_cycle_ns.store(cyc, std::memory_order_relaxed);
+        int64_t mx = stats_.max_cycle_ns.load(std::memory_order_relaxed);
+        while (cyc > mx &&
+               !stats_.max_cycle_ns.compare_exchange_weak(mx, cyc, std::memory_order_relaxed));
+        stats_.cycle_hist.record(static_cast<uint64_t>(cyc < 0 ? 0 : cyc));
+    }
     stats_.loop_iters.fetch_add(1, std::memory_order_relaxed);
-    stats_.last_cycle_ns.store(cyc, std::memory_order_relaxed);
-    int64_t mx = stats_.max_cycle_ns.load(std::memory_order_relaxed);
-    while (cyc > mx &&
-           !stats_.max_cycle_ns.compare_exchange_weak(mx, cyc, std::memory_order_relaxed));
-    stats_.cycle_hist.record(static_cast<uint64_t>(cyc < 0 ? 0 : cyc));
     // The liveness beat: stamped at END of cycle so a hung dispatch stretches
     // staleness exactly as long as the loop is actually stuck.
     loop_beat_.fetch_add(1, std::memory_order_release);
-    last_beat_ns_.store(t1, std::memory_order_release);
+    last_beat_ns_.store(beat_ns, std::memory_order_release);
 
     if (drained == 0 && cfg_.idle_sleep_ns > 0) {
         // Deliberate idle park: mark it so the watchdog suppresses WARN —

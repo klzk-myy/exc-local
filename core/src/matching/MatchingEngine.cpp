@@ -814,20 +814,23 @@ void MatchingEngine::on_implied_fill(
 void MatchingEngine::publish_depth() noexcept {
     // Conflated L2 depth (spec §10.2 — the feed is a 100ms-conflated top-20
     // stream; §6.6b — it may lag the internal book and is display-only).
-    // Serialization walks the top-40 level chains + builds a flatbuffer on
-    // the matching thread, so hot-path mutations coalesce: emit immediately
-    // when the interval has elapsed (a quiet book keeps per-mutation
-    // freshness), else defer to the next on_time_tick flush (~1ms cadence).
+    // Serialization reads cached per-level visible aggregates + builds a
+    // flatbuffer on the matching thread, so hot-path mutations coalesce:
+    // emit immediately when the interval has elapsed (a quiet book keeps
+    // per-mutation freshness), else defer to the next on_time_tick flush.
     if (publisher_ == nullptr) return;
     depth_dirty_ = true;
-    if (depth_ever_emitted_ && now_ns_ - last_depth_pub_ns_ < kDepthPubIntervalNs) {
-        return;
-    }
     flush_depth();
 }
 
 void MatchingEngine::flush_depth() noexcept {
     if (!depth_dirty_ || publisher_ == nullptr) return;
+    // The conflation window binds the TICK flush too — otherwise a dirty
+    // flag set mid-window emits one tick (~1ms) later and the coalesce
+    // never actually applies under sustained load.
+    if (depth_ever_emitted_ && now_ns_ - last_depth_pub_ns_ < kDepthPubIntervalNs) {
+        return;
+    }
     depth_dirty_ = false;
     depth_ever_emitted_ = true;
     last_depth_pub_ns_ = now_ns_;

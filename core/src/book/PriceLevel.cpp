@@ -10,6 +10,8 @@ bool level_chain_consistent(const PriceLevel& lvl, Side side,
     if (violation != nullptr) *violation = nullptr;
     const char* why = nullptr;
     uint32_t n = 0;
+    uint32_t vis_n = 0;
+    int64_t vis_qty = 0;
     uint64_t prev_ts = 0;
     const Order* prev = nullptr;
     for (const Order* o = lvl.head; o != nullptr; o = o->next) {
@@ -26,6 +28,10 @@ bool level_chain_consistent(const PriceLevel& lvl, Side side,
         if (o->qty_units <= 0 || remaining_qty_units(*o) <= 0) {
             why = "resting order with non-positive remaining qty"; break;
         }
+        if (l2_visible(*o)) {
+            ++vis_n;
+            vis_qty += remaining_qty_units(*o);
+        }
         prev_ts = o->timestamp_ns;
         prev = o;
         ++n;
@@ -39,6 +45,10 @@ bool level_chain_consistent(const PriceLevel& lvl, Side side,
         else if (n != lvl.order_count) why = "order_count != chain length";
         else if ((n == 0) != (lvl.head == nullptr))
             why = "empty level with dangling head";
+        else if (vis_n != lvl.visible_count)
+            why = "visible_count != visible chain members";
+        else if (vis_qty != lvl.visible_qty_units)
+            why = "visible_qty_units != visible members' remaining sum";
     }
     if (why != nullptr) {
         if (violation != nullptr) *violation = why;
