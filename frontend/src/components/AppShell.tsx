@@ -65,16 +65,19 @@ export function AppShell() {
       <ConnectionBanner />
       <header className="flex items-center gap-4 border-b border-neutral-800 px-4 py-2">
         <span className="text-lg font-bold tracking-tight">Exchange</span>
-        <nav aria-label="Primary" className="flex flex-1 items-center gap-1">
+        <nav
+          aria-label="Primary"
+          className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
+        >
           {[...sections.entries()].map(([section, items]) => (
-            <div key={section} className="flex items-center gap-1">
+            <div key={section} className="flex shrink-0 items-center gap-1">
               {items.map(({ item }) => (
                 <NavLink
                   key={`${item.section}:${item.to}`}
                   to={item.to}
                   end={item.to === '/'}
                   className={({ isActive }) =>
-                    `rounded px-3 py-1.5 text-sm font-medium transition-colors ${
+                    `whitespace-nowrap rounded px-3 py-1.5 text-sm font-medium transition-colors ${
                       isActive
                         ? 'bg-neutral-800 text-white'
                         : 'text-neutral-400 hover:bg-neutral-900 hover:text-neutral-200'
@@ -87,7 +90,7 @@ export function AppShell() {
             </div>
           ))}
         </nav>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2 whitespace-nowrap">
           <StalePricingBadge />
           <MarketHoursBadge />
           <ConnectionPill />

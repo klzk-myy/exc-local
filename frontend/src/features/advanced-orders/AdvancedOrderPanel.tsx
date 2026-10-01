@@ -150,15 +150,34 @@ export function AdvancedOrderPanel({
   });
   const [submitError, setSubmitError] = useState<unknown>(null);
   const [lastResult, setLastResult] = useState<string | null>(null);
+  const [touched, setTouched] = useState<Partial<Record<string, true>>>({});
+  const [submitTried, setSubmitTried] = useState(false);
+
+  // Default instrument: first ACTIVE listing, once — the placeholder-only
+  // value read as "rejected input" next to validation chrome. Never
+  // overwrite a field the user has already edited (touched).
+  useEffect(() => {
+    if (form.symbol !== '' || touched['symbol'] === true) return;
+    const first = (instruments.data ?? []).find((i) => i.status === 'ACTIVE');
+    if (first !== undefined) {
+      setForm((f) => (f.symbol === '' ? { ...f, symbol: first.symbol } : f));
+    }
+  }, [instruments.data, form.symbol, touched]);
 
   const built = buildOrderPayload(form);
   const fieldErrors = built.errors;
+  // Validation surfaces on blur/submit, not on mount — a pristine ticket
+  // should not announce errors for fields the user has not reached yet.
+  const showErr = (k: string): string | undefined =>
+    touched[k] === true || submitTried ? fieldErrors[k] : undefined;
+  const touch = (k: string) => () => setTouched((t) => (t[k] === true ? t : { ...t, [k]: true }));
   const constraints = qtyConstraints(instrument);
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
     setSubmitError(null);
     setLastResult(null);
+    setSubmitTried(true);
     if (Object.keys(fieldErrors).length > 0) return; // inline errors shown
     submit.mutate(form);
   };
@@ -211,7 +230,7 @@ export function AdvancedOrderPanel({
       </div>
 
       {/* Symbol */}
-      <Field label="Instrument" error={fieldErrors['symbol'] ?? null} required>
+      <Field label="Instrument" error={showErr('symbol') ?? null} required>
         {(id, describedBy, invalid) => (
           <>
             <input
@@ -222,6 +241,7 @@ export function AdvancedOrderPanel({
                 patch({ symbol: e.target.value.toUpperCase() });
                 setDraft({ symbol: e.target.value.toUpperCase() });
               }}
+              onBlur={touch('symbol')}
               placeholder="EUR/USD"
               aria-invalid={invalid}
               aria-describedby={describedBy}
@@ -267,7 +287,7 @@ export function AdvancedOrderPanel({
       {showPrice && (
         <Field
           label={form.kind === 'BRACKET' ? 'Entry price (empty = market entry)' : 'Price'}
-          error={fieldErrors['price'] ?? null}
+          error={showErr('price') ?? null}
           required={form.kind !== 'BRACKET'}
           hint={instrument !== undefined ? `tick ${instrument.tickSize.toDisplay()}` : undefined}
         >
@@ -277,6 +297,7 @@ export function AdvancedOrderPanel({
               inputMode="decimal"
               value={form.price}
               onChange={(e) => patch({ price: e.target.value })}
+              onBlur={touch('price')}
               placeholder="0.00000"
               aria-invalid={invalid}
               aria-describedby={describedBy}
@@ -290,7 +311,7 @@ export function AdvancedOrderPanel({
       {showStop && (
         <Field
           label={form.kind === 'OCO' ? 'Stop leg trigger' : 'Stop trigger price'}
-          error={fieldErrors['stopPrice'] ?? null}
+          error={showErr('stopPrice') ?? null}
           required
         >
           {(id, describedBy, invalid) => (
@@ -299,6 +320,7 @@ export function AdvancedOrderPanel({
               inputMode="decimal"
               value={form.stopPrice}
               onChange={(e) => patch({ stopPrice: e.target.value })}
+              onBlur={touch('stopPrice')}
               placeholder="0.00000"
               aria-invalid={invalid}
               aria-describedby={describedBy}
@@ -312,7 +334,7 @@ export function AdvancedOrderPanel({
       {form.kind === 'ICEBERG' && (
         <Field
           label="Visible quantity (iceberg display hint)"
-          error={fieldErrors['visibleQty'] ?? null}
+          error={showErr('visibleQty') ?? null}
           required
           hint="Only this slice shows on the public L2 book"
         >
@@ -322,6 +344,7 @@ export function AdvancedOrderPanel({
               inputMode="decimal"
               value={form.visibleQty}
               onChange={(e) => patch({ visibleQty: e.target.value })}
+              onBlur={touch('visibleQty')}
               aria-invalid={invalid}
               aria-describedby={describedBy}
               className={inputCls}
@@ -342,10 +365,11 @@ export function AdvancedOrderPanel({
               inputMode="decimal"
               value={form.trailingDistance}
               onChange={(e) => patch({ trailingDistance: e.target.value })}
-              aria-invalid={fieldErrors['trailingDistance'] !== undefined}
+              onBlur={touch('trailingDistance')}
+              aria-invalid={showErr('trailingDistance') !== undefined}
               className={inputCls}
             />
-            {fieldErrors['trailingDistance'] !== undefined && (
+            {showErr('trailingDistance') !== undefined && (
               <p className="mt-1 text-xs text-red-400" role="alert">
                 {fieldErrors['trailingDistance']}
               </p>
@@ -381,7 +405,8 @@ export function AdvancedOrderPanel({
               inputMode="decimal"
               value={form.bracketStop}
               onChange={(e) => patch({ bracketStop: e.target.value })}
-              aria-invalid={fieldErrors['bracketStop'] !== undefined}
+              onBlur={touch('bracketStop')}
+              aria-invalid={showErr('bracketStop') !== undefined}
               className={inputCls}
             />
           </div>
@@ -394,14 +419,14 @@ export function AdvancedOrderPanel({
               inputMode="decimal"
               value={form.bracketTarget}
               onChange={(e) => patch({ bracketTarget: e.target.value })}
-              aria-invalid={fieldErrors['bracketTarget'] !== undefined}
+              onBlur={touch('bracketTarget')}
+              aria-invalid={showErr('bracketTarget') !== undefined}
               className={inputCls}
             />
           </div>
-          {(fieldErrors['bracketStop'] !== undefined ||
-            fieldErrors['bracketTarget'] !== undefined) && (
+          {(showErr('bracketStop') !== undefined || showErr('bracketTarget') !== undefined) && (
             <p className="col-span-2 text-xs text-red-400" role="alert">
-              {fieldErrors['bracketStop'] ?? fieldErrors['bracketTarget']}
+              {showErr('bracketStop') ?? showErr('bracketTarget')}
             </p>
           )}
         </div>
@@ -409,13 +434,14 @@ export function AdvancedOrderPanel({
 
       {/* OCO limit leg */}
       {form.kind === 'OCO' && (
-        <Field label="Limit leg price" error={fieldErrors['ocoLimit'] ?? null} required>
+        <Field label="Limit leg price" error={showErr('ocoLimit') ?? null} required>
           {(id, describedBy, invalid) => (
             <input
               id={id}
               inputMode="decimal"
               value={form.ocoLimit}
               onChange={(e) => patch({ ocoLimit: e.target.value })}
+              onBlur={touch('ocoLimit')}
               aria-invalid={invalid}
               aria-describedby={describedBy}
               className={inputCls}
@@ -454,10 +480,11 @@ export function AdvancedOrderPanel({
                 type="datetime-local"
                 value={form.gtdExpiry}
                 onChange={(e) => patch({ gtdExpiry: e.target.value })}
-                aria-invalid={fieldErrors['gtdExpiry'] !== undefined}
+                onBlur={touch('gtdExpiry')}
+                aria-invalid={showErr('gtdExpiry') !== undefined}
                 className={inputCls}
               />
-              {fieldErrors['gtdExpiry'] !== undefined && (
+              {showErr('gtdExpiry') !== undefined && (
                 <p className="mt-1 text-xs text-red-400" role="alert">
                   {fieldErrors['gtdExpiry']}
                 </p>
@@ -470,7 +497,7 @@ export function AdvancedOrderPanel({
       {/* Quantity + percent slider */}
       <Field
         label="Quantity"
-        error={fieldErrors['quantity'] ?? null}
+        error={showErr('quantity') ?? null}
         required
         hint={
           constraints.step.isPositive()
@@ -489,6 +516,7 @@ export function AdvancedOrderPanel({
               patch({ quantity: e.target.value });
               setDraft({ quantity: e.target.value });
             }}
+            onBlur={touch('quantity')}
             aria-invalid={invalid}
             aria-describedby={describedBy}
             className={inputCls}
