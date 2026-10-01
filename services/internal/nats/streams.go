@@ -19,6 +19,11 @@ var Streams = []string{
 	"funding",
 	"margin-events",
 	"surveillance",
+	// Post-commit ledger notifications: account.balance.changed.{id} and
+	// account.swap.charged.{id} (spec §5.3 invariant 4). Without this
+	// stream the JetStream publisher's PubAck never arrives and the
+	// fill consumer halts on BALANCE_EVENT_DISPATCH_FAILED.
+	"account",
 	// Phase-17 Task 17.3.2 — premium order-level feed republished by the
 	// bridge (l3.{shard}.{symbol}). Distinct from "analytics" because its
 	// retention cadence and premium-tier consumers differ.
