@@ -172,3 +172,15 @@ core/snap/
 services/wal/
 services/snapshots/
 /bin/
+
+# Root meta-docs are internal working/agent docs — kept local, not published.
+# Public surface is README.md + docs/ + source.
+AGENTS.md
+ARCHITECTURE.md
+CHANGELOG.md
+CLAUDE.md
+CONTEXT.md
+DESIGN.md
+IMPLEMENTATION_PROMPT.md
+MEMORY.md
+WORKFLOWS.md
