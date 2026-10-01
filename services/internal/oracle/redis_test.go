@@ -24,7 +24,7 @@ func redisClient(t *testing.T) *redis.Client {
 	}
 	addr := os.Getenv("EXC_REDIS_TEST_ADDR")
 	if addr == "" {
-		addr = "127.0.0.1:6379"
+		addr = "127.0.0.1:16379"
 	}
 	rdb := redis.New(addr, os.Getenv("EXC_REDIS_TEST_PASSWORD"), 14)
 	if err := rdb.Ping(context.Background()); err != nil {

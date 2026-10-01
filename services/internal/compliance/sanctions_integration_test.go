@@ -4,7 +4,7 @@
 //
 //	EXC_PG_TEST=1            enable
 //	EXC_TEST_DSN             postgres DSN (default postgres on 127.0.0.1:55433)
-//	EXC_REDIS_TEST_ADDR      redis addr (default 127.0.0.1:6379)
+//	EXC_REDIS_TEST_ADDR      redis addr (default 127.0.0.1:16379)
 //	EXC_REDIS_TEST_PASSWORD  redis password (default redpass)
 //
 // Each run builds a scratch schema, applies the real migration files,
@@ -190,7 +190,7 @@ func sanLedger(t *testing.T, ctx context.Context, pool *pgxpool.Pool) *settlemen
 	t.Helper()
 	addr := os.Getenv("EXC_REDIS_TEST_ADDR")
 	if addr == "" {
-		addr = "127.0.0.1:6379"
+		addr = "127.0.0.1:16379"
 	}
 	pass := os.Getenv("EXC_REDIS_TEST_PASSWORD")
 	if pass == "" {

@@ -4,7 +4,7 @@
 //
 //	EXC_PG_TEST=1            enable
 //	EXC_TEST_DSN             postgres DSN (uses EXC_TEST_DSN convention)
-//	EXC_REDIS_TEST_ADDR      redis addr (default 127.0.0.1:6379)
+//	EXC_REDIS_TEST_ADDR      redis addr (default 127.0.0.1:16379)
 //	EXC_REDIS_TEST_PASSWORD  redis password (default redpass)
 //
 // The scratch schema is created per run, seeded with a minimal fixture +
@@ -297,7 +297,7 @@ func itLedger(t *testing.T, ctx context.Context, pool *pgxpool.Pool) *settlement
 	t.Helper()
 	addr := os.Getenv("EXC_REDIS_TEST_ADDR")
 	if addr == "" {
-		addr = "127.0.0.1:6379"
+		addr = "127.0.0.1:16379"
 	}
 	pass := os.Getenv("EXC_REDIS_TEST_PASSWORD")
 	if pass == "" {

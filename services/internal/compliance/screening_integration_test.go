@@ -3,7 +3,7 @@
 // pending-screen queue. Gated like internal/redis tests:
 //
 //	EXC_REDIS_TEST=1            enable
-//	EXC_REDIS_TEST_ADDR         redis addr (default 127.0.0.1:6379)
+//	EXC_REDIS_TEST_ADDR         redis addr (default 127.0.0.1:16379)
 //	EXC_REDIS_TEST_PASSWORD     redis password (default redpass)
 package compliance
 
@@ -24,7 +24,7 @@ func screeningRedis(t *testing.T) (*excredis.Client, context.Context) {
 	}
 	addr := os.Getenv("EXC_REDIS_TEST_ADDR")
 	if addr == "" {
-		addr = "127.0.0.1:6379"
+		addr = "127.0.0.1:16379"
 	}
 	pass := os.Getenv("EXC_REDIS_TEST_PASSWORD")
 	if pass == "" {

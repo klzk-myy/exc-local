@@ -177,7 +177,7 @@ func TestTabletopReconMismatch(t *testing.T) {
 	// Real Redis halt flags — the drill must land halt:account:99999001.
 	addr := os.Getenv("EXC_REDIS_TEST_ADDR")
 	if addr == "" {
-		addr = "127.0.0.1:6379"
+		addr = "127.0.0.1:16379"
 	}
 	pass := os.Getenv("EXC_REDIS_TEST_PASSWORD")
 	if pass == "" {

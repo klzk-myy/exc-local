@@ -88,7 +88,7 @@ func TestOrchParseLeaderValue(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // Redis lease adapter — runs only when REDIS_URL is set (real Redis at
-// e.g. redis://127.0.0.1:6379). Skipped otherwise; in-memory fakes cover
+// e.g. redis://127.0.0.1:16379). Skipped otherwise; in-memory fakes cover
 // the contract.
 // ---------------------------------------------------------------------------
 

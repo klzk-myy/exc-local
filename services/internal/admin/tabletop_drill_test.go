@@ -5,7 +5,7 @@
 // five-tier circuit-breaker admission gate (risk.CircuitBreakerService
 // over RedisBreakerStore). Run:
 //
-//	EXC_TABLETOP=1 EXC_REDIS_TEST_ADDR=127.0.0.1:6379 \
+//	EXC_TABLETOP=1 EXC_REDIS_TEST_ADDR=127.0.0.1:16379 \
 //	  EXC_REDIS_TEST_PASSWORD=redpass \
 //	  go test -v -run TestTabletopTradingHalt ./internal/admin/
 //
@@ -32,7 +32,7 @@ func tabletopRedis(t *testing.T) *excredis.Client {
 	}
 	addr := os.Getenv("EXC_REDIS_TEST_ADDR")
 	if addr == "" {
-		addr = "127.0.0.1:6379"
+		addr = "127.0.0.1:16379"
 	}
 	pass := os.Getenv("EXC_REDIS_TEST_PASSWORD")
 	if pass == "" {

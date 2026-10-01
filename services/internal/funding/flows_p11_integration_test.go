@@ -4,7 +4,7 @@
 //
 //	EXC_PG_TEST=1            enable
 //	EXC_TEST_DSN             postgres DSN
-//	EXC_REDIS_TEST_ADDR      redis addr (default 127.0.0.1:6379)
+//	EXC_REDIS_TEST_ADDR      redis addr (default 127.0.0.1:16379)
 //	EXC_REDIS_TEST_PASSWORD  redis password (default redpass)
 //
 // Each test layers migrations 040 (bank_accounts — the sibling Task

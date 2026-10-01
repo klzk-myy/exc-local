@@ -6,7 +6,7 @@
 // identifier for 15 minutes; the login seam fails closed and returns
 // 423 ACCOUNT_LOCKED_AUTH_FAILURES while locked.
 //
-//	EXC_TABLETOP=1 EXC_REDIS_TEST_ADDR=127.0.0.1:6379 \
+//	EXC_TABLETOP=1 EXC_REDIS_TEST_ADDR=127.0.0.1:16379 \
 //	  EXC_REDIS_TEST_PASSWORD=redpass \
 //	  go test -v -run TestTabletopSecurityIncident ./internal/auth/
 //
@@ -30,7 +30,7 @@ func TestTabletopSecurityIncident(t *testing.T) {
 	}
 	addr := os.Getenv("EXC_REDIS_TEST_ADDR")
 	if addr == "" {
-		addr = "127.0.0.1:6379"
+		addr = "127.0.0.1:16379"
 	}
 	pass := os.Getenv("EXC_REDIS_TEST_PASSWORD")
 	if pass == "" {

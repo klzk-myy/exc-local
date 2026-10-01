@@ -18,7 +18,7 @@ func redisTestClient(t *testing.T) *goredis.Client {
 	}
 	addr := os.Getenv("EXC_REDIS_TEST_ADDR")
 	if addr == "" {
-		addr = "127.0.0.1:6379"
+		addr = "127.0.0.1:16379"
 	}
 	rdb := goredis.NewClient(&goredis.Options{
 		Addr:     addr,

@@ -36,7 +36,7 @@ func TestMemSeqStore(t *testing.T) {
 //
 //	EXC_REDIS_TEST=1 go test ./internal/marketdata/ -run Redis -v
 //
-// Optional overrides: EXC_REDIS_TEST_ADDR (default 127.0.0.1:6379),
+// Optional overrides: EXC_REDIS_TEST_ADDR (default 127.0.0.1:16379),
 // EXC_REDIS_TEST_PASSWORD.
 func TestRedisSeqStore(t *testing.T) {
 	if os.Getenv("EXC_REDIS_TEST") != "1" {
@@ -44,7 +44,7 @@ func TestRedisSeqStore(t *testing.T) {
 	}
 	addr := os.Getenv("EXC_REDIS_TEST_ADDR")
 	if addr == "" {
-		addr = "127.0.0.1:6379"
+		addr = "127.0.0.1:16379"
 	}
 	rdb := goredis.NewClient(&goredis.Options{
 		Addr:     addr,

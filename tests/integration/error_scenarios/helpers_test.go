@@ -8,7 +8,7 @@
 //     instance over the /tmp unix socket).
 //   - EXC_REDIS_TEST=1     enables Redis-backed scenarios
 //     (EXC_REDIS_TEST_ADDR, EXC_REDIS_TEST_PASSWORD, EXC_REDIS_TEST_DB;
-//     default addr 127.0.0.1:6379, default DB index 14 — a dedicated
+//     default addr 127.0.0.1:16379, default DB index 14 — a dedicated
 //     logical DB so the suite never touches sibling keyspaces on shared
 //     infra; cleanup deletes only keys this run created).
 //
@@ -76,7 +76,7 @@ func redisClient(t *testing.T) *exchredis.Client {
 	}
 	addr := os.Getenv("EXC_REDIS_TEST_ADDR")
 	if addr == "" {
-		addr = "127.0.0.1:6379"
+		addr = "127.0.0.1:16379"
 	}
 	db := testRedisDB
 	if raw := os.Getenv("EXC_REDIS_TEST_DB"); raw != "" {
