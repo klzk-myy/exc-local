@@ -96,6 +96,8 @@ func (t *fakeBalanceTx) RecordProcessed(_ context.Context, tradeID, shardID int6
 	return true, nil
 }
 
+func (t *fakeBalanceTx) RecordTrade(_ context.Context, _ ResolvedTrade) error { return nil }
+
 func (t *fakeBalanceTx) PostJournal(_ context.Context, j ledger.Journal) (ledger.PostResult, error) {
 	if t.s.posterErr != nil {
 		return ledger.PostResult{}, t.s.posterErr

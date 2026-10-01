@@ -163,6 +163,12 @@ type balanceTx interface {
 	// RecordProcessed inserts the processed_trades dedup row; applied is
 	// false when trade_id already exists (idempotent replay → skip).
 	RecordProcessed(ctx context.Context, tradeID, shardID int64) (applied bool, err error)
+	// RecordTrade writes the public tape row (trades, id = the engine
+	// trade id the resolver's fee lookup keys on) inside the caller's
+	// tx — the tape and the ledger commit or abort together, so the
+	// public tape never advertises an unsettled fill. Called only for
+	// rows that cleared processed_trades dedup.
+	RecordTrade(ctx context.Context, t ResolvedTrade) error
 	// PostJournal posts a validated journal inside the caller's tx (the
 	// Task 3.3.6 contract — no locks/retry/dispatch of its own).
 	PostJournal(ctx context.Context, j ledger.Journal) (ledger.PostResult, error)
@@ -369,6 +375,9 @@ func (s *BalanceService) commitBatch(ctx context.Context, trades []ResolvedTrade
 			if !applied {
 				outcomes = append(outcomes, FillOutcome{TradeID: trades[i].Fill.TradeID, Duplicate: true})
 				continue
+			}
+			if err := tx.RecordTrade(ctx, trades[i]); err != nil {
+				return fmt.Errorf("balance: tape insert trade %d: %w", trades[i].Fill.TradeID, err)
 			}
 			res, err := tx.PostJournal(ctx, journals[i])
 			if err != nil {
@@ -642,6 +651,27 @@ func (t pgxBalanceTx) RecordProcessed(ctx context.Context, tradeID, shardID int6
 		return false, err
 	}
 	return tag.RowsAffected() == 1, nil
+}
+
+// RecordTrade lands the public tape row: id is the engine trade id
+// (OVERRIDING SYSTEM VALUE — the trades.id identity column doubles as
+// the engine trade-id key the resolver's fee lookup reads), shard/seq
+// come from the fill. ON CONFLICT DO NOTHING covers the (id, created_at)
+// partition key on a same-instant re-delivery.
+func (t pgxBalanceTx) RecordTrade(ctx context.Context, r ResolvedTrade) error {
+	_, err := t.tx.Exec(ctx, `
+		INSERT INTO trades (id, instrument_id, buy_order_id, sell_order_id,
+		    buyer_account_id, seller_account_id, price, quantity,
+		    buyer_fee, seller_fee, shard_id, trade_seq)
+		OVERRIDING SYSTEM VALUE
+		VALUES ($1,$2,$3,$4,$5,$6,$7::numeric,$8::numeric,$9::numeric,$10::numeric,$11,$12)
+		ON CONFLICT DO NOTHING`,
+		int64(r.Fill.TradeID), r.InstrumentID, int64(r.Fill.BuyOrderID),
+		int64(r.Fill.SellOrderID), r.BuyerAccountID, r.SellerAccountID,
+		r.Fill.Price.String(), r.Fill.Qty.String(),
+		r.BuyerFee.String(), r.SellerFee.String(),
+		int16(r.Fill.ShardID), int64(r.Fill.EngineSeq))
+	return err
 }
 
 func (t pgxBalanceTx) PostJournal(ctx context.Context, j ledger.Journal) (ledger.PostResult, error) {

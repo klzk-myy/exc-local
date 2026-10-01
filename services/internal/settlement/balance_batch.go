@@ -144,6 +144,60 @@ func (s *BalanceService) commitBatchSet(ctx context.Context, tx pgx.Tx, trades [
 		return outcomes, nil, nil // pure replay batch — nothing to post
 	}
 
+	// 1b. trades tape — the public tape row (id = engine trade id, the key
+	//     the resolver's fee lookup reads) commits with the ledger, so the
+	//     REST tape can never advertise an unsettled fill. ON CONFLICT DO
+	//     NOTHING covers a same-instant re-delivery under the
+	//     (id, created_at) partition key.
+	stepStart = time.Now()
+	tids2 := make([]int64, 0, len(appliedIdx))
+	iids := make([]int64, 0, len(appliedIdx))
+	bos := make([]int64, 0, len(appliedIdx))
+	sos := make([]int64, 0, len(appliedIdx))
+	buyers := make([]int64, 0, len(appliedIdx))
+	sellers := make([]int64, 0, len(appliedIdx))
+	pxs := make([]string, 0, len(appliedIdx))
+	qtys := make([]string, 0, len(appliedIdx))
+	bfs := make([]string, 0, len(appliedIdx))
+	sfs := make([]string, 0, len(appliedIdx))
+	sids2 := make([]int64, 0, len(appliedIdx))
+	seqs := make([]int64, 0, len(appliedIdx))
+	for _, i := range appliedIdx {
+		t := trades[i]
+		tids2 = append(tids2, int64(t.Fill.TradeID))
+		iids = append(iids, t.InstrumentID)
+		bos = append(bos, int64(t.Fill.BuyOrderID))
+		sos = append(sos, int64(t.Fill.SellOrderID))
+		buyers = append(buyers, t.BuyerAccountID)
+		sellers = append(sellers, t.SellerAccountID)
+		pxs = append(pxs, t.Fill.Price.String())
+		qtys = append(qtys, t.Fill.Qty.String())
+		bfs = append(bfs, t.BuyerFee.String())
+		sfs = append(sfs, t.SellerFee.String())
+		sids2 = append(sids2, t.Fill.ShardID)
+		seqs = append(seqs, int64(t.Fill.EngineSeq))
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO trades (id, instrument_id, buy_order_id, sell_order_id,
+		    buyer_account_id, seller_account_id, price, quantity,
+		    buyer_fee, seller_fee, shard_id, trade_seq)
+		OVERRIDING SYSTEM VALUE
+		SELECT u.id, u.iid, u.bo, u.so, u.ba, u.sa,
+		       u.px::numeric, u.qty::numeric, u.bf::numeric, u.sf::numeric,
+		       u.sid::smallint, u.seq
+		  FROM unnest($1::bigint[], $2::bigint[], $3::bigint[], $4::bigint[],
+		              $5::bigint[], $6::bigint[], $7::text[], $8::text[],
+		              $9::text[], $10::text[], $11::bigint[], $12::bigint[])
+		      WITH ORDINALITY
+		      AS u(id, iid, bo, so, ba, sa, px, qty, bf, sf, sid, seq, ord)
+		 ORDER BY u.ord
+		ON CONFLICT DO NOTHING`,
+		tids2, iids, bos, sos, buyers, sellers, pxs, qtys, bfs, sfs,
+		sids2, seqs); err != nil {
+		return nil, nil, fmt.Errorf("balance: batch tape insert: %w", err)
+	}
+	markStep("1b.trades", stepStart)
+
 	// 2. journal_entries — one unnest insert; RETURNING id +
 	//    idempotency_key gives the exact journal→id map (no reliance on
 	//    return order). 23505 → serial replay semantics apply per journal.
