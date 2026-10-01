@@ -67,6 +67,16 @@ func NewRegistry(contracts []Contract) *Registry {
 	return r
 }
 
+// HasLegs reports whether any leg outcome was recorded. Callers use it
+// to avoid overwriting the committed coverage report when a filtered
+// test run executes no bound legs — an empty run has no evidence to
+// emit and must not clobber prior PASS/FAIL/BLOCKED results.
+func (r *Registry) HasLegs() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.legs) > 0
+}
+
 // Record adds one leg outcome for a criterion. kind is the leg label
 // (e.g. "e2e:orders", "gotest:./internal/settlement", "gtest:test_wal").
 func (r *Registry) Record(criterionID int, kind, status, detail string, elapsed time.Duration) {

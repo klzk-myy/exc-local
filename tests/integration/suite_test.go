@@ -258,7 +258,9 @@ func TestMain(m *testing.M) {
 	reg = itest.NewRegistry(rows)
 	code := m.Run()
 	stopStack()
-	if rep, err := reg.Emit(env.ReportPath); err == nil {
+	if !reg.HasLegs() {
+		fmt.Println("no bound legs executed; coverage report not overwritten")
+	} else if rep, err := reg.Emit(env.ReportPath); err == nil {
 		fmt.Println(rep.SummaryLine())
 		fmt.Println("report:", env.ReportPath)
 	} else {
