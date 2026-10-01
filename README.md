@@ -127,7 +127,7 @@ CI: `.github/workflows/ci.yml` (10 jobs) + `security.yml` (5 jobs) — currently
 - All 30 phases (24 core + 6 buffer) implemented — 479 tasks, 542 checkpoints.
 - 206 migration pairs · 419 §24 acceptance criteria · 149+ error codes.
 - Open items are **environment-bound evidence gates**, not code gaps:
-  - **72h soak @ 50k ord/s** — needs a dedicated benchmark host (dev-host ceiling ~15k/s); longest recorded run 8h @ 15k/s.
+  - **72h soak @ 50k ord/s** — needs a dedicated benchmark host for the p99≤50µs criterion; engine ceiling ≥90.7k/s measured (supersedes "~15k/s dev-host ceiling" — that figure was the loadgen's ~20µs/order send loop, not engine capacity); all other Phase-02.5 criteria verified incl. crash-restart 614ms–1359ms ≪10s.
   - **75k/s × 4h staging gate** — needs a provisioned staging cluster; artifact contract `staging-report.json` armed (`ckP085StagingGate`).
   - Multi-region DR legs · live third-party accounts (PagerDuty, SES/Twilio/FCM, banking rails) · sustained ops windows (uptime SLA, annual BCP).
 
