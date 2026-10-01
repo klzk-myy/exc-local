@@ -24,7 +24,7 @@ const useDashboardPrefs = create<{ compact: boolean; toggleCompact: () => void }
 function useServerTime() {
   return useQuery({
     queryKey: ['system', 'time'],
-    queryFn: () => apiClient.get<{ ts_ms: number }>('/time'),
+    queryFn: () => apiClient.get<{ server_time_ms: number }>('/time'),
     refetchInterval: 30_000,
     retry: false,
   });
@@ -73,7 +73,9 @@ export default function HomePage() {
         <section className="rounded-lg border border-neutral-800 bg-neutral-900 p-4">
           <h2 className="mb-2 text-sm font-medium text-neutral-400">Exchange time (UTC)</h2>
           <p className="text-lg font-semibold" data-testid="server-time">
-            {serverTime.data ? new Date(serverTime.data.ts_ms).toISOString() : '—'}
+            {serverTime.data && Number.isFinite(serverTime.data.server_time_ms)
+              ? new Date(serverTime.data.server_time_ms).toISOString()
+              : '—'}
           </p>
         </section>
       </div>
