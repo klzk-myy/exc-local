@@ -42,6 +42,29 @@ function devCspRelaxation(): Plugin {
   };
 }
 
+/**
+ * Dev-only XFF sharding for the gateway's §8.8 edge limiter.
+ *
+ * The edge limiter buckets Public-tier traffic per client IP and the dev
+ * gateway runs EXC_TRUST_PROXY=1. Unsharded, every dev client collapses
+ * onto 127.0.0.1 and the 5 rps bucket starves the SPA: page-mount bursts
+ * 429, strikes arm the post-429 ban machinery, and the order-entry lock
+ * trips mid-flow. Production never sees this — HAProxy keys buckets on
+ * distinct real client IPs and authenticated callers carry account-tier
+ * quotas (Basic = 20 rps) — so the dev proxy synthesizes a deterministic
+ * XFF per route path: each REST surface gets its own bucket, which is
+ * the closest faithful model of per-client headroom. The 10.90.x space
+ * is also what `seeddev -allowlist-ips` exempts from ban escalation.
+ */
+function devEdgeIp(rawUrl: string | undefined): string {
+  const path = (rawUrl ?? '').split('?')[0] ?? '';
+  let h = 0x811c9dc5; // FNV-1a 32-bit
+  for (let i = 0; i < path.length; i++) {
+    h = Math.imul(h ^ path.charCodeAt(i), 0x01000193) >>> 0;
+  }
+  return `10.90.${(h >>> 8) & 0xff}.${h & 0xff}`;
+}
+
 export default defineConfig({
   plugins: [react(), tailwindcss(), devCspRelaxation()],
   resolve: {
@@ -52,10 +75,25 @@ export default defineConfig({
   server: {
     port: 5173,
     // Dev proxies keep the browser same-origin so the CSP `connect-src
-    // 'self'` covers both REST and WS traffic in development.
+    // 'self'` covers both REST and WS traffic in development. See
+    // devEdgeIp above for the per-route XFF sharding rationale.
     proxy: {
-      '/api': { target: 'http://localhost:8080', changeOrigin: false },
-      '/ws': { target: 'ws://localhost:8080', ws: true, changeOrigin: false },
+      '/api': {
+        target: 'http://localhost:8080',
+        changeOrigin: false,
+        configure: (proxy) => {
+          proxy.on('proxyReq', (proxyReq, req) => {
+            const url = (req as { originalUrl?: string }).originalUrl ?? req.url;
+            proxyReq.setHeader('x-forwarded-for', devEdgeIp(url));
+          });
+        },
+      },
+      '/ws': {
+        target: 'ws://localhost:8080',
+        ws: true,
+        changeOrigin: false,
+        headers: { 'x-forwarded-for': '10.90.255.1' },
+      },
     },
   },
   build: {

@@ -99,6 +99,109 @@ go run ./cmd/exchange cache-shard-map
 cd frontend && npm ci && npm run dev      # build: npm run build · test: npm run test
 ```
 
+## Deployment
+
+Two profiles, both following the mandatory **6-stage bootstrap** (spec §19.13.2):
+Tier 0 Storage → Tier 1 IPC → Tier 2 State → Tier 3 Core Engines → Tier 4
+Gateways → Tier 5 Aux. A later stage never starts before the prior stage is
+healthy — that ordering is the fail-closed guarantee.
+
+### Local dev (single host)
+
+Stage 0 runs in compose; Stages 1–5 run as local binaries under supervisord
+(`deploy/supervisord.conf` maps the §19.13.1 daemon inventory to tier
+priorities 10→60):
+
+```bash
+# 1. Stage 0: clustered infra (PG16, Redis 1p+2r+3sentinel, ClickHouse, NATS ×3)
+docker compose -f docker-compose.dev.yml up -d --wait
+
+# 2. Verify the Stage-0 sub-DAG (ordering + sentinel quorum)
+deploy/scripts/compose_stage_validate.sh
+
+# 3. Apply DB migrations (must complete < 60s)
+scripts/ci/apply_migrations.sh
+
+# 4. Stages 1–5: Aeron/shm, matching engine, bridge, oracle, services, gateways
+export REPO=/www/wwwroot/exc.local
+sudo mkdir -p /var/log/exchange/dev
+supervisord -c deploy/supervisord.conf
+supervisorctl -c deploy/supervisord.conf status
+```
+
+Gateway lands on `:8080` (REST+WS), marketdata on `:8081`.
+
+### Production
+
+1. **Provision bare-metal matching hosts** (one host per shard) — stage binaries
+   + systemd units, merge the `isolcpus` GRUB fragment and reboot, then:
+
+   ```bash
+   sudo deploy/baremetal/provision-matching-host.sh --apply --shard 0 --nic enp65s0f0
+   sudo deploy/baremetal/provision-matching-host.sh --check  --shard 0 --nic enp65s0f0
+   # Tier-1 hardware watchdog:
+   sudo install -D -m 0644 deploy/baremetal/system.conf.d/50-exchange-watchdog.conf \
+       /etc/systemd/system.conf.d/ && sudo systemctl daemon-reload
+   ```
+
+   Full procedure: [`docs/ops/baremetal-provisioning.md`](./docs/ops/baremetal-provisioning.md).
+
+2. **Tier-0 storage clusters** (outside the K8s tree): PostgreSQL 16 semi-sync
+   pair, Redis Sentinel 3-node, ClickHouse, NATS JetStream 3-node. Verify quorum,
+   then apply migrations.
+
+3. **K8s foundation + Go services** (Stages 3–5 daemons):
+
+   ```bash
+   kubectl apply -f deploy/k8s/00-namespace.yaml -f deploy/k8s/01-configmap.yaml \
+     -f deploy/k8s/02-externalsecret.yaml -f deploy/k8s/03-rbac.yaml
+   kubectl apply -f deploy/k8s/services/ -f deploy/k8s/cronjobs/
+   ```
+
+   Secrets come from Vault/KMS via ExternalSecrets (`exchange-db`,
+   `exchange-secrets`, `exchange-s3`); if ESO is absent, create the same-named
+   Secrets out-of-band **before** applying `services/` — pods fail closed
+   without them.
+
+4. **Core bring-up per shard host** (Tier 1→2, in order):
+
+   ```bash
+   sudo systemctl enable --now ptp4l phc2sys        # clock lock <100µs (MiFID II RTS 25)
+   sudo systemctl enable --now aeronmd              # shm rings in /dev/shm
+   sudo systemctl enable --now exchange-watchdogd   # Tier-3 supervisor
+   sudo systemctl start matching-engine@0           # snapshot load + WAL tail replay
+   ```
+
+   The engine then acquires its Redis leader token (`engine:leader:{shardId}`)
+   and enters `Normal`.
+
+5. **Blue-green deploy of the Go services**:
+
+   ```bash
+   deploy/scripts/bluegreen.sh deploy --image-tag v1.2.3
+   ```
+
+   Gated sequence: deploy idle color → `rollout status` → per-pod
+   `/health/ready` (R9 schema) → 300s canary window (Prometheus 5xx ≤1% +
+   **mandatory** synthetic order probe) → zero-drop HAProxy map flip → old color
+   held warm 30 min → scale to 0. Rollback: `deploy/scripts/rollback.sh --color
+   green`. Runbook: [`docs/ops/blue-green-deploy.md`](./docs/ops/blue-green-deploy.md).
+
+6. **Verify**: `deploy/scripts/bluegreen.sh status` ·
+   `deploy/scripts/canary-check.sh --color green --watch --window 900`.
+
+### Deployment hard rules
+
+1. **C++ core is never blue-green** — it rolls per-shard with the 8-step
+   drain/snapshot/swap/replay procedure
+   ([`docs/ops/shard-binary-swap.md`](./docs/ops/shard-binary-swap.md)), ≥60s
+   between shards. Never combine a color flip and a shard swap in one window.
+2. **No synthetic-order pass ⇒ no map flip**, ever.
+3. **Readiness is dependency-checked** — a pod failing PG/Redis/engine-IPC
+   probes returns 503 and is pulled from rotation.
+4. **Zero inline secrets** — `EXC_SECRETS_SOURCE` must resolve to Vault/KMS in
+   production; the gateway fails closed otherwise.
+
 ## Testing & validation
 
 The spec harness (`tests/spec`) mechanically binds every `Spec checkpoint:` marker in

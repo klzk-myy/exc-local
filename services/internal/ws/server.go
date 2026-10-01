@@ -724,7 +724,12 @@ var channelNameOK = func() func(string) bool {
 			switch {
 			case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z',
 				r >= '0' && r <= '9':
-			case r == '_', r == '-', r == '.', r == ':', r == '@':
+			// '/' admitted: instrument symbols are EUR/USD-shaped, so
+			// depth@EUR/USD, book@EUR/USD & co. are canonical names
+			// (mirrors marketdata.channelCharsetOK — the two grammars
+			// must not drift; ws cannot import marketdata because
+			// marketdata imports ws.PrivateChannels).
+			case r == '_', r == '-', r == '.', r == '/', r == ':', r == '@':
 			default:
 				return false
 			}

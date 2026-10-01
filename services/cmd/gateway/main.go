@@ -2132,11 +2132,81 @@ func run() error {
 	var adlStore *risk.PgADLStore
 	var bilatSvc *risk.BilateralCreditService
 
+	// Phase-03 Task 3.3.10 settlement leg: the orders consumer below is
+	// the out-ring's sole reader (SPSC contract — a second shm reader
+	// would steal frames), so fills reach BalanceService through a
+	// per-shard frame tap feeding settlement.FuncSource queues. Each
+	// shard gets its own FillConsumer so EngineFill.ShardID stays
+	// truthful (engine trade_ids are shard-local). FillConsumer batches
+	// (batch 100 / 10ms flush) and halts fail-closed on settlement
+	// errors; processed_trades dedup makes restart replay safe.
+	balanceSvc, err := settlement.NewBalanceService(pool, ledgerSvc, opsAlerter)
+	if err != nil {
+		return fmt.Errorf("balance service: %w", err)
+	}
+	settleQueues := make(map[uint16]chan []byte)
+	for _, sh := range shardIDs(shardMap) {
+		q := make(chan []byte, 1<<14)
+		settleQueues[sh] = q
+		src := settlement.FuncSource(func(limit int, deliver func([]byte)) int {
+			n := 0
+			for n < limit {
+				select {
+				case p := <-q:
+					deliver(p)
+					n++
+				default:
+					return n
+				}
+			}
+			return n
+		})
+		fc, ferr := settlement.NewFillConsumer(balanceSvc,
+			settlement.NewPgxTradeResolver(pool), src, int64(sh), 0, 0)
+		if ferr != nil {
+			return fmt.Errorf("fill consumer shard %d: %w", sh, ferr)
+		}
+		go func() {
+			// Fail-closed halt + restart-with-backoff: the queue survives
+			// a consumer instance (undelivered frames are re-pumped), so
+			// a transient halt drains through. Note the dev caveat: a
+			// fill committed-to-queue but uncommitted-to-ledger is only
+			// recoverable by WAL/recon — production redelivery rides the
+			// bridge → JetStream settlements stream instead.
+			for {
+				err := fc.Run(sweepCtx)
+				if sweepCtx.Err() != nil {
+					return
+				}
+				log.Error("settlement fill consumer halted — restarting; "+
+					"unsettled fills surface via reconciliation",
+					"shard", sh, "err", err)
+				select {
+				case <-sweepCtx.Done():
+					return
+				case <-time.After(250 * time.Millisecond):
+				}
+			}
+		}()
+	}
+
 	// Engine out-ring consumer: cancel echoes + trade fills update the PG
 	// read model; without it pending confirms only time out. The fill
 	// hook is the order_filled emitter (Task 12.3.5) — order→account→user
 	// resolution then Notify, best-effort, panic-guarded by the consumer.
 	go orders.NewConsumer(orderSubmitter, orderStore, orderSvc.Pending()).
+		WithFrameTap(func(sh uint16, p []byte) {
+			// Copy: the drain buffer is reused by the consumer loop.
+			// Blocking send is the backpressure contract — a settlement
+			// queue >16K frames deep means settlement has halted and the
+			// read-model drain stalls rather than silently dropping fills.
+			if q := settleQueues[sh]; q != nil {
+				select {
+				case q <- append([]byte(nil), p...):
+				case <-sweepCtx.Done():
+				}
+			}
+		}).
 		WithFillHook(func(orderID int64, px, qty decimal.Decimal) {
 			ctx := context.Background()
 			// Phase-16 composite/auction lifecycle: bracket parent fills

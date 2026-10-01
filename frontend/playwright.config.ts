@@ -1,10 +1,12 @@
 import { defineConfig, devices } from '@playwright/test';
 
 /**
- * Playwright e2e scaffold (Phase-10 Task 10.3.1 item 6).
- * Wave-1 ships the harness + a placeholder smoke spec only; the real
- * smoke path (login → subscribe → place order → close position) and its
- * dedicated CI job land in Wave-2 alongside the feature surfaces.
+ * Playwright e2e (Phase-10 Task 10.3.1 item 6). `smoke.spec.ts` is the
+ * Wave-1 shell probe; `trade.spec.ts` is the Wave-2 smoke path —
+ * login → subscribe → place order → offsetting close — run against the
+ * live dev stack (gateway :8080 + engine shm + PG/Redis/NATS), with the
+ * settlement leg asserted on the Balances surface (PHYSICAL_DELIVERY).
+ * The CI job for the live-stack spec is still Wave-3 scope.
  */
 export default defineConfig({
   testDir: './e2e',

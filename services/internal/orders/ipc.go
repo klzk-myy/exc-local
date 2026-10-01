@@ -409,6 +409,15 @@ type Consumer struct {
 	// bracket/order-list/auction state machines fan out from it
 	// (Service.OnCancel). Same inline/panic-safe contract as onFill.
 	onCancel func(orderID int64, reason uint8)
+	// frameTap is the settlement feed seam (Phase-03 Task 3.3.10): this
+	// consumer is the out-ring's sole reader (SPSC contract), so the
+	// settlement FillConsumer observes frames here rather than attaching
+	// a second ring reader. Invoked per drained frame with its source
+	// shard, before handle() decodes it, inline on the consumer
+	// goroutine — implementations must copy the payload if they retain
+	// it (the drain buffer is reused), must be panic-safe, and must not
+	// block indefinitely (a stalled tap stalls the read-model drain).
+	frameTap func(shard uint16, payload []byte)
 	// pollInterval bounds the drain loop cadence; ~50µs production-tight,
 	// larger in tests is fine.
 	pollInterval time.Duration
@@ -452,6 +461,14 @@ func (c *Consumer) WithCancelHook(h func(orderID int64, reason uint8)) *Consumer
 	return c
 }
 
+// WithFrameTap binds the raw-frame settlement tap (Phase-03 Task 3.3.10).
+// The tap observes every drained out-ring frame with its source shard —
+// this consumer remains the ring's single reader.
+func (c *Consumer) WithFrameTap(t func(shard uint16, payload []byte)) *Consumer {
+	c.frameTap = t
+	return c
+}
+
 // WithTracer binds the span exporter used for the engine->Go trace hop
 // (Task 9.3.11). Nil keeps the no-span path.
 func (c *Consumer) WithTracer(t *tracing.Tracer) *Consumer {
@@ -484,6 +501,13 @@ func (c *Consumer) fireCancel(orderID int64, reason uint8) {
 	c.onCancel(orderID, reason)
 }
 
+// fireFrameTap invokes the settlement frame tap panic-guarded — a tap
+// panic must never kill the sole out-ring reader.
+func (c *Consumer) fireFrameTap(shard uint16, payload []byte) {
+	defer func() { _ = recover() }()
+	c.frameTap(shard, payload)
+}
+
 // Run polls the given shards' out-rings until ctx is cancelled.
 func (c *Consumer) Run(ctx context.Context, shards []uint16) {
 	type bound struct {
@@ -513,6 +537,9 @@ func (c *Consumer) Run(ctx context.Context, shards []uint16) {
 					break
 				}
 				idle = false
+				if c.frameTap != nil {
+					c.fireFrameTap(b.shard, buf[:n])
+				}
 				c.handle(buf[:n])
 			}
 		}

@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -627,6 +628,11 @@ const subCols = `report_submission_id, event_id, regime::text,
 	payload_xml, payload_hash, status::text, external_ref, error_code,
 	error_text, batch_id, submitted_at, resolved_at, created_at`
 
+// subColsRS is subCols qualified to the rs alias for the JOIN queries —
+// regulatory_report_events also carries event_id, so a bare reference is
+// ambiguous there (SQLSTATE 42702).
+var subColsRS = "rs." + strings.ReplaceAll(subCols, ", ", ", rs.")
+
 func scanSubmission(row pgx.Row) (*Submission, error) {
 	var s Submission
 	var xml, ref, ecode, etext, batch *string
@@ -722,7 +728,7 @@ func (s *PgStore) PendingSubmissions(ctx context.Context, limit int) ([]Submissi
 		limit = 200
 	}
 	rows, err := s.Pool.Query(ctx, `
-		SELECT `+subCols+` FROM regulatory_report_submissions rs
+		SELECT `+subColsRS+` FROM regulatory_report_submissions rs
 		 JOIN regulatory_report_events e ON e.event_id = rs.event_id
 		 WHERE rs.status='PENDING' AND e.status IN ('VALIDATED','SUBMITTED')
 		 ORDER BY rs.created_at LIMIT $1`, limit)
