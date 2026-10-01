@@ -6,7 +6,9 @@
 #
 # PagerDuty keys are environment-sourced at container start (envsubst or
 # your secrets injector); NEVER commit real integration keys — Vault/KMS
-# is the secrets store (Phase-13.5 Task 13.5.3.5).
+# is the secrets store (Phase-13.5 Task 13.5.3.5). Fields use `routing_key`
+# (PD Events API v2) — supersedes deprecated v1 `service_key`; the key
+# value is the same integration key, only the API surface changes.
 #
 #   PAGERDUTY_P0_SERVICE_KEY  — critical service (phone/page)
 #   PAGERDUTY_P1_SERVICE_KEY  — high-urgency service
@@ -63,7 +65,7 @@ receivers:
 
   - name: pagerduty-p0
     pagerduty_configs:
-      - service_key: "${PAGERDUTY_P0_SERVICE_KEY}"
+      - routing_key: "${PAGERDUTY_P0_SERVICE_KEY}"
         severity: critical
         description: "{{ .CommonAnnotations.summary }}"
         details:
@@ -73,14 +75,14 @@ receivers:
 
   - name: pagerduty-p1
     pagerduty_configs:
-      - service_key: "${PAGERDUTY_P1_SERVICE_KEY}"
+      - routing_key: "${PAGERDUTY_P1_SERVICE_KEY}"
         severity: error
         description: "{{ .CommonAnnotations.summary }}"
         send_resolved: true
 
   - name: pagerduty-p2-ticket
     pagerduty_configs:
-      - service_key: "${PAGERDUTY_P2_SERVICE_KEY}"
+      - routing_key: "${PAGERDUTY_P2_SERVICE_KEY}"
         severity: warning
         description: "{{ .CommonAnnotations.summary }}"
         send_resolved: true
@@ -95,7 +97,7 @@ receivers:
   # weekly ops review per docs/runbooks/incident-escalation.md §2.
   - name: pagerduty-p3-ticket
     pagerduty_configs:
-      - service_key: "${PAGERDUTY_P3_SERVICE_KEY}"
+      - routing_key: "${PAGERDUTY_P3_SERVICE_KEY}"
         severity: info
         description: "{{ .CommonAnnotations.summary }}"
         send_resolved: true

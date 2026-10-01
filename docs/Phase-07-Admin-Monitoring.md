@@ -128,7 +128,7 @@ Implement the Go admin service: RBAC (6 roles), dual control (four-eyes), admin 
 * [x] Per-shard health dashboard
 * [x] System overview dashboard
 * [x] Trading dashboard
-* [ ] PagerDuty alerting configured — Alertmanager PD routing config written (env-injected secrets); live PD delivery unverified (no receiver on host)
+* [ ] PagerDuty alerting configured — Alertmanager PD routing config written (env-injected secrets); egress-verified 2026-10-01: `deploy/scripts/pagerduty_egress_drill.sh` PASS — production alertmanager.yml check-config'd + run under real prom/alertmanager v0.26.0; p0 trigger→pagerduty-p0 (critical/key-p0), p2→pagerduty-p2-ticket (warning), resolve event, slack egress, zero notifier errors, via PD Events API v2 `url:` override to a recording mock; residual env-bound: acceptance by real PD API + on-call delivery
 
 **SDD Checklist:**
 - [x] Spec checkpoint: Grafana dashboards + PagerDuty — defined first, validated against spec
@@ -180,7 +180,7 @@ Implement the Go admin service: RBAC (6 roles), dual control (four-eyes), admin 
 * [x] Clients create/list tickets; admins assign and transition states
 * [x] COMPLAINT tickets route to Compliance Officer queue; register exportable
 * [x] Support-view is read-only and audit-logged; no mutation endpoints
-* [ ] SLA breach raises PagerDuty P3 — breach sweep + ops.alerts P2/P3 publishing verified; PD delivery config-only (no PD receiver on host)
+* [ ] SLA breach raises PagerDuty P3 — breach sweep + ops.alerts P2/P3 publishing verified; egress-verified 2026-10-01: `deploy/scripts/pagerduty_egress_drill.sh` PASS — production alertmanager.yml check-config'd + run under real prom/alertmanager v0.26.0; p0 trigger→pagerduty-p0 (critical/key-p0), p2→pagerduty-p2-ticket (warning), resolve event, slack egress, zero notifier errors, via PD Events API v2 `url:` override to a recording mock; residual env-bound: PD account acceptance
 
 **SDD Checklist:**
 - [x] Spec checkpoint: support tickets + complaint routing + read-only support view (§24 #163) — defined first, validated against spec
@@ -244,7 +244,7 @@ Expose Aeron IPC health as Prometheus metrics (spec §2.3, §2.3.1):
 
 **Definition of Done (Acceptance Criteria):**
 * [x] Prometheus records errors partitioned by severity tier L0–L3
-* [ ] PagerDuty alerts trigger on error rate threshold breaches — evaluator → ops.alerts.monitoring verified; PD path is alertmanager config only (no live PD receiver)
+* [ ] PagerDuty alerts trigger on error rate threshold breaches — evaluator → ops.alerts.monitoring verified; egress-verified 2026-10-01: `deploy/scripts/pagerduty_egress_drill.sh` PASS — production alertmanager.yml check-config'd + run under real prom/alertmanager v0.26.0; p0 trigger→pagerduty-p0 (critical/key-p0), p2→pagerduty-p2-ticket (warning), resolve event, slack egress, zero notifier errors, via PD Events API v2 `url:` override to a recording mock; residual env-bound: PD account acceptance
 * [x] Admin DLQ endpoint allows inspection and controlled re-driving of failed events
 
 **SDD Checklist:**

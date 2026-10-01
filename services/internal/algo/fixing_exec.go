@@ -129,13 +129,13 @@ func (s *FixingService) executeCross(ctx context.Context, f *fixingRow,
 		PostedBy:       "algo-fixing",
 		IdempotencyKey: fmt.Sprintf("fixing-fill:%d:%d-%d", f.ID, buyID, sellID),
 		Lines: []ledger.Line{
-			ledger.DebitLine("2160_CLEARING_TRANSIT", quote, qa,
+			ledger.DebitLine(ledger.ClearingTransit(quote), quote, qa,
 				"buy-side reservation consumed at fix"),
-			ledger.CreditLine("2010_CUSTOMER_LIABILITY", quote, qa,
+			ledger.CreditLine(ledger.CustomerLiability(quote), quote, qa,
 				"sell-side quote proceeds at fix"),
-			ledger.DebitLine("2160_CLEARING_TRANSIT", base, q,
+			ledger.DebitLine(ledger.ClearingTransit(base), base, q,
 				"sell-side reservation consumed at fix"),
-			ledger.CreditLine("2010_CUSTOMER_LIABILITY", base, q,
+			ledger.CreditLine(ledger.CustomerLiability(base), base, q,
 				"buy-side base received at fix"),
 		},
 		Effects: []ledger.AccountEffect{
@@ -353,7 +353,7 @@ func (s *FixingService) insertAudit(ctx context.Context, tx pgx.Tx,
 	_, err := tx.Exec(ctx, `
 		INSERT INTO order_audit (order_id, account_id, operation,
 		    field_name, old_value, new_value, modified_by)
-		VALUES ($1,$2,$3,NULLIF($4,''),NULLIF($5,''),$6)`,
+		VALUES ($1,$2,$3,NULLIF($4,''),NULLIF($5,''),$6,$7)`,
 		orderID, accountID, operation, field, oldValue, newValue, actor)
 	return err
 }

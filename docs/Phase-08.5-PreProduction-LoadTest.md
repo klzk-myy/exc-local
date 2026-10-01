@@ -39,7 +39,7 @@ Staging load test at 75k orders/sec (1.5x production target), validating replica
 * [ ] N≥10,000 WS connections with zero drops (supersedes prior N≥100 — realistic production fan-out) *(env-bound: harness authored; staging-scale connection load unexecuted)*
 * [ ] L3 delta exact (matches engine state) *(env-bound: parity harness landed; staging-run evidence pending)*
 * [ ] Recovery drill mid-run: < 10s, zero loss *(bounded evidence: failover-report.json 116ms max, dup=0; staging mid-run drill unexecuted)*
-* [ ] Zero PagerDuty alerts *(env-bound: PD delivery config-only — no receiver in this environment)*
+* [ ] Zero PagerDuty alerts *(env-bound: PD egress path egress-verified 2026-10-01: `deploy/scripts/pagerduty_egress_drill.sh` PASS — production alertmanager.yml check-config'd + run under real prom/alertmanager v0.26.0; p0 trigger→pagerduty-p0 (critical/key-p0), p2→pagerduty-p2-ticket (warning), resolve event, slack egress, zero notifier errors, via PD Events API v2 `url:` override to a recording mock; residual env-bound: PD account acceptance)*
 
 **SDD Checklist:**
 - [ ] Spec checkpoint: 75k/sec staging gate — defined first, validated against spec — **deferred: environment-bound** (requires a provisioned staging cluster; no code artifact can discharge it — checkpoint `P08.5-T8.5.3.1-C1` stays pending, errblast + soak harnesses are the executable substrate)

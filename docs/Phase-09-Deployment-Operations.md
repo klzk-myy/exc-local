@@ -144,7 +144,7 @@ Implement production deployment: bare metal C++ core provisioning, Kubernetes Go
 **Definition of Done (Acceptance Criteria):**
 * [x] 47+ runbooks documented
 * [ ] 4 tabletop exercises completed < SLA *(open — pending-ops: **3/4 conducted and PASS** per `docs/security/tabletop-report.md` (2026-09-29): trading halt EXECUTED 9ms, security-incident lockout EXECUTED 3ms, reconciliation mismatch EXECUTED 28ms — all ≪ 15min P1 SLA, driving real code paths (`EXC_TABLETOP=1` gates in `internal/admin`/`internal/auth`); T4 DR-failover walkthrough SIMULATED (multi-region infra absent) — its live legs are now separately evidenced by `pg_failover_drill.sh` (416ms promote) and `redis_failover_drill.sh` (2948ms promote); full conducted-4th pending an ops tabletop session)*
-* [ ] PagerDuty on-call rotation configured *(open — pending-infra: on-call rotation documented; PagerDuty schedule not configured on live account)*
+* [ ] PagerDuty on-call rotation configured *(open — pending-infra: on-call rotation documented; egress-verified 2026-10-01: `deploy/scripts/pagerduty_egress_drill.sh` PASS — production alertmanager.yml check-config'd + run under real prom/alertmanager v0.26.0; p0 trigger→pagerduty-p0 (critical/key-p0), p2→pagerduty-p2-ticket (warning), resolve event, slack egress, zero notifier errors, via PD Events API v2 `url:` override to a recording mock; residual env-bound: PD schedule needs a live account)*
 
 **SDD Checklist:**
 - [x] Spec checkpoint: 47+ alert runbooks — defined first, validated against spec
@@ -475,7 +475,7 @@ Implement production deployment: bare metal C++ core provisioning, Kubernetes Go
 
 **Definition of Done (Acceptance Criteria):**
 * [x] P0–P3 severity definitions and automated paging rules configured in monitoring and alerting platforms (§24 #183)
-* [ ] P0 alerts initiate multi-tier paging with <5m acknowledgment stretch target (canonical §19.8 SLA: 15 min; remediation #35) *(open — pending-infra: multi-tier paging rules documented; <5m acknowledgment unverifiable without PagerDuty)*
+* [ ] P0 alerts initiate multi-tier paging with <5m acknowledgment stretch target (canonical §19.8 SLA: 15 min; remediation #35) *(open — pending-infra: multi-tier paging rules documented; egress-verified 2026-10-01: `deploy/scripts/pagerduty_egress_drill.sh` PASS — production alertmanager.yml check-config'd + run under real prom/alertmanager v0.26.0; p0 trigger→pagerduty-p0 (critical/key-p0), p2→pagerduty-p2-ticket (warning), resolve event, slack egress, zero notifier errors, via PD Events API v2 `url:` override to a recording mock; residual env-bound: <5m acknowledgment needs a live PD account)*
 * [x] Incident management bot automates war room creation and stakeholder communication updates — `incident.Manager` (declare→provisionWarRoom→scheduled updates→resolve posts; incident-bot actor throughout, paging + chat + timeline)
 * [x] Post-mortem completion tracked with mandatory 48h completion SLA for P0/P1 incidents
 

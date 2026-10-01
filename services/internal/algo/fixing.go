@@ -293,9 +293,9 @@ func reserveJournal(orderID int64, ccy string, amount decimal.Decimal, narrative
 		PostedBy:       "algo-fixing",
 		IdempotencyKey: fmt.Sprintf("fixing-reserve:%d", orderID),
 		Lines: []ledger.Line{
-			ledger.DebitLine("2010_CUSTOMER_LIABILITY", ccy, amount,
+			ledger.DebitLine(ledger.CustomerLiability(ccy), ccy, amount,
 				"fixing order reservation released from client liability"),
-			ledger.CreditLine("2160_CLEARING_TRANSIT", ccy, amount,
+			ledger.CreditLine(ledger.ClearingTransit(ccy), ccy, amount,
 				"fixing order reservation held in clearing transit"),
 		},
 		Effects: []ledger.AccountEffect{{
@@ -319,9 +319,9 @@ func releaseJournal(orderID, accountID int64, ccy string, amount decimal.Decimal
 		PostedBy:       "algo-fixing",
 		IdempotencyKey: key,
 		Lines: []ledger.Line{
-			ledger.DebitLine("2160_CLEARING_TRANSIT", ccy, amount,
+			ledger.DebitLine(ledger.ClearingTransit(ccy), ccy, amount,
 				"fixing reservation released from clearing transit"),
-			ledger.CreditLine("2010_CUSTOMER_LIABILITY", ccy, amount,
+			ledger.CreditLine(ledger.CustomerLiability(ccy), ccy, amount,
 				"fixing reservation returned to client liability"),
 		},
 		Effects: []ledger.AccountEffect{{
@@ -578,8 +578,12 @@ func (s *FixingService) Tick(ctx context.Context) (int, error) {
 		}
 		// Residual seam: unmatched orders stay queued for the next
 		// publication (or cancel/expire honestly). The imbalance is
-		// recorded per order per fixing — the institutional-LP leg is a
-		// documented seam; no fabricated fills are ever injected.
+		// recorded per order per fixing. Designated institutional LPs
+		// clear residuals through the same mechanism — an LP FIXING
+		// order on the residual side absorbs the imbalance inside the
+		// atomic cross at the exact published rate (zero tracking error
+		// by construction); no fabricated fills are ever injected.
+		// Proven: TestITFixingLPResidualCleared.
 		for _, o := range append(append([]*fixingOrder{}, buys[i:]...), sells[j:]...) {
 			if err := s.markImbalance(ctx, &f, o); err != nil {
 				s.logf("fixing %d imbalance audit order %d: %v", f.ID, o.ID, err)
