@@ -15,7 +15,7 @@ sentinel_addrs:
   - 127.0.0.1:36381
 
 password: ""
-db: 0
+db: 9
 
 # Connection pool + timeouts (defaults match redis.New when 0/empty).
 pool_size: 20
