@@ -2323,3 +2323,54 @@ observability, error-scenarios. **Decision:** env-bound checkpoints report
 was health-checked, which is the only honest broken-infra signal.
 
 **Census:** unchanged at **52** (CI repair, no checklist rows touched).
+
+## [2026-10-01 02:30 UTC] — Hosted-CI remediation round 3: diff-scoped clang-tidy, gitleaks allowlist, dependency CVEs
+
+Second full remote run (`36803612849`, on `0a323c6`) surfaced the
+remaining job-level failures; local scans + fixes below verified green
+before push.
+
+**Build + lint — whole-tree clang-tidy → diff-scoped:**
+`lint_cpp.sh` ran clang-tidy over all 92 TUs and failed on 35 files of
+pre-existing diagnostics (the gate had never completed on a runner before
+the timeout bump). Now the tidy gate shares the format gate's
+incremental-adoption policy: only TUs whose source changed vs the
+merge-base (`github.event.before` / PR base → `HEAD~1` fallback) are
+gated; `TIDY_ALL=1` audits the full graph; an unresolvable base stays
+fail-closed on the full graph. Fixed a subshell `set -e` abort that left
+`.src` sidecars unwritten (tidy exit code killed the sequenced `echo` —
+`wait` with no args always returns 0, masking it) — `.src` is now written
+before tidy runs and tidy's exit code is discarded explicitly (the log is
+the verdict). Verified: 0-TU skip path, 1-TU selection + diagnostic
+failure on a touched file, wide-base selection (55 TUs).
+
+**unit-tests job timeout 10 → 20 min** — `cmake --build` + `ctest` +
+`go test -race ./...` exceeded the cap; the job was cancelled mid-race-run
+on `36803612849` (all observed failures inside it were already fixed).
+
+**gitleaks — exact-value allowlist** (`.gitleaks.toml`, singular
+`[allowlist]` — verified on the pinned 8.24.3): 16 findings, all verified
+dev/test artifacts, no real credentials: localhost Grafana drill creds
+(`admin:admin`), RFC 6455 sample WS nonce, parquet test-fixture name,
+`sk_live_9f8e7d6c5b4a` (deliberately token-shaped redaction-test fixture —
+allowlisted by exact value, never the `sk_live_*` pattern), pentest dev
+JWT key constant, vault key *names* (`jwt-hs256-key-b64`), a localStorage
+key, a test UUID, an env-var name, and the checked-in self-signed
+haproxy localhost test cert (path-scoped). **Decision:** allowlist exact
+secrets only — a pattern allowlist (`sk_live_*`, `admin:*`) would mask a
+real leaked credential; path allowlists confined to the one fixture file.
+
+**Trivy — dependency upgrades** (no suppressions):
+- `tests/pentest`: `x/crypto` 0.37.0→0.57.0, `x/text` 0.29.0→0.42.0,
+  `x/sys` 0.32.0→0.48.0 (module was last refreshed before the other nine
+  which already pinned ≥0.55.0/0.39.0).
+- `services`: `otel`/`otel/trace`/`otel/metric` 1.37.0→1.41.0
+  (CVE-2026-29181, baggage-header DoS — transitive via clickhouse-go;
+  flagged by the current DB though not yet by CI's).
+
+**Local verification:** gitleaks 8.24.3 (CI-pinned) — 99 commits, 0 leaks;
+trivy 0.70.0 (CI-pinned) fs scan — 0 HIGH/CRITICAL across all 11
+manifests; `lint_cpp.sh` skip/select/fail paths exercised;
+`go build`/`go vet` green in `services` + `tests/pentest`.
+
+**Census:** unchanged at **52** (CI/security repair, no checklist rows).

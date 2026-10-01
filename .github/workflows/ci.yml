@@ -129,7 +129,7 @@ jobs:
   unit-tests:
     name: Unit tests (gtest + go test -race)
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20 # cmake build + ctest + full `go test -race` exceeded 10min cold on run 36803612849
     steps:
       - uses: actions/checkout@v4
 

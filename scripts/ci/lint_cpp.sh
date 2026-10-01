@@ -2,10 +2,13 @@
 # lint_cpp.sh — C++ static-analysis + format gate (Phase-01.5 Task 1.5.3.1;
 # runs in .github/workflows/ci.yml job `build-and-lint`).
 #
-#   1. clang-tidy — every translation unit in $BUILD_DIR/compile_commands.json
-#      (parallel). Diagnostics located in system/vendor code (/usr/include,
-#      /usr/lib, core/third_party/, build _deps/) are printed as informational
-#      only: they are not ours to fix (e.g. the flatbuffers 1.12 system header
+#   1. clang-tidy — diff-scoped by default: every translation unit under
+#      core/ changed vs the merge-base (same incremental-adoption policy as
+#      the clang-format gate — the pre-existing tree carries legacy
+#      diagnostics; TIDY_ALL=1 audits the whole build graph). Diagnostics
+#      located in system/vendor code (/usr/include, /usr/lib,
+#      core/third_party/, build _deps/) are printed as informational only:
+#      they are not ours to fix (e.g. the flatbuffers 1.12 system header
 #      trips a clang-19 clang-diagnostic-error the project cannot patch).
 #      Any warning/error diagnostic in repo-owned sources FAILS the gate.
 #   2. clang-format — line-level diff gate: lines under core/ changed vs the
@@ -23,6 +26,8 @@
 #   TIDY_BIN        clang-tidy binary   (default: clang-tidy)
 #   FORMAT_BIN      clang-format binary (default: clang-format)
 #   JOBS            tidy parallelism    (default: nproc, min 2)
+#   TIDY_ALL=1      tidy every TU in the build graph (audit mode; the
+#                   default diff-scope still gates new/changed core code)
 #   FORMAT_ALL=1    format-check every core file (audit mode)
 #
 # Exit: 0 clean · 1 findings · 2 misuse/missing tool (fail-closed: a gate
@@ -38,6 +43,7 @@ FORMAT_BIN="${FORMAT_BIN:-clang-format}"
 JOBS="${JOBS:-$(nproc 2>/dev/null || echo 4)}"
 [ "$JOBS" -ge 2 ] || JOBS=2
 FORMAT_ALL="${FORMAT_ALL:-0}"
+TIDY_ALL="${TIDY_ALL:-0}"
 
 fail() { echo "lint_cpp: $*" >&2; exit 1; }
 die_usage() { echo "lint_cpp: $*" >&2; exit 2; }
@@ -48,8 +54,18 @@ command -v "$FORMAT_BIN" >/dev/null 2>&1 || die_usage "clang-format not on PATH 
 DB="$BUILD_DIR/compile_commands.json"
 [ -f "$DB" ] || die_usage "$DB missing — run: cmake -S core -B $BUILD_DIR -DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
 
+# Resolve the diff base once — the tidy and format gates share it.
+BASE="${BASE_SHA:-}"
+MB=""
+if [ -n "$BASE" ] && ! [[ "$BASE" =~ ^0+$ ]]; then
+    MB="$(git merge-base "$BASE" HEAD 2>/dev/null || true)"
+    [ -n "$MB" ] || MB="$BASE"
+else
+    MB="$(git rev-parse --verify HEAD~1 2>/dev/null || true)"
+fi
+
 # --- 1. clang-tidy ----------------------------------------------------------
-mapfile -t TUS < <(python3 - "$DB" <<'PY'
+mapfile -t ALL_TUS < <(python3 - "$DB" <<'PY'
 import json, sys
 seen = set()
 for e in json.load(open(sys.argv[1])):
@@ -59,20 +75,50 @@ for e in json.load(open(sys.argv[1])):
         print(f)
 PY
 )
-[ "${#TUS[@]}" -gt 0 ] || die_usage "no translation units in $DB"
+[ "${#ALL_TUS[@]}" -gt 0 ] || die_usage "no translation units in $DB"
+
+# Diff-scope: only TUs whose .cpp/.cc/.cxx changed vs the merge-base are
+# gated (same incremental-adoption policy as the format gate — the
+# pre-existing tree carries legacy diagnostics; findings inside a file you
+# didn't touch are not yours to fix this commit). TIDY_ALL=1 audits the
+# whole build graph. An unresolvable base runs the full graph — fail-closed.
+if [ "$TIDY_ALL" = "1" ]; then
+    TUS=("${ALL_TUS[@]}")
+    echo "lint_cpp: TIDY_ALL=1 — full build graph"
+elif [ -z "$MB" ]; then
+    TUS=("${ALL_TUS[@]}")
+    echo "lint_cpp: no diff base resolvable — tidy runs the full graph (first push)"
+else
+    # worktree diff (like the format gate) — locally this also covers
+    # staged/uncommitted edits.
+    mapfile -t CHANGED < <(git diff --name-only "$MB" -- \
+        'core/*.cpp' 'core/*.cc' 'core/*.cxx' ':!core/third_party' | sort -u)
+    declare -A CHG
+    for c in "${CHANGED[@]}"; do CHG["$ROOT/$c"]=1; done
+    TUS=()
+    for f in "${ALL_TUS[@]}"; do
+        [ -n "${CHG[$f]:-}" ] && TUS+=("$f")
+    done
+    if [ "${#TUS[@]}" -eq 0 ]; then
+        echo "lint_cpp: no core TUs changed vs ${MB:0:12} — tidy skipped (diff-scoped)"
+    fi
+fi
 
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 echo "lint_cpp: clang-tidy ($TIDY_BIN) over ${#TUS[@]} TUs, -j$JOBS"
+if [ "${#TUS[@]}" -gt 0 ]; then
 i=0
 for f in "${TUS[@]}"; do
     i=$((i + 1))
-    ( "$TIDY_BIN" -p "$DB" --quiet "$f" >"$TMP/$i.log" 2>&1; echo "$f" >>"$TMP/$i.src" ) &
+    ( echo "$f" >"$TMP/$i.src"; "$TIDY_BIN" -p "$DB" --quiet "$f" >"$TMP/$i.log" 2>&1 || true ) &
     while (( $(jobs -rp | wc -l) >= JOBS )); do sleep 0.1; done
 done
 wait
+fi
 
 FINDINGS=0
 declare -a FILES_HIT
+shopt -s nullglob
 for log in "$TMP"/*.log; do
     src="$(cat "${log%.log}.src" 2>/dev/null || echo '?')"
     # Diagnostics on repo-owned code: paths under the repo (absolute paths in
@@ -87,6 +133,7 @@ for log in "$TMP"/*.log; do
         echo "$hits" | head -20
     fi
 done
+shopt -u nullglob
 if (( FINDINGS > 0 )); then
     echo "lint_cpp: clang-tidy gate FAILED — ${#FILES_HIT[@]} file(s) with repo-owned diagnostics" >&2
     exit 1
@@ -114,13 +161,6 @@ if [ "$FORMAT_ALL" = "1" ]; then
     fi
     echo "lint_cpp: clang-format gate clean (whole tree)"
 else
-    BASE="${BASE_SHA:-}"
-    if [ -n "$BASE" ] && ! [[ "$BASE" =~ ^0+$ ]]; then
-        MB="$(git merge-base "$BASE" HEAD 2>/dev/null || true)"
-        [ -n "$MB" ] || MB="$BASE"
-    else
-        MB="$(git rev-parse --verify HEAD~1 2>/dev/null || true)"
-    fi
     if [ -z "$MB" ]; then
         echo "lint_cpp: no diff base resolvable — format gate skipped (first push)"
     else

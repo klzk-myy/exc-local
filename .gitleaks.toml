@@ -9,6 +9,18 @@ useDefault = true
 # NOTE: gitleaks 8.x reads the SINGULAR [allowlist] table — the
 # [[allowlists]] array form is silently ignored (verified on 8.24.3).
 [allowlist]
-description = "Spec prose: the auth-algorithm list 'JWT/HMAC/Ed25519' in the deployment component table (Specification §19, ~line 3005) trips generic-api-key. Not a credential — suppresses only this literal token."
+description = "Verified non-secrets: spec-prose token; localhost drill literals; RFC 6455 sample nonce; test fixture string. Path entry covers the checked-in localhost haproxy test cert (self-signed, expires 48h, drill-only)."
 regexTarget = "secret"
-regexes = ['''^JWT/HMAC/Ed25519$''']
+regexes = [
+  '''^JWT/HMAC/Ed25519$''',
+  '''^admin:admin$''',
+  '''^dGhlIHNhbXBsZSBub25jZQ==$''',
+  '''^itest_lc_p2020_01\.parquet$''',
+  '''^sk_live_9f8e7d6c5b4a$''',
+  '''^cGVudGVzdC1rZXktMzItYnl0ZXMtc3VmZmljaWVudCEh$''',
+  '''^jwt-hs256-key-b64$''',
+  '''^exc\.dismissed-announcements\.v1$''',
+  '''^018f8b7e-8f6a-4b2c-9d1e-2f3a4b5c6d7e$''',
+  '''^EXC_S3_REGION\.$''',
+]
+paths = ['''^deploy/haproxy/test/certs/localhost\.pem$''']
