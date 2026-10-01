@@ -1,0 +1,19 @@
+[pg-drill 18:32:21.251] == postgres semi-sync failover drill (RPO≤15s / RTO≤5min) ==
+[pg-drill 18:32:21.283] starting primary (pg-drill-primary-3168885)
+[pg-drill 18:32:22.790] primary ready; replicator + slot + drill table created
+[pg-drill 18:32:22.791] pg_basebackup -> standby (pg-drill-standby-3168885)
+[pg-drill 18:32:30.357] replication state: streaming(walreceiver)
+[pg-drill 18:32:30.359]   check streaming_established: PASS — streaming(walreceiver)
+[pg-drill 18:32:31.531] sync_state: sync
+[pg-drill 18:32:31.532]   check semi_sync: PASS — synchronous_commit=remote_flush acked (sync_state=)
+[pg-drill 18:32:31.533] writing 200 committed txns on primary
+[pg-drill 18:32:33.727] replication gap=0s standby_rows=200
+[pg-drill 18:32:33.728]   check rpo_zero_loss: PASS — all 200 flush-acked txns on standby (RPO << 15s)
+[pg-drill 18:32:33.730]   check rpo_bound: PASS — replication gap 0s <= 15s bound
+[pg-drill 18:32:33.730] SIGKILL primary — T0
+[pg-drill 18:32:33.947] promoting standby
+[pg-drill 18:32:34.187]   check promotion_rw: PASS — standby promoted + read-write in 454ms
+[pg-drill 18:32:34.188]   check rto_bound: PASS — 454ms <= 300000ms (5min) RTO
+[pg-drill 18:32:34.234]   check post_promote_integrity: PASS — 200 pre-kill + 1 post-promote rows, zero committed loss
+[pg-drill 18:32:34.234] == drill complete: 0 check(s) failed (RTO=454ms, gap=0s) ==
+PG-FAILOVER-DRILL PASS

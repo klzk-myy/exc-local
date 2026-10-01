@@ -1,0 +1,14 @@
+{
+  "secret": "drill-rot-1790879706",
+  "overdue_detected": true,
+  "secret_rotation_overdue_raised": true,
+  "alerts": [
+    "P2:SECRET_ROTATION_OVERDUE"
+  ],
+  "listed_in_overdue_view": true,
+  "emergency_mark_cleared": true,
+  "evaluator_cleared": true,
+  "audit_rows": 2,
+  "vault_leg": "env-bound: no Vault in dev — rotate-secrets.sh dry-run leg in wrapper",
+  "pass": true
+}

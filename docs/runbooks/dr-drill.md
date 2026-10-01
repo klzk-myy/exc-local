@@ -28,6 +28,13 @@ One drill per quarter, rotating the catalog so every mechanism is exercised at l
 
 ## 3. Drill catalog
 
+Automated orchestration: `scripts/ops/dr_drill_runner.sh` runs the runnable
+subset, records RPO/RTO actual vs target per component into `results.jsonl`,
+and writes the §4 report to `docs/incidents/drills/YYYY-Qn-drill.md`.
+Infra-gated legs report `SKIP` (never silently counted); `--strict` promotes
+SKIP → FAIL on hosts claiming full coverage. First committed run:
+`../incidents/drills/2026-Q4-drill.md`.
+
 ### D1 — Full primary → secondary region failover (mandatory quarterly)
 
 DR architecture and executable failover scripts: [`../ops/dr.md`](../ops/dr.md) (Task 9.3.4 — `deploy/dr/failover-runbook.sh`; second-region deployment is pending-infra per that document).

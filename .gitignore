@@ -189,3 +189,7 @@ WORKFLOWS.md
 /Testing/
 tests/spec/exchange-testspec
 tests/chaos/bin/
+
+# DR drill chaos evidence — bulk run dirs regenerable; results.jsonl +
+# report + small logs remain committed as the DORA artifact
+docs/incidents/drills/*/evidence/chaos/

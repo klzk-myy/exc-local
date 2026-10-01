@@ -19,6 +19,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"exchange/internal/ipc"
@@ -115,6 +116,7 @@ func cmdProbe(args []string) error {
 		Fills   int `json:"fills"`
 		Cancels int `json:"cancels"`
 	}
+	var mu sync.Mutex
 	results := map[uint64]*outcome{}
 	tradeIDs := map[uint64]bool{}
 	dupFills := 0
@@ -143,6 +145,7 @@ func cmdProbe(args []string) error {
 				if tf == nil {
 					continue
 				}
+				mu.Lock()
 				if tradeIDs[tf.TradeId()] {
 					dupFills++
 				}
@@ -152,14 +155,17 @@ func cmdProbe(args []string) error {
 						o.Fills++
 					}
 				}
+				mu.Unlock()
 			case wire.EventTypeOrderCancel:
 				var t flatbuffers.Table
 				if ev.Type(&t) {
 					oc := &wire.OrderCancel{}
 					oc.Init(t.Bytes, t.Pos)
+					mu.Lock()
 					if o := results[oc.OrderId()]; o != nil {
 						o.Cancels++
 					}
+					mu.Unlock()
 				}
 			}
 		}
@@ -204,7 +210,9 @@ func cmdProbe(args []string) error {
 		if !sentOK {
 			sendDrops++ // ring stayed full past the timeout — cleanly rejected
 		} else {
+			mu.Lock()
 			results[oid] = &outcome{}
+			mu.Unlock()
 		}
 		sent++
 	}

@@ -1,0 +1,188 @@
+{
+  "suite": "phase-04.5-task-4.5.3.1",
+  "generated_at": "2026-10-01T18:35:06Z",
+  "runs": [
+    {
+      "scenario": "s1_crash_mid_batch",
+      "run": 1,
+      "pass": true,
+      "recovery_ms": 1770,
+      "dup_trade_ids": 0,
+      "missing_trades": 0,
+      "wall_ms": 10336,
+      "evidence": "/www/wwwroot/exc.local/docs/incidents/drills/2026-Q4/evidence/chaos/s1_crash_mid_batch/run-1"
+    },
+    {
+      "scenario": "s1_crash_mid_batch",
+      "run": 2,
+      "pass": true,
+      "recovery_ms": 1764,
+      "dup_trade_ids": 0,
+      "missing_trades": 0,
+      "wall_ms": 10326,
+      "evidence": "/www/wwwroot/exc.local/docs/incidents/drills/2026-Q4/evidence/chaos/s1_crash_mid_batch/run-2"
+    },
+    {
+      "scenario": "s1_crash_mid_batch",
+      "run": 3,
+      "pass": true,
+      "recovery_ms": 1775,
+      "dup_trade_ids": 0,
+      "missing_trades": 0,
+      "wall_ms": 10353,
+      "evidence": "/www/wwwroot/exc.local/docs/incidents/drills/2026-Q4/evidence/chaos/s1_crash_mid_batch/run-3"
+    },
+    {
+      "scenario": "s2_timeout_requeue",
+      "run": 1,
+      "pass": true,
+      "recovery_ms": 642,
+      "dup_trade_ids": 0,
+      "missing_trades": 0,
+      "wall_ms": 8209,
+      "evidence": "/www/wwwroot/exc.local/docs/incidents/drills/2026-Q4/evidence/chaos/s2_timeout_requeue/run-1"
+    },
+    {
+      "scenario": "s2_timeout_requeue",
+      "run": 2,
+      "pass": true,
+      "recovery_ms": 641,
+      "dup_trade_ids": 0,
+      "missing_trades": 0,
+      "wall_ms": 8206,
+      "evidence": "/www/wwwroot/exc.local/docs/incidents/drills/2026-Q4/evidence/chaos/s2_timeout_requeue/run-2"
+    },
+    {
+      "scenario": "s2_timeout_requeue",
+      "run": 3,
+      "pass": true,
+      "recovery_ms": 642,
+      "dup_trade_ids": 0,
+      "missing_trades": 0,
+      "wall_ms": 8211,
+      "evidence": "/www/wwwroot/exc.local/docs/incidents/drills/2026-Q4/evidence/chaos/s2_timeout_requeue/run-3"
+    },
+    {
+      "scenario": "s3_stale_snapshot",
+      "run": 1,
+      "pass": true,
+      "recovery_ms": 109,
+      "dup_trade_ids": 0,
+      "missing_trades": 0,
+      "wall_ms": 7627,
+      "evidence": "/www/wwwroot/exc.local/docs/incidents/drills/2026-Q4/evidence/chaos/s3_stale_snapshot/run-1"
+    },
+    {
+      "scenario": "s3_stale_snapshot",
+      "run": 2,
+      "pass": true,
+      "recovery_ms": 109,
+      "dup_trade_ids": 0,
+      "missing_trades": 0,
+      "wall_ms": 7615,
+      "evidence": "/www/wwwroot/exc.local/docs/incidents/drills/2026-Q4/evidence/chaos/s3_stale_snapshot/run-2"
+    },
+    {
+      "scenario": "s3_stale_snapshot",
+      "run": 3,
+      "pass": true,
+      "recovery_ms": 110,
+      "dup_trade_ids": 0,
+      "missing_trades": 0,
+      "wall_ms": 7619,
+      "evidence": "/www/wwwroot/exc.local/docs/incidents/drills/2026-Q4/evidence/chaos/s3_stale_snapshot/run-3"
+    },
+    {
+      "scenario": "s4_wal_trimmed_pitr",
+      "run": 1,
+      "pass": true,
+      "recovery_ms": 22,
+      "dup_trade_ids": 0,
+      "missing_trades": 0,
+      "wall_ms": 6150,
+      "evidence": "/www/wwwroot/exc.local/docs/incidents/drills/2026-Q4/evidence/chaos/s4_wal_trimmed_pitr/run-1"
+    },
+    {
+      "scenario": "s4_wal_trimmed_pitr",
+      "run": 2,
+      "pass": true,
+      "recovery_ms": 20,
+      "dup_trade_ids": 0,
+      "missing_trades": 0,
+      "wall_ms": 6143,
+      "evidence": "/www/wwwroot/exc.local/docs/incidents/drills/2026-Q4/evidence/chaos/s4_wal_trimmed_pitr/run-2"
+    },
+    {
+      "scenario": "s4_wal_trimmed_pitr",
+      "run": 3,
+      "pass": true,
+      "recovery_ms": 17,
+      "dup_trade_ids": 0,
+      "missing_trades": 0,
+      "wall_ms": 6131,
+      "evidence": "/www/wwwroot/exc.local/docs/incidents/drills/2026-Q4/evidence/chaos/s4_wal_trimmed_pitr/run-3"
+    },
+    {
+      "scenario": "s5_pid_conflict",
+      "run": 1,
+      "pass": true,
+      "recovery_ms": 109,
+      "dup_trade_ids": 0,
+      "missing_trades": 0,
+      "wall_ms": 4670,
+      "evidence": "/www/wwwroot/exc.local/docs/incidents/drills/2026-Q4/evidence/chaos/s5_pid_conflict/run-1"
+    },
+    {
+      "scenario": "s5_pid_conflict",
+      "run": 2,
+      "pass": true,
+      "recovery_ms": 109,
+      "dup_trade_ids": 0,
+      "missing_trades": 0,
+      "wall_ms": 4670,
+      "evidence": "/www/wwwroot/exc.local/docs/incidents/drills/2026-Q4/evidence/chaos/s5_pid_conflict/run-2"
+    },
+    {
+      "scenario": "s5_pid_conflict",
+      "run": 3,
+      "pass": true,
+      "recovery_ms": 110,
+      "dup_trade_ids": 0,
+      "missing_trades": 0,
+      "wall_ms": 4670,
+      "evidence": "/www/wwwroot/exc.local/docs/incidents/drills/2026-Q4/evidence/chaos/s5_pid_conflict/run-3"
+    },
+    {
+      "scenario": "s6_warm_recovery",
+      "run": 1,
+      "pass": true,
+      "recovery_ms": 710,
+      "dup_trade_ids": 0,
+      "missing_trades": 0,
+      "wall_ms": 8941,
+      "evidence": "/www/wwwroot/exc.local/docs/incidents/drills/2026-Q4/evidence/chaos/s6_warm_recovery/run-1"
+    },
+    {
+      "scenario": "s6_warm_recovery",
+      "run": 2,
+      "pass": true,
+      "recovery_ms": 704,
+      "dup_trade_ids": 0,
+      "missing_trades": 0,
+      "wall_ms": 8925,
+      "evidence": "/www/wwwroot/exc.local/docs/incidents/drills/2026-Q4/evidence/chaos/s6_warm_recovery/run-2"
+    },
+    {
+      "scenario": "s6_warm_recovery",
+      "run": 3,
+      "pass": true,
+      "recovery_ms": 705,
+      "dup_trade_ids": 0,
+      "missing_trades": 0,
+      "wall_ms": 8918,
+      "evidence": "/www/wwwroot/exc.local/docs/incidents/drills/2026-Q4/evidence/chaos/s6_warm_recovery/run-3"
+    }
+  ],
+  "total": 18,
+  "passed": 18
+}
