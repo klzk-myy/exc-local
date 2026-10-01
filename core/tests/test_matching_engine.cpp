@@ -572,7 +572,10 @@ TEST(MatchingEngine, IpcPublishesFillsAndCancels) {
     e.on_order_received(mk(pool, 1, Side::SELL, OrderType::LIMIT, P(5000), 60));
     const uint64_t s0 = chan.sends;
     e.on_order_received(mk(pool, 2, Side::BUY, OrderType::LIMIT, P(5000), 40, 2));
-    // Trade fill + depth snapshot.
+    // Trade fill publishes immediately; the depth snapshot is conflated —
+    // it lands on the next on_time_tick flush (spec §10.2 conflation).
+    EXPECT_GE(chan.sends, s0 + 1);
+    e.on_time_tick(1);
     EXPECT_GE(chan.sends, s0 + 2);
     EXPECT_EQ(pub.published(), chan.sends);
     EXPECT_EQ(pub.drops(), 0u);

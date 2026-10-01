@@ -881,6 +881,11 @@ private:
     // queued pops, or forwarded from ingress for an immediately-due arrival.
     void process_triggered(Order* node, const OrderAux& aux) noexcept;
     void publish_depth() noexcept;
+    void flush_depth() noexcept;
+    // L2 depth coalesce window — the spec's feed contract is a 100ms
+    // conflated top-20 stream (§10.2); 1ms keeps sub-millisecond freshness
+    // on a quiet book while bounding serialize work to ~1k frames/s hot.
+    static constexpr uint64_t kDepthPubIntervalNs = 1'000'000;
 
     // --- Task 2.3.13/2.3.15/2.3.20 helpers -------------------------------------
     // §7.1/§6.9 amend gate: per-state reject code, nullptr when amends are
@@ -1090,6 +1095,9 @@ private:
     uint64_t* tid_stream_ = nullptr;  // shared curve stream when bound
     uint64_t emit_seq_ = 0;          // engine-generated priority stamps
     uint64_t now_ns_ = 0;            // logical clock (TIME_TICK driven)
+    bool depth_dirty_ = false;       // coalesced L2 frame pending
+    bool depth_ever_emitted_ = false;
+    uint64_t last_depth_pub_ns_ = 0;
     int64_t last_price_ticks_ = 0;
     bool wal_fault_ = false;
     const char* last_reject_ = nullptr;

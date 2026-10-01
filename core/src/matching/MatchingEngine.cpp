@@ -812,10 +812,26 @@ void MatchingEngine::on_implied_fill(
 }
 
 void MatchingEngine::publish_depth() noexcept {
-    if (publisher_ != nullptr) {
-        (void)publisher_->publish_book_snapshot(book_, instrument_id_of(OrderAux{}),
-                                          now_ns_);
+    // Conflated L2 depth (spec §10.2 — the feed is a 100ms-conflated top-20
+    // stream; §6.6b — it may lag the internal book and is display-only).
+    // Serialization walks the top-40 level chains + builds a flatbuffer on
+    // the matching thread, so hot-path mutations coalesce: emit immediately
+    // when the interval has elapsed (a quiet book keeps per-mutation
+    // freshness), else defer to the next on_time_tick flush (~1ms cadence).
+    if (publisher_ == nullptr) return;
+    depth_dirty_ = true;
+    if (depth_ever_emitted_ && now_ns_ - last_depth_pub_ns_ < kDepthPubIntervalNs) {
+        return;
     }
+    flush_depth();
+}
+
+void MatchingEngine::flush_depth() noexcept {
+    if (!depth_dirty_ || publisher_ == nullptr) return;
+    depth_dirty_ = false;
+    depth_ever_emitted_ = true;
+    last_depth_pub_ns_ = now_ns_;
+    (void)publisher_->publish_book_snapshot(book_, instrument_id_of(OrderAux{}), now_ns_);
 }
 
 void MatchingEngine::publish_auction_indicative() noexcept {
@@ -3301,6 +3317,7 @@ void MatchingEngine::on_time_tick(uint64_t now_ns) noexcept {
         refresh_protected_quote();  // §6.6b #6 — internal book is the quote
         if (publisher_ != nullptr) publish_depth();
     }
+    flush_depth();  // drain depth frames coalesced since the last tick
     if (snapshot_fn_ != nullptr) {
         snapshot_fn_(snapshot_ctx_, now_ns_, trades_emitted_);
     }
