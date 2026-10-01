@@ -124,11 +124,17 @@ uint32_t EngineLoop::spin_once() noexcept {
         const uint64_t cap = pump_->inbound_capacity();
         stats_.queue_depth.store(occ, std::memory_order_relaxed);
 
-        if (cap != 0 && occ * 100 >= cap * cfg_.halt_watermark_pct) {
-            // >95%: halt ingress this cycle. Frames stay queued — the SPSC
-            // producer sees a full transport (sequenced drop accounting at
-            // the ring) instead of us consuming commands we cannot honor.
-            // Beat/tick below still run so the watchdog sees a live loop.
+        const bool over_halt = cap != 0 && occ * 100 >= cap * cfg_.halt_watermark_pct;
+        if (over_halt && !halted_) {
+            // >95%: pause ingress for THIS cycle — beats/ticks still run so
+            // the watchdog sees a live loop — then drain regardless next
+            // cycle. run_once is the ONLY consumer of the inbound ring, so
+            // a halt that persists while occ >= 95% can never unwind: the
+            // ring stays full, every producer write drops, ingress wedges
+            // permanently (observed Phase-02.5 probe: orders_sent froze,
+            // WAL stalled, engine spun halt cycles at ~84% CPU). Bounded
+            // alternation is the spec §2.7.3 semantic ("pausing … to flush",
+            // "without dropping frames") — a transient pause, not a stop.
             halted_ = true;
             const uint64_t ev =
                 stats_.critical_bp_events.fetch_add(1, std::memory_order_relaxed) + 1;
@@ -137,15 +143,17 @@ uint32_t EngineLoop::spin_once() noexcept {
             // log in the Phase-02.5 8h soak.
             if (ev == 1 || t0 - last_crit_report_ns_ >= 1'000'000'000) {
                 last_crit_report_ns_ = t0;
-                report("CRITICAL_BACKPRESSURE",
-                       "inbound ring >95% — ingress halted this cycle");
+                report("CRITICAL_BACKPRESSURE", "inbound ring >95% — ingress paused this cycle");
             }
             pump_->set_shed_new_orders(true);
         } else {
             halted_ = false;
             shedding_ = cap != 0 && occ * 100 >= cap * cfg_.shed_watermark_pct;
-            pump_->set_shed_new_orders(shedding_);
-            if (shedding_) stats_.shed_cycles.fetch_add(1, std::memory_order_relaxed);
+            // At >=95% the drain cycle still sheds OrderNew — the >80% tier
+            // remains in force through the pause (sequenced CAPACITY_EXCEEDED
+            // rejects; cancels always dispatch).
+            pump_->set_shed_new_orders(shedding_ || over_halt);
+            if (shedding_ || over_halt) stats_.shed_cycles.fetch_add(1, std::memory_order_relaxed);
             drained = pump_->run_once(cfg_.max_batch);
         }
 

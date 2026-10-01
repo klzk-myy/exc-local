@@ -474,9 +474,9 @@ TEST(EngineLoop, WatermarkHaltLeavesFramesQueued) {
         EXPECT_TRUE(loop_log.has("CRITICAL_BACKPRESSURE"));
         EXPECT_EQ(loop.loop_beat().load(), 1u);  // loop still beats under halt
 
-        // The two free slots still accept writes — halted ingress means the
-        // engine stops consuming, so the producer converges on a genuinely
-        // full ring and THEN sees sequenced transport backpressure.
+        // The two free slots still accept writes — the paused cycle leaves
+        // frames queued, so the producer converges on a genuinely full ring
+        // and THEN sees sequenced transport backpressure.
         for (uint64_t i = 62; i < 64; ++i) {
             const auto m = make_order_new(i, 4000 + i, 9, 1'000'000, 1'000'000, i);
             ASSERT_TRUE(gw.send(m.data(), static_cast<uint32_t>(m.size())));
@@ -485,10 +485,17 @@ TEST(EngineLoop, WatermarkHaltLeavesFramesQueued) {
         EXPECT_FALSE(gw.send(extra.data(), static_cast<uint32_t>(extra.size())));
         EXPECT_GE(gw.drops(), 1u);  // sequenced drop accounting at the ring
 
-        // Second halted cycle: still nothing consumed.
-        EXPECT_EQ(loop.spin_once(), 0u);
-        EXPECT_EQ(core.occupancy(), 64u);
-        EXPECT_TRUE(eng.orders.empty());
+        // The pause is bounded to one cycle: the next spin MUST drain —
+        // run_once is the only consumer, so a halt that persists while the
+        // ring is >=95% wedges ingress permanently (Phase-02.5 probe
+        // reproduced the livelock at 50k/s). All 64 queued OrderNew frames
+        // are consumed-but-shed (CAPACITY_EXCEEDED rejects), so the ring
+        // empties without any order reaching the book.
+        EXPECT_EQ(loop.spin_once(), 64u);
+        EXPECT_EQ(core.occupancy(), 0u);      // ring drained — no wedge
+        EXPECT_TRUE(eng.orders.empty());      // every OrderNew shed, none matched
+        EXPECT_EQ(pump.shed_drops(), 64u);    // sequenced rejects, not silent drops
+        EXPECT_FALSE(loop.ingress_halted());  // pause cleared on the drain cycle
     }
     unlink_channel(base, shard);
 }
