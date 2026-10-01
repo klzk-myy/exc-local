@@ -508,11 +508,16 @@ cleanup() {
     loadgen_stop 8
     engine_stop 5
     # Final full replay audit — engine is stopped, recover is safe and may
-    # legitimately truncate a torn tail from a crash window.
+    # legitimately truncate a torn tail from a crash window. -snap-dir makes
+    # the audit replay the production snapshot+tail path (what the engine
+    # replays at boot) rather than a genesis replay — restart re-journals
+    # recovered orders, so genesis replay after crash windows is not the
+    # recovery path being verified.
     if [ -d "$WALDIR" ]; then
         local fout
         fout=$("$WAL_AUDIT" -wal-dir "$WALDIR" -instrument-id "$INSTRUMENT" \
-               -mode recover -json 2>>"$WORKDIR/logs/wal_audit.err")
+               -mode recover -snap-dir "${SNAP_DIR:-$WORKDIR/snap}" -json \
+               2>>"$WORKDIR/logs/wal_audit.err")
         [ -n "$fout" ] && echo "$fout" >> "$AUDITS_JSONL"
         if echo "$fout" | grep -q '"ok":false'; then
             AUDIT_FAIL=$((AUDIT_FAIL + 1))

@@ -25,6 +25,8 @@
 // {seq_base}.wal files. Seq space is continuous across rotation; each
 // segment's filename stem equals the seq of its first entry.
 
+#include <unistd.h>
+
 #include <algorithm>
 #include <cinttypes>
 #include <cstdint>
@@ -32,14 +34,13 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <memory>
 #include <new>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
-
-#include <unistd.h>
 
 #include "book/Order.hpp"
 #include "book/OrderBook.hpp"
@@ -74,6 +75,7 @@ enum class Mode : uint8_t { Scan, Recover, Fingerprint };
 
 struct Args {
     std::string wal_dir;
+    std::string snap_dir;  // snapshot ROOT (per-shard subdir appended)
     uint32_t instrument_id = 0;
     bool instrument_set = false;
     Mode mode = Mode::Scan;
@@ -83,16 +85,21 @@ struct Args {
 
 void usage(const char* argv0) {
     std::fprintf(stderr,
-        "usage: %s -wal-dir DIR [-instrument-id N] [-mode MODE] [-json] [-live]\n"
-        "  -mode scan        segment scan only (default): headers, seq\n"
-        "                    contiguity, CRC/torn tail, type counts, dup trades\n"
-        "  -mode recover     scan + RecoveryManager replay + book fingerprint\n"
-        "  -mode fingerprint recover, stdout = fingerprint hex only\n"
-        "  -json             emit single-line JSON result (default: kv lines)\n"
-        "  -live             stage a private copy for recover — safe while the\n"
-        "                    engine is appending (RecoveryManager truncates torn\n"
-        "                    tails; never run recover on a live dir without it)\n",
-        argv0);
+                 "usage: %s -wal-dir DIR [-instrument-id N] [-mode MODE] [-json] [-live]"
+                 " [-snap-dir DIR]\n"
+                 "  -mode scan        segment scan only (default): headers, seq\n"
+                 "                    contiguity, CRC/torn tail, type counts, dup trades\n"
+                 "  -mode recover     scan + RecoveryManager replay + book fingerprint\n"
+                 "  -mode fingerprint recover, stdout = fingerprint hex only\n"
+                 "  -json             emit single-line JSON result (default: kv lines)\n"
+                 "  -live             stage a private copy for recover — safe while the\n"
+                 "                    engine is appending (RecoveryManager truncates torn\n"
+                 "                    tails; never run recover on a live dir without it)\n"
+                 "  -snap-dir         snapshot root (same layout as the engine's\n"
+                 "                    -snap-dir); with -mode recover the audit replays\n"
+                 "                    the production snapshot+tail path instead of a\n"
+                 "                    genesis replay\n",
+                 argv0);
 }
 
 bool parse_u32(const char* s, uint32_t* out) {
@@ -184,10 +191,6 @@ std::vector<Segment> enumerate_segments(const std::string& dir) {
 // --- Scan aggregates --------------------------------------------------------
 
 struct Audit {
-    bool ok = true;
-    std::string detail;              // first defect description
-
-    uint32_t segments = 0;
     uint64_t entries = 0;
     uint64_t seq_min = 0;
     uint64_t seq_max = 0;
@@ -196,19 +199,11 @@ struct Audit {
     uint64_t seq_regressions = 0;    // ev.seq < expected
     uint64_t stem_mismatch = 0;      // first entry seq != filename seq_base
     uint64_t bad_payloads = 0;       // pinned-size mismatch on decode
-    bool corrupt = false;            // corruption in a non-tail segment
-    bool tail_corrupt = false;       // warn: torn tail on the last segment
     uint64_t tail_corrupt_offset = 0;
-
-    uint16_t shard_id = 0;
-    bool shard_seen = false;
-    bool shard_mismatch = false;
 
     uint64_t trades = 0;
     uint64_t dup_trade_ids = 0;
     uint64_t max_trade_id = 0;
-    uint64_t type_counts[kTypeCount] = {};
-    std::unordered_map<uint32_t, uint64_t> instrument_hits;
 
     // recover/fingerprint mode only:
     uint64_t wal_tail = 0;
@@ -217,9 +212,21 @@ struct Audit {
     uint64_t mutations_applied = 0;
     uint64_t dedup_skips = 0;
     uint64_t trades_derived = 0;
-    bool tail_truncated = false;
+
+    std::string detail;  // first defect description
     std::string fingerprint;
+    std::unordered_map<uint32_t, uint64_t> instrument_hits;
+    uint64_t type_counts[kTypeCount] = {};
+
+    uint32_t segments = 0;
     uint32_t bound_instrument = 0;
+    uint16_t shard_id = 0;
+    bool ok = true;
+    bool corrupt = false;       // corruption in a non-tail segment
+    bool tail_corrupt = false;  // warn: torn tail on the last segment
+    bool shard_seen = false;
+    bool shard_mismatch = false;
+    bool tail_truncated = false;
 };
 
 void defect(Audit& a, const char* msg) {
@@ -438,10 +445,23 @@ bool run_recovery(const Args& args, Audit& a, const std::string& dir,
         // frees recovered nodes into it, so it must outlive the book.
         MemoryPool<Order> pool(exch::kOrderPoolCapacity);
         OrderBook book(pool);
-        RecoveryManager mgr(shard_id);
-        const RecoveryResult res =
-            mgr.recover(target, {RecoveryBookBinding{a.bound_instrument,
-                                                     &book, &pool}});
+        // With -snap-dir the audit exercises the production snapshot+tail
+        // path (what the engine actually replays at boot) instead of a
+        // genesis-only replay.
+        std::unique_ptr<exch::FileSnapshotSink> snap_sink;
+        if (!args.snap_dir.empty()) {
+            const auto root = std::filesystem::path(args.snap_dir) / std::to_string(shard_id);
+            snap_sink = std::make_unique<exch::FileSnapshotSink>(root.string(),
+                                                                 static_cast<uint16_t>(shard_id));
+        }
+        const RecoveryResult res = [&] {
+            if (snap_sink) {
+                RecoveryManager mgr(shard_id, *snap_sink);
+                return mgr.recover(target, {RecoveryBookBinding{a.bound_instrument, &book, &pool}});
+            }
+            RecoveryManager mgr(shard_id);
+            return mgr.recover(target, {RecoveryBookBinding{a.bound_instrument, &book, &pool}});
+        }();
         a.entries_replayed = res.entries_replayed;
         a.mutations_applied = res.mutations_applied;
         a.dedup_skips = res.dedup_skips;
@@ -452,8 +472,11 @@ bool run_recovery(const Args& args, Audit& a, const std::string& dir,
         if (!res.ok()) {
             a.ok = false;
             char buf[160];
-            std::snprintf(buf, sizeof(buf), "recovery failed status=%s: %s",
-                          exch::recovery_status_str(res.status), res.detail);
+            std::snprintf(buf, sizeof(buf),
+                          "recovery failed status=%s: %s "
+                          "(first_divergent_seq=%llu instrument=%u)",
+                          exch::recovery_status_str(res.status), res.detail,
+                          (unsigned long long)res.first_divergent_seq, res.detail_instrument);
             defect(a, buf);
         } else {
             a.recovered_orders = book.live_orders();
@@ -571,16 +594,25 @@ int main(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
         const char* s = argv[i];
         if (std::strcmp(s, "-wal-dir") == 0) {
-            if (++i >= argc) { usage(argv[0]); return 2; }
+            ++i;
+            if (i >= argc) {
+                usage(argv[0]);
+                return 2;
+            }
             args.wal_dir = argv[i];
         } else if (std::strcmp(s, "-instrument-id") == 0) {
-            if (++i >= argc || !parse_u32(argv[i], &args.instrument_id)) {
+            ++i;
+            if (i >= argc || !parse_u32(argv[i], &args.instrument_id)) {
                 usage(argv[0]);
                 return 2;
             }
             args.instrument_set = true;
         } else if (std::strcmp(s, "-mode") == 0) {
-            if (++i >= argc) { usage(argv[0]); return 2; }
+            ++i;
+            if (i >= argc) {
+                usage(argv[0]);
+                return 2;
+            }
             if (std::strcmp(argv[i], "scan") == 0) args.mode = Mode::Scan;
             else if (std::strcmp(argv[i], "recover") == 0) args.mode = Mode::Recover;
             else if (std::strcmp(argv[i], "fingerprint") == 0)
@@ -590,6 +622,13 @@ int main(int argc, char** argv) {
             args.json = true;
         } else if (std::strcmp(s, "-live") == 0) {
             args.live = true;
+        } else if (std::strcmp(s, "-snap-dir") == 0) {
+            ++i;
+            if (i >= argc) {
+                usage(argv[0]);
+                return 2;
+            }
+            args.snap_dir = argv[i];
         } else if (std::strcmp(s, "-h") == 0 || std::strcmp(s, "--help") == 0) {
             usage(argv[0]);
             return 0;

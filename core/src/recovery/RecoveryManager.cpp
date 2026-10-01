@@ -4,6 +4,9 @@
 
 #include "recovery/RecoveryManager.hpp"
 
+#include <fcntl.h>
+#include <unistd.h>
+
 #include <algorithm>
 #include <atomic>
 #include <cerrno>
@@ -16,9 +19,6 @@
 #include <system_error>
 #include <thread>
 #include <unordered_map>
-
-#include <fcntl.h>
-#include <unistd.h>
 
 #include "matching/MatchingEngine.hpp"
 #include "recovery/DenseLedger.hpp"
@@ -1160,9 +1160,7 @@ RecoveryResult RecoveryManager::recover(
                         // ev.seq; derived fills/cancels consume next.
                         bs.engine->set_replay_wal_seq(ev.seq);
                         bs.engine->on_order_received_ex(o, aux);
-                        order_owner.set(
-                            p.order_id,
-                            static_cast<uint32_t>(&bs - states.data()) + 1);
+                        order_owner.set(p.order_id, static_cast<uint32_t>(&bs - states.data()) + 1);
                         if (bs.book->book_seq() != seq_before ||
                             bs.engine->stops().pending(p.order_id)) {
                             ++res.mutations_applied;
@@ -1368,8 +1366,7 @@ RecoveryResult RecoveryManager::recover(
                                         bs.engine->icebergs().find(leg->id)) {
                                     actual = rec->filled_total_units;
                                 }
-                                const int64_t jr =
-                                    bs.journaled_fills.get(leg->id);
+                                const int64_t jr = bs.journaled_fills.get(leg->id);
                                 if (jr + p.qty_units <= actual) continue;
                                 if (p.qty_units > remaining_qty_units(*leg)) {
                                     set_fail(res, RecoveryStatus::ApplyFailed,
@@ -1425,8 +1422,7 @@ RecoveryResult RecoveryManager::recover(
                                     bs.engine->icebergs().find(maker->id)) {
                                 actual_filled = rec->filled_total_units;
                             }
-                            const int64_t journaled =
-                                bs.journaled_fills.get(maker->id);
+                            const int64_t journaled = bs.journaled_fills.get(maker->id);
                             if (journaled + p.qty_units <= actual_filled) {
                                 // The replayed aggressor's walk_match
                                 // already re-derived this fill — do not
