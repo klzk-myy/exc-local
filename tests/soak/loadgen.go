@@ -296,6 +296,12 @@ type stats struct {
 
 	fillLat   latHist
 	cancelLat latHist
+	// engineLat is send->fill-EMITTED latency (engine Event.ts is
+	// CLOCK_REALTIME, same domain as the send stamp) — it excludes this
+	// process's drain-observation lag, which on a contended host inflates
+	// fillLat's tail by tens of ms (Phase-02.5 probe: one ~105ms drain gap
+	// produced the whole p99 bucket while engine beat staleness stayed <1ms).
+	engineLat latHist
 
 	windowMin   atomic.Uint64 // min 1s sends (first window seeds it)
 	windowMax   atomic.Uint64
@@ -440,6 +446,9 @@ func metricsText(s *stats) []byte {
 	}
 	renderHist("soak_latency_ns",
 		"Send to fill-observed latency in nanoseconds.", &s.fillLat)
+	renderHist("soak_engine_latency_ns",
+		"Send to fill-emitted latency in nanoseconds (engine Event.ts; excludes drain-observation lag).",
+		&s.engineLat)
 	renderHist("soak_cancel_latency_ns",
 		"Send to OrderCancel-observed latency in nanoseconds (engine terminal rejects/cancels).",
 		&s.cancelLat)
@@ -477,6 +486,7 @@ type soakReport struct {
 	SendDrops         uint64        `json:"send_drops"`
 	RingDrops         uint64        `json:"ring_drops"`
 	LatencyNS         latencyReport `json:"latency_ns"`
+	EngineLatencyNS   latencyReport `json:"engine_latency_ns"`
 	CancelLatencyNS   latencyReport `json:"cancel_latency_ns"`
 	Throughput        struct {
 		Min1s  uint64  `json:"min_1s"`
@@ -497,6 +507,11 @@ type soakReport struct {
 	P50US           float64 `json:"p50_us"`
 	P99US           float64 `json:"p99_us"`
 	P999US          float64 `json:"p999_us"`
+	// Engine-side aliases: latency measured to the engine's emit stamp —
+	// the honest number when drain-observation lag inflates the tail.
+	EngineP50US  float64 `json:"engine_p50_us"`
+	EngineP99US  float64 `json:"engine_p99_us"`
+	EngineP999US float64 `json:"engine_p999_us"`
 }
 
 func fillLatencyReport(h *latHist) latencyReport {
@@ -561,8 +576,9 @@ func main() {
 	}
 
 	started := time.Now()
-	t0 := started // monotonic base for latency stamps (ns since start)
-	nowNs := func() uint64 { return uint64(time.Since(t0).Nanoseconds()) }
+	// Latency correlation stamps are absolute UnixNano on both ends:
+	// the corr ring stores the send's UnixNano and Event.ts carries the
+	// engine's CLOCK_REALTIME emit stamp (same host, same domain).
 
 	st := &stats{}
 	st.producerAlive.Store(false)
@@ -708,12 +724,19 @@ func main() {
 					}
 					if sentNs, taker, ok := corr.lookup(oid); ok {
 						if taker {
-							d := int64(nowNs() - sentNs)
+							// Two clocks, one domain: corr stores the send's
+							// UnixNano and Event.ts is the engine's
+							// CLOCK_REALTIME emit stamp (same host) — so
+							// engineLat excludes this goroutine's drain lag
+							// while fillLat keeps the full observed path.
+							d := time.Now().UnixNano() - int64(sentNs)
 							st.fillLat.observe(d)
+							st.engineLat.observe(int64(ev.Ts()) - int64(sentNs))
 							if d > 100_000_000 && st.dbgSlow.Add(1) <= 8 {
 								fmt.Fprintf(os.Stderr,
-									"SLOWFILL oid=%d d=%dms sendNs=%d nowNs=%d tid=%d\n",
-									oid, d/1e6, sentNs, nowNs(), tf.TradeId())
+									"SLOWFILL oid=%d d=%dms sendUnix=%d obsUnix=%d engTs=%d tid=%d\n",
+									oid, d/1e6, sentNs, time.Now().UnixNano(),
+									ev.Ts(), tf.TradeId())
 							}
 						}
 						corr.drop(oid) // first fill wins the latency sample
@@ -731,7 +754,7 @@ func main() {
 					oc := &wire.OrderCancel{}
 					oc.Init(t.Bytes, t.Pos)
 					if sentNs, _, ok := corr.lookup(oc.OrderId()); ok {
-						st.cancelLat.observe(int64(nowNs() - sentNs))
+						st.cancelLat.observe(time.Now().UnixNano() - int64(sentNs))
 						corr.drop(oc.OrderId())
 					}
 				}
@@ -810,6 +833,8 @@ func main() {
 	var windowSent uint64
 
 	var seq uint64
+	// ClientOrderID scratch: fixed prefix once, seq appended per order.
+	cidPrefix := []byte("soak-" + strconv.Itoa(pid) + "-")
 	sending := true
 	for sending {
 		select {
@@ -886,7 +911,11 @@ func main() {
 		}
 
 		b.Reset()
-		msg := ipc.EncodeOrderNewEvent(b, seq, uint64(time.Now().UnixNano()),
+		sendUnix := uint64(time.Now().UnixNano())
+		// strconv scratch beats fmt.Sprintf per order — at 50k+/s the
+		// Sprintf reflection+alloc path was ~1us of the ~20us send budget.
+		cid := strconv.AppendUint(cidPrefix, seq, 10)
+		msg := ipc.EncodeOrderNewEvent(b, seq, sendUnix,
 			ipc.OrderNewMsg{
 				OrderID:       orderID,
 				AccountID:     accountID,
@@ -896,7 +925,7 @@ func main() {
 				Qty:           qty,
 				Price:         price,
 				TIF:           tif,
-				ClientOrderID: fmt.Sprintf("soak-%d-%d", pid, seq),
+				ClientOrderID: string(cid),
 			})
 
 		// Bounded retry on ring-full backpressure (~1ms), then drop: a soak
@@ -915,11 +944,16 @@ func main() {
 		}
 		st.ordersSent.Add(1)
 		windowSent++
-		corr.store(orderID, nowNs(), cross)
+		corr.store(orderID, sendUnix, cross)
 
-		// If scheduling fell badly behind (GC pause, backpressure), rebase so
-		// the next deadline is in the future rather than bursting.
-		if time.Since(target) > time.Second {
+		// If scheduling fell behind (GC pause, descheduled on a loaded host),
+		// rebase so the next deadline is in the future rather than bursting.
+		// 1s was too lax: a ~400ms producer stall dumped ~20k catch-up orders
+		// flat-out, manufacturing a ~220ms queue tail that read as engine
+		// latency in the Phase-02.5 probe. 10ms bounds a catch-up burst to
+		// ~500 orders (~6ms of added drain at ~90k/s); stalls still surface
+		// honestly via min_1s, orders_sent and achieved_rate.
+		if time.Since(target) > 10*time.Millisecond {
 			p.rebase(time.Now())
 		}
 	}
@@ -981,9 +1015,13 @@ func main() {
 	} else {
 		rep.AchievedRate = rep.Throughput.Mean1s
 	}
+	rep.EngineLatencyNS = fillLatencyReport(&st.engineLat)
 	rep.P50US = float64(rep.LatencyNS.P50) / 1e3
 	rep.P99US = float64(rep.LatencyNS.P99) / 1e3
 	rep.P999US = float64(rep.LatencyNS.P999) / 1e3
+	rep.EngineP50US = float64(rep.EngineLatencyNS.P50) / 1e3
+	rep.EngineP99US = float64(rep.EngineLatencyNS.P99) / 1e3
+	rep.EngineP999US = float64(rep.EngineLatencyNS.P999) / 1e3
 
 	out, err := json.MarshalIndent(&rep, "", "  ")
 	if err != nil {
