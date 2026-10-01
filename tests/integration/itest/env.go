@@ -48,8 +48,9 @@ import (
 // ---------------------------------------------------------------------------
 
 // RepoRoot walks up from the working directory to the exchange repo root
-// (AGENTS.md + docs/ + services/go.mod — the same markers the spec
-// harness uses). EXC_REPO_ROOT overrides.
+// (README.md + docs/ + services/go.mod — the same markers the spec
+// harness uses; all tracked files so fresh clones resolve — AGENTS.md
+// is gitignored and cannot be a marker). EXC_REPO_ROOT overrides.
 func RepoRoot() string {
 	if r := os.Getenv("EXC_REPO_ROOT"); r != "" {
 		return r
@@ -63,7 +64,7 @@ func RepoRoot() string {
 			_, err := os.Stat(filepath.Join(d, rel))
 			return err == nil
 		}
-		if mark("AGENTS.md") && mark("docs") && mark(filepath.Join("services", "go.mod")) {
+		if mark("README.md") && mark("docs") && mark(filepath.Join("services", "go.mod")) {
 			return d
 		}
 		if filepath.Dir(d) == d {

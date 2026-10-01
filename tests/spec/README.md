@@ -111,7 +111,7 @@ match `docker-compose.dev.yml`; override via env:
 | `EXC_SENTINEL_ADDRS`  | `127.0.0.1:36379,…:36380,…:36381`                             |
 | `EXC_CLICKHOUSE_HTTP` | `http://127.0.0.1:8123`                                        |
 | `EXC_CORE_BUILD`      | `<root>/core/build` (ctest target dir)                         |
-| `EXC_REPO_ROOT`       | auto-detected (walk up for AGENTS.md + docs/ + services/go.mod)|
+| `EXC_REPO_ROOT`       | auto-detected (walk up for README.md + docs/ + services/go.mod)|
 
 Internal-package checks (`exchange/internal/**`) run as `go test -run`
 subprocesses inside `services/` — Go's internal-visibility rule forbids

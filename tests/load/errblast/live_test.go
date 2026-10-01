@@ -232,7 +232,7 @@ func repoRoot(t *testing.T) string {
 		t.Fatalf("getwd: %v", err)
 	}
 	for d := wd; ; d = filepath.Dir(d) {
-		if _, err := os.Stat(filepath.Join(d, "AGENTS.md")); err == nil {
+		if _, err := os.Stat(filepath.Join(d, "README.md")); err == nil {
 			if _, err := os.Stat(filepath.Join(d, "services", "go.mod")); err == nil {
 				return d
 			}

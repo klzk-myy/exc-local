@@ -75,6 +75,11 @@ func newRouter(store *MemoryShadowStore, venues ...VenueConnector) (*Router, *ev
 		pubs.add(ev)
 		return nil
 	}, thresholds())
+	// Functional tests are not exercising the timeout path — give the
+	// loopback ack goroutine scheduling headroom on contended -race
+	// runners (the canonical 500ms budget lapses under CI preemption).
+	// Timeout-path tests override r.Timeout explicitly after this call.
+	r.Timeout = 5 * time.Second
 	r.Start(context.Background())
 	return r, pubs
 }

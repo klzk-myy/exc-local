@@ -20,12 +20,12 @@ import (
 type Status string
 
 const (
-	StatusPass     Status = "pass"     // implemented; ran; assertions held
-	StatusFail     Status = "fail"     // implemented; ran; assertion failed
-	StatusTimeout  Status = "timeout"  // implemented; exceeded per-checkpoint timeout
-	StatusError    Status = "error"    // implemented; panicked or harness error
-	StatusSkip     Status = "skip"     // implemented; dependency unavailable (env-gated)
-	StatusPending  Status = "pending"  // `[ ]` in docs / no implementation registered,
+	StatusPass    Status = "pass"    // implemented; ran; assertions held
+	StatusFail    Status = "fail"    // implemented; ran; assertion failed
+	StatusTimeout Status = "timeout" // implemented; exceeded per-checkpoint timeout
+	StatusError   Status = "error"   // implemented; panicked or harness error
+	StatusSkip    Status = "skip"    // implemented; dependency unavailable (env-gated)
+	StatusPending Status = "pending" // `[ ]` in docs / no implementation registered,
 	// or an implementation that can only be discharged on deployment-scale
 	// infra (e.g. 72h soak) — env-bound, never fails the run
 	StatusMissing  Status = "missing"  // `[x]` in docs but NO implementation — FAIL
@@ -190,7 +190,9 @@ func envOr(name, def string) string {
 }
 
 // FindRepoRoot walks up from the working directory looking for the repo
-// markers (docs/ + services/go.mod). EXC_REPO_ROOT overrides.
+// markers (README.md + docs/ + services/go.mod — all must be tracked
+// files so fresh clones resolve; AGENTS.md is gitignored and cannot be
+// a marker). EXC_REPO_ROOT overrides.
 func FindRepoRoot() string {
 	if v := os.Getenv("EXC_REPO_ROOT"); v != "" {
 		abs, err := filepath.Abs(v)
@@ -203,7 +205,7 @@ func FindRepoRoot() string {
 		return "."
 	}
 	for i := 0; i < 12; i++ {
-		if fileExists(filepath.Join(dir, "AGENTS.md")) &&
+		if fileExists(filepath.Join(dir, "README.md")) &&
 			dirExists(filepath.Join(dir, "docs")) &&
 			fileExists(filepath.Join(dir, "services", "go.mod")) {
 			return dir

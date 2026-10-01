@@ -334,6 +334,10 @@ jobs:
           cmake --build core/build -j "$(nproc)"
 
       - name: Checkpoint corpus drift check (committed corpus must match docs)
+        env:
+          # Explicit root — the auto-detect markers are tracked files and
+          # must resolve identically in CI; pinning removes ambiguity.
+          EXC_REPO_ROOT: ${{ github.workspace }}
         run: cd tests/spec && go run . extract
 
       # Phase-10 checkpoints run real vitest subsets — frontend deps
