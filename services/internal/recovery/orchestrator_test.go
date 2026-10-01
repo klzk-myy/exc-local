@@ -36,9 +36,10 @@ func (c *fakeClock) Now() time.Time {
 func (c *fakeClock) After(d time.Duration) <-chan time.Time {
 	c.mu.Lock()
 	c.now = c.now.Add(d)
+	now := c.now
 	c.mu.Unlock()
 	ch := make(chan time.Time, 1)
-	ch <- c.now
+	ch <- now
 	return ch
 }
 

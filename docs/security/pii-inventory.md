@@ -1,6 +1,6 @@
 # PII Inventory — GDPR Art. 30 Record + Encryption/Access Map
 
-**Generated:** 2026-09-30 17:59 UTC by `scripts/security/gen-pii-inventory.py` (Task 13.5.3.2) from 203 `*.up.sql` migrations (356 tables, 4321 columns). Do not hand-edit; update the generator's ANNOTATIONS map and re-run. Companion artifacts: `pii-catalog.csv` (same rows, machine-checkable), `pii-audit-report.md` (verification evidence), `gdpr-erasure-runbook.md` (Art. 17 procedure).
+**Generated:** 2026-10-01 01:49 UTC by `scripts/security/gen-pii-inventory.py` (Task 13.5.3.2) from 206 `*.up.sql` migrations (357 tables, 4335 columns). Do not hand-edit; update the generator's ANNOTATIONS map and re-run. Companion artifacts: `pii-catalog.csv` (same rows, machine-checkable), `pii-audit-report.md` (verification evidence), `gdpr-erasure-runbook.md` (Art. 17 procedure).
 
 PII classes: **DIRECT_ID** (name/address/residency) · **CONTACT** (email/phone) · **GOV_ID** (TIN/ID documents) · **FINANCIAL** (bank identifiers) · **AUTH_SECRET** (credentials — hashed/sealed, tracked for erasure) · **PSEUDONYMOUS** (IP/UA/fingerprint/geo/actor ids) · **LINKAGE** (user_id/account_id re-identification joins) · **FREE_TEXT** (may embed incidental PII) · **ORG_CONTACT** (institutional contacts).
 
@@ -742,8 +742,8 @@ Schema-verified by the generator (no PII-name-pattern column and no curated anno
 `external_auditor_grants` `settlement_fails` `settlement_penalties` `buy_in_events` `option_spread_offsets`
 `option_spread_offset_params` `vip_tier_schedule` `account_equity_snapshots` `account_vip_history` `instruments_reference`
 `auction_calendar` `currency_day_counts` `swap_markup_policies` `non_trading_fee_schedule` `swap_accrual_records`
-`principal_role_systems` `admin_recert_campaigns` `environments` `fleet_hosts` `release_promotions` `deploy_windows`
-`recovery_digests` `balance_snapshots` `account_product_profiles` `copy_follows` `copy_child_orders`
+`secrets_inventory` `principal_role_systems` `admin_recert_campaigns` `environments` `fleet_hosts` `release_promotions`
+`deploy_windows` `recovery_digests` `balance_snapshots` `account_product_profiles` `copy_follows` `copy_child_orders`
 `high_water_marks` `profit_share_accruals` `entity_leverage_policy` `product_target_markets` `execution_policy_consents`
 `governance_packs` `ledger_entries` `journal_sums` `swap_free_admin_fees` `banking_rail_schedules` `rail_payments`
 `risk_daily_usage` `currency_conversions` `position_fills` `nostro_movements` `dust_sweeps` `swap_rates`

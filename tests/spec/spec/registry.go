@@ -25,7 +25,9 @@ const (
 	StatusTimeout  Status = "timeout"  // implemented; exceeded per-checkpoint timeout
 	StatusError    Status = "error"    // implemented; panicked or harness error
 	StatusSkip     Status = "skip"     // implemented; dependency unavailable (env-gated)
-	StatusPending  Status = "pending"  // `[ ]` in docs, no implementation registered
+	StatusPending  Status = "pending"  // `[ ]` in docs / no implementation registered,
+	// or an implementation that can only be discharged on deployment-scale
+	// infra (e.g. 72h soak) — env-bound, never fails the run
 	StatusMissing  Status = "missing"  // `[x]` in docs but NO implementation — FAIL
 	StatusVanished Status = "vanished" // in corpus, absent from docs, was checked — FAIL
 	StatusDropped  Status = "dropped"  // in corpus, absent from docs, was unchecked — warn only
@@ -51,10 +53,19 @@ func Pass(detail string) Result { return Result{Status: StatusPass, Detail: deta
 func Fail(detail string) Result { return Result{Status: StatusFail, Detail: detail} }
 func Skip(reason string) Result { return Result{Status: StatusSkip, Detail: reason} }
 
+// Pending marks a checkpoint env-bound: implemented, but discharging it
+// needs deployment-scale infra no CI runner can provide (72h soak window,
+// dedicated bench host). Distinct from Skip — which signals a missing
+// runtime dependency and fails under --fail-on-skip (broken infra).
+func Pending(reason string) Result { return Result{Status: StatusPending, Detail: reason} }
+
 // Passf / Failf / Skipf are printf variants.
 func Passf(format string, a ...any) Result { return Pass(fmt.Sprintf(format, a...)) }
 func Failf(format string, a ...any) Result { return Fail(fmt.Sprintf(format, a...)) }
 func Skipf(format string, a ...any) Result { return Skip(fmt.Sprintf(format, a...)) }
+func Pendingf(format string, a ...any) Result {
+	return Pending(fmt.Sprintf(format, a...))
+}
 
 // CheckFunc verifies one checkpoint. It must be deterministic, safe to run
 // in parallel with other shards' work, and return within the configured

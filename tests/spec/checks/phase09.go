@@ -106,7 +106,12 @@ func ckP09DR(ctx context.Context, env *spec.Env) spec.Result {
 func ckP09DRPG(ctx context.Context, env *spec.Env) spec.Result {
 	return seqf(ctx, env,
 		files(env, "deploy/dr/postgres-standby.conf.sample", "deploy/dr/s3-crr-wal-archive.json"),
-		structural(env, "deploy/dr/postgres-standby.conf.sample", "remote_flush"),
+		// `on` is PG's remote-flush durability level — `remote_flush`
+		// itself is not a synchronous_commit value (fixed in fc263f7;
+		// assert the corrected semi-sync posture, not the literal).
+		structural(env, "deploy/dr/postgres-standby.conf.sample",
+			"primary_conninfo", "synchronous_standby_names",
+			"synchronous_commit.*=.*'on'"),
 	)
 }
 

@@ -1,0 +1,6 @@
+{"type":"crash","ts":1790566454,"offset_s":3600,"recovery_ms":1761}
+{"type":"crash","ts":1790573717,"offset_s":10800,"recovery_ms":65432}
+{"type":"crash","ts":1790580934,"offset_s":18000,"recovery_ms":81418}
+{"type":"burst_start","ts":1790584452,"offset_s":21600,"rate":18000}
+{"type":"burst_end","ts":1790584572,"rate":15000}
+{"type":"crash","ts":1790588242,"offset_s":25200,"recovery_ms":189463}

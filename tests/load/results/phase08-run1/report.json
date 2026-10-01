@@ -1,0 +1,90 @@
+{
+  "loadgen_report": {
+    "started": "2026-09-28T19:06:07.823533507Z",
+    "ended": "2026-09-28T19:16:07.823793313Z",
+    "duration_s": 600.000259808,
+    "orders_sent": 4352,
+    "fills": 4,
+    "cancels": 100,
+    "book_snapshots": 157,
+    "time_ticks": 0,
+    "other_events": 0,
+    "decode_errors": 0,
+    "duplicate_trade_ids": 0,
+    "my_orders_filled": 4,
+    "my_distinct_orders_in_fills": 6,
+    "foreign_fills": 0,
+    "send_drops": 29988233,
+    "ring_drops": 1919247120,
+    "latency_ns": {
+      "p50": 110437485,
+      "p99": 110437485,
+      "p999": 110437485,
+      "max": 110437485,
+      "mean": 110295187,
+      "count": 4
+    },
+    "cancel_latency_ns": {
+      "p50": 111352519,
+      "p99": 111352519,
+      "p999": 111352519,
+      "max": 111352519,
+      "mean": 105851006,
+      "count": 99
+    },
+    "throughput": {
+      "min_1s": 0,
+      "mean_1s": 7.253333333333333,
+      "max_1s": 4352
+    },
+    "target_rate": 50000,
+    "stop_reason": "duration",
+    "engine_died": false,
+    "shard": 0,
+    "instrument_id": 7,
+    "dup_trade_ids": 0,
+    "achieved_rate": 7.253330192544649,
+    "p50_us": 110437.485,
+    "p99_us": 110437.485,
+    "p999_us": 110437.485
+  },
+  "wsprobe": {
+    "started": "2026-09-28T19:06:08.144363216Z",
+    "ended": "2026-09-28T19:16:08.646113733Z",
+    "duration_s": 600.501751012,
+    "url": "ws://127.0.0.1:18081/ws/v1/marketdata",
+    "conns_requested": 120,
+    "conns_opened": 120,
+    "open_failures": 0,
+    "conns_alive_at_end": 0,
+    "frames": 46320,
+    "bytes": 64121520,
+    "seq_gaps": 0,
+    "disconnects": 0,
+    "reconnects": 0,
+    "reconnect_failures": 0,
+    "conns_zero_frames": 0,
+    "subscribe_frame": "{\"action\":\"subscribe\",\"channels\":[\"book@EUR/USD\"]}",
+    "zero_drops": true
+  },
+  "restprobe": {
+    "started": "2026-09-28T19:06:08.36049851Z",
+    "ended": "2026-09-28T19:16:08.360985098Z",
+    "duration_s": 600.000486832,
+    "url": "http://127.0.0.1:18090/health/live",
+    "requests": 300000,
+    "errors": 0,
+    "status_counts": {
+      "200": 300000
+    },
+    "achieved_rps": 499.99959430699585,
+    "latency_us": {
+      "p50": 225.999,
+      "p99": 6311.999,
+      "p999": 21274.999,
+      "max": 82186.252,
+      "mean": 463.41347612333334
+    },
+    "p99_under_5ms": false
+  }
+}

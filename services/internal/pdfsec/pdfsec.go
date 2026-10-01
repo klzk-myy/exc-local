@@ -175,6 +175,23 @@ func aesEncrypt(key, plaintext []byte) ([]byte, error) {
 	return append(iv, ct...), nil
 }
 
+// streamLengthRe pulls the declared byte count out of a stream dict.
+var streamLengthRe = regexp.MustCompile(`/Length (\d+)`)
+
+// streamPayload bounds a stream's payload. The dict's /Length is the
+// authoritative boundary — required for ciphertext, which is binary and
+// can end in 0x0a (a delimiter-suffix trim silently eats a legitimate
+// block byte: observed as "malformed ciphertext len 223", ~0.4%/stream).
+// Delimiter fallback covers docs lacking /Length.
+func streamPayload(dict, rest []byte) []byte {
+	if m := streamLengthRe.FindSubmatch(dict); m != nil {
+		if n, err := strconv.Atoi(string(m[1])); err == nil && n >= 0 && n <= len(rest) {
+			return rest[:n]
+		}
+	}
+	return bytes.TrimSuffix(rest, []byte("\nendstream"))
+}
+
 // aesDecrypt peels the IV and AES-128-CBC decrypts with PKCS7 unpad.
 func aesDecrypt(key, blob []byte) ([]byte, error) {
 	if len(blob) < aes.BlockSize*2 || len(blob)%aes.BlockSize != 0 {
@@ -317,9 +334,7 @@ func EncryptPDF(doc []byte, userPassword, ownerPassword string) ([]byte, error) 
 			// Dict part before stream stays plaintext; stream payload
 			// is encrypted whole.
 			dict := body[:si]
-			payload := body[si+len("stream\n"):]
-			payload = bytes.TrimSuffix(payload, []byte("\nendstream"))
-			payload = bytes.TrimSuffix(payload, []byte("\n"))
+			payload := streamPayload(dict, body[si+len("stream\n"):])
 			ct, err := aesEncrypt(objectKey(fk, sp.num, sp.gen), payload)
 			if err != nil {
 				return nil, err
@@ -432,9 +447,7 @@ func DecryptPDF(doc []byte, userPassword string) ([]byte, error) {
 		fmt.Fprintf(&out, "%d %d obj\n", sp.num, sp.gen)
 		if si := bytes.Index(body, []byte("stream\n")); si >= 0 {
 			dict := decryptLiterals(body[:si], sp.num, sp.gen, fk)
-			payload := body[si+len("stream\n"):]
-			payload = bytes.TrimSuffix(payload, []byte("\nendstream"))
-			payload = bytes.TrimSuffix(payload, []byte("\n"))
+			payload := streamPayload(body[:si], body[si+len("stream\n"):])
 			pt, err := aesDecrypt(objectKey(fk, sp.num, sp.gen), payload)
 			if err != nil {
 				return nil, fmt.Errorf("pdfsec: object %d stream: %w", sp.num, err)

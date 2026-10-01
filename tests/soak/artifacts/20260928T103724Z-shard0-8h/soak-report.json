@@ -1,0 +1,51 @@
+{
+  "run": "8h soak @15k/s target — manual archive (monitor exit path lost to mid-run script edit)",
+  "started_utc": "2026-09-28T02:34:12Z",
+  "ended_utc": "2026-09-28T10:35:08Z",
+  "duration_s": 28856,
+  "target_rate": 15000,
+  "shard": 0,
+  "instrument": 7,
+  "wal": {
+    "entries": 303738471,
+    "segments": 22,
+    "bytes": "23G",
+    "order_new": 138788877,
+    "trades": 33936152,
+    "seq_gaps": 0,
+    "seq_regressions": 0,
+    "corrupt": false,
+    "dup_trade_ids": 0
+  },
+  "crashes": [
+    {"offset_s": 3600,  "recovery_ms": 1761,   "note": "small WAL"},
+    {"offset_s": 10800, "recovery_ms": 65432,  "note": "full replay 21GB — no snapshots existed"},
+    {"offset_s": 18000, "recovery_ms": 81418,  "note": "full replay 28GB; post-boot engine starved ingress ~2h (per-tick serialize-fail, silent) — defect fixed in 481d3cf"},
+    {"offset_s": 25200, "recovery_ms": 189463, "note": "full replay ~40GB (no prior snapshot); new binary then emitted snapshots every 5min"}
+  ],
+  "bursts": [{"offset_s": 21600, "rate": 18000, "len_s": 120, "note": "1 of 2 fired; --burst-at CLI overwrite dropped the 7200s entry"}],
+  "memory": {"peak_rss_bytes": 6900000000, "criterion_max_bytes": 12884901888, "within_limit": true},
+  "snapshot_evidence": {
+    "post_fix_snapshots_written": true,
+    "snap_bytes_each": 108012924,
+    "post_run_restart_recovery_ms": 19921,
+    "vs_full_replay_ms": 189463,
+    "note": "snapshot restore dominates: deserialize ~1M orders + rebuild 103M-entry dedup ledger; still over 10s AC but 9.5x faster than full replay"
+  },
+  "throughput_honesty": {
+    "hours_0_to_5": "~15000/s sustained (matches target)",
+    "0735_to_0934": "~0/s — ingress starved by serialize-fail-every-tick (binary predating 481d3cf)",
+    "0937_to_1035": "~1800/s — degraded ingest post-restore (deep book + 103M dedup set; needs profiling)"
+  },
+  "acceptance_verdict": "PARTIAL — honest fail vs literal ACs: no 72h, no 50k/s, recovery >10s, sustained-rate interruption logged. Defect evidence is the deliverable.",
+  "defects_found_and_fixed": [
+    "engine never emitted BOOK_SNAPSHOT during operation → recovery unbounded (fixed c6ded7a)",
+    "snapshot serialize used 64MiB WAL-entry cap on file snapshots + SerializeFailed silent → per-tick book walk starved matching loop ~2h (fixed 481d3cf)"
+  ],
+  "defects_open": [
+    "post-restart ingress throughput ~1.8k/s vs 15k pre-crash (103M dedup ledger + ~1M-order book restore cost; profile needed)",
+    "CRITICAL_BACKPRESSURE logged per-cycle unthrottled — engine.log grew 25.6GB in 8h",
+    "monitor.sh wal_tail/wal_size columns freeze after segment rotation (lexical pick vs numeric)",
+    "monitor.sh --burst-at not repeatable (overwrites); mid-run script edits corrupt bash's lazy-read → exit path syntax error"
+  ]
+}

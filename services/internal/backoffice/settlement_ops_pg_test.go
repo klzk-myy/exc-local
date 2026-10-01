@@ -21,10 +21,15 @@ import (
 var settlementOpsChain = []string{
 	"002_create_users.up.sql",
 	"003_create_accounts.up.sql",
+	"007_create_funding_transactions.up.sql",
 	"018_create_nostro_accounts.up.sql",
 	"019_create_settlement_instructions.up.sql",
 	"036_create_general_ledger.up.sql",
 	"037_create_prime_brokerage.up.sql",
+	// 112 lands FK clauses on statement_entries (057) referencing
+	// rail_payments (108) — both parents must precede it.
+	"057_bank_statements.up.sql",
+	"108_suspense_accounts_routing.up.sql",
 	"112_settlement_dispatch_and_nostro_movements.up.sql",
 	"084_settlement_penalties.up.sql",
 	"260_settlement_ops.up.sql",

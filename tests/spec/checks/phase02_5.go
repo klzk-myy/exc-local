@@ -119,7 +119,7 @@ func ckSoakSustainedRate(ctx context.Context, env *spec.Env) spec.Result {
 
 	dir, err := latestSoakRun(env, "soak-report.json")
 	if err != nil {
-		return spec.Skip("infrastructure verified; no recorded soak run yet " +
+		return spec.Pending("infrastructure verified; no recorded soak run yet " +
 			"(72h wall-clock artifact pending under tests/soak/artifacts/)")
 	}
 	rep, err := readSoakReport(dir)
@@ -128,7 +128,7 @@ func ckSoakSustainedRate(ctx context.Context, env *spec.Env) spec.Result {
 	}
 	const needS = 72 * 3600.0
 	if rep.DurationS < needS {
-		return spec.Skipf("infrastructure verified; longest recorded soak %.0fs "+
+		return spec.Pendingf("infrastructure verified; longest recorded soak %.0fs "+
 			"(%.1fh) < 72h — sustained-rate gate pending", rep.DurationS, rep.DurationS/3600)
 	}
 	if rep.Throughput.Min1S < 45000 {
@@ -142,14 +142,14 @@ func ckSoakSustainedRate(ctx context.Context, env *spec.Env) spec.Result {
 func ckSoak72hReport(ctx context.Context, env *spec.Env) spec.Result {
 	dir, err := latestSoakRun(env, "soak-report.json")
 	if err != nil {
-		return spec.Skip("no recorded soak run yet (72h artifact pending)")
+		return spec.Pending("no recorded soak run yet (72h artifact pending)")
 	}
 	rep, err := readSoakReport(dir)
 	if err != nil {
 		return spec.Failf("%v", err)
 	}
 	if rep.DurationS < 72*3600 {
-		return spec.Skipf("recorded soak %.1fh < 72h — full-criteria gate pending",
+		return spec.Pendingf("recorded soak %.1fh < 72h — full-criteria gate pending",
 			rep.DurationS/3600)
 	}
 	var bad []string
@@ -215,7 +215,7 @@ func ckSoakRecoveryBench(ctx context.Context, env *spec.Env) spec.Result {
 	loadgen := env.Path("tests", "soak", "loadgen")
 	for _, p := range []string{bench, engine, audit, loadgen} {
 		if !pathExists(p) {
-			return spec.Skipf("failover bench dependency missing: %s "+
+			return spec.Pendingf("failover bench dependency missing: %s "+
 				"(no recorded artifact either)", filepath.Base(p))
 		}
 	}
@@ -262,7 +262,7 @@ func ckSoakFaultBackpressure(ctx context.Context, env *spec.Env) spec.Result {
 	// (crash injection and/or 120% burst) plus a passing WAL integrity audit.
 	dir, err := latestSoakRun(env, "events.jsonl")
 	if err != nil {
-		return spec.Skip("infra verified; no recorded fault-injection run yet " +
+		return spec.Pending("infra verified; no recorded fault-injection run yet " +
 			"(events.jsonl pending under tests/soak/artifacts/)")
 	}
 	raw, err := os.ReadFile(filepath.Join(dir, "events.jsonl"))
@@ -280,7 +280,7 @@ func ckSoakFaultBackpressure(ctx context.Context, env *spec.Env) spec.Result {
 	case !recov:
 		return spec.Failf("recorded run lacks recovery measurements")
 	case !burst:
-		return spec.Skipf("crash+recovery recorded; 120%% burst not yet "+
+		return spec.Pendingf("crash+recovery recorded; 120%% burst not yet "+
 			"exercised in %s", dir)
 	}
 	return spec.Passf("fault-injection run recorded: crash+recovery+burst "+

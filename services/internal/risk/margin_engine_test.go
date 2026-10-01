@@ -584,8 +584,12 @@ func TestMarginEngineEvalLatencyBudget(t *testing.T) {
 			Price: d("1.1001"), Ts: time.Now()})
 	}
 	perAcct := time.Since(start) / (reps * N)
-	if perAcct > 50*time.Microsecond {
-		t.Fatalf("per-account evaluation %v exceeds 50µs budget", perAcct)
+	budget := 50 * time.Microsecond
+	if raceDetectorOn {
+		budget = 500 * time.Microsecond // -race skews wall-clock ~10×
+	}
+	if perAcct > budget {
+		t.Fatalf("per-account evaluation %v exceeds %v budget", perAcct, budget)
 	}
 	if dspy.count() != 0 {
 		t.Fatalf("no breach expected at healthy marks, got %d dispatches", dspy.count())

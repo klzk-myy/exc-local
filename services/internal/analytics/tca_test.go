@@ -399,7 +399,12 @@ func TestRTS28Job_PersistsRollupAndArchives(t *testing.T) {
 	}
 }
 
-func now7y() time.Time { return time.Now().UTC().AddDate(6, 11, 30) }
+// now7y is a lower bound on the required 7-year retention. AddDate is
+// calendar arithmetic: (6,11,30) can roll onto the SAME day as (7,0,0)
+// (e.g. Oct 1 → both yield Oct 1, 2033), collapsing the margin to the
+// sub-second gap between the production now and this call — a fail.
+// (6,11,0) keeps a ≥1-month margin on every calendar date.
+func now7y() time.Time { return time.Now().UTC().AddDate(6, 11, 0) }
 
 func TestRenderRTS28PDF_VenueSection(t *testing.T) {
 	s := dec("12.5")

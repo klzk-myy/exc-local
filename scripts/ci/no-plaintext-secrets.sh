@@ -53,7 +53,11 @@ is_placeholder() {
     case "$(printf '%s' "$v" | tr 'A-Z' 'a-z')" in
         *change_me*|*changeme*|*replace_me*|*placeholder*|*example*|*dummy*|*redacted*|*redact*|*your_*|*insert_*|*todo*|*todo*|*sample*|*fake*|*dev_only*|*devonly*|*not_a_secret*|*notasecret*) return 0 ;;
         exchange_dev|dev|development|test|testing|true|false|yes|no|on|off|required|optional|disable|disabled|enable|enabled) return 0 ;;
+        *_dev|*_dev_*) return 0 ;;  # named dev credentials (exchange_dev precedent — trino_dev etc.)
     esac
+    # Canonical zero-bytes encodings are placeholders, not secrets:
+    # 32×0x00 base64 → all-A (drill data_key), hex zeros likewise.
+    if printf '%s' "$v" | grep -qE '^A+={0,2}$|^0{16,}$'; then return 0; fi
     # File-path values for *_FILE keys are references, not secrets.
     case "$v" in
         /*|*'/'*) return 0 ;;

@@ -338,6 +338,10 @@ NONPII = {
     ("mm_compliance", "breach_reason"): "ops vocabulary enum",
     ("fix_certifications", "revoked_reason"): "ops vocabulary",
     ("fix_allocations", "reject_reason"): "ops vocabulary",
+    # ---- secrets inventory (migration 089) — metadata ABOUT vault
+    # entries; no secret material or personal data is ever stored here
+    ("secrets_inventory", "secret_name"): "canonical vault-entry identifier (e.g. 'jwt-hs256-key') — ops metadata, not personal data",
+    ("secrets_inventory", "secret_class"): "SecretClass taxonomy enum (check-constrained) — ops vocabulary",
     ("allocation_events", "payload"): "append-only allocation event envelope — account ids + quantities only",
     ("fixsbe_schema_registry", "notes"): "schema-registry admin notes — ops vocabulary",
     # ---- Phase-21 non-PII (enums, digests, endpoints, identifiers)

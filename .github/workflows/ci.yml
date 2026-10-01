@@ -63,7 +63,7 @@ jobs:
   build-and-lint:
     name: Build + lint (C++ / Go)
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 25 # clang-tidy over 92 TUs at runner -j2 runs ~10 min alone
     steps:
       - uses: actions/checkout@v4
         with:
@@ -264,6 +264,10 @@ jobs:
       EXC_CLICKHOUSE_HTTP: http://127.0.0.1:8123
       EXC_CORE_BUILD: ${{ github.workspace }}/core/build
       SPEC_FAIL_ON_SKIP: "1" # stack is health-checked — a skip means broken infra
+      # 120s per checkpoint: cold-runner `go build ./...` and first `-race`
+      # compiles exceed the 30s default (P01-T1.3.2-C2, P13.5-T13.5.3.7
+      # timed out at 30s on a cold cache).
+      VALIDATOR_FLAGS: "--timeout=120s"
     steps:
       - uses: actions/checkout@v4
 
@@ -319,6 +323,19 @@ jobs:
 
       - name: Checkpoint corpus drift check (committed corpus must match docs)
         run: cd tests/spec && go run . extract
+
+      # Phase-10 checkpoints run real vitest subsets — frontend deps
+      # must exist on the shard runner (fail-on-skip makes missing
+      # node_modules a hard failure, not a skip).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Frontend deps (spec checkpoints run vitest subsets)
+        working-directory: frontend
+        run: npm ci
 
       - name: Run spec-validation shard
         run: scripts/ci/shard_runner.sh ${{ matrix.shard }} 4 reports

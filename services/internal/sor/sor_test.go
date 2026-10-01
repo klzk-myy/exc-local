@@ -5,6 +5,7 @@ package sor
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -48,14 +49,34 @@ func thresholds() Thresholds {
 	return Thresholds{MinDepth: d("5000000"), MaxSpreadBps: d("5")}
 }
 
-func newRouter(store *MemoryShadowStore, venues ...VenueConnector) (*Router, *[]*FillBridgeEvent) {
-	var pubs []*FillBridgeEvent
+// eventLog serializes publish-callback appends — the router invokes the
+// callback from its background event goroutine while the test goroutine
+// reads the log (a bare slice here is a data race under -race).
+type eventLog struct {
+	mu  sync.Mutex
+	evs []*FillBridgeEvent
+}
+
+func (l *eventLog) add(ev *FillBridgeEvent) {
+	l.mu.Lock()
+	l.evs = append(l.evs, ev)
+	l.mu.Unlock()
+}
+
+func (l *eventLog) all() []*FillBridgeEvent {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return append([]*FillBridgeEvent(nil), l.evs...)
+}
+
+func newRouter(store *MemoryShadowStore, venues ...VenueConnector) (*Router, *eventLog) {
+	pubs := &eventLog{}
 	r := NewRouter(store, venues, func(_ context.Context, ev *FillBridgeEvent) error {
-		pubs = append(pubs, ev)
+		pubs.add(ev)
 		return nil
 	}, thresholds())
 	r.Start(context.Background())
-	return r, &pubs
+	return r, pubs
 }
 
 func TestLocalWhenLiquid(t *testing.T) {
@@ -106,10 +127,10 @@ func TestRouteFillLifecycle(t *testing.T) {
 		t.Fatalf("filled qty %s", sh.FilledQty)
 	}
 	// Two FILL_BRIDGE events published.
-	if len(*pubs) != 2 {
-		t.Fatalf("expected 2 FILL_BRIDGE events, got %d", len(*pubs))
+	if got := pubs.all(); len(got) != 2 {
+		t.Fatalf("expected 2 FILL_BRIDGE events, got %d", len(got))
 	}
-	for _, ev := range *pubs {
+	for _, ev := range pubs.all() {
 		if ev.EventType != "FILL_BRIDGE" || ev.ParentOrderID != 100 {
 			t.Fatalf("bad event %+v", ev)
 		}
@@ -266,8 +287,8 @@ func TestFillDedup(t *testing.T) {
 	if got.State != StatePartiallyFilled {
 		t.Fatalf("state %s", got.State)
 	}
-	if len(*pubs) != 1 {
-		t.Fatalf("dedup published twice: %d", len(*pubs))
+	if got := pubs.all(); len(got) != 1 {
+		t.Fatalf("dedup published twice: %d", len(got))
 	}
 	_ = sh
 }

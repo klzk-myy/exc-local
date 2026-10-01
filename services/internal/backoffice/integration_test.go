@@ -86,6 +86,10 @@ func boSchema(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 		"018_create_nostro_accounts.up.sql",
 		"019_create_settlement_instructions.up.sql",
 		"035_create_swift_messages.up.sql",
+		// 112 lands FK clauses on statement_entries (057) referencing
+		// rail_payments (108) — both parents must precede it.
+		"057_bank_statements.up.sql",
+		"108_suspense_accounts_routing.up.sql",
 		"112_settlement_dispatch_and_nostro_movements.up.sql",
 		"199_funding_flow_extensions.up.sql",
 		"261_backoffice_nostro_recon.up.sql")

@@ -43,6 +43,9 @@ var allowlistedExceptions = map[string]string{
 	"/api/v1/analytics":            "namespace prose; concrete endpoints under it are registered",
 	"/api/v1/market-data/ticks/{}": "deliberately canonicalized to /api/v1/history/ticks/{symbol} (Task 23.3.4)",
 	"/healthz":                     "watchdogd/engine-binary probe path, not gateway client surface",
+	"/api/search":                  "Grafana's own API in Phase-02.5 drill prose (dashboard search), not a gateway route",
+	"/api/ds/query":                "Grafana's own API in Phase-02.5 drill prose (datasource query), not a gateway route",
+	"/ws":                          "haproxy drill backend path; the real WS surface is /ws/v1 (registered)",
 }
 
 // declaredPathIsRoute filters declarations to the gateway-served surfaces
