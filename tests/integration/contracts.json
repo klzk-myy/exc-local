@@ -8132,7 +8132,7 @@
         {
           "kind": "gtest",
           "binary": "test_cross_shard",
-          "filter": "CrossShard2PC.ReserveTimeoutFullCompensation|CrossShard2PC.NackCompensatesAll|CrossShard2PC.ThreeShardAllOrNothingCommit|CrossShard2PC.ReaperCadenceIsTwoSeconds|CrossShard2PC.CommitLosingTtlRaceCompensatesCommittedLeg"
+          "filter": "CrossShard2PC.ReserveTimeoutFullCompensation:CrossShard2PC.NackCompensatesAll:CrossShard2PC.ThreeShardAllOrNothingCommit:CrossShard2PC.ReaperCadenceIsTwoSeconds:CrossShard2PC.CommitLosingTtlRaceCompensatesCommittedLeg"
         },
         {
           "kind": "gotest",
