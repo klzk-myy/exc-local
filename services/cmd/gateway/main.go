@@ -220,6 +220,14 @@ func run() error {
 		ledgerPub = settlement.NatsPublisher{JS: nc.JetStream()}
 		natsClient = nc
 		defer nc.Close()
+		// Own the canonical stream set at boot — idempotent
+		// CreateOrUpdate, so every environment converges without a
+		// separate provisioning step (Phase-01 Task 1.3.11).
+		ensCtx, ensCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		if _, serr := nc.EnsureStreams(ensCtx); serr != nil {
+			log.Warn("nats stream ensure failed — publishers may reject until reconciled", "err", serr)
+		}
+		ensCancel()
 	} else {
 		// Fail-operational: journals still commit; a failed BalanceChanged
 		// dispatch surfaces as dispatch_pending on the result + an ops

@@ -122,6 +122,11 @@ deploy/scripts/compose_stage_validate.sh
 # 3. Apply DB migrations (must complete < 60s)
 scripts/ci/apply_migrations.sh
 
+# 3b. Service env: JWT signing key, ClickHouse creds, Redis/NATS addresses
+# (values match the compose stack — copy + source before stage 4)
+cp deploy/dev.env.example deploy/dev.env
+set -a; . deploy/dev.env; set +a
+
 # 4. Stages 1–5: Aeron/shm, matching engine, bridge, oracle, services, gateways
 export REPO=/www/wwwroot/exc.local
 sudo mkdir -p /var/log/exchange/dev
