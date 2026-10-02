@@ -4,9 +4,9 @@
  * log, dual-control queue, and the live instrument-management panel
  * (Task 10.3.5 over the Phase-15 Task 15.3.2 lifecycle API).
  *
- * One honest deferral remains rendered elsewhere (per the fail-closed
- * rule): `/api/v1/admin/ops-board` is a registered stub (Phase-15 Task
- * 15.3.12); the ops feature renders the live health surface instead.
+ * `/api/v1/admin/ops-board` is live (Phase-15 Task 15.3.12 — supersedes
+ * the earlier registered-stub deferral note); the ops feature renders it
+ * plus the live health surface.
  */
 import { apiClient } from '@/app/runtime';
 import { useBoundAdminApi, EnvSwitcher, EnvWatermark, EnvPill } from '@/lib/env';
@@ -19,6 +19,7 @@ import { SupportQueuePanel } from './SupportQueuePanel';
 import { UserLookupPanel } from './UserLookupPanel';
 import { DualControlPanel } from './DualControlPanel';
 import { InstrumentsPanel } from './InstrumentsPanel';
+import { ConsolesPanel } from './ConsolesPanel';
 
 export default function AdminPage() {
   return (
@@ -60,6 +61,9 @@ function AdminDashboard() {
         </div>
         <div className="lg:col-span-2">
           <InstrumentsPanel adminApi={adminApi} api={apiClient} />
+        </div>
+        <div className="lg:col-span-2">
+          <ConsolesPanel adminApi={adminApi} />
         </div>
       </div>
     </div>
