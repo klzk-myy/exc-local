@@ -50,7 +50,7 @@ func chaosLeases(t *testing.T) (*exredis.Client, *OrchRedisLeases) {
 	if addr == "" {
 		t.Skip("set REDIS_URL or EXC_REDIS_TEST_ADDR to run live fencing tests")
 	}
-	client := exredis.New(addr, os.Getenv("EXC_REDIS_TEST_PASSWORD"), 0)
+	client := exredis.New(addr, os.Getenv("EXC_REDIS_TEST_PASSWORD"), 13)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := client.Ping(ctx); err != nil {

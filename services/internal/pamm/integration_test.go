@@ -158,7 +158,7 @@ func itLedger(t *testing.T, ctx context.Context, pool *pgxpool.Pool) *settlement
 		addr = "127.0.0.1:16379"
 	}
 	pass := os.Getenv("EXC_REDIS_TEST_PASSWORD")
-	rdb := excredis.New(addr, pass, 0)
+	rdb := excredis.New(addr, pass, 13)
 	if err := rdb.Ping(ctx); err != nil {
 		t.Skipf("redis unavailable at %s: %v", addr, err)
 	}

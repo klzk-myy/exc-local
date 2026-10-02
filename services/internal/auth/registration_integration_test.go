@@ -50,7 +50,7 @@ func authnRedis(t *testing.T) *excredis.Client {
 	if addr == "" {
 		addr = authnTestRedis
 	}
-	rdb := excredis.New(addr, os.Getenv("EXC_REDIS_TEST_PASSWORD"), 0)
+	rdb := excredis.New(addr, os.Getenv("EXC_REDIS_TEST_PASSWORD"), 13)
 	if err := rdb.Ping(context.Background()); err != nil {
 		t.Skipf("redis unreachable at %s: %v", addr, err)
 	}

@@ -38,7 +38,7 @@ func tabletopRedis(t *testing.T) *excredis.Client {
 	if pass == "" {
 		pass = "redpass"
 	}
-	rdb := excredis.New(addr, pass, 0)
+	rdb := excredis.New(addr, pass, 13)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	if err := rdb.Ping(ctx); err != nil {

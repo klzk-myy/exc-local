@@ -84,7 +84,7 @@ func TestDegradationHeader_LiveRedis(t *testing.T) {
 	if addr == "" {
 		addr = "127.0.0.1:16379"
 	}
-	c := exchredis.New(addr, os.Getenv("EXC_REDIS_TEST_PASSWORD"), 0)
+	c := exchredis.New(addr, os.Getenv("EXC_REDIS_TEST_PASSWORD"), 13)
 	t.Cleanup(func() { _ = c.Close() })
 	ctx := context.Background()
 	if err := c.Ping(ctx); err != nil {
@@ -113,7 +113,7 @@ func TestDegradationHeader_LiveRedis(t *testing.T) {
 
 func TestDegradationHeader_UnreachableLiveAddrIsMaintenance(t *testing.T) {
 	// A client pointed at a dead port fails closed on the first request.
-	c := exchredis.New("127.0.0.1:1", "", 0)
+	c := exchredis.New("127.0.0.1:1", "", 13)
 	t.Cleanup(func() { _ = c.Close() })
 	if got := headerFor(t, c); got != "Maintenance" {
 		t.Fatalf("header = %q, want Maintenance", got)
@@ -269,7 +269,7 @@ func TestDegradationGate_LiveRedisModeRecord(t *testing.T) {
 	if addr == "" {
 		addr = "127.0.0.1:16379"
 	}
-	c := exchredis.New(addr, os.Getenv("EXC_REDIS_TEST_PASSWORD"), 0)
+	c := exchredis.New(addr, os.Getenv("EXC_REDIS_TEST_PASSWORD"), 13)
 	t.Cleanup(func() { _ = c.Close() })
 	ctx := context.Background()
 	if err := c.Ping(ctx); err != nil {

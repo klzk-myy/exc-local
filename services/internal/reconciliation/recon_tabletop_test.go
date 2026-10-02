@@ -183,7 +183,7 @@ func TestTabletopReconMismatch(t *testing.T) {
 	if pass == "" {
 		pass = "redpass"
 	}
-	rdb := excredis.New(addr, pass, 0)
+	rdb := excredis.New(addr, pass, 13)
 	if err := rdb.Ping(ctx); err != nil {
 		t.Skipf("dev redis unavailable at %s: %v", addr, err)
 	}

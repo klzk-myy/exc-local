@@ -48,11 +48,13 @@ func testRedis(t *testing.T) *excredis.Client {
 	if addr == "" {
 		addr = defaultTestRedis
 	}
-	// DB 15, not the gateway's DB 0 — the live notification worker
+	// DB 13, not the gateway's DB 0 — the live notification worker
 	// drains notifications:pending on db 0 and races this test's queue
-	// assertions (observed: pending=0 flake). EXC_REDIS_TEST_DB
-	// overrides for environments where 15 is already claimed.
-	db := 15
+	// assertions (observed: pending=0 flake). 14 belongs to the
+	// risk/oracle suites, 15 to flags (which FlushDBs) — 13 keeps this
+	// queue immune to both workers and sibling flushes.
+	// EXC_REDIS_TEST_DB overrides for environments where 13 is claimed.
+	db := 13
 	if v := os.Getenv("EXC_REDIS_TEST_DB"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			db = n

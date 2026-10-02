@@ -330,7 +330,7 @@ func TestRegisterProvisionsDemoIntegration(t *testing.T) {
 			return a
 		}
 		return "127.0.0.1:16379"
-	}(), os.Getenv("EXC_REDIS_TEST_PASSWORD"), 0)
+	}(), os.Getenv("EXC_REDIS_TEST_PASSWORD"), 13)
 	if err := rdb.Ping(context.Background()); err != nil {
 		t.Skipf("redis unreachable: %v", err)
 	}

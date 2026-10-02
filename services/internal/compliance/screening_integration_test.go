@@ -31,7 +31,7 @@ func screeningRedis(t *testing.T) (*excredis.Client, context.Context) {
 		pass = "redpass"
 	}
 	ctx := context.Background()
-	rdb := excredis.New(addr, pass, 0)
+	rdb := excredis.New(addr, pass, 13)
 	if err := rdb.Ping(ctx); err != nil {
 		t.Skipf("redis coordination instance unreachable at %s: %v", addr, err)
 	}

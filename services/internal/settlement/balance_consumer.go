@@ -205,6 +205,10 @@ type ConsumerMetrics struct {
 	RepubDropped uint64
 }
 
+// ShardID reports the shard this consumer drains — used for the
+// per-shard metric labels.
+func (c *FillConsumer) ShardID() int64 { return c.shardID }
+
 // Metrics snapshots the counters.
 func (c *FillConsumer) Metrics() ConsumerMetrics {
 	return ConsumerMetrics{

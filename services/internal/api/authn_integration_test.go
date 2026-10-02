@@ -75,7 +75,7 @@ func newAuthnRig(t *testing.T) *authnRig {
 	if addr == "" {
 		addr = "127.0.0.1:16379"
 	}
-	rdb := excredis.New(addr, os.Getenv("EXC_REDIS_TEST_PASSWORD"), 0)
+	rdb := excredis.New(addr, os.Getenv("EXC_REDIS_TEST_PASSWORD"), 13)
 	if err := rdb.Ping(context.Background()); err != nil {
 		t.Skipf("redis unreachable: %v", err)
 	}

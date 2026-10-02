@@ -303,7 +303,7 @@ func itLedger(t *testing.T, ctx context.Context, pool *pgxpool.Pool) *settlement
 	if pass == "" {
 		pass = "redpass"
 	}
-	rdb := excredis.New(addr, pass, 0)
+	rdb := excredis.New(addr, pass, 13)
 	if err := rdb.Ping(ctx); err != nil {
 		t.Skipf("redis unavailable at %s: %v", addr, err)
 	}

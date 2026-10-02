@@ -777,7 +777,7 @@ func redisGate(t *testing.T) (*excredis.Client, context.Context) {
 	if addr == "" {
 		addr = "127.0.0.1:16379"
 	}
-	c := excredis.New(addr, os.Getenv("EXC_REDIS_TEST_PASSWORD"), 0)
+	c := excredis.New(addr, os.Getenv("EXC_REDIS_TEST_PASSWORD"), 13)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	t.Cleanup(cancel)
 	if err := c.Ping(ctx); err != nil {

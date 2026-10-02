@@ -24,7 +24,7 @@ func testRedisClient(t *testing.T) *exchredis.Client {
 	if addr == "" {
 		addr = "127.0.0.1:16379"
 	}
-	c := exchredis.New(addr, os.Getenv("EXC_REDIS_TEST_PASSWORD"), 0)
+	c := exchredis.New(addr, os.Getenv("EXC_REDIS_TEST_PASSWORD"), 13)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := c.Ping(ctx); err != nil {

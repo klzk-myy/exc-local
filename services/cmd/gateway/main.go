@@ -2173,6 +2173,7 @@ func run() error {
 		return fmt.Errorf("balance service: %w", err)
 	}
 	settleQueues := make(map[uint16]chan []byte)
+	var fillConsumers []*settlement.FillConsumer
 	for _, sh := range shardIDs(shardMap) {
 		q := make(chan []byte, 1<<14)
 		settleQueues[sh] = q
@@ -2201,7 +2202,12 @@ func run() error {
 		if natsClient != nil {
 			fc.WithRepublisher(jetstreamFillPublisher{js: natsClient.JetStream()}).
 				WithLogger(func(f string, a ...any) { log.Error(fmt.Sprintf("settlement: "+f, a...)) })
+		} else {
+			log.Warn("nats unavailable — fill republish disabled; "+
+				"trades/settlements JetStream streams will starve until restart",
+				"shard", sh)
 		}
+		fillConsumers = append(fillConsumers, fc)
 		go func() {
 			// Fail-closed halt + restart-with-backoff: the queue survives
 			// a consumer instance (undelivered frames are re-pumped), so
@@ -2225,6 +2231,28 @@ func run() error {
 			}
 		}()
 	}
+	// Per-shard consumer counters → /metrics. RepubDropped is the
+	// dead-letter signal: a nonzero value means committed fills could
+	// not be re-emitted to JetStream (deterministic subject failure)
+	// and ops must reconcile that shard's stream.
+	metReg.VecFunc("settlement_fill_consumer",
+		"Fill consumer counters per shard (malformed, republished, repub_dropped).",
+		"counter", func() []observability.PullSample {
+			var out []observability.PullSample
+			for _, c := range fillConsumers {
+				m := c.Metrics()
+				sh := strconv.FormatInt(c.ShardID(), 10)
+				for name, v := range map[string]float64{
+					"malformed":     float64(m.Malformed),
+					"republished":   float64(m.Republished),
+					"repub_dropped": float64(m.RepubDropped),
+				} {
+					out = append(out, observability.PullSample{
+						Labels: []string{"shard", sh, "counter", name}, Value: v})
+				}
+			}
+			return out
+		})
 
 	// Engine out-ring consumer: cancel echoes + trade fills update the PG
 	// read model; without it pending confirms only time out. The fill
