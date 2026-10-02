@@ -36,6 +36,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -956,4 +957,140 @@ func GenerateRevalidationReport(ctx context.Context, store ModelRunStore,
 		rep.WorstDrawdown = "0"
 	}
 	return rep, nil
+}
+
+// ---------------------------------------------------------------------------
+// Basel coverage tests — Kupiec POF + Christoffersen (Task 19.3.13 §4)
+// ---------------------------------------------------------------------------
+
+// BaselExpectedBreachProb is the model's designed exceedance rate —
+// the daily liquidation-floor backtest is framed on the Basel 99%
+// convention (≤BaselGreenMaxBreaches over BacktestWindowDays = green).
+const BaselExpectedBreachProb = 0.01
+
+// CoverageTestResult is the statistical verdict stamped onto each
+// BACKTEST run's result_metrics. LR statistics are likelihood-ratio
+// χ²; p-values are upper-tail. Kupiec POF runs over the event count
+// (breaches / events evaluated); Christoffersen independence runs over
+// ordered per-day breach flags — the temporal unit of the register.
+type CoverageTestResult struct {
+	Observations        int     `json:"observations"` // events evaluated (POF n)
+	Breaches            int     `json:"breaches"`     // event breaches (POF x)
+	BreachDays          int     `json:"breach_days"`  // days with ≥1 breach (independence)
+	Days                int     `json:"days"`         // register days in window
+	ExpectedProb        float64 `json:"expected_prob"`
+	KupiecLR            float64 `json:"kupiec_pof_lr"` // χ²₁ — frequency
+	KupiecPValue        float64 `json:"kupiec_pof_p_value"`
+	IndependenceLR      float64 `json:"independence_lr"` // χ²₁ — Christoffersen
+	IndependencePValue  float64 `json:"independence_p_value"`
+	UnconditionalLR     float64 `json:"unconditional_lr"` // χ²₂ = POF + independence
+	UnconditionalPValue float64 `json:"unconditional_p_value"`
+	Rejected95          bool    `json:"rejected_95"` // model fails at 95% confidence
+}
+
+// chi2sf1 is the χ²₁ survival function — exact via Erfc.
+func chi2sf1(x float64) float64 { return math.Erfc(math.Sqrt(x / 2)) }
+
+// chi2sf2 is the χ²₂ survival function — exact.
+func chi2sf2(x float64) float64 { return math.Exp(-x / 2) }
+
+// KupiecPOF — proportion-of-failures LR test (Kupiec 1995): H0 that the
+// observed breach frequency equals expected. LR = -2 ln[(1-p)^(n-x)
+// p^x / ((1-x̂)^(n-x) x̂^x)], x̂ = x/n — χ²₁ under H0.
+func KupiecPOF(observations, breaches int, expected float64) (lr, pValue float64) {
+	if observations <= 0 {
+		return 0, 1
+	}
+	if expected <= 0 || expected >= 1 {
+		return 0, 1 // degenerate expectation — untestable
+	}
+	n := float64(observations)
+	x := float64(breaches)
+	phat := x / n
+	// LR = -2·ln[ (1-p)^(n-x) p^x / ((1-x̂)^(n-x) x̂^x) ] — fnlnp guards
+	// the x̂∈{0,1} edges (all-clean / all-breach sequences).
+	lr = -2 * (fnlnp(n-x, 1-expected) + fnlnp(x, expected) -
+		fnlnp(n-x, 1-phat) - fnlnp(x, phat))
+	lr = math.Max(lr, 0)
+	return lr, chi2sf1(lr)
+}
+
+// fnlnp is n·ln(p) over floats — same 0·ln(0) convention as nlnp.
+func fnlnp(n, p float64) float64 {
+	if n <= 0 {
+		return 0
+	}
+	if p <= 0 {
+		return math.Inf(-1)
+	}
+	return n * math.Log(p)
+}
+
+// ChristoffersenIndependence — Christoffersen (1998) independence LR
+// test: H0 that breaches arrive independently (no clustering). Built
+// on the transition counts of the ordered per-day breach flags.
+func ChristoffersenIndependence(breached []bool) (lr, pValue float64) {
+	var n00, n01, n10, n11 int
+	for i := 1; i < len(breached); i++ {
+		switch {
+		case !breached[i-1] && !breached[i]:
+			n00++
+		case !breached[i-1] && breached[i]:
+			n01++
+		case breached[i-1] && !breached[i]:
+			n10++
+		default:
+			n11++
+		}
+	}
+	n0, n1 := n00+n01, n10+n11
+	if n0 == 0 || n1 == 0 {
+		return 0, 1 // no state variety — independence untestable
+	}
+	p0 := float64(n01) / float64(n0)
+	p1 := float64(n11) / float64(n1)
+	p := float64(n01+n11) / float64(n0+n1)
+	// LR_ind = -2 ln[ (1-p)^(n00+n10) p^(n01+n11) /
+	//   ((1-p0)^n00 p0^n01 (1-p1)^n10 p1^n11) ].
+	// p0/p1 == 1 implies n00/n10 == 0 respectively — the nlnp guard
+	// keeps 0·ln(0) out of the expansion.
+	lr = -2 * (nlnp(n00+n10, 1-p) + nlnp(n01+n11, p) -
+		nlnp(n00, 1-p0) - nlnp(n01, p0) -
+		nlnp(n10, 1-p1) - nlnp(n11, p1))
+	lr = math.Max(lr, 0)
+	return lr, chi2sf1(lr)
+}
+
+// nlnp is n·ln(p) with the 0·ln(0) → 0 convention; n>0 at p≤0 is
+// legitimately −∞ (data impossible under the model → reject).
+func nlnp(n int, p float64) float64 {
+	if n == 0 {
+		return 0
+	}
+	if p <= 0 {
+		return math.Inf(-1)
+	}
+	return float64(n) * math.Log(p)
+}
+
+// EvaluateCoverage computes the three tests: POF over (observations,
+// breaches) event totals, Christoffersen independence over the ordered
+// per-day breach flags (oldest → newest).
+func EvaluateCoverage(observations, breaches int, breachDays []bool,
+	expected float64) CoverageTestResult {
+	r := CoverageTestResult{
+		Observations: observations, Breaches: breaches,
+		Days: len(breachDays), ExpectedProb: expected,
+	}
+	for _, b := range breachDays {
+		if b {
+			r.BreachDays++
+		}
+	}
+	r.KupiecLR, r.KupiecPValue = KupiecPOF(observations, breaches, expected)
+	r.IndependenceLR, r.IndependencePValue = ChristoffersenIndependence(breachDays)
+	r.UnconditionalLR = r.KupiecLR + r.IndependenceLR
+	r.UnconditionalPValue = chi2sf2(r.UnconditionalLR)
+	r.Rejected95 = r.UnconditionalPValue < 0.05
+	return r
 }

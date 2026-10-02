@@ -318,6 +318,19 @@ func (f *fakeCreditStore) EdgesForGrantor(_ context.Context, grantor int64) ([]C
 	}
 	return out, nil
 }
+func (f *fakeCreditStore) EdgesForGrantee(_ context.Context, grantee int64,
+	pool string) ([]CreditRelationship, error) {
+	var out []CreditRelationship
+	for _, r := range f.edges {
+		if r.GranteeAccountID != grantee {
+			continue
+		}
+		if pool == "" || r.ProductPool == CreditPoolAll || r.ProductPool == pool {
+			out = append(out, r)
+		}
+	}
+	return out, nil
+}
 func (f *fakeCreditStore) AllEdges(_ context.Context) ([]CreditRelationship, error) {
 	out := make([]CreditRelationship, 0, len(f.edges))
 	for _, r := range f.edges {
@@ -1281,4 +1294,59 @@ func TestPgBilateralCreditServiceEndToEnd(t *testing.T) {
 	if err := svc.ConsumeMatchFill(ctx, 95001, 95002, "USD", decimal.NewFromInt(600)); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// --- Phase-3 Task 5 — AdmitOrder (the orders-pipeline admission consult) ---
+
+func TestAdmitOrderUnscreenedSkips(t *testing.T) {
+	fs := newFakeCreditStore()
+	svc := bcSvc(t, fs, nil, nil)
+	// Account 7 has no party index → anonymous flow → admit.
+	if err := svc.AdmitOrder(context.Background(), 7,
+		"SPOT", "USD", *dec("1000000")); err != nil {
+		t.Fatalf("unscreened admit: %v", err)
+	}
+}
+
+func TestAdmitOrderMutualHeadroom(t *testing.T) {
+	fs := newFakeCreditStore()
+	zero := decimal.Zero
+	// 1↔2 mutual edges, both with headroom.
+	fs.addEdge(bcRel(0, 1, 2, CreditPoolAll, dec("5000"), nil, zero, zero))
+	fs.addEdge(bcRel(0, 2, 1, CreditPoolAll, dec("5000"), nil, zero, zero))
+	if _, err := fs.EnsurePartyIndex(context.Background(), 1); err != nil {
+		t.Fatal(err)
+	}
+	svc := bcSvc(t, fs, nil, nil)
+	if err := svc.AdmitOrder(context.Background(), 1,
+		"SPOT", "USD", *dec("1000")); err != nil {
+		t.Fatalf("admit with mutual headroom: %v", err)
+	}
+}
+
+func TestAdmitOrderNoHeadroomRejects(t *testing.T) {
+	fs := newFakeCreditStore()
+	zero := decimal.Zero
+	// 1→2 edge exists but no 2→1 — the mutual screen must fail.
+	fs.addEdge(bcRel(0, 1, 2, CreditPoolAll, dec("5000"), nil, zero, zero))
+	if _, err := fs.EnsurePartyIndex(context.Background(), 1); err != nil {
+		t.Fatal(err)
+	}
+	svc := bcSvc(t, fs, nil, nil)
+	err := svc.AdmitOrder(context.Background(), 1,
+		"SPOT", "USD", *dec("1000"))
+	requireCode(t, err, CodeBilateralCreditExceeded)
+}
+
+func TestAdmitOrderOversizedRejects(t *testing.T) {
+	fs := newFakeCreditStore()
+	zero := decimal.Zero
+	fs.addEdge(bcRel(0, 1, 2, CreditPoolAll, dec("500"), nil, zero, zero))
+	fs.addEdge(bcRel(0, 2, 1, CreditPoolAll, dec("500"), nil, zero, zero))
+	if _, err := fs.EnsurePartyIndex(context.Background(), 1); err != nil {
+		t.Fatal(err)
+	}
+	svc := bcSvc(t, fs, nil, nil)
+	requireCode(t, svc.AdmitOrder(context.Background(), 1,
+		"SPOT", "USD", *dec("9999")), CodeBilateralCreditExceeded)
 }

@@ -12,6 +12,7 @@ import (
 	"os"
 	"sync"
 	"testing"
+	"time"
 
 	excredis "exchange/internal/redis"
 	"exchange/pkg/decimal"
@@ -340,5 +341,41 @@ func TestRedisCorrelationMatrix(t *testing.T) {
 	}
 	if f, _ := cold.OffsetFactor("EURUSD", "GBPUSD"); f != 0.6 {
 		t.Fatalf("cold factor = %v, want 0.6", f)
+	}
+}
+
+// Phase-3 Task 5 — staleness gate: a matrix past MaxAge must refuse
+// offsets/factors entirely — a stale ρ cannot fabricate hedge credit.
+func TestCorrelationStalenessGate(t *testing.T) {
+	now := time.Now().UTC()
+	m := NewCorrelationMatrix(CorrelationMatrixDeps{
+		Source: retSeriesFake{series: map[string][]float64{
+			"EURUSD": seriesA, "GBPUSD": seriesB,
+		}},
+		MaxAge: 48 * time.Hour,
+		Now:    func() time.Time { return now },
+	})
+	if err := m.Refresh(context.Background(),
+		[]string{"EUR/USD", "GBP/USD"}); err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	if _, ok := m.Offset("EUR/USD", "GBP/USD"); !ok {
+		t.Fatal("fresh matrix must serve offsets")
+	}
+	now = now.Add(72 * time.Hour)
+	if _, ok := m.Offset("EUR/USD", "GBP/USD"); ok {
+		t.Fatal("stale matrix must refuse offsets")
+	}
+	if _, ok := m.OffsetFactor("EUR/USD", "GBP/USD"); ok {
+		t.Fatal("stale matrix must refuse factor overrides")
+	}
+	// A refresh past the gate re-opens serving.
+	now = now.Add(time.Hour)
+	if err := m.Refresh(context.Background(),
+		[]string{"EUR/USD", "GBP/USD"}); err != nil {
+		t.Fatalf("re-refresh: %v", err)
+	}
+	if _, ok := m.Offset("EUR/USD", "GBP/USD"); !ok {
+		t.Fatal("refreshed matrix must serve again")
 	}
 }

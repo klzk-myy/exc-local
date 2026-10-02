@@ -450,6 +450,12 @@ type CreditStore interface {
 	DirectedEdges(ctx context.Context, grantorAccountID, granteeAccountID int64,
 		pool string) ([]CreditRelationship, error)
 	EdgesForGrantor(ctx context.Context, grantorAccountID int64) ([]CreditRelationship, error)
+	// EdgesForGrantee lists every row granting credit TO the account
+	// (any grantor). pool=="" returns all rows; otherwise only rows
+	// applicable to the pool (ALL or the named pool). Admission-side
+	// query — the any-counterparty pre-screen's inbound half.
+	EdgesForGrantee(ctx context.Context, granteeAccountID int64,
+		pool string) ([]CreditRelationship, error)
 	// AllEdges returns every relationship row (any status) joined with
 	// its group — the snapshot/reconcile source.
 	AllEdges(ctx context.Context) ([]CreditRelationship, error)
@@ -699,6 +705,29 @@ func (s *PgBilateralCreditStore) EdgesForGrantor(ctx context.Context,
 		SELECT `+creditRelCols+` FROM credit_relationships r
 		JOIN credit_groups g ON g.id = r.grantor_group_id
 		WHERE g.grantor_account_id=$1 ORDER BY r.id`, grantorAccountID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []CreditRelationship
+	for rows.Next() {
+		r, err := scanCreditRelationship(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+func (s *PgBilateralCreditStore) EdgesForGrantee(ctx context.Context,
+	granteeAccountID int64, pool string) ([]CreditRelationship, error) {
+	rows, err := s.P.Query(ctx, `
+		SELECT `+creditRelCols+` FROM credit_relationships r
+		JOIN credit_groups g ON g.id = r.grantor_group_id
+		WHERE r.grantee_account_id=$1
+		  AND ($2='' OR r.product_pool='ALL' OR r.product_pool=$2)
+		ORDER BY r.id`, granteeAccountID, pool)
 	if err != nil {
 		return nil, err
 	}
@@ -1581,6 +1610,58 @@ func (s *BilateralCreditService) CheckMatch(ctx context.Context,
 		}
 	}
 	return s.probeDivergence(ctx, m.MakerAccountID, m.TakerAccountID, now)
+}
+
+// AdmitOrder is the orders-pipeline admission consult (Phase-3 Task 5 —
+// the Go-side counterpart of the engine's §3.3b any-counterparty screen,
+// run with correct quote→USD conversion that the engine lacks). A
+// credit-screened account (party index exists) is rejected when NO
+// counterparty pair of directed edges both hold >= notional headroom;
+// unscreened accounts and zero-edge matrices admit (anonymous flow).
+// Errors are fail-closed; a breach maps to BILATERAL_CREDIT_EXCEEDED.
+func (s *BilateralCreditService) AdmitOrder(ctx context.Context,
+	accountID int64, instrumentType, quoteCcy string,
+	notional decimal.Decimal) error {
+	if s.store == nil {
+		return excerrors.New(CodeRiskLimitsInternal, "bilateral credit store not configured")
+	}
+	if _, err := s.store.PartyIndex(ctx, accountID); err != nil {
+		return nil // no party index → not credit-screened → skip
+	}
+	pool, err := CreditPoolForInstrumentType(instrumentType)
+	if err != nil {
+		return excerrors.Wrap(CodeRiskLimitsInternal, "bilateral credit pool", err)
+	}
+	usd, err := s.toUSD(ctx, notional, quoteCcy)
+	if err != nil {
+		return err
+	}
+	now := s.now()
+	inEdges, err := s.store.EdgesForGrantee(ctx, accountID, pool)
+	if err != nil {
+		return excerrors.Wrap(CodeRiskLimitsInternal, "bilateral credit edges", err)
+	}
+	for _, in := range inEdges {
+		if !in.HeadroomOK(now, usd) {
+			continue
+		}
+		// Mutual = the account's own grant toward that counterparty
+		// must also hold — same contract as can_match(m, taker, n).
+		out, err := s.store.DirectedEdges(ctx, accountID,
+			in.GrantorAccountID, pool)
+		if err != nil {
+			return excerrors.Wrap(CodeRiskLimitsInternal,
+				"bilateral credit edges", err)
+		}
+		for _, o := range out {
+			if o.HeadroomOK(now, usd) {
+				return nil
+			}
+		}
+	}
+	return excerrors.New(CodeBilateralCreditExceeded, fmt.Sprintf(
+		"account %d has no bilateral counterparty with %s USD mutual headroom",
+		accountID, usd.String()))
 }
 
 // probeDivergence compares published matrix cells against PG remaining —

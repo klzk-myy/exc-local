@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -97,6 +98,8 @@ func (f *fakeRunStore) ListRuns(_ context.Context, kind string, since time.Time)
 			out = append(out, *r)
 		}
 	}
+	// Match the PgModelRunStore contract — oldest first.
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
 	return out, nil
 }
 

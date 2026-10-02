@@ -853,7 +853,10 @@ type BacktestResult struct {
 	UnmarkedEvents   int       `json:"unmarked_events"`
 	MaxSlippageBps   string    `json:"max_slippage_bps"`
 	Rolling250dCount int       `json:"rolling_250d_breach_count"`
-	RunID            int64     `json:"run_id,omitempty"`
+	// Coverage is the Kupiec/Christoffersen verdict over the rolling
+	// window's per-day breach flags (nil until ≥1 prior run exists).
+	Coverage *CoverageTestResult `json:"coverage,omitempty"`
+	RunID    int64               `json:"run_id,omitempty"`
 }
 
 // Backtester runs the daily comparison + rolling Basel count.
@@ -921,6 +924,15 @@ func (b *Backtester) RunDailyBacktest(ctx context.Context, day time.Time) (*Back
 	}
 	res.MaxSlippageBps = maxSlip.Round(2).String()
 
+	// Basel coverage tests over the window's ordered breach flags —
+	// persisted in result_metrics so reviewers see the statistical
+	// verdict, not just the raw count. Today's flag is appended to the
+	// register's history before the row lands.
+	if cov, covErr := b.windowCoverage(ctx, *res); covErr == nil &&
+		cov.Observations > 0 {
+		res.Coverage = &cov
+	}
+
 	status := RunStatusPass
 	if res.Breaches > 0 {
 		status = RunStatusFail
@@ -947,6 +959,15 @@ func (b *Backtester) RunDailyBacktest(ctx context.Context, day time.Time) (*Back
 	}
 	res.Rolling250dCount = rolling
 
+	if res.Coverage != nil && res.Coverage.Rejected95 {
+		b.raise(ctx, codeMarginModelAdequacy, fmt.Sprintf(
+			"margin backtest coverage test rejects the model at 95%% over %d days (Kupiec p=%.4f, independence p=%.4f) — model review required",
+			res.Coverage.Observations, res.Coverage.KupiecPValue,
+			res.Coverage.IndependencePValue),
+			map[string]string{"run_id": fmt.Sprint(runID),
+				"observations": fmt.Sprint(res.Coverage.Observations)})
+	}
+
 	if res.Breaches > 0 {
 		b.raise(ctx, codeBacktestBreach, fmt.Sprintf(
 			"margin backtest %s: %d/%d liquidation fills breached predicted floors (max slippage %s bps)",
@@ -961,6 +982,40 @@ func (b *Backtester) RunDailyBacktest(ctx context.Context, day time.Time) (*Back
 			map[string]string{"rolling_breaches": fmt.Sprint(rolling)})
 	}
 	return res, nil
+}
+
+// windowCoverage reconstructs the rolling window's event totals and
+// ordered per-day breach flags from the register, then evaluates
+// Kupiec POF (events) + Christoffersen independence (days). today
+// carries the in-flight day's flag + counts (its row isn't persisted
+// yet when RunDailyBacktest computes this).
+func (b *Backtester) windowCoverage(ctx context.Context, today BacktestResult) (CoverageTestResult, error) {
+	runs, err := b.store.ListRuns(ctx, RunKindBacktest,
+		b.now().Add(-BacktestWindowDays*24*time.Hour))
+	if err != nil {
+		return CoverageTestResult{}, err
+	}
+	flags := make([]bool, 0, len(runs)+1)
+	events, breaches := today.EventsEvaluated, today.Breaches
+	for _, r := range runs {
+		flags = append(flags, r.BreachCount > 0)
+		breaches += r.BreachCount
+		// events_evaluated lives in the persisted metrics blob.
+		var m struct {
+			EventsEvaluated int `json:"events_evaluated"`
+		}
+		if len(r.ResultMetrics) > 0 &&
+			json.Unmarshal(r.ResultMetrics, &m) == nil {
+			events += m.EventsEvaluated
+		}
+		// A breach implies ≥1 evaluated event even when the metrics
+		// blob predates the events_evaluated field.
+		if r.BreachCount > m.EventsEvaluated {
+			events += r.BreachCount - m.EventsEvaluated
+		}
+	}
+	flags = append(flags, today.Breaches > 0)
+	return EvaluateCoverage(events, breaches, flags, BaselExpectedBreachProb), nil
 }
 
 // RunDue replays every uncovered day from the day after the latest

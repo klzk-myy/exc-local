@@ -187,6 +187,8 @@ type CorrelationMatrix struct {
 
 	defaultFactor float64
 
+	maxAge time.Duration // 0 ⇒ no staleness gate (opt-out)
+
 	mu         sync.RWMutex
 	corr       map[string]float64 // "A|B" canonical → ρ
 	factors    map[string]float64 // "A|B" canonical → offset factor
@@ -212,15 +214,19 @@ type CorrelationMatrixDeps struct {
 	// Factors seeds per-pair offset-factor overrides (canonical or
 	// display-form keys accepted, clamped to (0, 0.8]).
 	Factors map[string]float64
-	Now     func() time.Time
-	Logf    func(format string, args ...any)
+	// MaxAge is the Phase-3 Task 5 staleness gate: Offset/OffsetFactor
+	// refuse a matrix older than this (computedAt==0 counts as stale) —
+	// a stale ρ must never fabricate a hedge credit. 0 disables.
+	MaxAge time.Duration
+	Now    func() time.Time
+	Logf   func(format string, args ...any)
 }
 
 // NewCorrelationMatrix builds the matrix.
 func NewCorrelationMatrix(d CorrelationMatrixDeps) *CorrelationMatrix {
 	m := &CorrelationMatrix{
 		src: d.Source, rdb: d.Redis, audit: d.Audit, now: d.Now, logf: d.Logf,
-		days: corrLookbackDays, defaultFactor: 0.5,
+		days: corrLookbackDays, defaultFactor: 0.5, maxAge: d.MaxAge,
 		corr: map[string]float64{}, factors: map[string]float64{},
 		audited: map[string]time.Time{},
 	}
@@ -401,8 +407,8 @@ func (m *CorrelationMatrix) Offset(a, b string) (float64, bool) {
 	epoch := m.computedAt
 	_, audited := m.audited[key]
 	m.mu.RUnlock()
-	if !ok {
-		return 0, false
+	if !ok || m.staleLocked(epoch) {
+		return 0, false // stale matrix ⇒ no offset credit
 	}
 	if !audited && m.audit != nil {
 		m.mu.Lock()
@@ -434,11 +440,25 @@ func (m *CorrelationMatrix) OffsetFactor(a, b string) (float64, bool) {
 	m.mu.RLock()
 	f, ok := m.factors[an+"|"+bn]
 	def := m.defaultFactor
+	epoch := m.computedAt
 	m.mu.RUnlock()
+	if m.staleLocked(epoch) {
+		return 0, false // stale matrix ⇒ default factor, no per-pair credit
+	}
 	if !ok || f <= 0 {
 		return def, true
 	}
 	return clampFactor(f), true
+}
+
+// staleLocked reports whether the serving matrix has aged past MaxAge.
+// A zero watermark on a non-empty matrix is stale by construction — the
+// persisted epoch is the only acceptable freshness proof.
+func (m *CorrelationMatrix) staleLocked(epoch time.Time) bool {
+	if m.maxAge <= 0 {
+		return false
+	}
+	return epoch.IsZero() || m.now().Sub(epoch) > m.maxAge
 }
 
 // SetFactor installs a per-pair offset-factor override (Risk Manager
