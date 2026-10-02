@@ -78,12 +78,11 @@
 // layout with its own magic so one Aeron stream pair can carry both
 // protocols.
 //
-// WAL: WalEntry.hpp is owned by Tasks 1.3.6/2.3.2 and is NOT extended here.
-// This header defines the payload structs and RESERVES event-type values
-// 8–11; casts at the append/read sites are internal. INTEGRATOR NOTE: append
-// `BASKET_BEGIN = 8, BASKET_RESERVE = 9, BASKET_COMMIT = 10,
-//  BASKET_RELEASE = 11` to WalEventType in WalEntry.hpp when wiring the
-// engine (values are the on-disk contract and are fixed here).
+// WAL: WalEntry.hpp owns the on-disk contract. This header defines the
+// payload structs; the BASKET_* enumerators were appended at the
+// WalEventType tail (values 14–17 — the original 8–11 placeholders were
+// consumed by later engine events before wiring landed; the kWalEvtBasket*
+// aliases below bind the real values).
 
 #include <cstddef>
 #include <cstdint>
@@ -250,12 +249,20 @@ enum class BasketCtlDecode : uint8_t {
 [[nodiscard]] BasketCtlDecode basket_ctl_decode(const void* buf, uint32_t len,
                                                 BasketCtlView* out) noexcept;
 
-// --- WAL payloads (reserved WalEventType values 8..11 — see header note) -----
-
-inline constexpr uint8_t kWalEvtBasketBegin   = 8;   // coordinator op intent
-inline constexpr uint8_t kWalEvtBasketReserve = 9;   // committed leg lock
-inline constexpr uint8_t kWalEvtBasketLegDone = 10;  // leg commit/release applied
-inline constexpr uint8_t kWalEvtBasketOutcome = 11;  // terminal op result
+// --- WAL payloads ------------------------------------------------------------
+// The original "reserved values 8..11" note predated PREVENTED_MATCH /
+// OCO_LINK / AUCTION_PHASE / ORDER_NEW_EX landing in those slots — the
+// on-disk append order won. The real values are appended at the
+// WalEventType tail (14..17); these aliases keep call sites symbolic.
+// (IMP-PLAN Phase-3 Task 4 — the constants were never on disk unwired.)
+inline constexpr uint8_t kWalEvtBasketBegin =
+    static_cast<uint8_t>(WalEventType::BASKET_BEGIN);      // coordinator op intent
+inline constexpr uint8_t kWalEvtBasketReserve =
+    static_cast<uint8_t>(WalEventType::BASKET_RESERVE);    // committed leg lock
+inline constexpr uint8_t kWalEvtBasketLegDone =
+    static_cast<uint8_t>(WalEventType::BASKET_LEG_DONE);   // leg commit/release
+inline constexpr uint8_t kWalEvtBasketOutcome =
+    static_cast<uint8_t>(WalEventType::BASKET_OUTCOME);    // terminal op result
 
 #pragma pack(push, 1)
 // Logged when a basket is admitted to the protocol — uncommitted intent:

@@ -82,6 +82,12 @@ inline constexpr uint8_t kWalCancelReasonOcoLink     = 7;
 // AUCTION_CANCELLED (spec §6.2b, §23).
 inline constexpr uint8_t kWalCancelReasonAuctionCancelled = 8;
 
+// 9 = bilateral-credit-exhausted: journaled when a credit-screened taker's
+// remainder dies because every resting order on the opposite side failed
+// consume_or_skip (spec §3.3b / §24 #403) — the wire rejection surfaces as
+// BILATERAL_CREDIT_EXHAUSTED (HTTP 409, spec §23).
+inline constexpr uint8_t kWalCancelReasonBilateralCredit = 9;
+
 // Internal OrderType markers for WalOrderNewPayload.type — the
 // wire::OrderType enum tops out at StopLimit=3.
 inline constexpr uint8_t kWalOrderTypeIceberg      = 4;

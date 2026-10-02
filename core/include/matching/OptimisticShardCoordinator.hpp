@@ -176,13 +176,19 @@ enum class OptCtlDecode : uint8_t {
 [[nodiscard]] OptCtlDecode opt_ctl_decode(const void* buf, uint32_t len,
                                           OptCtlView* out) noexcept;
 
-// --- WAL payloads (reserved WalEventType values 12..15 — see header note) ----
-
-inline constexpr uint8_t kWalEvtOptBegin   = 12;  // coordinator op intent
-inline constexpr uint8_t kWalEvtOptFill    = 13;  // participant-side fill
-inline constexpr uint8_t kWalEvtOptUnwind  = 14;  // participant-side unwind
-inline constexpr uint8_t kWalEvtOptOutcome = 15;  // coordinator terminal +
-                                                  // GL-posting summary
+// --- WAL payloads ------------------------------------------------------------
+// Same append-order correction as CrossShardCoordinator.hpp: the "reserved
+// 12..15" slots were taken by ORDER_TRIGGERED/PEG_REPRICE before wiring
+// landed; the real values are the WalEventType tail (18..21) and these
+// aliases keep call sites symbolic. (IMP-PLAN Phase-3 Task 4.)
+inline constexpr uint8_t kWalEvtOptBegin =
+    static_cast<uint8_t>(WalEventType::OPT_BEGIN);      // coordinator op intent
+inline constexpr uint8_t kWalEvtOptFill =
+    static_cast<uint8_t>(WalEventType::OPT_FILL);       // participant fill
+inline constexpr uint8_t kWalEvtOptUnwind =
+    static_cast<uint8_t>(WalEventType::OPT_UNWIND);     // participant unwind
+inline constexpr uint8_t kWalEvtOptOutcome =
+    static_cast<uint8_t>(WalEventType::OPT_OUTCOME);    // terminal + GL summary
 
 #pragma pack(push, 1)
 struct WalOptBeginPayload {

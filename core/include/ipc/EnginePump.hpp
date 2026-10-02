@@ -62,6 +62,12 @@ namespace exch {
 
 class IpcChannel;
 class SharedMemChannel;
+class CtlDemux;
+class CrossShardCoordinator;
+class OptimisticShardCoordinator;
+class CrossShardMarginCoordinator;
+class IpcPublisher;
+struct BasketOpId;
 class Wal;
 class MatchingEngine;
 
@@ -90,6 +96,30 @@ class IEngineIngress {
                                    uint64_t ingress_seq) noexcept {
         (void)order_id; (void)price_ticks; (void)qty_units;
         (void)stop_price_ticks; (void)ingress_seq;
+    }
+    // Full OrderAmend surface (IMP-PLAN Phase-3 Task 2): the 5-arg form
+    // silently dropped the wire's order_seq stale-fence, gtd_expiry_ns
+    // re-arm, display_qty re-slice and trigger_source gate. AmendWire
+    // carries the field superset; <=0 numeric fields and trigger_source
+    // 0xFF mean "unchanged". order_seq == 0 marks an unsequenced sender —
+    // the envelope seq stands in as the fence (replay feeds winners
+    // unfenced regardless). The default degrades to the 5-arg form so
+    // test fakes keep compiling.
+    struct AmendWire {
+        uint64_t order_seq         = 0;     // expected engine seq (§6.9 #1 fence)
+        int64_t  price_ticks       = 0;
+        int64_t  qty_units         = 0;
+        int64_t  stop_price_ticks  = 0;
+        int64_t  display_qty_units = 0;     // ICEBERG visible slice
+        int64_t  gtd_expiry_ns     = 0;     // >0 re-arms the GTD/DAY timer
+        uint8_t  trigger_source    = 0xFF;  // kTriggerSource*; 0xFF = unchanged
+    };
+    virtual void on_amend_received_ex(uint64_t order_id,
+                                      const AmendWire& req,
+                                      uint64_t ingress_seq) noexcept {
+        on_amend_received(order_id, req.price_ticks, req.qty_units,
+                          req.stop_price_ticks,
+                          req.order_seq != 0 ? req.order_seq : ingress_seq);
     }
     // OCO pair linkage command (Phase-14 Task 14.3.1, spec §6.2/§6.5 —
     // wire OcoLink, union member 7). Sequenced BEFORE both legs' OrderNew
@@ -121,6 +151,8 @@ class MatchingEngineIngress final : public IEngineIngress {
     void on_amend_received(uint64_t order_id, int64_t price_ticks,
                            int64_t qty_units, int64_t stop_price_ticks,
                            uint64_t ingress_seq) noexcept override;
+    void on_amend_received_ex(uint64_t order_id, const AmendWire& req,
+                              uint64_t ingress_seq) noexcept override;
     void on_oco_link_received(uint64_t link_id, uint64_t order_id_a,
                               uint64_t order_id_b, uint64_t account_id,
                               uint32_t instrument_id) noexcept override;
@@ -191,6 +223,8 @@ class CurveIngress final : public IEngineIngress {
     void on_amend_received(uint64_t order_id, int64_t price_ticks,
                            int64_t qty_units, int64_t stop_price_ticks,
                            uint64_t ingress_seq) noexcept override;
+    void on_amend_received_ex(uint64_t order_id, const AmendWire& req,
+                              uint64_t ingress_seq) noexcept override;
     void on_oco_link_received(uint64_t link_id, uint64_t order_id_a,
                               uint64_t order_id_b, uint64_t account_id,
                               uint32_t instrument_id) noexcept override;
@@ -320,6 +354,30 @@ class EnginePump {
     [[nodiscard]] uint64_t inbound_occupancy() const noexcept;
     [[nodiscard]] uint64_t inbound_capacity() const noexcept;
 
+    // --- IMP-PLAN Phase-3 Task 4 — cross-shard coordinators -------------------
+    // Production wiring (main.cpp): the physical ctl channel is an
+    // AeronChannel on xshard_ctl_{in,out}_{shard}; CtlDemux splits it into
+    // per-protocol queues the two coordinators poll from their own
+    // on_time_tick. opt = canonical hot path (OptimisticShardCoordinator,
+    // spec §2.2a); two_pc = Task 2.3.8 reservation/bookkeeping substrate
+    // (participant role — remote coordinators may still target this shard).
+    // BasketSubmit wire frames dispatch to opt->submit(); terminal results
+    // are emitted as outbound Event{BasketResult} via publisher_.
+    void set_cross_shard(OptimisticShardCoordinator* opt,
+                         CrossShardCoordinator* two_pc,
+                         CtlDemux* demux,
+                         IpcPublisher* publisher) noexcept {
+        opt_coord_ = opt;
+        basket_coord_ = two_pc;
+        xctl_demux_ = demux;
+        out_pub_ = publisher;
+    }
+    // Task 2.3.12 — the cross-shard margin coordinator's poll() rides every
+    // loop pass (500µs RPC budget needs sub-millisecond drain cadence).
+    void set_margin_coordinator(CrossShardMarginCoordinator* m) noexcept {
+        margin_coord_ = m;
+    }
+
     // Quarantine sink: invoked per poisoned frame (verify failure, decode
     // exception) with the raw bytes — wire a file logger in main.cpp
     // (/var/log/exchange/poison_pill.log per Task 2.3.19). Default: stderr.
@@ -405,6 +463,15 @@ class EnginePump {
     void dispatch(const uint8_t* data, uint32_t len) noexcept;
     void quarantine(const uint8_t* data, uint32_t len, const char* why) noexcept;
     void report(const char* code, const char* detail) noexcept;
+    // Cross-shard service block — ctl drain, coordinator pumps, and the
+    // pending-basket terminal sweep. Called once per run_once pass.
+    void service_cross_shard() noexcept;
+    void emit_basket_result(uint64_t op_hi, uint64_t op_lo,
+                            uint64_t account_id, uint8_t status,
+                            uint8_t code, uint8_t leg_count,
+                            uint8_t legs_filled, uint8_t legs_unwound,
+                            int64_t slippage_ticks,
+                            uint64_t duration_ns) noexcept;
 
     IpcChannel* inbound_;
     IpcChannel* outbound_;
@@ -413,6 +480,27 @@ class EnginePump {
     Wal* wal_;
     Options opts_;
     SharedMemChannel* shm_in_;  // cached cast for zero-copy poll_view/consume
+
+    // Phase-3 Task 4 — cross-shard service block. All borrowed; every one
+    // optional (nullptr = that protocol's frames fail closed at dispatch).
+    OptimisticShardCoordinator* opt_coord_ = nullptr;
+    CrossShardCoordinator* basket_coord_ = nullptr;
+    CtlDemux* xctl_demux_ = nullptr;
+    CrossShardMarginCoordinator* margin_coord_ = nullptr;
+    IpcPublisher* out_pub_ = nullptr;
+    uint64_t last_tick_ns_ = 0;  // engine-logical clock for ctl handling
+
+    // In-flight basket ops awaiting a terminal OptResult — swept on every
+    // run_once so a 500µs optimistic op resolves within a tick of settling.
+    struct PendingBasket {
+        uint64_t op_hi;
+        uint64_t op_lo;
+        uint64_t account_id;
+        uint64_t start_ns;
+    };
+    static constexpr uint32_t kMaxPendingBaskets = 256;
+    PendingBasket pending_baskets_[kMaxPendingBaskets]{};
+    uint32_t pending_baskets_n_ = 0;
 
     bool shed_new_orders_ = false;
     uint64_t last_overload_report_ = 0;

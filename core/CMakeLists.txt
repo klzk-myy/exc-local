@@ -100,6 +100,7 @@ add_library(exch_core STATIC
     src/recovery/SnapshotManager.cpp
     src/recovery/SnapshotStore.cpp
     src/redis/RespClient.cpp
+    src/risk/AccountStateCache.cpp
     src/risk/BilateralCreditMatrix.cpp
     src/risk/CrossShardMarginCoordinator.cpp
     src/risk/InstrumentFeed.cpp
@@ -196,6 +197,7 @@ if(EXCH_BUILD_TESTS)
             test_matching_engine
             test_recovery
             test_engine_pump
+            test_account_state
             test_pretrade
             test_sanctions
             test_expiry

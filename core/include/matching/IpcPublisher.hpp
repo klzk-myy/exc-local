@@ -109,6 +109,18 @@ public:
                                              int64_t cleared_qty,
                                              uint64_t ts_ns) noexcept;
 
+    // IMP-PLAN Phase-3 Task 4 — terminal basket outcome (the
+    // OptimisticShardCoordinator's OptResult, emitted once per op).
+    [[nodiscard]] bool publish_basket_result(uint64_t op_hi, uint64_t op_lo,
+                                             uint64_t account_id,
+                                             uint8_t status, uint8_t code,
+                                             uint8_t leg_count,
+                                             uint8_t legs_filled,
+                                             uint8_t legs_unwound,
+                                             int64_t slippage_ticks,
+                                             uint64_t duration_ns,
+                                             uint64_t ts_ns) noexcept;
+
     // Task 9.3.11 — trace-echo binding (spec §19.12 Aeron header format):
     // while the owning EnginePump's TraceSlot is armed (dispatch window of
     // a traced inbound command), emit() prefixes the 64B EXCTRACE block

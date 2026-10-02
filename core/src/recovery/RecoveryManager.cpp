@@ -173,6 +173,9 @@ uint32_t expected_payload_len(WalEventType t) noexcept {
         case WalEventType::ORDER_TRIGGERED: return sizeof(WalOrderTriggeredPayload);
         case WalEventType::PEG_REPRICE:   return sizeof(WalPegRepricePayload);
         default:                           return 0;  // BOOK_SNAPSHOT/MARGIN_*
+                                                    // /BASKET_*/OPT_* — the
+                                                    // coordinators replay
+                                                    // their own rows.
     }
 }
 
@@ -180,7 +183,18 @@ bool is_shard_event(WalEventType t) noexcept {
     return t == WalEventType::TIME_TICK ||
            t == WalEventType::BOOK_SNAPSHOT ||
            t == WalEventType::MARGIN_RESERVE ||
-           t == WalEventType::MARGIN_RELEASE;
+           t == WalEventType::MARGIN_RELEASE ||
+           // Phase-3 Task 4: cross-shard coordinator rows are shard-level
+           // bookkeeping — replayed by the coordinator's own recover(), never
+           // routed through instrument books.
+           t == WalEventType::BASKET_BEGIN ||
+           t == WalEventType::BASKET_RESERVE ||
+           t == WalEventType::BASKET_LEG_DONE ||
+           t == WalEventType::BASKET_OUTCOME ||
+           t == WalEventType::OPT_BEGIN ||
+           t == WalEventType::OPT_FILL ||
+           t == WalEventType::OPT_UNWIND ||
+           t == WalEventType::OPT_OUTCOME;
 }
 
 }  // namespace

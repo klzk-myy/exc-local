@@ -57,6 +57,8 @@ class IpcPublisher;
 class L3Publisher;      // ipc/L3Publisher.hpp (Phase-17 Task 17.3.1)
 class InstrumentFeed;   // risk/InstrumentFeed.hpp (Phase-15 control feed)
 class PriceOracleFeed;  // risk/PriceOracleFeed.hpp (Phase-16 mark/index)
+class BilateralCreditMatrix;  // risk/BilateralCreditMatrix.h (spec §3.3b)
+class IPartyMap;              // risk/RiskInterfaces.hpp
 
 class MatchingEngine : public IEngineIngress {
 public:
@@ -96,24 +98,28 @@ public:
                            int64_t new_qty_units, int64_t new_stop_price_ticks,
                            uint64_t ingress_seq) noexcept override;
     // Rich amend form — carries the ICEBERG display_qty and GTD re-arm
-    // fields the 5-arg IEngineIngress shim cannot express. The pump's
-    // OrderAmend decode forwards only price/qty/stop/seq today (EnginePump
-    // is Wave-B owned); the wire fields order_seq/gtd_expiry_ns land here
-    // when Task 5.3.22 completes the routing. <=0 means "unchanged".
+    // fields the 5-arg IEngineIngress shim cannot express. <=0 means
+    // "unchanged".
     struct AmendRequest {
         int64_t  price_ticks = 0;
         int64_t  qty_units = 0;          // ICEBERG: the order TOTAL
         int64_t  stop_price_ticks = 0;   // trigger price (loses priority)
         int64_t  display_qty_units = 0;  // ICEBERG visible slice (loses priority)
         int64_t  gtd_expiry_ns = 0;      // >0 re-arms the GTD/DAY timer (§6.9)
-        uint64_t ingress_seq = 0;        // envelope seq — stale-fence input
+        uint64_t ingress_seq = 0;        // wire order_seq (§6.9 #1 fence)
         // Phase-16 Task 16.3.17: trigger-source switch on amend is
-        // rejected — 0xFF means "unchanged" (the OrderAmend wire has no
-        // field; engine API callers may fence it explicitly).
+        // rejected — 0xFF means "unchanged".
         uint8_t  trigger_source = 0xFF;
     };
     void on_amend_received_ex(uint64_t order_id,
                             const AmendRequest& req) noexcept;
+    // Wire ingress (IMP-PLAN Phase-3 Task 2): EnginePump's OrderAmend
+    // decode forwards the full AmendWire surface — order_seq is the
+    // §6.9 #1 stale-fence input (envelope seq stands in when the wire
+    // field is 0/unsequenced).
+    void on_amend_received_ex(uint64_t order_id,
+                              const IEngineIngress::AmendWire& req,
+                              uint64_t ingress_seq) noexcept override;
     // Deterministic logical clock: WAL TIME_TICK -> GTD/DAY expiry sweep ->
     // stop re-check. Monotonic-guarded (a stale tick is journaled but does
     // not move the clock backwards).
@@ -255,6 +261,21 @@ public:
     void set_prevented_match_sink(prevented_match_fn fn, void* ctx) noexcept {
         prevented_fn_ = fn;
         prevented_ctx_ = ctx;
+    }
+
+    // IMP-PLAN Phase-3 Task 4 — synchronous per-fill observer on the TAKER
+    // leg (order_id, fill price ticks, fill qty). The OptimisticShardCoordinator
+    // match/unwind executors arm a capture context around
+    // on_order_received to recover filled qty + VWAP for a synthetic leg —
+    // the publisher path can't serve them (it has no return channel).
+    // Single-writer on the matching thread; the observer MUST NOT mutate
+    // engine state or re-enter order ingress.
+    using fill_observe_fn = void (*)(void* ctx, uint64_t taker_order_id,
+                                     int64_t price_ticks,
+                                     int64_t qty_units) noexcept;
+    void set_fill_observer(fill_observe_fn fn, void* ctx) noexcept {
+        fill_obs_fn_ = fn;
+        fill_obs_ctx_ = ctx;
     }
 
     // Task 2.3.18 prevented-quantity introspection (orders.prevented_qty,
@@ -483,6 +504,23 @@ public:
     }
     [[nodiscard]] bool implied_enabled() const noexcept {
         return implied_ != nullptr && implied_->enabled();
+    }
+    // Phase-3 Task 5 (IMP-PLAN) / spec §3.3b + §24 #403 — bilateral
+    // credit-screened liquidity. Binding engages the match-time
+    // consume_or_skip gate in walk_match: each candidate maker/taker pair
+    // whose accounts BOTH map to credit parties must debit mutual
+    // headroom for the fill's quote notional before the fill commits;
+    // Skip leaves the maker in place (price-time priority intact) and the
+    // walk advances to the next member — levels exhausted purely by skips
+    // are stepped past, and a remainder that finds no credit-eligible
+    // contra anywhere dies as BILATERAL_CREDIT_EXHAUSTED. Unscreened
+    // pairs (either party unmapped) proceed ungated — anonymous retail
+    // flow never routes through the matrix. Cold-path bind; both objects
+    // must outlive the engine.
+    void bind_credit(BilateralCreditMatrix* m,
+                     const IPartyMap* map) noexcept {
+        credit_ = m;
+        credit_map_ = map;
     }
     // One-shot drain flag: set by the owner hook when a matcher fill
     // touched this engine's book. The host consumes it to schedule the
@@ -1057,6 +1095,8 @@ private:
     void* self_trade_ctx_ = nullptr;
     prevented_match_fn prevented_fn_ = nullptr;
     void* prevented_ctx_ = nullptr;
+    fill_observe_fn fill_obs_fn_ = nullptr;
+    void* fill_obs_ctx_ = nullptr;
     int64_t prevented_qty_total_ = 0;  // Task 2.3.18 engine-wide counter
 
     // --- Phase-16 state (Tasks 16.3.3/11/13/15/16/17/22/25) -------------------
@@ -1089,6 +1129,12 @@ private:
     ImpliedMatcher* implied_ = nullptr;
     bool implied_registered_ = false;
     bool implied_dirty_ = false;
+
+    // Bilateral credit screen (spec §3.3b): bound by bind_credit; both
+    // null ⇒ gate inert. Walk-only consultation — consume_or_skip per
+    // fill, skip-marker cursor preserves price-time priority.
+    BilateralCreditMatrix* credit_ = nullptr;  // mutable: consume debits
+    const IPartyMap* credit_map_ = nullptr;
 
     uint64_t received_count_ = 0;
     uint64_t trades_emitted_ = 0;

@@ -804,6 +804,13 @@ void OptimisticShardCoordinator::on_frame(const uint8_t* buf, uint32_t len,
         ++metrics_.bad_frames;
         return;
     }
+    // Point-to-point delivery: a frame addressed elsewhere must never be
+    // acted on here — without this guard a fan-out/misrouted ctl frame
+    // would execute the same leg twice (Phase-3 Task 4 wiring proof).
+    if (v.dst_shard != opts_.shard_id) {
+        ++metrics_.bad_frames;
+        return;
+    }
     switch (v.type) {
         case OptCtlType::TryMatch:  on_try_match(v, now_ns);  break;
         case OptCtlType::TryAck:    on_try_ack(v, now_ns);    break;

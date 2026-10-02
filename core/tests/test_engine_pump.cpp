@@ -21,6 +21,8 @@
 #include "ipc/SharedMemChannel.hpp"
 #include "ipc/ShmRing.hpp"
 #include "matching/EngineLoop.hpp"
+#include "matching/IpcPublisher.hpp"
+#include "matching/OptimisticShardCoordinator.hpp"
 #include "utils/MemoryPool.hpp"
 #include "utils/TimeUtils.hpp"
 #include "wal/Wal.hpp"
@@ -70,10 +72,19 @@ class FakeIngress final : public exch::IEngineIngress {
         cancels.emplace_back(order_id, account_id);
     }
     void on_time_tick(uint64_t now_ns) noexcept override { ticks.push_back(now_ns); }
+    // Captures the full AmendWire surface (Phase-3 Task 2 — the pump now
+    // forwards order_seq/gtd_expiry/display_qty/trigger_source).
+    void on_amend_received_ex(uint64_t order_id, const AmendWire& req,
+                              uint64_t ingress_seq) noexcept override {
+        amends.emplace_back(order_id, req);
+        amend_ingress.push_back(ingress_seq);
+    }
 
     std::vector<exch::Order> orders;
     std::vector<std::pair<uint64_t, uint64_t>> cancels;
     std::vector<uint64_t> ticks;
+    std::vector<std::pair<uint64_t, AmendWire>> amends;
+    std::vector<uint64_t> amend_ingress;
 };
 
 struct ReportLog {
@@ -197,6 +208,82 @@ TEST(EnginePump, OrderNewDecodesAndDispatches) {
     EXPECT_EQ(pump.msgs_in(), 1u);
     EXPECT_EQ(pump.msgs_dispatched(), 1u);
     EXPECT_EQ(pump.dispatch_latency().total(), 1u);
+}
+
+std::vector<uint8_t> make_order_amend(uint64_t seq, uint64_t order_id,
+                                      uint64_t order_seq, int64_t price,
+                                      int64_t qty, int64_t stop,
+                                      int64_t gtd_ns, int64_t display_qty,
+                                      uint8_t trigger_source, uint64_t ts) {
+    flatbuffers::FlatBufferBuilder b(256);
+    exc::wire::OrderAmendBuilder ab(b);
+    ab.add_order_id(order_id);
+    ab.add_order_seq(order_seq);
+    ab.add_price(price);
+    ab.add_qty(qty);
+    ab.add_stop_price(stop);
+    ab.add_gtd_expiry_ns(gtd_ns);
+    ab.add_display_qty(display_qty);
+    ab.add_trigger_source(trigger_source);
+    const auto am = ab.Finish();
+    exc::wire::EventBuilder eb(b);
+    eb.add_seq(seq);
+    eb.add_ts(ts);
+    eb.add_type_type(exc::wire::EventType_OrderAmend);
+    eb.add_type(am.Union());
+    b.Finish(eb.Finish());
+    return {b.GetBufferPointer(), b.GetBufferPointer() + b.GetSize()};
+}
+
+TEST(EnginePump, OrderAmendForwardsFullWireSurface) {
+    // Phase-3 Task 2: the pump previously dropped order_seq (the §6.9 #1
+    // stale fence), gtd_expiry_ns, display_qty and trigger_source.
+    FakeChannel in, out;
+    FakeIngress eng;
+    exch::MemoryPool<exch::Order> pool(8);
+    (void)in.open();
+    in.inq.push_back(make_order_amend(/*seq=*/55, /*order_id=*/9001,
+                                      /*order_seq=*/412, /*price=*/106'000'000,
+                                      /*qty=*/200'000'000, /*stop=*/104'000'000,
+                                      /*gtd_ns=*/9'876'543'210,
+                                      /*display_qty=*/50'000'000,
+                                      /*trigger_source=*/2, /*ts=*/1'000));
+    exch::EnginePump pump(&in, &out, &eng, &pool);
+
+    EXPECT_EQ(pump.run_once(16), 1u);
+    ASSERT_EQ(eng.amends.size(), 1u);
+    const auto& [oid, aw] = eng.amends[0];
+    EXPECT_EQ(oid, 9001u);
+    EXPECT_EQ(aw.order_seq, 412u);
+    EXPECT_EQ(aw.price_ticks, 106'000'000);
+    EXPECT_EQ(aw.qty_units, 200'000'000);
+    EXPECT_EQ(aw.stop_price_ticks, 104'000'000);
+    EXPECT_EQ(aw.gtd_expiry_ns, 9'876'543'210);
+    EXPECT_EQ(aw.display_qty_units, 50'000'000);
+    EXPECT_EQ(aw.trigger_source, 2);
+    EXPECT_EQ(eng.amend_ingress[0], 55u);
+}
+
+TEST(EnginePump, OrderAmendTriggerSourcePassesThrough) {
+    // The Go encoder always writes the trigger_source field (0xFF =
+    // unchanged), so a wire 0 is an explicit amend-back-to-LAST_PRICE
+    // request — it must reach the engine as 0, not be remapped to 0xFF
+    // (which would silently drop the switch). (supersedes the prior
+    // OrderAmendTriggerSourceZeroMapsToUnchanged contract)
+    FakeChannel in, out;
+    FakeIngress eng;
+    exch::MemoryPool<exch::Order> pool(8);
+    (void)in.open();
+    in.inq.push_back(make_order_amend(1, 7, 3, 0, 0, 0, 0, 0, 0, 999));
+    in.inq.push_back(make_order_amend(2, 8, 4, 0, 0, 0, 0, 0, 0xFF, 1000));
+    exch::EnginePump pump(&in, &out, &eng, &pool);
+
+    EXPECT_EQ(pump.run_once(16), 2u);
+    ASSERT_EQ(eng.amends.size(), 2u);
+    EXPECT_EQ(eng.amends[0].second.trigger_source, 0);
+    EXPECT_EQ(eng.amends[0].second.order_seq, 3u);
+    EXPECT_EQ(eng.amends[1].second.trigger_source, 0xFF);
+    EXPECT_EQ(eng.amends[1].second.order_seq, 4u);
 }
 
 TEST(EnginePump, OrderCancelDecodesAndDispatches) {
@@ -618,6 +705,121 @@ TEST(EnginePump, ShmLoopbackOrderInFillOut) {
         EXPECT_EQ(pump.overload_drops(), 0u);
     }
     unlink_channel(base, shard);
+}
+
+// --- Phase-3 Task 4b — BasketSubmit dispatch -----------------------------------
+
+std::vector<uint8_t> make_basket_submit(uint64_t seq, uint64_t op_hi,
+                                        uint64_t op_lo, uint64_t account_id,
+                                        uint16_t leg_shard, uint32_t leg_count) {
+    flatbuffers::FlatBufferBuilder b(512);
+    std::vector<flatbuffers::Offset<exc::wire::BasketLeg>> legs;
+    for (uint32_t i = 0; i < leg_count; ++i) {
+        legs.push_back(exc::wire::CreateBasketLeg(
+            b, leg_shard, /*instrument_id=*/3 + i, /*order_id=*/9000 + i,
+            exc::wire::Side_Buy, /*qty=*/1'000'000, /*limit_price=*/0));
+    }
+    const auto lv = b.CreateVector(legs);
+    const auto bs =
+        exc::wire::CreateBasketSubmit(b, op_hi, op_lo, account_id, lv);
+    exc::wire::EventBuilder eb(b);
+    eb.add_seq(seq);
+    eb.add_ts(60'000'000);
+    eb.add_type_type(exc::wire::EventType_BasketSubmit);
+    eb.add_type(bs.Union());
+    b.Finish(eb.Finish());
+    return {b.GetBufferPointer(), b.GetBufferPointer() + b.GetSize()};
+}
+
+// OptMatchExec stub: always fills the full request at the scripted VWAP.
+int64_t stub_match(void* /*ctx*/, const exch::OptTryMatchBody& leg,
+                   int64_t* vwap) noexcept {
+    *vwap = 100'000'000;
+    return leg.qty_units;
+}
+
+TEST(EnginePump, BasketSubmitAllLocalCommitsAndPublishes) {
+    FakeChannel in, out, ctl;
+    in.open();
+    out.open();
+    ctl.open();
+    FakeIngress eng;
+    exch::MemoryPool<exch::Order> pool(16);
+    exch::OptimisticCoordinatorOptions oopts{};
+    oopts.shard_id = 0;
+    exch::OptimisticShardCoordinator opt(&ctl, nullptr, oopts);
+    opt.set_match_exec(&stub_match, nullptr);
+    exch::IpcPublisher pub(&out);
+    exch::EnginePump pump(&in, &out, &eng, &pool);
+    ReportLog rlog;
+    pump.set_report_sink(&ReportLog::sink, &rlog);
+    pump.set_cross_shard(&opt, nullptr, nullptr, &pub);
+
+    const auto m = make_basket_submit(1, /*op_hi=*/0, /*op_lo=*/42,
+                                      /*account=*/7, /*leg_shard=*/0, 2);
+    in.inq.push_back(m);
+    EXPECT_EQ(pump.run_once(8), 1u);
+
+    // All-local basket resolves synchronously: Committed + BasketResult out.
+    const exch::OptResult r =
+        opt.status(exch::BasketOpId{0, 42});
+    EXPECT_EQ(static_cast<exch::OptStatus>(r.status),
+              exch::OptStatus::Committed);
+    ASSERT_FALSE(out.sent.empty());
+    const auto* ev = exc::wire::GetEvent(out.sent.back().data());
+    ASSERT_EQ(ev->type_type(), exc::wire::EventType_BasketResult);
+    const auto* br = ev->type_as_BasketResult();
+    ASSERT_NE(br, nullptr);
+    EXPECT_EQ(br->op_id_lo(), 42u);
+    EXPECT_EQ(br->account_id(), 7u);
+    EXPECT_EQ(br->status(), static_cast<uint8_t>(exch::OptStatus::Committed));
+    EXPECT_EQ(br->leg_count(), 2u);
+    EXPECT_EQ(br->legs_filled(), 2u);
+}
+
+TEST(EnginePump, BasketSubmitUnwiredFailsClosed) {
+    FakeChannel in, out;
+    in.open();
+    out.open();
+    FakeIngress eng;
+    exch::MemoryPool<exch::Order> pool(16);
+    exch::EnginePump pump(&in, &out, &eng, &pool);
+    ReportLog rlog;
+    pump.set_report_sink(&ReportLog::sink, &rlog);
+
+    const auto m = make_basket_submit(1, 0, 43, 7, 0, 2);
+    in.inq.push_back(m);
+    EXPECT_EQ(pump.run_once(8), 1u);
+    EXPECT_EQ(pump.unrouted_drops(), 1u);
+    EXPECT_TRUE(rlog.has("ENGINE_UNWIRED"));
+    EXPECT_TRUE(out.sent.empty());
+}
+
+TEST(EnginePump, BasketSubmitLegValidation) {
+    FakeChannel in, out, ctl;
+    in.open();
+    out.open();
+    ctl.open();
+    FakeIngress eng;
+    exch::MemoryPool<exch::Order> pool(16);
+    exch::OptimisticCoordinatorOptions oopts{};
+    oopts.shard_id = 0;
+    exch::OptimisticShardCoordinator opt(&ctl, nullptr, oopts);
+    exch::IpcPublisher pub(&out);
+    exch::EnginePump pump(&in, &out, &eng, &pool);
+    ReportLog rlog;
+    pump.set_report_sink(&ReportLog::sink, &rlog);
+    pump.set_cross_shard(&opt, nullptr, nullptr, &pub);
+
+    // 1 leg — below the spec floor of 2 — decode-error reject.
+    const auto bad = make_basket_submit(1, 0, 44, 7, 0, 1);
+    in.inq.push_back(bad);
+    EXPECT_EQ(pump.run_once(8), 1u);
+    EXPECT_EQ(pump.decode_errors(), 1u);
+    EXPECT_TRUE(rlog.has("DECODE_ERROR"));
+    EXPECT_EQ(static_cast<exch::OptStatus>(
+                  opt.status(exch::BasketOpId{0, 44}).status),
+              exch::OptStatus::Unknown);  // never admitted
 }
 
 }  // namespace

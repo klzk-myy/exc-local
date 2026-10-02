@@ -31,19 +31,26 @@
 #include "degradation/ModeManager.hpp"
 #include "election/LeaderElection.hpp"
 #include "health/HealthChecker.hpp"
+#include "ipc/AeronChannel.hpp"
+#include "ipc/CtlDemux.hpp"
 #include "ipc/EnginePump.hpp"
 #include "ipc/SdNotify.hpp"
 #include "ipc/L3Publisher.hpp"
 #include "ipc/SharedMemChannel.hpp"
+#include "matching/CrossShardCoordinator.hpp"
 #include "matching/EngineLoop.hpp"
 #include "matching/ImpliedMatcher.hpp"
 #include "matching/IpcPublisher.hpp"
 #include "matching/MatchingEngine.hpp"
+#include "matching/OptimisticShardCoordinator.hpp"
 #include "matching/WalWriter.hpp"
 #include "recovery/RecoveryManager.hpp"
 #include "recovery/SnapshotManager.hpp"
 #include "recovery/SnapshotStore.hpp"
 #include "redis/RespClient.hpp"
+#include "risk/AccountStateCache.hpp"
+#include "risk/BilateralCreditMatrix.h"
+#include "risk/CrossShardMarginCoordinator.h"
 #include "risk/EngineRiskAdapter.hpp"
 #include "risk/InstrumentFeed.hpp"
 #include "risk/InstrumentFeedRefresher.hpp"
@@ -72,9 +79,11 @@ void usage(const char* argv0) {
                  "          [-snapshot-interval-s <s>] [-follower]\n"
                  "          [-report-log <path>]\n"
                  "          [-redis <host:port>] [-halt-poll-ms <ms>]\n"
+                 "          [-accounts-poll-ms <ms>]\n"
                  "          [-symbol <SYM>] [-feed-poll-ms <ms>]\n"
                  "          [-curve <id1,id2,...>] [-curve-symbols <s1,s2,...>]\n"
-                 "          [-implied-link <out>:<s0>:<i0>:<r0>:<s1>:<i1>:<r1>]\n",
+                 "          [-implied-link <out>:<s0>:<i0>:<r0>:<s1>:<i1>:<r1>]\n"
+                 "          [-xshard-ctl] [-margin-ctl] [-margin-instrument <id>]\n",
                  argv0);
 }
 
@@ -254,6 +263,281 @@ void watchdog_report(void* /*ctx*/, exch::Watchdog::Level level, int64_t stale_n
                  exch::Watchdog::level_name(level), stale_ns, beat);
 }
 
+// --- IMP-PLAN Phase-3 Task 4 — basket leg executors ---------------------------
+//
+// Synthetic leg orders flow through the SAME ingress the pump binds
+// (curve-aware when -curve is set), so admission/risk/matching semantics are
+// identical to client flow — the coordinator only decides WHEN to inject.
+// Match fills are captured synchronously through MatchingEngine's
+// fill-observer seam (armed per call — single matching thread).
+
+struct BasketExecCtx {
+    exch::IEngineIngress* ingress = nullptr;
+    exch::MemoryPool<exch::Order>* orders = nullptr;
+    uint64_t gl_posts = 0;                  // audit counter
+    // Fill capture — armed only inside basket_match_exec/unwind_exec.
+    uint64_t cap_order_id = 0;
+    int64_t cap_qty = 0;
+    int64_t cap_px_qty = 0;  // Σ(price_ticks·qty) -> VWAP numerator
+    bool armed = false;
+    uint64_t unwind_seq = 0;  // synthetic order ids for unwind legs
+    // (op.lo, leg_index) -> leg descriptors. The coordinator's unwind
+    // callback does not carry side/instrument — recover it here. Seeded at
+    // match time; re-seeded from WAL OPT_FILL payloads at boot recovery.
+    struct LegRec {
+        uint64_t op_hi;
+        uint64_t op_lo;
+        uint8_t leg_idx;
+        uint32_t instrument_id;
+        uint8_t side;
+        uint64_t order_id;
+        uint64_t account_id;
+    };
+    LegRec legs[512]{};
+    uint32_t legs_n = 0;
+};
+
+void basket_fill_observe(void* vctx, uint64_t taker_order_id,
+                         int64_t price_ticks, int64_t qty_units) noexcept {
+    auto* c = static_cast<BasketExecCtx*>(vctx);
+    if (c->armed && taker_order_id == c->cap_order_id) {
+        c->cap_qty += qty_units;
+        c->cap_px_qty += price_ticks * qty_units;
+    }
+}
+
+void basket_remember_leg(BasketExecCtx* c, uint64_t op_hi, uint64_t op_lo,
+                         uint8_t leg_idx, uint32_t instrument_id,
+                         uint8_t side, uint64_t order_id,
+                         uint64_t account_id) noexcept {
+    for (uint32_t i = 0; i < c->legs_n; ++i) {
+        if (c->legs[i].op_hi == op_hi && c->legs[i].op_lo == op_lo &&
+            c->legs[i].leg_idx == leg_idx) {
+            return;  // already known (retry dedup)
+        }
+    }
+    if (c->legs_n >= 512) {
+        std::fprintf(stderr, "[P1] BASKET_LEG_TABLE_FULL op=%llu:%llu\n",
+                     (unsigned long long)op_hi, (unsigned long long)op_lo);
+        return;
+    }
+    c->legs[c->legs_n++] = BasketExecCtx::LegRec{
+        op_hi, op_lo, leg_idx, instrument_id, side, order_id, account_id};
+}
+
+// OptMatchExec: inject the leg as a fill-now order. limit_price>0 -> IOC
+// LIMIT (walk bound); 0 -> MARKET. The wire body carries op_id + leg_index —
+// remember the leg BEFORE executing so a same-tick unwind can resolve its
+// side/instrument. Returns units filled; *vwap gets the VWAP (ticks).
+int64_t basket_match_exec(void* vctx, const exch::OptTryMatchBody& leg,
+                          int64_t* vwap_ticks) noexcept {
+    auto* c = static_cast<BasketExecCtx*>(vctx);
+    if (c->ingress == nullptr || c->orders == nullptr) return 0;
+    exch::Order* o = c->orders->alloc();
+    if (o == nullptr) {
+        std::fprintf(stderr, "[P1] BASKET_ORDER_POOL_EXHAUSTED leg_order=%llu\n",
+                     (unsigned long long)leg.order_id);
+        return 0;
+    }
+    *o = exch::Order{};
+    o->id = leg.order_id;
+    o->account_id = leg.account_id;
+    o->side = leg.side == 0 ? exch::Side::BUY : exch::Side::SELL;
+    o->type = leg.limit_price_ticks > 0 ? exch::OrderType::LIMIT
+                                        : exch::OrderType::MARKET;
+    o->tif = exch::TimeInForce::IOC;
+    o->stp_mode = exch::StpMode::CANCEL_NEWEST;
+    o->price_ticks = leg.limit_price_ticks;
+    o->qty_units = leg.qty_units;
+    o->filled_qty_units = 0;
+    o->quantity = exch::Decimal::from_mantissa(leg.qty_units);
+    o->timestamp_ns = exch::now_ns();
+
+    exch::OrderAux aux{};
+    aux.instrument_id = leg.instrument_id;
+
+    basket_remember_leg(c, leg.op_hi, leg.op_lo,
+                        static_cast<uint8_t>(leg.leg_index),
+                        leg.instrument_id, leg.side, leg.order_id,
+                        leg.account_id);
+
+    c->cap_order_id = leg.order_id;
+    c->cap_qty = 0;
+    c->cap_px_qty = 0;
+    c->armed = true;
+    c->ingress->on_order_received_ex(o, aux);
+    c->armed = false;
+
+    const int64_t filled = c->cap_qty;
+    if (vwap_ticks != nullptr && filled > 0) {
+        *vwap_ticks = c->cap_px_qty / filled;
+    }
+    if (filled < 0) {  // defensive — capture arithmetic cannot produce <0
+        std::fprintf(stderr, "[P1] BASKET_FILL_CAPTURE_BAD leg_order=%llu\n",
+                     (unsigned long long)leg.order_id);
+        return 0;
+    }
+    return filled;
+}
+
+// OptUnwindExec: liquidate qty_units of a previously filled leg — a MARKET
+// order on the opposite side (no rest risk), attributed to the ORIGINAL
+// leg account. Side/instrument/account come from the ctx leg table seeded
+// at match time / boot recovery. Returns units unwound (0 = failed; the
+// coordinator treats 0 as unconfirmed -> op escalates Failed, loud).
+int64_t basket_unwind_exec(void* vctx, exch::BasketOpId op_id,
+                           uint32_t leg_index, int64_t qty_units,
+                           int64_t* vwap_ticks) noexcept {
+    auto* c = static_cast<BasketExecCtx*>(vctx);
+    if (c->ingress == nullptr || c->orders == nullptr || qty_units <= 0) {
+        return 0;
+    }
+    const BasketExecCtx::LegRec* rec = nullptr;
+    for (uint32_t i = 0; i < c->legs_n; ++i) {
+        if (c->legs[i].op_hi == op_id.hi && c->legs[i].op_lo == op_id.lo &&
+            c->legs[i].leg_idx == leg_index) {
+            rec = &c->legs[i];
+            break;
+        }
+    }
+    if (rec == nullptr) {
+        // Leg unknown on this shard — fail closed (loud orphan path).
+        std::fprintf(stderr,
+                     "[P1] BASKET_UNWIND_NO_LEG op_lo=%llu leg=%u\n",
+                     (unsigned long long)op_id.lo, leg_index);
+        return 0;
+    }
+    exch::Order* o = c->orders->alloc();
+    if (o == nullptr) {
+        std::fprintf(stderr, "[P1] BASKET_ORDER_POOL_EXHAUSTED unwind\n");
+        return 0;
+    }
+    *o = exch::Order{};
+    o->id = 0x8000'0000'0000'0000ULL | (++c->unwind_seq);  // synthetic id space
+    o->account_id = rec->account_id;  // unwind fills attribute to the
+                                    // original leg account — settlement
+                                    // sees a real position-reducing trade
+    o->side = rec->side == 0 ? exch::Side::SELL : exch::Side::BUY;  // reverse
+    o->type = exch::OrderType::MARKET;
+    o->tif = exch::TimeInForce::IOC;
+    o->price_ticks = 0;
+    o->qty_units = qty_units;
+    o->filled_qty_units = 0;
+    o->quantity = exch::Decimal::from_mantissa(qty_units);
+    o->timestamp_ns = exch::now_ns();
+
+    exch::OrderAux aux{};
+    aux.instrument_id = rec->instrument_id;
+
+    c->cap_order_id = o->id;
+    c->cap_qty = 0;
+    c->cap_px_qty = 0;
+    c->armed = true;
+    c->ingress->on_order_received_ex(o, aux);
+    c->armed = false;
+
+    const int64_t filled = c->cap_qty;
+    if (vwap_ticks != nullptr && filled > 0) {
+        *vwap_ticks = c->cap_px_qty / filled;
+    }
+    if (filled < qty_units) {
+        // Partial unwind -> residual stays open; the coordinator's ZeroOrphan
+        // accounting counts it as an open fill (observable, never silent).
+        std::fprintf(stderr,
+                     "[P1] BASKET_UNWIND_PARTIAL op_lo=%llu leg=%u "
+                     "want=%lld got=%lld\n",
+                     (unsigned long long)op_id.lo, leg_index,
+                     (long long)qty_units, (long long)filled);
+    }
+    return filled;
+}
+
+// OptGlSink — the coordinator hands us the 5010_CROSS_SHARD_EXECUTION_DIFF
+// record (signed unwind slippage, spec §2.2a/§13.5). Durable double-entry
+// posting is Phase-03 Task 3.3.6's seam; until that consumer binds, emit
+// the record verbatim on stderr as the audit line of record — loud, never
+// dropped silently.
+void basket_gl_sink(void* vctx,
+                    const exch::CrossShardGlPosting& p) noexcept {
+    auto* c = static_cast<BasketExecCtx*>(vctx);
+    ++c->gl_posts;
+    std::fprintf(stderr,
+                 "[GL] CROSS_SHARD_EXECUTION_DIFF op=%llu:%llu account=%s "
+                 "amount_ticks=%lld reason=%u ts=%llu\n",
+                 (unsigned long long)p.op_id.hi,
+                 (unsigned long long)p.op_id.lo, p.account,
+                 (long long)p.amount_ticks,
+                 static_cast<unsigned>(p.reason),
+                 (unsigned long long)p.ts_ns);
+}
+
+// 2PC balance-provider ctx: which IAccountState + which instrument's QUOTE
+// ccy anchors the opaque amount_units reservation currency.
+struct TwoPcBalanceCtx {
+    exch::IAccountState* accounts = nullptr;
+    uint32_t instrument_id = 0;
+};
+int64_t two_pc_balance(void* v, uint64_t account_id) noexcept {
+    auto* bc = static_cast<TwoPcBalanceCtx*>(v);
+    if (bc->accounts == nullptr) return -1;
+    return bc->accounts->available_balance(account_id, bc->instrument_id,
+                                           exch::BalanceUnit::QUOTE);
+}
+void basket_leg_audit(void* /*ctx*/,
+                      const exch::BasketLegNotice& n) noexcept {
+    static const char* kEv[] = {"", "RESERVED", "ACTIVATED", "RELEASED",
+                                "RESTITUTED"};
+    const char* ev = n.event < 5 ? kEv[n.event] : "?";
+    std::fprintf(stderr,
+                 "[2PC] op=%llu:%llu leg=%u shard=%u order=%llu event=%s "
+                 "amount=%lld reason=%u\n",
+                 (unsigned long long)n.op_id.hi,
+                 (unsigned long long)n.op_id.lo, n.leg_index, n.shard_id,
+                 (unsigned long long)n.order_id, ev,
+                 (long long)n.amount, static_cast<unsigned>(n.reason));
+}
+
+// IMarginCheck adapter over the cross-shard margin coordinator (Task
+// 2.3.12, spec §13.1 layered budget). passes(): refresh the account's
+// local-headroom store, evaluate usable = local - hosted + granted; on
+// shortfall request a slice and bounded-wait for the ACK inside the 500µs
+// soft budget. Fallback/HardTimeout/Denied all fail closed.
+class XShardMarginCheck final : public exch::IMarginCheck {
+public:
+    XShardMarginCheck(exch::CrossShardMarginCoordinator* coord,
+                      uint32_t margin_instrument_id) noexcept
+        : coord_(coord), margin_instrument_id_(margin_instrument_id) {}
+
+    [[nodiscard]] bool passes(const exch::Order& order,
+                              const exch::Instrument& instrument,
+                              const exch::IAccountState& accounts,
+                              int64_t notional_units) const noexcept override {
+        if (coord_ == nullptr || notional_units <= 0) {
+            // Coordinator unbound or unpriceable -> the Phase-2 stub math
+            // still applies upstream; here fail closed per §2.7.
+            return false;
+        }
+        const int64_t headroom = accounts.available_balance(
+            order.account_id, margin_instrument_id_,
+            exch::BalanceUnit::QUOTE);
+        coord_->set_local_headroom(order.account_id, headroom < 0 ? 0 : headroom);
+        const exch::MarginCheck chk =
+            coord_->evaluate(order.account_id, notional_units);
+        if (chk.covered) return true;
+        if (chk.shortfall <= 0) return false;
+        const uint64_t rid = coord_->begin_reserve(
+            order.account_id, instrument.instrument_id, chk.shortfall,
+            /*expires_at_ns=*/0, /*needs_correlation_offset=*/false,
+            exch::kMarginCoordinatorPicks, order.id);
+        if (rid == 0) return false;
+        return coord_->resolve_wait(rid) == exch::MarginResolve::Granted;
+    }
+
+private:
+    exch::CrossShardMarginCoordinator* coord_;
+    uint32_t margin_instrument_id_;
+};
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -278,6 +562,7 @@ int main(int argc, char** argv) {
     // admission gates only.
     std::string redis_addr;
     uint32_t halt_poll_ms = 50;        // Redis halt:* refresh cadence
+    uint32_t accounts_poll_ms = 1000;  // Redis account:state refresh cadence
     // Phase-15 (Tasks 15.3.3/15.3.4/15.3.6/15.3.10): `-symbol` names the
     // served instrument for the per-symbol control keys
     // (instrument:status/auction:{symbol}); with -redis it binds the
@@ -296,6 +581,19 @@ int main(int argc, char** argv) {
     std::vector<uint32_t> curve_ids;
     std::vector<std::string> curve_symbols;
     std::vector<std::string> implied_link_specs;
+    // IMP-PLAN Phase-3 Task 4 — cross-shard ctl surfaces (Aeron IPC pair).
+    // -xshard-ctl: basket 2PC + optimistic coordinators share one Aeron
+    // channel pair via CtlDemux (xshard_ctl_{in,out}_{shard} streams
+    // 1201/1202). -margin-ctl: the cross-shard margin coordinator rides the
+    // margin_ctl_{in,out}_{shard} convention services/risk uses. Both
+    // require a running Aeron media driver; absent either flag the
+    // protocols stay unbound (BasketSubmit fails closed at dispatch).
+    bool xshard_ctl = false;
+    bool margin_ctl = false;
+    // Reserve/headroom unit anchor: balances resolve in the QUOTE ccy of
+    // this instrument. Default = the shard's primary -instrument-id (a USD-
+    // quoted pair => the conventional USD settlement margin).
+    uint32_t margin_instrument_id = 0;
 
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "-shard") == 0) {
@@ -377,6 +675,12 @@ int main(int argc, char** argv) {
                 return 2;
             }
             if (halt_poll_ms == 0) halt_poll_ms = 50;
+        } else if (std::strcmp(argv[i], "-accounts-poll-ms") == 0) {
+            if (++i >= argc || !parse_u32(argv[i], &accounts_poll_ms)) {
+                usage(argv[0]);
+                return 2;
+            }
+            if (accounts_poll_ms == 0) accounts_poll_ms = 1000;
         } else if (std::strcmp(argv[i], "-symbol") == 0) {
             if (++i >= argc) {
                 usage(argv[0]);
@@ -416,6 +720,15 @@ int main(int argc, char** argv) {
                 return 2;
             }
             implied_link_specs.push_back(argv[i]);
+        } else if (std::strcmp(argv[i], "-xshard-ctl") == 0) {
+            xshard_ctl = true;
+        } else if (std::strcmp(argv[i], "-margin-ctl") == 0) {
+            margin_ctl = true;
+        } else if (std::strcmp(argv[i], "-margin-instrument") == 0) {
+            if (++i >= argc || !parse_u32(argv[i], &margin_instrument_id)) {
+                usage(argv[0]);
+                return 2;
+            }
         } else if (std::strcmp(argv[i], "-h") == 0 || std::strcmp(argv[i], "--help") == 0) {
             usage(argv[0]);
             return 0;
@@ -573,6 +886,81 @@ int main(int argc, char** argv) {
         risk.bind_accounts(&dev_accounts);
         std::fprintf(stderr, "WARN: -dev-all-accounts active — account "
                              "checks permissive (soak/dev only)\n");
+    }
+
+    // --- Production account/position state (Phase-3 Task 3.3.1) ---------
+    // With -redis (and no dev override) the engine binds the
+    // AccountStateCache: a control thread polls the Go-projected
+    // `account:state` hash into an immutable snapshot the matching thread
+    // reads per order — checks 1/3/4/8/10/13/14 then enforce real account
+    // status, balances, positions, KYC and STP defaults in-process.
+    // Bound-but-unverifiable fails closed (ACCOUNT_INACTIVE); dev flag
+    // wins the binding when both are given. The snapshot is self-
+    // describing (i:{id} -> BASE/QUOTE rows), so no symbol flag is needed
+    // for balance-currency resolution.
+    exch::AccountStateCache acct_state;
+    exch::BilateralCreditMatrix credit_matrix;  // spec §3.3b shm screen
+    std::unique_ptr<exch::RespClient> acct_redis;
+    std::unique_ptr<exch::AccountStateRefresher> acct_refresh;
+    std::atomic<bool> acct_stop{false};
+    std::thread acct_thread;
+    if (!redis_addr.empty() && !dev_all_accounts) {
+        exch::RespClientConfig acfg{};
+        const std::size_t colon = redis_addr.rfind(':');
+        acfg.host = redis_addr.substr(0, colon);
+        acfg.port = static_cast<uint16_t>(
+            std::strtoul(redis_addr.c_str() + colon + 1, nullptr, 10));
+        acct_redis = std::make_unique<exch::RespClient>(acfg);
+        acct_refresh =
+            std::make_unique<exch::AccountStateRefresher>(acct_redis.get());
+        risk.bind_accounts(&acct_state);
+        risk.bind_positions(&acct_state);
+        // Synchronous first poll before the ingress ring opens — bound-
+        // but-never-verified fails closed (ACCOUNT_INACTIVE) until the
+        // poll thread lands a clean read.
+        if (!acct_redis->connect() ||
+            !acct_refresh->refresh(&acct_state)) {
+            std::fprintf(stderr,
+                         "WARN: account:state poll unreachable at boot — "
+                         "checks 1/3/4/8/10/13/14 fail closed until the "
+                         "poll thread lands a clean read\n");
+        }
+        exch::AccountStateRefresher* ar = acct_refresh.get();
+        exch::AccountStateCache* ac = &acct_state;
+        std::atomic<bool>* astop = &acct_stop;
+        const auto acadence = std::chrono::milliseconds(accounts_poll_ms);
+        acct_thread = std::thread([ar, ac, astop, acadence]() {
+            while (!astop->load(std::memory_order_acquire)) {
+                (void)ar->refresh(ac);
+                std::this_thread::sleep_for(acadence);
+            }
+        });
+
+        // Bilateral credit screen (spec §3.3b / §24 #403): attach the shm
+        // matrix the Go BilateralCreditService publishes
+        // (EXC_CREDIT_MATRIX_SHM, default exchange_credit_matrix), then
+        // bind it with the snapshot's c:{account} party map into BOTH the
+        // admission pre-screen and the match-time consume_or_skip gate.
+        // Attach failure leaves the gate inert — every account then maps
+        // to no party, so all flow is unscreened (the documented
+        // "screen engages only when bound" contract).
+        const char* cm_env = std::getenv("EXC_CREDIT_MATRIX_SHM");
+        const std::string_view cm_name =
+            (cm_env != nullptr && cm_env[0] != '\0')
+                ? std::string_view(cm_env)
+                : exch::BilateralCreditMatrix::kDefaultShmName;
+        if (credit_matrix.open(cm_name, /*create=*/false)) {
+            risk.bind_credit(&credit_matrix, &acct_state);
+            engine.bind_credit(&credit_matrix, &acct_state);
+            std::fprintf(stderr,
+                         "bilateral credit screen bound (shm %.*s)\n",
+                         static_cast<int>(cm_name.size()), cm_name.data());
+        } else {
+            std::fprintf(stderr,
+                         "WARN: credit matrix shm %.*s unreachable — "
+                         "bilateral screen inert\n",
+                         static_cast<int>(cm_name.size()), cm_name.data());
+        }
     }
     exch::EngineRiskBinding risk_binding{&risk, book.instrument(),
                                          engine.now_ns_ptr()};
@@ -1167,6 +1555,156 @@ int main(int argc, char** argv) {
     exch::EnginePump pump(&core_chan, &core_chan, ingress, &orders, &wal);
     pump.set_report_sink(stderr_alert, nullptr);
 
+    // --- IMP-PLAN Phase-3 Task 4: cross-shard coordinators -------------------
+    // -xshard-ctl binds ONE Aeron channel pair to BOTH basket protocols via
+    // CtlDemux (shared CrossShardCtlHeader magic discriminates
+    // kBasketCtlMagic vs kOptCtlMagic — the documented one-stream design).
+    // opt = canonical TRY_MATCH hot path (Task 2.3.25); two_pc = the
+    // Task 2.3.8 reservation/bookkeeping substrate (participant role —
+    // remote coordinators can still target this shard's headroom).
+    // -margin-ctl binds the Task 2.3.12 cross-shard margin coordinator on
+    // the margin_ctl_* URI pair the Go risk services consume.
+    // Engine direction: engine SENDS on *_out / margin_ctl_in_, POLLS on
+    // *_in / margin_ctl_out_ (relay-side mirroring convention).
+    if (margin_instrument_id == 0) margin_instrument_id = instrument_id;
+    BasketExecCtx bexec;
+    TwoPcBalanceCtx two_pc_ctx_;
+    std::unique_ptr<exch::AeronChannel> xctl_chan;
+    std::unique_ptr<exch::CtlDemux> xctl_demux;
+    std::unique_ptr<exch::CrossShardCoordinator> basket_2pc;
+    std::unique_ptr<exch::OptimisticShardCoordinator> opt_coord;
+    std::unique_ptr<exch::AeronChannel> mctl_chan;
+    std::unique_ptr<exch::CrossShardMarginCoordinator> margin_coord;
+    std::unique_ptr<XShardMarginCheck> margin_adapter;
+    if (xshard_ctl) {
+        exch::AeronChannelConfig xc{};
+        xc.in_uri = "aeron:ipc?alias=xshard_ctl_in_" + std::to_string(shard);
+        xc.out_uri = "aeron:ipc?alias=xshard_ctl_out_" + std::to_string(shard);
+        xc.in_stream_id = 1202;
+        xc.out_stream_id = 1201;
+        xctl_chan = std::make_unique<exch::AeronChannel>(xc);
+        if (!xctl_chan->open()) {
+            std::fprintf(stderr,
+                         "WARN: xshard ctl Aeron open failed (driver down?) "
+                         "— coordinators bound channel-less; remote "
+                         "participant traffic unreachable (fail closed)\n");
+        }
+        xctl_demux = std::make_unique<exch::CtlDemux>(xctl_chan.get());
+
+        exch::BasketCoordinatorOptions bopts{};
+        bopts.shard_id = static_cast<uint16_t>(shard);
+        basket_2pc = std::make_unique<exch::CrossShardCoordinator>(
+            xctl_demux->basket_channel(), &wal, bopts);
+
+        exch::OptimisticCoordinatorOptions oopts{};
+        oopts.shard_id = static_cast<uint16_t>(shard);
+        opt_coord = std::make_unique<exch::OptimisticShardCoordinator>(
+            xctl_demux->opt_channel(), &wal, oopts);
+
+        bexec.ingress = ingress;
+        bexec.orders = &orders;
+        opt_coord->set_match_exec(&basket_match_exec, &bexec);
+        opt_coord->set_unwind_exec(&basket_unwind_exec, &bexec);
+        opt_coord->set_gl_sink(&basket_gl_sink, &bexec);
+
+        // Taker-fill observation on every engine this ingress can route to
+        // (curve slots match basket legs on their own books too).
+        engine.set_fill_observer(&basket_fill_observe, &bexec);
+        for (auto& sp : curve_slots) {
+            sp->engine->set_fill_observer(&basket_fill_observe, &bexec);
+        }
+
+        // 2PC reserve unit: account balance in the QUOTE ccy of
+        // -margin-instrument (USD-quoted default = settlement ccy). The
+        // protocol's amount_units is caller-opaque; the Go submitter emits
+        // quote-notional of the same anchor — one documented unit end to end.
+        two_pc_ctx_.accounts =
+            dev_all_accounts ? static_cast<exch::IAccountState*>(&dev_accounts)
+                             : static_cast<exch::IAccountState*>(&acct_state);
+        two_pc_ctx_.instrument_id = margin_instrument_id;
+        basket_2pc->set_balance_provider(&two_pc_balance, &two_pc_ctx_);
+        // 2PC leg-state notices (Reserved/Activated/Released/Restituted):
+        // the engine exposes no reserved-order state to transition into —
+        // order lifecycle execution rides the optimistic path — so the
+        // notices are the audit trail of record (loud, one line each).
+        basket_2pc->set_leg_sink(&basket_leg_audit, nullptr);
+
+        pump.set_cross_shard(opt_coord.get(), basket_2pc.get(),
+                             xctl_demux.get(), &publisher);
+        std::fprintf(stderr,
+                     "xshard-ctl: basket 2PC + optimistic coordinators "
+                     "bound (Aeron xshard_ctl_{in,out}_%u streams 1202/1201)\n",
+                     shard);
+    }
+    if (margin_ctl) {
+        exch::AeronChannelConfig mc{};
+        mc.in_uri = "aeron:ipc?alias=margin_ctl_out_" + std::to_string(shard);
+        mc.out_uri = "aeron:ipc?alias=margin_ctl_in_" + std::to_string(shard);
+        mc.in_stream_id = 1102;
+        mc.out_stream_id = 1101;
+        mctl_chan = std::make_unique<exch::AeronChannel>(mc);
+        if (!mctl_chan->open()) {
+            std::fprintf(stderr,
+                         "WARN: margin ctl Aeron open failed — coordinator "
+                         "bound channel-less; cross-shard margin fails "
+                         "closed (pessimistic floor)\n");
+        }
+        exch::MarginCoordinatorOptions mopts{};
+        mopts.shard_id = static_cast<uint16_t>(shard);
+        margin_coord = std::make_unique<exch::CrossShardMarginCoordinator>(
+            mctl_chan.get(), &wal, mopts);
+        margin_adapter = std::make_unique<XShardMarginCheck>(
+            margin_coord.get(), margin_instrument_id);
+        risk.bind_margin(margin_adapter.get());
+        pump.set_margin_coordinator(margin_coord.get());
+        std::fprintf(stderr,
+                     "margin-ctl: CrossShardMarginCoordinator bound "
+                     "(margin_ctl_{in,out}_%u, soft budget 500us)\n", shard);
+    }
+    // Boot recovery for coordinator WAL event families (OPT_*/BASKET_* —
+    // appended types from Task 4a). Each coordinator scans the journal for
+    // its own payloads; recovered OPT_FILL rows re-seed the exec ctx's leg
+    // table so post-restart unwinds can resolve side/instrument.
+    if (!follower && (opt_coord != nullptr || basket_2pc != nullptr ||
+                      margin_coord != nullptr)) {
+        if (opt_coord != nullptr) {
+            exch::WalReader cr(wal_path);
+            if (cr.is_open()) {
+                opt_coord->recover(cr);
+            }
+        }
+        if (basket_2pc != nullptr) {
+            exch::WalReader cr(wal_path);
+            if (cr.is_open()) {
+                basket_2pc->recover(cr);
+            }
+        }
+        if (margin_coord != nullptr) {
+            exch::WalReader cr(wal_path);
+            if (cr.is_open()) {
+                margin_coord->recover(cr);
+            }
+        }
+        // Re-seed unwind leg descriptors from journaled OPT_FILL payloads —
+        // a recovered in-flight op can still unwind correctly after restart.
+        exch::WalReader fr(wal_path);
+        if (fr.is_open()) {
+            exch::WalEntryView v;
+            while (fr.next(v) == exch::WalScanStep::Entry) {
+                if (static_cast<uint8_t>(v.type) ==
+                        exch::kWalEvtOptFill &&
+                    v.payload_len == sizeof(exch::WalOptFillPayload)) {
+                    exch::WalOptFillPayload p;
+                    std::memcpy(&p, v.payload, sizeof(p));
+                    basket_remember_leg(&bexec, p.op_hi, p.op_lo,
+                                        static_cast<uint8_t>(p.leg_index),
+                                        p.instrument_id, p.side,
+                                        p.order_id, p.account_id);
+                }
+            }
+        }
+    }
+
     // Task 9.3.11 — trace_id continuity HTTP -> Aeron -> C++ -> Aeron ->
     // Go (spec §19.12 byte contract): bind both outbound publishers to the
     // pump's TraceSlot so frames emitted inside a traced dispatch echo the
@@ -1228,6 +1766,7 @@ int main(int argc, char** argv) {
     // Stop the control-path poll threads before their targets leave scope.
     susp_stop.store(true, std::memory_order_release);
     sanc_stop.store(true, std::memory_order_release);
+    acct_stop.store(true, std::memory_order_release);
     feed_stop.store(true, std::memory_order_release);
     oracle_stop.store(true, std::memory_order_release);
     for (auto& sp : curve_slots) {
@@ -1240,6 +1779,7 @@ int main(int argc, char** argv) {
     }
     if (susp_thread.joinable()) susp_thread.join();
     if (sanc_thread.joinable()) sanc_thread.join();
+    if (acct_thread.joinable()) acct_thread.join();
     if (feed_thread.joinable()) feed_thread.join();
     if (oracle_thread.joinable()) oracle_thread.join();
     for (auto& sp : curve_slots) {

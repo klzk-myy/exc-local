@@ -130,6 +130,23 @@ bool IpcPublisher::publish_auction_event(uint32_t instrument_id,
     return emit(ev);
 }
 
+bool IpcPublisher::publish_basket_result(uint64_t op_hi, uint64_t op_lo,
+                                         uint64_t account_id, uint8_t status,
+                                         uint8_t code, uint8_t leg_count,
+                                         uint8_t legs_filled,
+                                         uint8_t legs_unwound,
+                                         int64_t slippage_ticks,
+                                         uint64_t duration_ns,
+                                         uint64_t ts_ns) noexcept {
+    namespace w = exc::wire;
+    const auto br = w::CreateBasketResult(
+        builder_, op_hi, op_lo, account_id, status, code, leg_count,
+        legs_filled, legs_unwound, slippage_ticks, duration_ns);
+    const auto ev = w::CreateEvent(builder_, pub_seq_, ts_ns,
+                                   w::EventType_BasketResult, br.Union());
+    return emit(ev);
+}
+
 #else  // !EXCH_IPC_FLATBUFFERS — degraded stub
 
 bool IpcPublisher::publish_trade(uint64_t, uint64_t, uint64_t, int64_t,
@@ -150,6 +167,13 @@ bool IpcPublisher::publish_book_snapshot(const OrderBook&, uint32_t,
 bool IpcPublisher::publish_auction_event(uint32_t, uint64_t, uint8_t,
                                          uint8_t, int64_t, int64_t, int64_t,
                                          int64_t, int64_t,
+                                         uint64_t) noexcept {
+    ++drops_;
+    return false;
+}
+bool IpcPublisher::publish_basket_result(uint64_t, uint64_t, uint64_t,
+                                         uint8_t, uint8_t, uint8_t, uint8_t,
+                                         uint8_t, int64_t, uint64_t,
                                          uint64_t) noexcept {
     ++drops_;
     return false;

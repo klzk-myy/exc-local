@@ -24,7 +24,9 @@
 #include "book/Instrument.hpp"
 #include "ipc/L3Publisher.hpp"
 #include "matching/IpcPublisher.hpp"
+#include "risk/BilateralCreditMatrix.h"
 #include "risk/InstrumentFeed.hpp"
+#include "risk/RiskInterfaces.hpp"
 #include "risk/PriceOracleFeed.hpp"
 #include "utils/safe_math.hpp"
 
@@ -1241,10 +1243,45 @@ MatchingEngine::TakerResult MatchingEngine::walk_match(
     const Side opp = taker.side == Side::BUY ? Side::SELL : Side::BUY;
     const uint32_t instr = instrument_id_of(aux);
 
+    // Bilateral credit screen (spec §3.3b / §24 #403, Phase-3 Task 5):
+    // when a matrix + party map are bound AND the taker maps to a party,
+    // every candidate pair whose maker ALSO maps must debit mutual
+    // headroom for the fill's quote notional before the fill commits.
+    // Skip leaves the resting order in place (price-time priority intact)
+    // and the walk advances; a level whose members are all skipped is
+    // stepped past via `frontier`, and a remainder that finds no eligible
+    // contra anywhere dies as BILATERAL_CREDIT_EXHAUSTED. Pairs with an
+    // unmapped party are unscreened and proceed ungated.
+    const uint32_t taker_party =
+        (credit_ != nullptr && credit_map_ != nullptr)
+            ? credit_map_->credit_party_id(taker.account_id)
+            : kCreditMaxParties;
+    const bool credit_on = credit_ != nullptr &&
+        taker_party < kCreditMaxParties;
+    std::size_t frontier = 0;          // leading levels exhausted by skips
+    const Order* skip_marker = nullptr;  // last skipped member (resume pt)
+    int64_t skip_marker_px = 0;          // marker's level price (membership)
+    bool credit_skipped = false;       // ≥1 skip this walk
+
     while (res.remaining > 0 && !res.dead && !wal_fault_) {
-        const PriceLevel* lvl = opp == Side::SELL ? book_.best_ask()
-                                                  : book_.best_bid();
-        if (lvl == nullptr) break;
+        // frontier > 0 ⇒ levels 0..frontier-1 persist (skipped members are
+        // never removed) and are known credit-exhausted; level(frontier)
+        // is the next candidate. Fill-consumed levels compact the array,
+        // so the same index is also correct after removals.
+        const PriceLevel* lvl =
+            frontier == 0
+                ? (opp == Side::SELL ? book_.best_ask() : book_.best_bid())
+                : book_.level(opp, frontier);
+        if (lvl == nullptr) {
+            if (credit_skipped) {
+                // Every resting order on the side was credit-skipped —
+                // the remainder must die, never rest (spec §3.3b).
+                res.dead = true;
+                res.dead_reason = kWalCancelReasonBilateralCredit;
+                res.dead_code = kCodeBilateralCreditExhausted;
+            }
+            break;
+        }
         // Phase-16 Task 16.3.13 — hidden/dark makers print at the
         // visible-BBO midpoint rather than the level price. An
         // unmatchable hidden member (no mid, mid beyond the taker limit,
@@ -1253,9 +1290,24 @@ MatchingEngine::TakerResult MatchingEngine::walk_match(
         // When no member of the best level is fillable the sweep halts:
         // mid is bounded by the visible BBO, so no deeper visible level
         // can cross either.
+        //
+        // Credit-skip resume: members up to and including skip_marker at
+        // THIS level already failed consume_or_skip — restart after it.
+        // The marker stays valid across iterations because skipped
+        // members are never removed within a walk and the intrusive
+        // unlink maintains predecessor next pointers on fill removals.
         Order* maker = lvl->head;
+        if (skip_marker != nullptr &&
+            skip_marker_px == lvl->price_ticks) {
+            maker = skip_marker->next;
+        }
         int64_t eff_px = lvl->price_ticks;
+        bool level_skipped = false;
         while (maker != nullptr) {
+            // Per-member reset — a credit-skipped HIDDEN maker would
+            // otherwise leave eff_px at the midpoint and the next visible
+            // member would fill at the stale mid instead of the level.
+            eff_px = lvl->price_ticks;
             if ((maker->flags & kOrderFlagHidden) != 0) {
                 const int64_t m2 = visible_midpoint();
                 if (m2 > 0 &&
@@ -1263,14 +1315,50 @@ MatchingEngine::TakerResult MatchingEngine::walk_match(
                      crosses(taker.side, limit_ticks, m2)) &&
                     ExecutionCollar::price_allowed(cb, m2)) {
                     eff_px = m2;
-                    break;
+                } else {
+                    maker = maker->next;
+                    continue;
                 }
-                maker = maker->next;
-                continue;
+            }
+            if (credit_on) {
+                const uint32_t mp =
+                    credit_map_->credit_party_id(maker->account_id);
+                if (mp < kCreditMaxParties) {
+                    // Debit the maximal fill this member could print —
+                    // a partial print over-debits conservatively (the
+                    // cell is a screen, not the ledger; the Go delta
+                    // feed rewrites it from authoritative PG rows).
+                    const int64_t m_rem = remaining_qty_units(*maker);
+                    const int64_t f =
+                        res.remaining < m_rem ? res.remaining : m_rem;
+                    int64_t mn = 0;
+                    if (f <= 0 || !notional_units(f, eff_px, mn) ||
+                        mn <= 0 ||
+                        credit_->consume_or_skip(mp, taker_party, mn) ==
+                            BilateralCreditMatrix::Gate::Skip) {
+                        skip_marker = maker;
+                        skip_marker_px = lvl->price_ticks;
+                        credit_skipped = true;
+                        level_skipped = true;
+                        maker = maker->next;
+                        continue;
+                    }
+                }
             }
             break;  // visible/pegged maker fills at the level price
         }
-        if (maker == nullptr) break;  // level unfillable — sweep halts
+        if (maker == nullptr) {
+            // All remaining members credit-skipped → step past the level;
+            // otherwise (price/collar/hidden causes) the sweep halts.
+            if (level_skipped ||
+                (skip_marker != nullptr &&
+                 skip_marker_px == lvl->price_ticks)) {
+                ++frontier;
+                skip_marker = nullptr;
+                continue;
+            }
+            break;  // level unfillable — sweep halts
+        }
         if (has_limit &&
             !crosses(taker.side, limit_ticks, eff_px)) {
             break;
@@ -1355,6 +1443,11 @@ MatchingEngine::TakerResult MatchingEngine::walk_match(
         if (publisher_ != nullptr) {
             (void)publisher_->publish_trade(tid, buy_id, sell_id, px, fill,
                                       book_.book_seq(), now_ns_);
+        }
+        // Phase-3 Task 4 — synchronous taker-fill observation for the
+        // basket match/unwind executors (armed per-call, single thread).
+        if (fill_obs_fn_ != nullptr) {
+            fill_obs_fn_(fill_obs_ctx_, taker.id, px, fill);
         }
         // L3 Fill — both legs of the same TRADE row share wal_seq:
         // taker post-fill remaining + maker post-fill remaining.
@@ -2958,6 +3051,22 @@ void MatchingEngine::on_amend_received(uint64_t order_id,
                          AmendRequest{new_price_ticks, new_qty_units,
                                       new_stop_price_ticks, 0, 0,
                                       ingress_seq});
+}
+
+void MatchingEngine::on_amend_received_ex(
+    uint64_t order_id, const IEngineIngress::AmendWire& req,
+    uint64_t ingress_seq) noexcept {
+    // Wire form (Phase-3 Task 2): order_seq is the §6.9 #1 stale-fence
+    // input; when the sender left it 0 the envelope seq stands in (both
+    // are per-shard monotonic seqAllocator values).
+    on_amend_received_ex(order_id,
+                         AmendRequest{req.price_ticks, req.qty_units,
+                                      req.stop_price_ticks,
+                                      req.display_qty_units,
+                                      req.gtd_expiry_ns,
+                                      req.order_seq != 0 ? req.order_seq
+                                                         : ingress_seq,
+                                      req.trigger_source});
 }
 
 void MatchingEngine::on_amend_received_ex(uint64_t order_id,

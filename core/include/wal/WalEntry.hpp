@@ -89,6 +89,26 @@ enum class WalEventType : uint8_t {
     // transition); the log supplies the audit trail. Payload is
     // WalPegRepricePayload.
     PEG_REPRICE,
+    // IMP-PLAN Phase-3 Task 4 — Task 2.3.8 cross-shard basket 2PC WAL
+    // contract (spec §2.2a/§13.1, §24 #214). Payloads are the packed
+    // WalBasket*Payload structs in matching/CrossShardCoordinator.hpp.
+    // NOTE: the header's original "reserve values 8-11" integrator note
+    // predates PREVENTED_MATCH/OCO_LINK/AUCTION_PHASE/ORDER_NEW_EX landing
+    // in those slots — the on-disk contract is append-only, so the real
+    // values live here (14-17) and the kWalEvtBasket* aliases point at
+    // them. Engine-bound rows replay via CrossShardCoordinator::recover.
+    BASKET_BEGIN,
+    BASKET_RESERVE,
+    BASKET_LEG_DONE,
+    BASKET_OUTCOME,
+    // Task 2.3.25 optimistic cross-shard (spec §2.2a, §24 #404). Payloads
+    // are WalOpt*Payload in matching/OptimisticShardCoordinator.hpp
+    // (same note applies — the header's 12-15 placeholders were consumed
+    // by ORDER_TRIGGERED/PEG_REPRICE before wiring landed).
+    OPT_BEGIN,
+    OPT_FILL,
+    OPT_UNWIND,
+    OPT_OUTCOME,
 };
 
 #pragma pack(push, 1)

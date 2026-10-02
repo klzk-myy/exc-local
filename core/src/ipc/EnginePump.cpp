@@ -6,8 +6,13 @@
 
 #include "ipc/IpcChannel.hpp"
 #include "ipc/SharedMemChannel.hpp"
+#include "ipc/CtlDemux.hpp"
+#include "matching/CrossShardCoordinator.hpp"
+#include "matching/OptimisticShardCoordinator.hpp"
 #include "matching/ExpiryScheduler.hpp"
+#include "matching/IpcPublisher.hpp"
 #include "matching/MatchingEngine.hpp"
+#include "risk/CrossShardMarginCoordinator.h"
 #include "utils/TimeUtils.hpp"
 #include "wal/Wal.hpp"
 #include "wal/WalEntry.hpp"
@@ -195,6 +200,13 @@ void MatchingEngineIngress::on_amend_received(uint64_t order_id,
     }
 }
 
+void MatchingEngineIngress::on_amend_received_ex(
+    uint64_t order_id, const AmendWire& req, uint64_t ingress_seq) noexcept {
+    if (engine_ != nullptr) {
+        engine_->on_amend_received_ex(order_id, req, ingress_seq);
+    }
+}
+
 void MatchingEngineIngress::on_oco_link_received(
     uint64_t link_id, uint64_t order_id_a, uint64_t order_id_b,
     uint64_t account_id, uint32_t instrument_id) noexcept {
@@ -308,6 +320,18 @@ void CurveIngress::on_amend_received(uint64_t order_id, int64_t price_ticks,
     drain();
 }
 
+void CurveIngress::on_amend_received_ex(uint64_t order_id,
+                                        const AmendWire& req,
+                                        uint64_t ingress_seq) noexcept {
+    MatchingEngine* e = owner_of(order_id);
+    if (e != nullptr) {
+        e->on_amend_received_ex(order_id, req, ingress_seq);
+    } else {
+        ++unrouted_amends_;
+    }
+    drain();
+}
+
 void CurveIngress::on_oco_link_received(uint64_t link_id, uint64_t order_id_a,
                                         uint64_t order_id_b,
                                         uint64_t account_id,
@@ -377,8 +401,14 @@ EnginePump::EnginePump(IpcChannel* inbound, IpcChannel* outbound, IEngineIngress
       shm_in_(dynamic_cast<SharedMemChannel*>(inbound)) {}
 
 uint32_t EnginePump::run_once(uint32_t max_batch) noexcept {
+    // Cross-shard service first: ctl frames drained + coordinator deadlines
+    // enforced even while the order ring is closed/empty. The 500µs
+    // optimistic-match window and the margin RPC's 500µs soft budget both
+    // need sub-tick drain cadence — this runs every loop pass.
+    service_cross_shard();
+
     uint32_t drained = 0;
-    if (inbound_ == nullptr || !inbound_->is_open()) return 0;
+    if (inbound_ == nullptr || !inbound_->is_open()) return drained;
 
     while (drained < max_batch) {
         if (shm_in_ != nullptr) {
@@ -410,6 +440,7 @@ uint32_t EnginePump::run_once(uint32_t max_batch) noexcept {
 }
 
 void EnginePump::tick(uint64_t now_ns) noexcept {
+    last_tick_ns_ = now_ns;  // ctl handling reads this between ticks
     if (wal_ != nullptr && opts_.wal_log_ticks) {
         WalTimeTickPayload p{};
         p.tick_ns = now_ns;
@@ -440,6 +471,58 @@ bool EnginePump::send_outbound(const void* data, uint32_t len) noexcept {
     }
     msgs_out_.fetch_add(1, std::memory_order_relaxed);
     return true;
+}
+
+// --- Phase-3 Task 4 — cross-shard service ------------------------------------
+//
+// One physical ctl channel feeds BOTH protocols through CtlDemux
+// (kBasketCtlMagic / kOptCtlMagic queues). Each coordinator then drains its
+// own queue inside its unchanged on_time_tick — which also runs the
+// reaper/deadline sweep gated on its own cadence. last_tick_ns_ is the
+// engine-logical clock (WAL TIME_TICK discipline — deterministic replay).
+void EnginePump::service_cross_shard() noexcept {
+    if (xctl_demux_ != nullptr) xctl_demux_->drain();
+    if (opt_coord_ != nullptr) opt_coord_->on_time_tick(last_tick_ns_);
+    if (basket_coord_ != nullptr) basket_coord_->on_time_tick(last_tick_ns_);
+    if (margin_coord_ != nullptr) margin_coord_->poll();
+
+    // Terminal sweep: emit Event{BasketResult} once per settled op. The
+    // coordinator keeps the op's cached result for wire-level dedup; this
+    // tracker exists only to push the outcome onto the outbound ring.
+    if (opt_coord_ == nullptr) return;
+    uint32_t i = 0;
+    while (i < pending_baskets_n_) {
+        const PendingBasket& p = pending_baskets_[i];
+        const OptResult r =
+            opt_coord_->status(BasketOpId{p.op_hi, p.op_lo});
+        const auto st = static_cast<OptStatus>(r.status);
+        if (st == OptStatus::Committed || st == OptStatus::Compensated ||
+            st == OptStatus::Failed || st == OptStatus::Rejected) {
+            emit_basket_result(p.op_hi, p.op_lo, p.account_id, r.status,
+                               r.code, r.leg_count, r.legs_filled,
+                               r.legs_unwound, r.slippage_ticks,
+                               last_tick_ns_ - p.start_ns);
+            pending_baskets_[i] = pending_baskets_[--pending_baskets_n_];
+            continue;  // re-examine the swapped-in entry
+        }
+        ++i;
+    }
+}
+
+void EnginePump::emit_basket_result(uint64_t op_hi, uint64_t op_lo,
+                                    uint64_t account_id, uint8_t status,
+                                    uint8_t code, uint8_t leg_count,
+                                    uint8_t legs_filled, uint8_t legs_unwound,
+                                    int64_t slippage_ticks,
+                                    uint64_t duration_ns) noexcept {
+    if (out_pub_ == nullptr || !out_pub_->bound()) {
+        note_outbound_drop();
+        return;
+    }
+    (void)out_pub_->publish_basket_result(op_hi, op_lo, account_id, status,
+                                          code, leg_count, legs_filled,
+                                          legs_unwound, slippage_ticks,
+                                          duration_ns, now_ns());
 }
 
 void EnginePump::note_outbound_drop() noexcept {
@@ -727,8 +810,23 @@ void EnginePump::dispatch(const uint8_t* data, uint32_t len) noexcept {
                     report("ENGINE_UNWIRED", "no ingress bound; OrderAmend dropped");
                     break;
                 }
-                engine_->on_amend_received(m->order_id(), m->price(), m->qty(),
-                                           m->stop_price(), ev->seq());
+                // Full AmendWire forward (Phase-3 Task 2): the legacy
+                // 5-arg call silently dropped the order_seq stale-fence,
+                // the gtd_expiry_ns re-arm, display_qty and trigger_source
+                // — the fields were on the wire but unreachable.
+                IEngineIngress::AmendWire aw{};
+                aw.order_seq = m->order_seq();
+                aw.price_ticks = m->price();
+                aw.qty_units = m->qty();
+                aw.stop_price_ticks = m->stop_price();
+                aw.gtd_expiry_ns = m->gtd_expiry_ns();
+                aw.display_qty_units = m->display_qty();
+                // Wire value passes through verbatim: the Go encoder
+                // always writes the field (0xFF = unchanged), so a wire
+                // 0 is an explicit amend-back-to-LAST_PRICE request —
+                // remapping it to 0xFF would silently drop the switch.
+                aw.trigger_source = m->trigger_source();
+                engine_->on_amend_received_ex(m->order_id(), aw, ev->seq());
                 msgs_dispatched_.fetch_add(1, std::memory_order_relaxed);
                 break;
             }
@@ -748,6 +846,75 @@ void EnginePump::dispatch(const uint8_t* data, uint32_t len) noexcept {
                 engine_->on_oco_link_received(m->link_id(), m->order_id_a(),
                                               m->order_id_b(), m->account_id(),
                                               m->instrument_id());
+                msgs_dispatched_.fetch_add(1, std::memory_order_relaxed);
+                break;
+            }
+            case exc::wire::EventType_BasketSubmit: {
+                const exc::wire::BasketSubmit* m = ev->type_as_BasketSubmit();
+                if (m == nullptr) {
+                    quarantine(data, len, "basketsubmit_payload_missing");
+                    break;
+                }
+                if (opt_coord_ == nullptr) {
+                    unrouted_drops_.fetch_add(1, std::memory_order_relaxed);
+                    report("ENGINE_UNWIRED",
+                           "no cross-shard coordinator bound; BasketSubmit dropped");
+                    break;
+                }
+                const auto* wlegs = m->legs();
+                const uint32_t n =
+                    wlegs != nullptr ? wlegs->size() : 0;
+                if (n < 2 || n > CrossShardCoordinator::kMaxLegs ||
+                    m->account_id() == 0 ||
+                    (m->op_id_hi() == 0 && m->op_id_lo() == 0)) {
+                    decode_errors_.fetch_add(1, std::memory_order_relaxed);
+                    report("DECODE_ERROR", "BasketSubmit gate failed (legs/account/op_id)");
+                    break;
+                }
+                OptLegSpec legs[CrossShardCoordinator::kMaxLegs]{};
+                bool bad = false;
+                for (uint32_t i = 0; i < n; ++i) {
+                    const auto* l = wlegs->Get(i);
+                    if (l == nullptr || l->qty() <= 0 || l->side() > 1) {
+                        bad = true;
+                        break;
+                    }
+                    legs[i].shard_id = l->shard_id();
+                    legs[i].instrument_id = l->instrument_id();
+                    legs[i].account_id = m->account_id();
+                    legs[i].order_id = l->order_id();
+                    legs[i].qty_units = l->qty();
+                    legs[i].limit_price_ticks = l->limit_price();
+                    legs[i].side = static_cast<uint8_t>(l->side());
+                }
+                if (bad) {
+                    decode_errors_.fetch_add(1, std::memory_order_relaxed);
+                    report("DECODE_ERROR", "BasketSubmit leg validation failed");
+                    break;
+                }
+                const BasketOpId op{m->op_id_hi(), m->op_id_lo()};
+                const OptResult r = opt_coord_->submit(
+                    legs, n, m->account_id(), op, last_tick_ns_);
+                const auto st = static_cast<OptStatus>(r.status);
+                if (st == OptStatus::Committed || st == OptStatus::Compensated ||
+                    st == OptStatus::Failed || st == OptStatus::Rejected) {
+                    // Gate rejections + synchronous resolutions publish
+                    // immediately — no tracker slot spent.
+                    emit_basket_result(op.hi, op.lo, m->account_id(),
+                                       r.status, r.code, r.leg_count,
+                                       r.legs_filled, r.legs_unwound,
+                                       r.slippage_ticks, 0);
+                } else if (pending_baskets_n_ < kMaxPendingBaskets) {
+                    pending_baskets_[pending_baskets_n_++] =
+                        PendingBasket{op.hi, op.lo, m->account_id(),
+                                      last_tick_ns_};
+                } else {
+                    // Tracker exhausted — the op still runs to completion
+                    // coordinator-side; the client reconciles via leg fills
+                    // and coordinator metrics. Loud, not silent.
+                    report("ENGINE_OVERLOAD",
+                           "pending basket tracker full; BasketResult will not be emitted");
+                }
                 msgs_dispatched_.fetch_add(1, std::memory_order_relaxed);
                 break;
             }

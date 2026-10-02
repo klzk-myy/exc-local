@@ -917,6 +917,12 @@ void CrossShardCoordinator::on_frame(const uint8_t* buf, uint32_t len,
         ++metrics_.bad_frames;  // malformed control frame — drop, fail closed
         return;
     }
+    // Point-to-point delivery guard — misrouted/foreign-dst frames must
+    // never reach the state machine (Phase-3 Task 4).
+    if (v.dst_shard != opts_.shard_id) {
+        ++metrics_.bad_frames;
+        return;
+    }
     switch (v.type) {
         case BasketCtlType::ReserveReq:  on_reserve_req(v, now_ns);   break;
         case BasketCtlType::ReserveAck:  on_reserve_vote(v, true, now_ns);  break;

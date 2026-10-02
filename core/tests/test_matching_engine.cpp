@@ -5,9 +5,13 @@
 
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <cstdio>
 #include <string>
+#include <unordered_map>
 #include <unistd.h>
+
+#include <sys/mman.h>  // shm_unlink
 
 #include "book/Order.hpp"
 #include "book/OrderBook.hpp"
@@ -15,6 +19,8 @@
 #include "matching/IpcPublisher.hpp"
 #include "matching/MatchingEngine.hpp"
 #include "matching/WalWriter.hpp"
+#include "risk/BilateralCreditMatrix.h"
+#include "risk/RiskInterfaces.hpp"
 #include "utils/MemoryPool.hpp"
 #include "wal/Wal.hpp"
 
@@ -611,4 +617,238 @@ TEST(MatchingEngine, RiskHookPropagatesCode) {
         mk(f.pool, 1, Side::SELL, OrderType::LIMIT, P(5000), 10));
     EXPECT_STREQ(f.engine.last_reject(), "PRICE_OUT_OF_BAND");
     EXPECT_EQ(f.book.live_orders(), 0u);
+}
+
+// --- Phase-3 Task 5 — bilateral credit consume_or_skip in the walk ----------
+// Spec §3.3b / §24 #403: when a matrix + party map are bound and the taker
+// maps to a party, every screened maker pair must debit mutual headroom;
+// Skip preserves price-time priority and unscreened pairs proceed ungated.
+
+namespace {
+
+struct CreditMapStub final : IPartyMap {
+    std::unordered_map<uint64_t, uint32_t> by_acct;
+    [[nodiscard]] uint32_t credit_party_id(uint64_t a) const
+        noexcept override {
+        const auto it = by_acct.find(a);
+        return it == by_acct.end() ? kCreditMaxParties : it->second;
+    }
+};
+
+std::atomic<int> g_credit_shm_seq{0};
+
+// Fresh shm matrix per test (unique name, unlinked on scope exit).
+struct CreditFixture {
+    std::string name;
+    BilateralCreditMatrix matrix;
+    CreditMapStub pmap;
+
+    CreditFixture() : name(unique()) {
+        std::string path = "/" + name;
+        ::shm_unlink(path.c_str());
+        EXPECT_TRUE(matrix.open(name, /*create=*/true));
+    }
+    ~CreditFixture() {
+        matrix.close();
+        ::shm_unlink(("/" + name).c_str());
+    }
+    static std::string unique() {
+        char buf[96];
+        std::snprintf(buf, sizeof(buf), "exch_mcm_%d_%d",
+                      static_cast<int>(::getpid()),
+                      g_credit_shm_seq.fetch_add(1));
+        return buf;
+    }
+    // Mutual headroom between two parties.
+    void grant(uint32_t a, uint32_t b, uint64_t ticks) {
+        EXPECT_TRUE(matrix.apply_update(a, b, ticks));
+        EXPECT_TRUE(matrix.apply_update(b, a, ticks));
+    }
+};
+
+// Order args sized so qty*price/1e8 lands in the thousands: qty=1000
+// units @ 1e9 ticks -> 10'000 quote notional.
+constexpr int64_t kCreditPx = 1'000'000'000;
+
+}  // namespace
+
+TEST(MatchingEngineCredit, ScreenedPairFillsWithMutualCredit) {
+    Fixture f;
+    CreditFixture cm;
+    cm.pmap.by_acct[1] = 1;
+    cm.pmap.by_acct[2] = 2;
+    cm.grant(1, 2, 20'000);
+    f.engine.bind_credit(&cm.matrix, &cm.pmap);
+
+    f.engine.on_order_received(
+        mk(f.pool, 1, Side::SELL, OrderType::LIMIT, kCreditPx, 1000));
+    f.engine.on_order_received(
+        mk(f.pool, 2, Side::BUY, OrderType::LIMIT, kCreditPx, 500,
+           /*acct=*/2));
+
+    EXPECT_EQ(f.engine.trades_emitted(), 1u);
+    // notional = 500 * 1e9 / 1e8 = 5'000 debited from BOTH directions.
+    EXPECT_EQ(cm.matrix.credit_limit(1, 2), 15'000u);
+    EXPECT_EQ(cm.matrix.credit_limit(2, 1), 15'000u);
+    const Order* maker = f.book.find_order(1);
+    ASSERT_NE(maker, nullptr);
+    EXPECT_EQ(remaining_qty_units(*maker), 500);
+    EXPECT_EQ(f.engine.last_reject(), nullptr);
+}
+
+TEST(MatchingEngineCredit, ExhaustedRemainderRejected) {
+    Fixture f;
+    CreditFixture cm;
+    cm.pmap.by_acct[1] = 1;
+    cm.pmap.by_acct[3] = 3;
+    // No cells -> zero mutual credit between parties 1 and 3.
+    f.engine.bind_credit(&cm.matrix, &cm.pmap);
+
+    f.engine.on_order_received(
+        mk(f.pool, 1, Side::SELL, OrderType::LIMIT, kCreditPx, 1000));
+    f.engine.on_order_received(
+        mk(f.pool, 2, Side::BUY, OrderType::LIMIT, kCreditPx, 500,
+           /*acct=*/3));
+
+    EXPECT_EQ(f.engine.trades_emitted(), 0u);
+    EXPECT_STREQ(f.engine.last_reject(), "BILATERAL_CREDIT_EXHAUSTED");
+    // Skip NEVER removes or reorders the resting order.
+    const Order* maker = f.book.find_order(1);
+    ASSERT_NE(maker, nullptr);
+    EXPECT_EQ(remaining_qty_units(*maker), 1000);
+    // The taker remainder died — nothing rested on the bid side.
+    EXPECT_EQ(f.book.find_order(2), nullptr);
+}
+
+TEST(MatchingEngineCredit, SkipPreservesPriorityAndDescends) {
+    Fixture f;
+    CreditFixture cm;
+    cm.pmap.by_acct[1] = 1;
+    cm.pmap.by_acct[2] = 2;
+    cm.pmap.by_acct[3] = 3;
+    // Taker (party 3) has no credit with party 1, full credit with party 2.
+    cm.grant(2, 3, 50'000);
+    f.engine.bind_credit(&cm.matrix, &cm.pmap);
+
+    // Better price level held by an uncredited maker; deeper level by a
+    // credited one — the taker must skip #1 and fill vs #2 at ITS price.
+    f.engine.on_order_received(
+        mk(f.pool, 1, Side::SELL, OrderType::LIMIT, kCreditPx, 1000));
+    f.engine.on_order_received(
+        mk(f.pool, 2, Side::SELL, OrderType::LIMIT, kCreditPx + 10'000,
+           1000, /*acct=*/2));
+    f.engine.on_order_received(
+        mk(f.pool, 3, Side::BUY, OrderType::LIMIT, kCreditPx + 10'000, 500,
+           /*acct=*/3));
+
+    EXPECT_EQ(f.engine.trades_emitted(), 1u);
+    const Order* skipped = f.book.find_order(1);
+    ASSERT_NE(skipped, nullptr);
+    EXPECT_EQ(remaining_qty_units(*skipped), 1000);
+    EXPECT_EQ(f.engine.last_price_ticks(),
+              static_cast<uint64_t>(kCreditPx + 10'000));
+    EXPECT_EQ(cm.matrix.credit_limit(2, 3), 45'000u);
+}
+
+TEST(MatchingEngineCredit, UnscreenedTakerUngated) {
+    Fixture f;
+    CreditFixture cm;
+    cm.pmap.by_acct[1] = 1;  // maker screened; taker acct 9 unmapped.
+    f.engine.bind_credit(&cm.matrix, &cm.pmap);
+
+    f.engine.on_order_received(
+        mk(f.pool, 1, Side::SELL, OrderType::LIMIT, kCreditPx, 1000));
+    f.engine.on_order_received(
+        mk(f.pool, 2, Side::BUY, OrderType::LIMIT, kCreditPx, 500,
+           /*acct=*/9));
+    EXPECT_EQ(f.engine.trades_emitted(), 1u);
+    EXPECT_EQ(f.engine.last_reject(), nullptr);
+}
+
+TEST(MatchingEngineCredit, UnscreenedMakerProceeds) {
+    Fixture f;
+    CreditFixture cm;
+    cm.pmap.by_acct[3] = 3;  // taker screened; maker acct 9 unmapped.
+    f.engine.bind_credit(&cm.matrix, &cm.pmap);
+
+    f.engine.on_order_received(
+        mk(f.pool, 1, Side::SELL, OrderType::LIMIT, kCreditPx, 1000,
+           /*acct=*/9));
+    f.engine.on_order_received(
+        mk(f.pool, 2, Side::BUY, OrderType::LIMIT, kCreditPx, 500,
+           /*acct=*/3));
+    EXPECT_EQ(f.engine.trades_emitted(), 1u);
+    EXPECT_EQ(f.engine.last_reject(), nullptr);
+}
+
+TEST(MatchingEngineCredit, DebitDrainsThenExhausts) {
+    Fixture f;
+    CreditFixture cm;
+    cm.pmap.by_acct[1] = 1;
+    cm.pmap.by_acct[3] = 3;
+    // One fill's worth of mutual credit only (5'000): the first 500-unit
+    // print drains both cells; the second maker then skips and the taker
+    // remainder must die — never partially rest against uncredited flow.
+    cm.grant(1, 3, 5'000);
+    f.engine.bind_credit(&cm.matrix, &cm.pmap);
+
+    f.engine.on_order_received(
+        mk(f.pool, 1, Side::SELL, OrderType::LIMIT, kCreditPx, 500));
+    f.engine.on_order_received(
+        mk(f.pool, 2, Side::SELL, OrderType::LIMIT, kCreditPx, 500));
+    f.engine.on_order_received(
+        mk(f.pool, 3, Side::BUY, OrderType::LIMIT, kCreditPx, 1000,
+           /*acct=*/3));
+
+    EXPECT_EQ(f.engine.trades_emitted(), 1u);
+    EXPECT_STREQ(f.engine.last_reject(), "BILATERAL_CREDIT_EXHAUSTED");
+    EXPECT_EQ(f.book.find_order(1), nullptr);  // filled away
+    const Order* second = f.book.find_order(2);
+    ASSERT_NE(second, nullptr);
+    EXPECT_EQ(remaining_qty_units(*second), 500);  // skipped, intact
+    EXPECT_EQ(cm.matrix.credit_limit(1, 3), 0u);
+    EXPECT_EQ(cm.matrix.credit_limit(3, 1), 0u);
+}
+
+TEST(MatchingEngineCredit, CreditSkippedHiddenDoesNotLeakMidpoint) {
+    // Regression (2026-10-02): a HIDDEN maker that passes the midpoint
+    // gate sets eff_px=mid, then fails consume_or_skip — the NEXT visible
+    // member of the level must still fill at the level price, not the
+    // stale mid the hidden member left behind.
+    Fixture f;
+    CreditFixture cm;
+    cm.pmap.by_acct[1] = 1;  // hidden maker -> party 1
+    cm.pmap.by_acct[2] = 2;  // visible maker -> party 2
+    cm.pmap.by_acct[3] = 3;  // taker        -> party 3
+    cm.grant(2, 3, 50'000);  // taker has credit with party 2 only
+    f.engine.bind_credit(&cm.matrix, &cm.pmap);
+
+    // Visible bid establishes the midpoint against the visible ask:
+    // mid = ((kCreditPx-20000) + kCreditPx)/2 = kCreditPx-10000.
+    f.engine.on_order_received(
+        mk(f.pool, 90, Side::BUY, OrderType::LIMIT, kCreditPx - 20'000,
+           100, /*acct=*/9));
+    Order* hid =
+        mk(f.pool, 1, Side::SELL, OrderType::LIMIT, kCreditPx, 1000);
+    ASSERT_NE(hid, nullptr);
+    hid->flags |= kOrderFlagHidden;
+    f.engine.on_order_received(hid);  // party 1 — uncredited vs taker
+    f.engine.on_order_received(
+        mk(f.pool, 2, Side::SELL, OrderType::LIMIT, kCreditPx, 1000,
+           /*acct=*/2));  // same level, behind the hidden member
+
+    f.engine.on_order_received(
+        mk(f.pool, 3, Side::BUY, OrderType::LIMIT, kCreditPx, 500,
+           /*acct=*/3));
+
+    EXPECT_EQ(f.engine.trades_emitted(), 1u);
+    // Fill prints at the maker LEVEL, never the stale hidden midpoint.
+    EXPECT_EQ(f.engine.last_price_ticks(),
+              static_cast<uint64_t>(kCreditPx));
+    const Order* skipped = f.book.find_order(1);
+    ASSERT_NE(skipped, nullptr);
+    EXPECT_EQ(remaining_qty_units(*skipped), 1000);  // hidden intact
+    const Order* filled = f.book.find_order(2);
+    ASSERT_NE(filled, nullptr);
+    EXPECT_EQ(remaining_qty_units(*filled), 500);
 }
