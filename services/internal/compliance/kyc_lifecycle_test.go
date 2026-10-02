@@ -24,6 +24,8 @@ type fakeLifecycleStore struct {
 	downApplied bool
 	downErr     error
 	downIn      []DowngradeTx
+	pending     []Submission
+	pendingErr  error
 }
 
 func (f *fakeLifecycleStore) SubmissionByID(context.Context, int64) (*Submission, error) {
@@ -39,6 +41,9 @@ func (f *fakeLifecycleStore) OverdueReverifications(context.Context, time.Time, 
 func (f *fakeLifecycleStore) DowngradeReverifyTx(_ context.Context, p DowngradeTx) (bool, error) {
 	f.downIn = append(f.downIn, p)
 	return f.downApplied, f.downErr
+}
+func (f *fakeLifecycleStore) PendingSubmissions(context.Context, int) ([]Submission, error) {
+	return f.pending, f.pendingErr
 }
 func (f *fakeLifecycleStore) TierPolicy(context.Context, string) (*TierPolicy, error) {
 	return f.policy, f.policyErr
@@ -284,5 +289,23 @@ func TestSweepReverify_FeedErrorFailsClosed(t *testing.T) {
 	svc := lifecycleForTest(t, store, &captureNotifier{}, nil)
 	if _, err := svc.SweepReverify(context.Background(), 100); codeOf(t, err) != "SERVICE_DEGRADED" {
 		t.Fatalf("feed error must degrade closed, got %v", err)
+	}
+}
+
+func TestPendingQueue_RoleGated(t *testing.T) {
+	store := &fakeLifecycleStore{pending: []Submission{{ID: 7, Status: SubPendingReview}}}
+	svc := lifecycleForTest(t, store, &captureNotifier{}, nil)
+	// No role resolution → fail closed.
+	svc.resolver = nil
+	if _, err := svc.PendingQueue(context.Background(), ReviewActor{AdminUserID: 9}, 50); codeOf(t, err) != "UNAUTHORIZED_ROLE" {
+		t.Fatalf("nil resolver must fail closed, got %v", err)
+	}
+	if _, err := svc.PendingQueue(context.Background(), ReviewActor{}, 50); codeOf(t, err) != "UNAUTHORIZED" {
+		t.Fatalf("anonymous actor must be rejected, got %v", err)
+	}
+	svc.resolver = func(context.Context, int64) (string, error) { return "Compliance Officer", nil }
+	subs, err := svc.PendingQueue(context.Background(), ReviewActor{AdminUserID: 9}, 50)
+	if err != nil || len(subs) != 1 || subs[0].ID != 7 {
+		t.Fatalf("queue must return pending rows, got %v err %v", subs, err)
 	}
 }

@@ -194,6 +194,25 @@ func nextBoundary(now time.Time) (time.Time, SessionState) {
 	return time.Time{}, SessionOpen // unreachable within a 9-day scan
 }
 
+// NextSessionClose returns the instant the next SessionClosed boundary
+// enters — the spec §5.4 DAY-order expiry under the weekly 24/5 grid
+// (Friday 22:00 UTC). Zero when unreachable (never, on the canonical
+// grid — fail closed by returning zero so callers leave expiry unset).
+func NextSessionClose(now time.Time) time.Time {
+	cur := now.UTC()
+	for i := 0; i < 16; i++ {
+		at, st := nextBoundary(cur)
+		if st == SessionClosed {
+			return at
+		}
+		if at.IsZero() {
+			return time.Time{}
+		}
+		cur = at
+	}
+	return time.Time{}
+}
+
 // lastBoundary returns the most recent transition instant at-or-before
 // now — the epoch that identifies the current boundary's effects lock.
 func lastBoundary(now time.Time) (time.Time, SessionState) {

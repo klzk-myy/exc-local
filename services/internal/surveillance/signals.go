@@ -43,6 +43,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -301,6 +302,12 @@ type Engine struct {
 	states map[string]*symState
 	closeW dayWindow
 	annWs  []dayWindow
+
+	// §14.9 detection-latency SLA seam: the wall-clock lag between an L3
+	// event's engine timestamp and its Apply — the probe reads it
+	// concurrently with the pump goroutine, hence atomics.
+	lastDetectionNs atomic.Int64
+	appliedTotal    atomic.Uint64
 }
 
 // dayWindow is a UTC "HH:MM-HH:MM" daily window.
@@ -383,6 +390,10 @@ func (e *Engine) Run(ctx context.Context, src marketdata.L3Source) error {
 // sink synchronously but the sink contract is a fast idempotent insert;
 // detector bookkeeping happens first so a sink error never corrupts state.
 func (e *Engine) Apply(ctx context.Context, ev marketdata.L3Event) {
+	e.appliedTotal.Add(1)
+	if !ev.Ts.IsZero() {
+		e.lastDetectionNs.Store(e.cfg.Now().Sub(ev.Ts).Nanoseconds())
+	}
 	if ev.Symbol == "" || ev.Seq == 0 {
 		return
 	}

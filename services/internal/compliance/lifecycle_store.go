@@ -93,6 +93,47 @@ func (s *PgStore) SubmissionByID(ctx context.Context, submissionID int64) (*Subm
 	return &sub, nil
 }
 
+// PendingSubmissions lists review-queue rows — PENDING_REVIEW or
+// UNDER_REVIEW, oldest SLA first (Task 14.3.4 officer queue).
+func (s *PgStore) PendingSubmissions(ctx context.Context, limit int) ([]Submission, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 200
+	}
+	rows, err := s.Pool.Query(ctx, `
+		SELECT id, account_id, requested_tier, status, jurisdiction,
+		       risk_score, submitted_at, sla_due_at, verified_at,
+		       reverify_due_at, reviewed_at, reject_reason, appeal_of,
+		       created_at, updated_at
+		  FROM kyc_submissions
+		 WHERE status IN ('PENDING_REVIEW','UNDER_REVIEW')
+		 ORDER BY sla_due_at ASC
+		 LIMIT $1`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("compliance: pending submissions: %w", err)
+	}
+	defer rows.Close()
+	out := []Submission{}
+	for rows.Next() {
+		var sub Submission
+		var jur, reason *string
+		if err := rows.Scan(
+			&sub.ID, &sub.AccountID, &sub.RequestedTier, &sub.Status, &jur,
+			&sub.RiskScore, &sub.SubmittedAt, &sub.SLADueAt, &sub.VerifiedAt,
+			&sub.ReverifyDueAt, &sub.ReviewedAt, &reason, &sub.AppealOf,
+			&sub.CreatedAt, &sub.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("compliance: pending scan: %w", err)
+		}
+		if jur != nil {
+			sub.Jurisdiction = *jur
+		}
+		if reason != nil {
+			sub.RejectReason = *reason
+		}
+		out = append(out, sub)
+	}
+	return out, rows.Err()
+}
+
 // AccountUserID resolves accounts.user_id (audit attribution).
 func (s *PgStore) AccountUserID(ctx context.Context, accountID int64) (int64, error) {
 	var uid int64

@@ -136,6 +136,9 @@ type LifecycleStore interface {
 	// Returns applied=false when the account no longer sits at T2
 	// (concurrent re-verification or an earlier pass) — idempotent.
 	DowngradeReverifyTx(ctx context.Context, p DowngradeTx) (applied bool, err error)
+	// PendingSubmissions feeds GET /admin/kyc/pending — PENDING_REVIEW
+	// + UNDER_REVIEW rows ordered by SLA (oldest first).
+	PendingSubmissions(ctx context.Context, limit int) ([]Submission, error)
 	// TierPolicy reads kyc_tier_policies (shared with kyc.go).
 	TierPolicy(ctx context.Context, tier string) (*TierPolicy, error)
 }
@@ -215,6 +218,15 @@ func (s *LifecycleService) requireComplianceRole(ctx context.Context, actor Revi
 			op+" requires Compliance Officer or Super Admin")
 	}
 	return nil
+}
+
+// PendingQueue serves GET /admin/kyc/pending — the officer review
+// queue, role-gated like the decision endpoints (§8.2).
+func (s *LifecycleService) PendingQueue(ctx context.Context, actor ReviewActor, limit int) ([]Submission, error) {
+	if err := s.requireComplianceRole(ctx, actor, "kyc.queue"); err != nil {
+		return nil, err
+	}
+	return s.store.PendingSubmissions(ctx, limit)
 }
 
 // notify emits post-commit via the wired seam (nil-seam safe — the

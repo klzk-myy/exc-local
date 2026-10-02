@@ -527,4 +527,12 @@ var localCodes = []CodeDef{
 	// is a transcription row.
 	localRow("INCIDENT_CLOSURE_BLOCKED", 409, "Phase-09 Task 9.3.15",
 		"Material incident CLOSED transition refused: overdue/pending DORA regulator reports, incomplete P0/P1 post-mortem artifacts, or unresolved/unaccepted remediation items (spec §19.5, §19.8)"),
+	// §27.1 MTF/Fair-Value matrix row cites both codes (400, L2 / 503,
+	// L1); no §23 row — same transcription gap as the rows above.
+	// Emitted by internal/algo fixing admission and
+	// internal/derivatives forward/NDF booking.
+	localRow("FIXING_WINDOW_CLOSED", 400, "Phase-16 Task 16.3.9",
+		"Fixing-order operation targets a benchmark with no enabled upcoming window (disabled/delisted fixing on the instrument's auction calendar) — spec §27.1 MTF/Fair-Value row"),
+	localRow("FAIR_VALUE_DIVERGENCE", 503, "Phase-22 Task 22.3.1",
+		"Explicit agreed forward/NDF rate diverges from the CIP fair value beyond the 25 bps band (spec §15.3 formula, §27.1 MTF/Fair-Value row, oracle-divergence convention)"),
 }

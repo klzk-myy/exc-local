@@ -407,3 +407,27 @@ func countStr(xs []string, s string) int {
 	}
 	return n
 }
+
+// spec §5.4 DAY expiry: the next SessionClosed boundary is the Friday
+// 22:00 UTC close under the 24/5 grid — from any weekday or weekend.
+func TestNextSessionClose(t *testing.T) {
+	cases := []struct {
+		name string
+		now  time.Time
+		want time.Time
+	}{
+		{"monday", time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC),
+			time.Date(2026, 10, 2, 22, 0, 0, 0, time.UTC)}, // Mon → Fri close
+		{"friday morning", time.Date(2026, 10, 2, 9, 0, 0, 0, time.UTC),
+			time.Date(2026, 10, 2, 22, 0, 0, 0, time.UTC)}, // Fri < close
+		{"saturday", time.Date(2026, 10, 3, 12, 0, 0, 0, time.UTC),
+			time.Date(2026, 10, 9, 22, 0, 0, 0, time.UTC)}, // weekend → next Fri
+		{"sunday open", time.Date(2026, 10, 4, 21, 30, 0, 0, time.UTC),
+			time.Date(2026, 10, 9, 22, 0, 0, 0, time.UTC)}, // Sun in-session → Fri
+	}
+	for _, tc := range cases {
+		if got := NextSessionClose(tc.now); !got.Equal(tc.want) {
+			t.Fatalf("%s: NextSessionClose = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
