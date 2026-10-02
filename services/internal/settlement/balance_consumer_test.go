@@ -5,6 +5,7 @@ package settlement
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -140,6 +141,61 @@ func TestConsumerRepublishFailureHalts(t *testing.T) {
 	// the same msg id (idempotent), so halting is the correct behavior.
 	if store.committed() != 1 {
 		t.Fatalf("commit must land before republish aborts (commits=%d)", store.committed())
+	}
+}
+
+func TestConsumerRepublishDeadLettersBadSubject(t *testing.T) {
+	store := newFakeStore()
+	svc := newBalanceServiceForTest(store, &fakeLocker{}, &fakeDispatcher{}, &fakeManagedPoster{}, &fakeAlerter{})
+	rt := resolvedRM(42, 1, 2)
+	rt.Symbol = "EUR.USD" // '.' is a subject separator — deterministic fail
+	resolver := &fakeResolver{m: map[uint64]ResolvedTrade{42: rt}}
+
+	src := FuncSource(func(limit int, deliver func([]byte)) int {
+		fb := flatbuffers.NewBuilder(256)
+		deliver(encodeFill(fb, 7, 42, 101, 202, 125000000, 10000_00000000))
+		return 1
+	})
+
+	var logLines []string
+	var mu sync.Mutex
+	repub := &recordingRepublisher{}
+	c, err := NewFillConsumer(svc, resolver, src, 0, 1, time.Millisecond)
+	if err != nil {
+		t.Fatalf("consumer: %v", err)
+	}
+	c.WithRepublisher(repub).WithLogger(func(f string, a ...any) {
+		mu.Lock()
+		logLines = append(logLines, fmt.Sprintf(f, a...))
+		mu.Unlock()
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- c.Run(ctx) }()
+	deadline := time.Now().Add(2 * time.Second)
+	for c.Metrics().RepubDropped == 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	cancel()
+	<-done
+
+	// The fill committed; the bad subject dead-lettered instead of
+	// aborting — a restart loop here would wedge the ring forever on a
+	// failure replay can never fix.
+	if store.committed() == 0 {
+		t.Fatal("fill must commit despite dead-lettered republish")
+	}
+	if repub.count() != 0 {
+		t.Fatalf("publisher must not be called for an invalid subject (calls=%d)", repub.count())
+	}
+	if c.Metrics().RepubDropped == 0 {
+		t.Fatal("RepubDropped not counted")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(logLines) == 0 || !strings.Contains(logLines[0], "dead-letter") {
+		t.Fatalf("expected dead-letter log line, got %v", logLines)
 	}
 }
 

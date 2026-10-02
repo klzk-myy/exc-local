@@ -58,7 +58,7 @@ balance mutations · fail-closed zero-loss pessimism (spec §2.7) · degradation
 ```
 core/            C++ matching engine, WAL, IPC (CMake: build/, build-debug/, build-prof/)
 services/        Go services — cmd/<binary> entrypoints, internal/ packages, config/,
-                 internal/db/migrations/ (209 PostgreSQL migration pairs)
+                 internal/db/migrations/ (210 PostgreSQL migration pairs)
 frontend/        React 18 + TS web UI
 tests/           spec/ (checkpoint harness) · soak/ · load/ · chaos/ · integration/ · pentest/
 deploy/          k8s/, baremetal/, ansible/, grafana/, haproxy/, edge/, dr/, clickhouse/, crons/
@@ -233,7 +233,7 @@ CI: `.github/workflows/ci.yml` (10 jobs) + `security.yml` (5 jobs) — currently
 ## Current status
 
 - All 30 phases (24 core + 6 buffer) implemented — 479 tasks, 542 checkpoints.
-- 209 migration pairs · 419 §24 acceptance criteria · 149+ error codes.
+- 210 migration pairs · 419 §24 acceptance criteria · 149+ error codes.
 - Open items are **environment-bound evidence gates**, not code gaps:
   - **72h soak @ 50k ord/s** — needs a dedicated benchmark host for the p99≤50µs criterion; engine ceiling ≥90.7k/s measured (supersedes "~15k/s dev-host ceiling" — that figure was the loadgen's ~20µs/order send loop, not engine capacity); all other Phase-02.5 criteria verified incl. crash-restart 614ms–1359ms ≪10s.
   - **75k/s × 4h staging gate** — needs a provisioned staging cluster; artifact contract `staging-report.json` armed (`ckP085StagingGate`).

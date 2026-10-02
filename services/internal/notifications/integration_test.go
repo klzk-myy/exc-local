@@ -10,6 +10,7 @@ package notifications
 import (
 	"context"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 
@@ -47,7 +48,17 @@ func testRedis(t *testing.T) *excredis.Client {
 	if addr == "" {
 		addr = defaultTestRedis
 	}
-	rdb := excredis.New(addr, os.Getenv("EXC_REDIS_TEST_PASSWORD"), 0)
+	// DB 15, not the gateway's DB 0 — the live notification worker
+	// drains notifications:pending on db 0 and races this test's queue
+	// assertions (observed: pending=0 flake). EXC_REDIS_TEST_DB
+	// overrides for environments where 15 is already claimed.
+	db := 15
+	if v := os.Getenv("EXC_REDIS_TEST_DB"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			db = n
+		}
+	}
+	rdb := excredis.New(addr, os.Getenv("EXC_REDIS_TEST_PASSWORD"), db)
 	if err := rdb.Ping(context.Background()); err != nil {
 		t.Skipf("redis unreachable at %s: %v", addr, err)
 	}

@@ -140,11 +140,17 @@ type FillConsumer struct {
 	batchMax int
 	flush    time.Duration
 
-	malformed atomic.Uint64 // undecodable frames (counted, not fatal)
-	nonFill   atomic.Uint64 // non-TradeFill events skipped
-	resolved  atomic.Uint64 // fills resolved + queued
-	flushed   atomic.Uint64 // commits completed
-	republished atomic.Uint64 // committed fills re-emitted to JetStream
+	malformed    atomic.Uint64 // undecodable frames (counted, not fatal)
+	nonFill      atomic.Uint64 // non-TradeFill events skipped
+	resolved     atomic.Uint64 // fills resolved + queued
+	flushed      atomic.Uint64 // commits completed
+	republished  atomic.Uint64 // committed fills re-emitted to JetStream
+	repubDropped atomic.Uint64 // committed fills whose republish hit a
+	// deterministic failure (invalid subject token — our own data, so
+	// retrying can never succeed). The settlement commit already
+	// landed; aborting would wedge the ring in a restart loop, so the
+	// counter + log line carry the ops-visible signal instead.
+	logf func(format string, args ...any) // nil → no-op
 }
 
 // NewFillConsumer wires the consumer. batchMax <= 0 defaults to
@@ -160,10 +166,12 @@ func NewFillConsumer(svc *BalanceService, resolver TradeResolver, source FillSou
 	if flushEvery <= 0 {
 		flushEvery = FillFlushEvery
 	}
-	return &FillConsumer{
+	c := &FillConsumer{
 		svc: svc, resolver: resolver, source: source,
 		shardID: shardID, batchMax: batchMax, flush: flushEvery,
-	}, nil
+	}
+	c.logf = func(string, ...any) {}
+	return c, nil
 }
 
 // WithRepublisher re-emits each committed fill's raw frame to
@@ -178,13 +186,23 @@ func (c *FillConsumer) WithRepublisher(r TradeRepublisher) *FillConsumer {
 	return c
 }
 
+// WithLogger sets the diagnostic sink used for dead-letter republish
+// events (deterministic subject failures — counted, not fatal).
+func (c *FillConsumer) WithLogger(l func(format string, args ...any)) *FillConsumer {
+	if l != nil {
+		c.logf = l
+	}
+	return c
+}
+
 // ConsumerMetrics is a snapshot of the consumer counters.
 type ConsumerMetrics struct {
-	Malformed   uint64
-	NonFill     uint64
-	Resolved    uint64
-	Flushed     uint64
-	Republished uint64
+	Malformed    uint64
+	NonFill      uint64
+	Resolved     uint64
+	Flushed      uint64
+	Republished  uint64
+	RepubDropped uint64
 }
 
 // Metrics snapshots the counters.
@@ -192,7 +210,7 @@ func (c *FillConsumer) Metrics() ConsumerMetrics {
 	return ConsumerMetrics{
 		Malformed: c.malformed.Load(), NonFill: c.nonFill.Load(),
 		Resolved: c.resolved.Load(), Flushed: c.flushed.Load(),
-		Republished: c.republished.Load(),
+		Republished: c.republished.Load(), RepubDropped: c.repubDropped.Load(),
 	}
 }
 
@@ -341,7 +359,15 @@ func (c *FillConsumer) republish(ctx context.Context, trades []ResolvedTrade) er
 		for _, stream := range []string{"trades", "settlements"} {
 			subj, err := excnats.Subject(stream, uint32(c.shardID), symbol)
 			if err != nil {
-				return fmt.Errorf("fill republish: subject trade %d: %w", rt.Fill.TradeID, err)
+				// Deterministic — the symbol/stream token is our own
+				// resolved data; it will fail identically on every
+				// replay. The fill is already committed, so aborting
+				// would restart-loop the consumer forever. Dead-letter:
+				// count, log, and move on.
+				c.repubDropped.Add(1)
+				c.logf("fill republish dead-letter trade %d stream %s symbol %q: %v",
+					rt.Fill.TradeID, stream, symbol, err)
+				continue
 			}
 			if err := c.repub.PublishEvent(ctx, subj, msgID, rt.Fill.Raw); err != nil {
 				return fmt.Errorf("fill republish %s trade %d: %w", subj, rt.Fill.TradeID, err)

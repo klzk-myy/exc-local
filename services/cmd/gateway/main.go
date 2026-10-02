@@ -2199,7 +2199,8 @@ func run() error {
 		// without this fan-out. Same subject + Nats-Msg-Id contract as the
 		// bridge — coexistence dedups at the stream level.
 		if natsClient != nil {
-			fc.WithRepublisher(jetstreamFillPublisher{js: natsClient.JetStream()})
+			fc.WithRepublisher(jetstreamFillPublisher{js: natsClient.JetStream()}).
+				WithLogger(func(f string, a ...any) { log.Error(fmt.Sprintf("settlement: "+f, a...)) })
 		}
 		go func() {
 			// Fail-closed halt + restart-with-backoff: the queue survives
@@ -5210,7 +5211,7 @@ func run() error {
 		"PUT /api/v1/admin/ip-allowlist/{ip}":    http.HandlerFunc(alPut),
 		"DELETE /api/v1/admin/ip-allowlist/{ip}": http.HandlerFunc(alDel),
 		// --- Phase-05 Wave-2 Cluster B live handlers ---
-		"GET /api/v1/account/balances":    http.HandlerFunc(api.AccountBalances(fundStore)),
+		"GET /api/v1/account/balances": http.HandlerFunc(api.AccountBalances(fundStore)),
 		// Task 5.3.11 sub-accounts family surface.
 		"GET /api/v1/account/sub-accounts": http.HandlerFunc(
 			accountCluster.ListSubAccounts),

@@ -362,7 +362,7 @@ func (l *PgLegs) OpenOrders(ctx context.Context) ([]OpenOrder, error) {
 		       quantity - filled_qty, status::text, created_at
 		  FROM orders
 		 WHERE status IN ('ACTIVE','PARTIALLY_FILLED')
-		   AND account_id ` + testScopedExclude)
+		   AND account_id `+testScopedExclude)
 	if err != nil {
 		return nil, err
 	}
@@ -422,7 +422,7 @@ func (l *PgLegs) Positions(ctx context.Context) ([]PgPosition, error) {
 		SELECT account_id, instrument_id, side::text, quantity, entry_price,
 		       mark_price, unrealized_pnl, realized_pnl
 		  FROM positions
-		 WHERE account_id ` + testScopedExclude)
+		 WHERE account_id `+testScopedExclude)
 	if err != nil {
 		return nil, err
 	}
@@ -446,7 +446,7 @@ func (l *PgLegs) FillNets(ctx context.Context) ([]FillNet, error) {
 		       SUM(CASE WHEN side='BUY' THEN quantity ELSE -quantity END),
 		       SUM(realized_pnl)
 		  FROM position_fills
-		 WHERE account_id ` + testScopedExclude + `
+		 WHERE account_id `+testScopedExclude+`
 		 GROUP BY account_id, instrument_id`)
 	if err != nil {
 		return nil, err
@@ -472,7 +472,7 @@ func (l *PgLegs) CompletedWithdrawals(ctx context.Context) ([]WithdrawalLeg, err
 		  LEFT JOIN rail_payments rp ON rp.funding_transaction_id = f.id
 		   AND rp.direction = 'OUTBOUND'
 		 WHERE f.type = 'WITHDRAWAL' AND f.status = 'COMPLETED'
-		   AND f.account_id ` + testScopedExclude)
+		   AND f.account_id `+testScopedExclude)
 	if err != nil {
 		return nil, err
 	}
@@ -501,7 +501,7 @@ func (l *PgLegs) QuarantinedDeposits(ctx context.Context) ([]QuarantineLeg, erro
 		 WHERE f.type = 'DEPOSIT'
 		   AND f.status IN ('CONFIRMED','COMPLETED')
 		   AND m.quarantine_status IN ('QUARANTINED','INVESTIGATING')
-		   AND COALESCE(m.account_id, f.account_id) ` + testScopedExclude)
+		   AND COALESCE(m.account_id, f.account_id) `+testScopedExclude)
 	if err != nil {
 		return nil, err
 	}
@@ -528,7 +528,7 @@ func (l *PgLegs) DepositForBankTx(ctx context.Context, bankTxID string) (*Deposi
 		       OR f.id IN (SELECT funding_transaction_id
 		                     FROM suspense_account_mappings
 		                    WHERE bank_tx_id = $1))
-		   AND f.account_id ` + testScopedExclude + `
+		   AND f.account_id `+testScopedExclude+`
 		 ORDER BY f.id LIMIT 1`, bankTxID).
 		Scan(&d.FundingID, &d.AccountID, &d.Currency, &d.Amount, &d.Status)
 	if err == pgx.ErrNoRows {
@@ -548,7 +548,7 @@ func (l *PgLegs) SettledLegs(ctx context.Context) ([]SettlementLeg, error) {
 		  FROM settlement_instructions si
 		  LEFT JOIN nostro_movements nm ON nm.settlement_instruction_id = si.id
 		 WHERE si.status = 'SETTLED'
-		   AND si.account_id ` + testScopedExclude)
+		   AND si.account_id `+testScopedExclude)
 	if err != nil {
 		return nil, err
 	}
@@ -575,7 +575,7 @@ func (l *PgLegs) PostedOrphans(ctx context.Context) ([]NostroOrphan, error) {
 		  FROM nostro_movements nm
 		  JOIN settlement_instructions si ON si.id = nm.settlement_instruction_id
 		 WHERE nm.status = 'POSTED' AND si.status <> 'SETTLED'
-		   AND si.account_id ` + testScopedExclude)
+		   AND si.account_id `+testScopedExclude)
 	if err != nil {
 		return nil, err
 	}
@@ -597,7 +597,7 @@ func (l *PgLegs) OverduePending(ctx context.Context, now time.Time) ([]int64, er
 		SELECT id FROM settlement_instructions
 		 WHERE status = 'PENDING' AND settlement_date IS NOT NULL
 		   AND settlement_date < $1::date
-		   AND account_id ` + testScopedExclude, now.UTC().Format("2006-01-02"))
+		   AND account_id `+testScopedExclude, now.UTC().Format("2006-01-02"))
 	if err != nil {
 		return nil, err
 	}
@@ -627,8 +627,8 @@ func (l *PgLegs) ExpectedFees(ctx context.Context) ([]ExpectedFee, error) {
 		       t.buyer_account_id, t.seller_account_id,
 		       COALESCE(t.buyer_fee,0), COALESCE(t.seller_fee,0)
 		  FROM trades t JOIN instruments i ON i.id = t.instrument_id
-		 WHERE t.buyer_account_id ` + testScopedExclude + `
-		   AND t.seller_account_id ` + testScopedExclude + `
+		 WHERE t.buyer_account_id `+testScopedExclude+`
+		   AND t.seller_account_id `+testScopedExclude+`
 		   AND (t.settlement_date IS NULL
 		    OR EXISTS (SELECT 1 FROM settlement_instructions si
 		                WHERE si.trade_id = t.id AND si.status = 'SETTLED'))`)
@@ -655,6 +655,11 @@ func (l *PgLegs) CollectedFees(ctx context.Context) ([]CollectedFee, error) {
 	// trade reference, but settle against the 4030/5100 GL lines, not
 	// trades.*_fee. Keying on the journal idempotency key keeps the
 	// models disjoint.
+	//
+	// OPS CONTRACT: manual fee corrections on a trade must post under a
+	// `fee:{trade}:{account}:{role}`-pattern idempotency key — FEE legs
+	// under any other key sharing the trade's reference_id are invisible
+	// to this leg and will surface as expected-vs-collected mismatch.
 	rows, err := l.pool.Query(ctx, `
 		SELECT le.reference_id, le.account_id, le.currency,
 		       SUM(CASE WHEN le.direction='CREDIT' THEN le.amount ELSE -le.amount END)
@@ -662,7 +667,7 @@ func (l *PgLegs) CollectedFees(ctx context.Context) ([]CollectedFee, error) {
 		  JOIN journal_entries je ON je.id = le.journal_entry_id
 		 WHERE le.entry_type='FEE' AND le.reference_id IS NOT NULL
 		   AND je.idempotency_key LIKE 'fee:%'
-		   AND le.account_id ` + testScopedExclude + `
+		   AND le.account_id `+testScopedExclude+`
 		 GROUP BY le.reference_id, le.account_id, le.currency`)
 	if err != nil {
 		return nil, err

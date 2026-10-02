@@ -537,7 +537,7 @@ All tables use MVCC, `SERIALIZABLE` isolation for balance mutations, `READ COMMI
 | pep_status | ENUM('NONE','PENDING','CONFIRMED') DEFAULT 'NONE' | PEP screening state (Phase-21 Task 21.3.11; added 2026-09-27, remediation #35) |
 | umr_in_scope | BOOLEAN DEFAULT FALSE | UMR account flag (Phase-22 Task 22.3.11; migration 043; added 2026-09-27, remediation #35) |
 | settlement_intent | ENUM('PHYSICAL_DELIVERY','ROLLING_MARGIN') DEFAULT 'ROLLING_MARGIN' | Physical delivery vs rolling margin intent (§5.45; migration 104; added 2026-09-27, remediation #37) |
-| test_scoped | BOOLEAN DEFAULT FALSE | Integration-harness fixture flag — account-keyed reconciliation legs exclude test-scoped rows so fixture drift never escalates to production halts (migration 278; added 2026-10-02) |
+| test_scoped | BOOLEAN DEFAULT FALSE | Integration-harness fixture flag — account-keyed reconciliation legs exclude test-scoped rows so fixture drift never escalates to production halts (migration 278; BEFORE-INSERT trigger auto-marks harness-pattern emails, migration 280; added 2026-10-02) |
 | created_at | TIMESTAMPTZ | |
 | updated_at | TIMESTAMPTZ | |
 
@@ -4433,7 +4433,8 @@ This specification defines a **complete production-grade FOREX exchange system s
   - **`auction_phase_enum +PARKED` (§5.2x table row updated):** `TRADING_HALTED`/`ORDER_NOT_FOUND` leg rejections are terminal — the auction parks (one `AUCTION_FAILED` event + one P1 alert, row leaves `ActiveAuctions`) instead of retrying the dispatch every 2s scanner tick (observed: 152 rows on one phantom position). Liquidity/transient failures keep the §13.15 retry ladder.
   - **Boot provisioning:** gateway calls `EnsureStreams` after NATS connect (idempotent `CreateOrUpdate`) — canonical streams self-reconcile in every environment; `deploy/dev.env.example` carries the compose-matching env block (JWT key, ClickHouse creds — CH analytics previously failed auth silently, Redis addr/db, NATS seeds).
   - **Sub-accounts endpoints wired:** `accounts.Handler` was implemented but never constructed — all six Task 5.3.11 routes served the 501 stub. Constructed with an `auth.Claims`→`Identity` adapter at the wiring layer; seed table gained the previously unregistered `GET .../aggregate` + `DELETE .../api-keys/{keyId}` rows; all flipped Status=Live. Route census 646 → **648**.
-  - **Migrations:** 277 (`fee_tiers` seed + `accounts.fee_tier_id` backfill — all create paths assign/inherit a tier), 278 (`accounts.test_scoped`), 279 (`auction_phase_enum +PARKED`). Corpus 206 → **209**.
+  - **Migrations:** 277 (`fee_tiers` seed + `accounts.fee_tier_id` backfill — all create paths assign/inherit a tier), 278 (`accounts.test_scoped`), 279 (`auction_phase_enum +PARKED`), 280 (`trg_accounts_mark_test_scoped` BEFORE INSERT trigger — harness-pattern user emails auto-mark `test_scoped` at insert; the durable guard for 278, covering all fixture call sites without per-test stamping). Corpus 206 → **210**.
+  - **Follow-up hardening (same day):** republish path now distinguishes deterministic subject-token failures (dead-lettered — `RepubDropped` counter + log, fill already committed so aborting would wedge the ring) from transient publish failures (still abort → replay); `CollectedFees` carries the ops contract that manual fee corrections must use `fee:`-pattern idempotency keys; notification integration tests moved to Redis DB 15 (the live worker on DB 0 was draining the queue mid-test — `EXC_REDIS_TEST_DB` overrides).
 
 ### 27.1 Operational Domains & High-Level Completeness Matrix
 
