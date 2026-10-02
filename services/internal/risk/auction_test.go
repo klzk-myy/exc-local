@@ -119,15 +119,24 @@ func TestIsParkable(t *testing.T) {
 		excerrors.Wrap(CodeLiquidationFailed, "auction leg dispatch", halted),
 		excerrors.Wrap("INTERNAL_ERROR", "outer", excerrors.New("ORDER_NOT_FOUND", "account gone")),
 		excerrors.New("ACCOUNT_NOT_FOUND", "account 7 not found"),
+		// Instrument-level terminal states: no new orders admitted,
+		// reduce-only or not.
+		excerrors.New("INSTRUMENT_HALTED", "instrument EUR/USD halted"),
+		excerrors.New("INSTRUMENT_SUSPENDED", "instrument EUR/USD suspended"),
+		excerrors.New("INSTRUMENT_CANCEL_ONLY", "instrument EUR/USD cancel-only"),
 	} {
 		if !isParkable(err) {
 			t.Fatalf("isParkable(%v) = false, want true", err)
 		}
 	}
 	// Liquidity, transient I/O and generic failures stay retryable.
+	// INSTRUMENT_DELISTED is retryable on purpose: §7.1's close-only
+	// window still accepts reduce-only legs — the auction's dispatch
+	// may succeed on the next tick.
 	for _, err := range []error{
 		nil,
 		excerrors.New("ORDER_REJECTED_NO_LIQUIDITY", "no ref price"),
+		excerrors.New("INSTRUMENT_DELISTED", "close-only window open"),
 		excerrors.Wrap(CodeLiquidationFailed, "leg dispatch", errors.New("conn refused")),
 		errors.New("plain failure"),
 	} {

@@ -213,6 +213,30 @@ groups:
           description: "{{ $value }} mismatches in 15m — ledger/position divergence; fail-closed review required."
           runbook: docs/runbooks/reconciliation-mismatch.md
 
+      # Committed fills failing JetStream republish on a deterministic
+      # subject error — the fill settled in PG but never reached
+      # trades.*/settlements.*; analytics/recon consumers must be
+      # backfilled for that shard.
+      - alert: FillRepublishDeadLettered
+        expr: increase(settlement_fill_consumer{counter="repub_dropped"}[10m]) > 0
+        labels: {severity: p2, team: ops}
+        annotations:
+          summary: "Fill republish dead-lettered on shard {{ $labels.shard }}"
+          description: "{{ $value }} committed fills could not be re-emitted to JetStream (invalid subject token). Settlement is correct; the stream copy is missing — reconcile the shard's stream against the trades table."
+          runbook: docs/runbooks/fill-republish-deadletter.md
+
+      # In-process settlement queue approaching its 16K cap — the fill
+      # consumer is stalled or dead; the out-ring drain backpressures
+      # next, then the engine out-ring. Page before saturation, not after.
+      - alert: SettlementQueueSaturated
+        expr: settlement_queue_depth{kind="depth"} / settlement_queue_depth{kind="capacity"} > 0.8
+        for: 2m
+        labels: {severity: p2, team: sre}
+        annotations:
+          summary: "Settlement fill queue >80% on shard {{ $labels.shard }}"
+          description: "Settlement consumer is wedged — queue depth {{ $value }} of capacity. Check 'settlement fill consumer halted' log lines and the shard's last commit timestamp."
+          runbook: docs/runbooks/settlement-queue-saturated.md
+
       # WAL lag growth — durability risk approaching RPO bound.
       - alert: WALLagGrowing
         expr: wal_lag_entries > 100000

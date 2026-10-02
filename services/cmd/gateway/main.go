@@ -2253,6 +2253,22 @@ func run() error {
 			}
 			return out
 		})
+	// Settlement queue depth/capacity — the in-process buffer between the
+	// out-ring drain and the fill consumer. A wedged consumer fills the
+	// queue and backpressures the out-ring; without this gauge the stall
+	// is invisible until IPCRingSaturated pages.
+	metReg.VecFunc("settlement_queue_depth",
+		"Settlement fill queue depth per shard (depth and capacity).",
+		"gauge", func() []observability.PullSample {
+			out := make([]observability.PullSample, 0, len(settleQueues)*2)
+			for sh, q := range settleQueues {
+				lbl := strconv.Itoa(int(sh))
+				out = append(out,
+					observability.PullSample{Labels: []string{"shard", lbl, "kind", "depth"}, Value: float64(len(q))},
+					observability.PullSample{Labels: []string{"shard", lbl, "kind", "capacity"}, Value: float64(cap(q))})
+			}
+			return out
+		})
 
 	// Engine out-ring consumer: cancel echoes + trade fills update the PG
 	// read model; without it pending confirms only time out. The fill

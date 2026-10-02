@@ -25,6 +25,7 @@ package redis
 import (
 	"context"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -69,9 +70,20 @@ func failoverTestConfig(t *testing.T) FailoverConfig {
 	if master == "" {
 		master = "mymaster"
 	}
+	// Test keyspace isolation — never default to DB 0, the live
+	// gateway's keyspace. db 13 matches the general test-client
+	// convention; EXC_SENTINEL_TEST_DB overrides when a caller wants
+	// a dedicated DB.
+	testDB := 13
+	if v := os.Getenv("EXC_SENTINEL_TEST_DB"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			testDB = n
+		}
+	}
 	return FailoverConfig{
 		MasterName:    master,
 		SentinelAddrs: sentinels,
+		DB:            testDB,
 		PoolSize:      10,
 		DialTimeout:   2 * time.Second,
 		ReadTimeout:   2 * time.Second,

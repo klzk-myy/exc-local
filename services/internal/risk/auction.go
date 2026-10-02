@@ -448,16 +448,20 @@ func (e *AuctionEngine) park(ctx context.Context, a AuctionRow,
 
 // isParkable reports whether a leg-dispatch failure is terminal for
 // the auction: a TRADING_HALTED account cannot accept reduce-only
-// legs (admission rejects them), and a missing account/instrument can
-// never be dispatched to. The check walks the whole wrap chain — leg
-// errors surface inside a CodeLiquidationFailed wrap. Liquidity and
-// transient I/O failures stay on the retry ladder.
+// legs (admission rejects them), a missing account/instrument can
+// never be dispatched to, and an instrument in HALTED/SUSPENDED/
+// CANCEL_ONLY admits no new orders at all. The check walks the whole
+// wrap chain — leg errors surface inside a CodeLiquidationFailed wrap.
+// INSTRUMENT_DELISTED is deliberately NOT terminal — §7.1's close-only
+// window still accepts reduce-only legs, which is what auctions submit.
+// Liquidity and transient I/O failures stay on the retry ladder.
 func isParkable(err error) bool {
 	for err != nil {
 		var e *excerrors.Error
 		if errors.As(err, &e) {
 			switch e.Code {
-			case "TRADING_HALTED", "ORDER_NOT_FOUND", "ACCOUNT_NOT_FOUND":
+			case "TRADING_HALTED", "ORDER_NOT_FOUND", "ACCOUNT_NOT_FOUND",
+				"INSTRUMENT_HALTED", "INSTRUMENT_SUSPENDED", "INSTRUMENT_CANCEL_ONLY":
 				return true
 			}
 			err = e.Unwrap()
