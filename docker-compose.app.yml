@@ -113,8 +113,13 @@ services:
       start_period: 20s
     restart: unless-stopped
 
-  # ── Stage 2 — core matching engine (EXC_ENGINE_MODE=docker) ──────────────
-  matching-engine:
+  # ── Stage 2 — core matching engine shards 0-7 (EXC_ENGINE_MODE=docker) ──
+  # The readiness probe requires EVERY shard declared in config/sharding.yaml
+  # (0-3 static + 4-7 elastic) to stamp a live producer — a single shard-0
+  # engine leaves engine_ipc down and the gateway "major_outage". Mirrors
+  # daemon_cmd(matching-engine-N) in dev_stack.sh; each engine owns
+  # $WAL_DIR/<shard>/ (per-shard flock — shared volume is safe).
+  x-engine-common: &engine-common
     image: ${ENGINE_DOCKER_IMAGE:-exc-matching-engine:local}
     ipc: host
     network_mode: host
@@ -125,8 +130,6 @@ services:
     environment:
       EXC_REDIS_ADDR: ${REDIS_ADDR:-127.0.0.1:16379}
       AERON_DIR: ${AERON_DIR:-/dev/shm/aeron-exchange}
-    # Mirrors daemon_cmd(matching-engine) in dev_stack.sh.
-    command: ["-shard", "0", "-ipc-base", "${SHM_BASE:-exchange_ipc}", "-wal-dir", "/var/lib/exchange/wal", "-redis", "${REDIS_ADDR:-127.0.0.1:16379}", "-symbol", "EUR/USD", "-instrument-id", "1", "-dev-all-accounts"]
     depends_on:
       aeronmd:
         condition: service_started
@@ -137,13 +140,38 @@ services:
     stop_grace_period: 15s # systemd TimeoutStopSec=15s (snapshot + WAL fsync)
     restart: unless-stopped
 
+  matching-engine:
+    <<: *engine-common
+    command: ["-shard", "0", "-ipc-base", "${SHM_BASE:-exchange_ipc}", "-wal-dir", "/var/lib/exchange/wal", "-redis", "${REDIS_ADDR:-127.0.0.1:16379}", "-symbol", "EUR/USD", "-instrument-id", "1", "-dev-all-accounts"]
+  matching-engine-1:
+    <<: *engine-common
+    command: ["-shard", "1", "-ipc-base", "${SHM_BASE:-exchange_ipc}", "-wal-dir", "/var/lib/exchange/wal", "-redis", "${REDIS_ADDR:-127.0.0.1:16379}", "-symbol", "EUR/USD", "-instrument-id", "1", "-dev-all-accounts"]
+  matching-engine-2:
+    <<: *engine-common
+    command: ["-shard", "2", "-ipc-base", "${SHM_BASE:-exchange_ipc}", "-wal-dir", "/var/lib/exchange/wal", "-redis", "${REDIS_ADDR:-127.0.0.1:16379}", "-symbol", "EUR/USD", "-instrument-id", "1", "-dev-all-accounts"]
+  matching-engine-3:
+    <<: *engine-common
+    command: ["-shard", "3", "-ipc-base", "${SHM_BASE:-exchange_ipc}", "-wal-dir", "/var/lib/exchange/wal", "-redis", "${REDIS_ADDR:-127.0.0.1:16379}", "-symbol", "EUR/USD", "-instrument-id", "1", "-dev-all-accounts"]
+  matching-engine-4:
+    <<: *engine-common
+    command: ["-shard", "4", "-ipc-base", "${SHM_BASE:-exchange_ipc}", "-wal-dir", "/var/lib/exchange/wal", "-redis", "${REDIS_ADDR:-127.0.0.1:16379}", "-symbol", "EUR/USD", "-instrument-id", "1", "-dev-all-accounts"]
+  matching-engine-5:
+    <<: *engine-common
+    command: ["-shard", "5", "-ipc-base", "${SHM_BASE:-exchange_ipc}", "-wal-dir", "/var/lib/exchange/wal", "-redis", "${REDIS_ADDR:-127.0.0.1:16379}", "-symbol", "EUR/USD", "-instrument-id", "1", "-dev-all-accounts"]
+  matching-engine-6:
+    <<: *engine-common
+    command: ["-shard", "6", "-ipc-base", "${SHM_BASE:-exchange_ipc}", "-wal-dir", "/var/lib/exchange/wal", "-redis", "${REDIS_ADDR:-127.0.0.1:16379}", "-symbol", "EUR/USD", "-instrument-id", "1", "-dev-all-accounts"]
+  matching-engine-7:
+    <<: *engine-common
+    command: ["-shard", "7", "-ipc-base", "${SHM_BASE:-exchange_ipc}", "-wal-dir", "/var/lib/exchange/wal", "-redis", "${REDIS_ADDR:-127.0.0.1:16379}", "-symbol", "EUR/USD", "-instrument-id", "1", "-dev-all-accounts"]
+
   # Cross-shard ctl relay (Phase-3 Task 4, spec §2.2a): Aeron IPC is
   # point-to-point per channel alias, so dst_shard ctl frames only reach
   # their engine shard through this relay — load-bearing for multi-shard
   # basket 2PC. Mirrors daemon_cmd(xshardrelay) in dev_stack.sh.
   xshardrelay:
     <<: *go-common
-    command: ["/app/bin/xshardrelay", "-shards", "${EXC_XSHARD_SHARDS:-0}"]
+    command: ["/app/bin/xshardrelay", "-shards", "${EXC_XSHARD_SHARDS:-0,1,2,3,4,5,6,7}"]
     depends_on:
       aeronmd:
         condition: service_started

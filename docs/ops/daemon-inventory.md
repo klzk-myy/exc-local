@@ -10,6 +10,13 @@ daemons live in `deploy/k8s/`; bare-metal in `deploy/systemd/`.
 |---|---|---|---|
 | `matching-engine` (leader) | `core/build/bin/matching_engine` → `/opt/exchange/bin/matching-engine` | `matching-engine@<shard>` | T1 `WatchdogSec=1s` (sd_notify build) + T2 in-loop `WatchdogThread` (100µs sample, 500µs warn, 2ms halt) + T3 watchdogd lease revocation |
 | `matching-engine` (follower) | same binary, `-follower` | `matching-engine-follower@<shard>` | same |
+
+Dev topology note: the gateway readiness probe fails closed unless every
+shard declared in `config/sharding.yaml` (0-3 static + 4-7 elastic) stamps
+a live shm-ring producer, so ALL dev surfaces run one engine process per
+shard — supervisord `matching-engine-0..7`, dev_stack daemons
+`matching-engine` + `matching-engine-1..7`, compose `matching-engine` +
+`matching-engine-1..7` (mirrors e2e `EXC_STACK_SHARDS="0..7"`).
 | `aeronmd` | Aeron C media driver | `aeronmd.service` | T1 `WatchdogSec=1s`, conductor heartbeat |
 | `ptp4l` / `phc2sys` | linuxptp | `ptp4l.service`, `phc2sys.service` | unit restart + watchdogd offset poll (>100µs → `TIME_SYNC_LOSS_HALT`) |
 | `exchange-watchdogd` | `services/cmd/watchdogd` (Tier-3 supervisor) | `exchange-watchdogd.service` (+ K8s DaemonSet on service nodes) | `WatchdogSec=500ms`, drives `/dev/watchdog` indirectly via `RuntimeWatchdogSec=10s` |

@@ -125,6 +125,13 @@ DAEMONS=(
   "aeronmd|20|core|-|"
   "watchdogd|20|core|9110|"
   "matching-engine|30|core|-|"
+  "matching-engine-1|30|core|-|"
+  "matching-engine-2|30|core|-|"
+  "matching-engine-3|30|core|-|"
+  "matching-engine-4|30|core|-|"
+  "matching-engine-5|30|core|-|"
+  "matching-engine-6|30|core|-|"
+  "matching-engine-7|30|core|-|"
   "xshardrelay|30|core|-|"
   "bridge|40|core|9100|/healthz"
   "oracle|40|core|8090|/health/ready"
@@ -217,10 +224,13 @@ daemon_cmd() {
       echo "exec $AERON_BIN" ;;
     watchdogd)
       echo "exec $BIN_DIR/watchdogd -redis-addr $REDIS_ADDR -aeron-dir $AERON_DIR -ptp=false -ptp-expected=false -no-demote" ;;
-    matching-engine)
-      echo "exec $ENGINE_BIN -shard 0 -ipc-base $SHM_BASE -wal-dir $WAL_DIR -redis $REDIS_ADDR -symbol EUR/USD -instrument-id 1 -dev-all-accounts" ;;
+    matching-engine|matching-engine-[0-9]*)
+      # One process per shard — the gateway readiness probe fails closed
+      # unless every shard in config/sharding.yaml stamps a live producer.
+      local _s="${1#matching-engine}"; _s="${_s#-}"; _s="${_s:-0}"
+      echo "exec $ENGINE_BIN -shard $_s -ipc-base $SHM_BASE -wal-dir $WAL_DIR -redis $REDIS_ADDR -symbol EUR/USD -instrument-id 1 -dev-all-accounts" ;;
     xshardrelay)
-      echo "exec $BIN_DIR/xshardrelay -shards ${EXC_XSHARD_SHARDS:-0}" ;;
+      echo "exec $BIN_DIR/xshardrelay -shards ${EXC_XSHARD_SHARDS:-0,1,2,3,4,5,6,7}" ;;
     oracle)
       echo "EXC_ORACLE_SIM=1 EXC_ORACLE_HEALTH_ADDR=127.0.0.1:8090 exec $BIN_DIR/oracle" ;;
     risk)
@@ -306,7 +316,7 @@ ensure_binaries() {
     mode="$(daemon_run_mode "$n")"
     # Docker-mode daemons run from images — no host binary needed.
     [[ "$mode" == "docker" ]] && continue
-    [[ "$n" == "matching-engine" ]] && { [[ -x "$ENGINE_BIN" ]] || missing=1; continue; }
+    [[ "$n" == matching-engine* ]] && { [[ -x "$ENGINE_BIN" ]] || missing=1; continue; }
     [[ "$n" == "aeronmd" ]] && { [[ -x "$AERON_BIN" ]] || missing=1; continue; }
     [[ -x "$BIN_DIR/$n" ]] || missing=1
   done
@@ -370,7 +380,7 @@ foreign_engine_check() {
 daemon_run_mode() { # name -> host|docker
   case "$1" in
     frontend)          echo "docker" ;;
-    matching-engine|aeronmd) echo "$ENGINE_MODE" ;;
+    matching-engine*|aeronmd) echo "$ENGINE_MODE" ;;
     *)                 echo "$GO_MODE" ;;
   esac
 }
