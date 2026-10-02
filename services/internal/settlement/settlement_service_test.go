@@ -10,6 +10,7 @@ import (
 
 	"github.com/shopspring/decimal"
 
+	"exchange/internal/ledger"
 	excerrors "exchange/pkg/errors"
 )
 
@@ -23,12 +24,21 @@ type fakeSettlementStore struct {
 	nextID      int64
 	legs        []*SettlementInstruction
 	movements   []NostroMovement
+	// PD fee-confirm seam fixtures
+	feeSpecs    map[int64]TradeFeeSpec
+	postedKeys  map[string]bool
+	journals    []ledger.Journal
+	postErr     error
+	feeSpecErr  error
+	feeDedupErr error
 }
 
 func newFakeSettlementStore() *fakeSettlementStore {
 	return &fakeSettlementStore{
 		instruments: map[int64]InstrumentRef{},
 		nostros:     map[string]NostroAccount{},
+		feeSpecs:    map[int64]TradeFeeSpec{},
+		postedKeys:  map[string]bool{},
 		nextID:      1,
 	}
 }
@@ -155,7 +165,28 @@ func (s *fakeSettlementStore) ReleaseQueued(_ context.Context, day time.Time) (i
 }
 
 func (s *fakeSettlementStore) InTx(ctx context.Context, fn func(ctx context.Context, tx SettlementTx) error) error {
-	return fn(ctx, fakeSettlementTx{s})
+	// Snapshot state so a failed fn rolls back — the production tx
+	// guarantees SETTLED + nostro intent + fee journals are atomic; the
+	// fake must prove the same or the atomicity test is hollow.
+	saved := map[*SettlementInstruction]SettlementInstruction{}
+	for _, l := range s.legs {
+		saved[l] = *l
+	}
+	mLen, jLen := len(s.movements), len(s.journals)
+	savedKeys := map[string]bool{}
+	for k, v := range s.postedKeys {
+		savedKeys[k] = v
+	}
+	err := fn(ctx, fakeSettlementTx{s})
+	if err != nil {
+		for p, v := range saved {
+			*p = v
+		}
+		s.movements = s.movements[:mLen]
+		s.journals = s.journals[:jLen]
+		s.postedKeys = savedKeys
+	}
+	return err
 }
 
 func (s *fakeSettlementStore) leg(id int64) *SettlementInstruction {
@@ -193,6 +224,33 @@ func (t fakeSettlementTx) SetSettled(_ context.Context, id int64, settledAt time
 func (t fakeSettlementTx) RecordNostroMovement(_ context.Context, m NostroMovement) error {
 	t.s.movements = append(t.s.movements, m)
 	return nil
+}
+
+func (t fakeSettlementTx) TradeFeeSpec(_ context.Context, tradeID int64) (TradeFeeSpec, bool, error) {
+	if t.s.feeSpecErr != nil {
+		return TradeFeeSpec{}, false, t.s.feeSpecErr
+	}
+	spec, ok := t.s.feeSpecs[tradeID]
+	return spec, ok, nil
+}
+
+func (t fakeSettlementTx) FeeJournalPosted(_ context.Context, key string) (bool, error) {
+	if t.s.feeDedupErr != nil {
+		return false, t.s.feeDedupErr
+	}
+	return t.s.postedKeys[key], nil
+}
+
+func (t fakeSettlementTx) PostJournal(_ context.Context, j ledger.Journal) (ledger.PostResult, error) {
+	if t.s.postErr != nil {
+		return ledger.PostResult{}, t.s.postErr
+	}
+	if err := j.Validate(); err != nil {
+		return ledger.PostResult{}, err
+	}
+	t.s.postedKeys[j.IdempotencyKey] = true
+	t.s.journals = append(t.s.journals, j)
+	return ledger.PostResult{JournalID: int64(len(t.s.journals))}, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -667,5 +725,426 @@ func TestSwiftMT202RejectsBadInput(t *testing.T) {
 		Currency: "USD", Amount: decimal.NewFromInt(-1), ValueDate: day(t, "2025-11-25"),
 	}).Marshal(); err == nil {
 		t.Fatal("expected negative amount error")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// PD fee recognition at settlement confirm (spec §5.45.2)
+// ---------------------------------------------------------------------------
+
+// pdSpec is a physical-delivery trade 42 spec: buyer 11 pays a 0.5 EUR
+// maker fee, seller 22 pays a 1.085 USD taker fee.
+func pdSpec() TradeFeeSpec {
+	return TradeFeeSpec{
+		TradeID: 42, PhysicalDelivery: true,
+		BuyerAccountID: 11, SellerAccountID: 22,
+		BaseCurrency: "EUR", QuoteCurrency: "USD",
+		BuyerFee:  decimal.RequireFromString("0.5"),
+		SellerFee: decimal.RequireFromString("1.085"),
+		BuyerRole: RoleMaker, SellerRole: RoleTaker,
+	}
+}
+
+// confirmFirstLeg generates trade 42's four legs and confirms the first
+// PENDING one, returning the leg.
+func confirmFirstLeg(t *testing.T, svc *SettlementService, store *fakeSettlementStore) *SettlementInstruction {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := svc.GenerateInstructions(ctx, eurusdFill(42, day(t, "2025-11-24"))); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	leg := store.legs[0]
+	if _, err := svc.ConfirmSettlement(ctx, leg.ID, "CONF-1"); err != nil {
+		t.Fatalf("confirm leg %d: %v", leg.ID, err)
+	}
+	return leg
+}
+
+func TestConfirmSettlementPostsDeliveryFees(t *testing.T) {
+	svc, store, _ := newTestSettlementService(t)
+	store.feeSpecs[42] = pdSpec()
+	leg := confirmFirstLeg(t, svc, store)
+
+	if len(store.journals) != 2 {
+		t.Fatalf("fee journals = %d, want 2", len(store.journals))
+	}
+	buyer := store.journals[0]
+	if buyer.EntryType != ledger.EntryFee || buyer.PostedBy != "settlement-confirm" ||
+		buyer.IdempotencyKey != "fee:42:11:MAKER" {
+		t.Fatalf("buyer journal = %+v", buyer)
+	}
+	if len(buyer.Effects) != 1 || buyer.Effects[0].AccountID != 11 ||
+		buyer.Effects[0].Currency != "EUR" ||
+		!buyer.Effects[0].AvailableDelta.Equal(decimal.RequireFromString("-0.5")) ||
+		!buyer.Effects[0].AllowNegative {
+		t.Fatalf("buyer fee effect = %+v", buyer.Effects)
+	}
+	seller := store.journals[1]
+	if seller.IdempotencyKey != "fee:42:22:TAKER" ||
+		seller.Effects[0].AccountID != 22 || seller.Effects[0].Currency != "USD" ||
+		!seller.Effects[0].AvailableDelta.Equal(decimal.RequireFromString("-1.085")) {
+		t.Fatalf("seller journal = %+v", seller)
+	}
+	if leg.Status != SettleSettled || len(store.movements) != 1 {
+		t.Fatalf("leg status %s, movements %d", leg.Status, len(store.movements))
+	}
+}
+
+func TestConfirmSettlementFeesDedupAcrossLegs(t *testing.T) {
+	svc, store, _ := newTestSettlementService(t)
+	ctx := context.Background()
+	store.feeSpecs[42] = pdSpec()
+	confirmFirstLeg(t, svc, store)
+	// Confirm the remaining three legs — the fee keys dedupe, so no
+	// additional journals post.
+	for _, l := range store.legs[1:] {
+		if _, err := svc.ConfirmSettlement(ctx, l.ID, "CONF-N"); err != nil {
+			t.Fatalf("confirm leg %d: %v", l.ID, err)
+		}
+	}
+	if len(store.journals) != 2 {
+		t.Fatalf("fee journals = %d, want 2 (sibling legs deduped)", len(store.journals))
+	}
+	if len(store.movements) != 4 {
+		t.Fatalf("movements = %d, want 4 (one per leg)", len(store.movements))
+	}
+}
+
+func TestConfirmSettlementRollingMarginSkipsFees(t *testing.T) {
+	svc, store, _ := newTestSettlementService(t)
+	spec := pdSpec()
+	spec.PhysicalDelivery = false // RM fill — fees settled at execution
+	store.feeSpecs[42] = spec
+	confirmFirstLeg(t, svc, store)
+	if len(store.journals) != 0 {
+		t.Fatalf("RM confirm posted %d fee journals, want 0", len(store.journals))
+	}
+}
+
+func TestConfirmSettlementZeroFeesPostNothing(t *testing.T) {
+	svc, store, _ := newTestSettlementService(t)
+	spec := pdSpec()
+	spec.BuyerFee = decimal.Zero
+	spec.SellerFee = decimal.Zero
+	store.feeSpecs[42] = spec
+	confirmFirstLeg(t, svc, store)
+	if len(store.journals) != 0 {
+		t.Fatalf("zero-fee confirm posted %d journals, want 0", len(store.journals))
+	}
+}
+
+func TestConfirmSettlementFeePostFailureRollsBack(t *testing.T) {
+	svc, store, _ := newTestSettlementService(t)
+	ctx := context.Background()
+	store.feeSpecs[42] = pdSpec()
+	store.postErr = fmt.Errorf("ledger: insert journal_entries: boom")
+	if _, err := svc.GenerateInstructions(ctx, eurusdFill(42, day(t, "2025-11-24"))); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	leg := store.legs[0]
+	if _, err := svc.ConfirmSettlement(ctx, leg.ID, "CONF-1"); err == nil {
+		t.Fatal("confirm with failing poster should error")
+	}
+	// Atomicity: the SETTLED flip and nostro intent rolled back with the
+	// failed fee post.
+	if leg.Status != SettlePending {
+		t.Fatalf("leg status = %s, want PENDING (rollback)", leg.Status)
+	}
+	if len(store.movements) != 0 {
+		t.Fatalf("movements = %d after rollback, want 0", len(store.movements))
+	}
+	// Retry with the poster healthy — confirm completes and fees book.
+	store.postErr = nil
+	if _, err := svc.ConfirmSettlement(ctx, leg.ID, "CONF-2"); err != nil {
+		t.Fatalf("retry confirm: %v", err)
+	}
+	if leg.Status != SettleSettled || len(store.journals) != 2 {
+		t.Fatalf("retry: status %s journals %d", leg.Status, len(store.journals))
+	}
+}
+
+func TestConfirmSettlementDerivativeLegSkipsFees(t *testing.T) {
+	svc, store, _ := newTestSettlementService(t)
+	ctx := context.Background()
+	store.feeSpecs[42] = pdSpec()
+	if _, err := svc.GenerateInstructions(ctx, eurusdFill(42, day(t, "2025-11-24"))); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	cid := int64(77)
+	store.legs[0].DerivativeContractID = &cid
+	if _, err := svc.ConfirmSettlement(ctx, store.legs[0].ID, "CONF-1"); err != nil {
+		t.Fatalf("confirm: %v", err)
+	}
+	if len(store.journals) != 0 {
+		t.Fatalf("derivative leg posted %d fee journals, want 0", len(store.journals))
+	}
+}
+
+func TestConfirmSettlementUnknownTradeSkipsFees(t *testing.T) {
+	svc, store, _ := newTestSettlementService(t)
+	// No feeSpec for trade 42 — the instruction still confirms (manual /
+	// non-spot legs carry no fee model); recon owns the missing-trade
+	// detection, the confirm must not brick on it.
+	leg := confirmFirstLeg(t, svc, store)
+	if leg.Status != SettleSettled || len(store.journals) != 0 {
+		t.Fatalf("status %s journals %d", leg.Status, len(store.journals))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// PostgreSQL integration (EXC_PG_TEST=1) — the PD fee-confirm seam against
+// the real schema: partitioned trades FOR UPDATE, journal posting, and the
+// SETTLED↔fee atomicity recon keys on.
+// ---------------------------------------------------------------------------
+
+func TestIntegrationConfirmSettlementDeliveryFees(t *testing.T) {
+	pool := grossNetPool(t)
+	ctx := context.Background()
+
+	// Fixture: two test_scoped accounts (recon-invisible — the committed
+	// ledger residue must never trip ExpectedFees/CollectedFees/
+	// FeeRevenue), a SPOT instrument, one ACTIVE nostro, a PD trade
+	// (settlement_date set) with per-side fees, and two PENDING legs.
+	// The committed fixture is deliberately left in place: ledger rows are
+	// append-only (FK-chained), and a coherent trade+legs+journals set is
+	// the recon-clean residue — deleting the trade would orphan the
+	// revenue legs into a fee_revenue_orphan finding.
+	var buyer, seller, instrID int64
+	if err := pool.QueryRow(ctx, `
+		SELECT min(id), max(id) FROM accounts WHERE test_scoped`).Scan(&buyer, &seller); err != nil {
+		t.Skipf("test-scoped accounts empty: %v", err)
+	}
+	if buyer == seller {
+		t.Skip("need two distinct test-scoped accounts")
+	}
+	if err := pool.QueryRow(ctx,
+		`SELECT id FROM instruments WHERE instrument_type='SPOT' LIMIT 1`).Scan(&instrID); err != nil {
+		t.Skipf("instruments empty: %v", err)
+	}
+	var nostroID int64
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO nostro_accounts (currency, bank_name, bank_code, account_number, status)
+		VALUES ('USD','ITEST FeeBank','ITESTUS33','FEESEAM-TEST','ACTIVE')
+		RETURNING id`).Scan(&nostroID); err != nil {
+		t.Skipf("nostro fixture: %v", err)
+	}
+	var tradeID int64
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO trades (instrument_id, buy_order_id, sell_order_id,
+		                    buyer_account_id, seller_account_id, price, quantity,
+		                    buyer_fee, seller_fee, settlement_date)
+		VALUES ($1, 0, 0, $2, $3, 1.0850, 100000, 0.5, 1.085, CURRENT_DATE + 1)
+		RETURNING id`, instrID, buyer, seller).Scan(&tradeID); err != nil {
+		t.Skipf("trade fixture: %v", err)
+	}
+	var leg1, leg2 int64
+	for i, ccy := range []string{"USD", "EUR"} {
+		dir, acct := "PAY", buyer
+		if i == 1 {
+			dir, acct = "RECEIVE", seller
+		}
+		var id int64
+		if err := pool.QueryRow(ctx, `
+			INSERT INTO settlement_instructions
+			    (trade_id, account_id, currency, amount, direction,
+			     settlement_date, nostro_account_id, status)
+			VALUES ($1,$2,$3,$4::numeric,$5::settlement_direction_enum,
+			        CURRENT_DATE + 1, $6, 'PENDING') RETURNING id`,
+			tradeID, acct, ccy, "1.0", dir, nostroID).Scan(&id); err != nil {
+			t.Skipf("instruction fixture: %v", err)
+		}
+		if i == 0 {
+			leg1 = id
+		} else {
+			leg2 = id
+		}
+	}
+	// Cleanup removes the operational rows (instructions, nostro intent,
+	// nostro) but deliberately leaves the trade + committed ledger rows:
+	// ledger rows are append-only and FK-chained, and the trade must stay
+	// for FeeRevenue's test_scoped exclusion to apply — deleting it would
+	// orphan the revenue legs into a fee_revenue_orphan finding.
+	t.Cleanup(func() {
+		pool.Exec(ctx, `DELETE FROM nostro_movements WHERE settlement_instruction_id = ANY($1)`, []int64{leg1, leg2})
+		pool.Exec(ctx, `DELETE FROM settlement_instructions WHERE id = ANY($1)`, []int64{leg1, leg2})
+		pool.Exec(ctx, `DELETE FROM nostro_accounts WHERE id = $1`, nostroID)
+	})
+
+	store := NewPgxSettlementStore(pool)
+	ledgerSvc, err := NewLedgerService(pool, nil, nil)
+	if err != nil {
+		t.Fatalf("ledger: %v", err)
+	}
+	store.Poster = ledgerSvc
+	svc, err := NewSettlementService(store, testCalendar(t),
+		SettlementOptions{SenderBIC: "EXCHGB2L"})
+	if err != nil {
+		t.Fatalf("service: %v", err)
+	}
+
+	var availBefore string
+	if err := pool.QueryRow(ctx, `
+		SELECT COALESCE((SELECT available::text FROM balances
+		 WHERE account_id=$1 AND currency='EUR'), '0')`, buyer).Scan(&availBefore); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.ConfirmSettlement(ctx, leg1, "ICONF-1"); err != nil {
+		t.Fatalf("confirm leg1: %v", err)
+	}
+	// Both fee journals committed with the SETTLED flip — recon's
+	// ExpectedFees EXISTS-clause and collected legs see them atomically.
+	var n int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM journal_entries
+		 WHERE idempotency_key LIKE $1||':%'`, fmt.Sprintf("fee:%d", tradeID)).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Fatalf("fee journals = %d, want 2", n)
+	}
+	// The debit hit the wallet: buyer owes 0.5 EUR (AllowNegative — PD
+	// deliverable went off-exchange, the fee is a booked receivable).
+	var avail string
+	if err := pool.QueryRow(ctx, `
+		SELECT available::text FROM balances WHERE account_id=$1 AND currency='EUR'`,
+		buyer).Scan(&avail); err != nil {
+		t.Fatal(err)
+	}
+	got := decimal.RequireFromString(avail)
+	want := decimal.RequireFromString(availBefore).Sub(decimal.RequireFromString("0.5"))
+	if !got.Equal(want) {
+		t.Fatalf("buyer EUR available = %s, want %s (before %s − 0.5)", avail, want, availBefore)
+	}
+	// Second leg confirms: same-trade dedup on the fee keys.
+	if _, err := svc.ConfirmSettlement(ctx, leg2, "ICONF-2"); err != nil {
+		t.Fatalf("confirm leg2: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM journal_entries
+		 WHERE idempotency_key LIKE $1||':%'`, fmt.Sprintf("fee:%d", tradeID)).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Fatalf("after leg2: fee journals = %d, want 2", n)
+	}
+	// Re-confirm leg1 — idempotent, no duplicate movement or journal.
+	if _, err := svc.ConfirmSettlement(ctx, leg1, "ICONF-1"); err != nil {
+		t.Fatalf("re-confirm: %v", err)
+	}
+}
+
+// TestIntegrationBatchTapeCarriesSettlementDate proves the production
+// batch tape path persists the PD value date — recon's ExpectedFees and
+// the confirm-time TradeFeeSpec both gate on settlement_date IS NOT NULL,
+// so a batch-committed PD fill without it would never collect its fees.
+func TestIntegrationBatchTapeCarriesSettlementDate(t *testing.T) {
+	pool := grossNetPool(t)
+	ctx := context.Background()
+
+	var buyer, seller, instrID int64
+	if err := pool.QueryRow(ctx, `
+		SELECT min(id), max(id) FROM accounts WHERE test_scoped`).Scan(&buyer, &seller); err != nil {
+		t.Skipf("test-scoped accounts empty: %v", err)
+	}
+	if buyer == seller {
+		t.Skip("need two distinct test-scoped accounts")
+	}
+	if err := pool.QueryRow(ctx,
+		`SELECT id FROM instruments WHERE instrument_type='SPOT' LIMIT 1`).Scan(&instrID); err != nil {
+		t.Skipf("instruments empty: %v", err)
+	}
+
+	// Fund both deliverable wallets through real deposit journals — the
+	// delivery lock debits available, and journal_sums/balances must stay
+	// consistent on the shared dev DB.
+	ledgerSvc, err := NewLedgerService(pool, nil, nil)
+	if err != nil {
+		t.Fatalf("ledger: %v", err)
+	}
+	qty := decimal.NewFromInt(100)
+	px := decimal.RequireFromString("1.0850")
+	qa := qty.Mul(px).Round(8)
+	tradeID := int64(987654001)
+	sd := time.Now().UTC().Truncate(24*time.Hour).AddDate(0, 0, 1)
+	for _, dep := range []struct {
+		acct int64
+		ccy  string
+		amt  decimal.Decimal
+	}{{buyer, "USD", qa}, {seller, "EUR", qty}} {
+		j := ledger.Journal{
+			EntryType:      ledger.EntryDeposit,
+			ReferenceID:    tradeID,
+			Description:    "itest batch-tape funding",
+			PostedBy:       "itest",
+			IdempotencyKey: fmt.Sprintf("itest-dep:%d:%d", tradeID, dep.acct),
+			Lines: []ledger.Line{
+				ledger.DebitLine(ledger.Nostro(dep.ccy), dep.ccy, dep.amt, "deposit in"),
+				ledger.CreditLine(ledger.CustomerLiability(dep.ccy), dep.ccy, dep.amt, "deposit"),
+			},
+			Effects: []ledger.AccountEffect{{
+				AccountID: dep.acct, Currency: dep.ccy, AvailableDelta: dep.amt,
+			}},
+		}
+		dtx, err := pool.Begin(ctx)
+		if err != nil {
+			t.Skipf("deposit tx: %v", err)
+		}
+		if _, err := ledgerSvc.PostJournal(ctx, dtx, j); err != nil {
+			_ = dtx.Rollback(ctx)
+			t.Skipf("deposit fixture: %v", err)
+		}
+		if err := dtx.Commit(ctx); err != nil {
+			t.Skipf("deposit commit: %v", err)
+		}
+	}
+
+	rt := ResolvedTrade{
+		Fill: EngineFill{TradeID: uint64(tradeID), BuyOrderID: 9001, SellOrderID: 9002,
+			Price: px, Qty: qty, ShardID: 0, EngineSeq: 1},
+		InstrumentID:   instrID,
+		BuyerAccountID: buyer, SellerAccountID: seller,
+		BaseCurrency: "EUR", QuoteCurrency: "USD",
+		BuyerFee:    decimal.RequireFromString("0.5"),
+		SellerFee:   decimal.RequireFromString("0.1"),
+		BuyerIntent: IntentPhysicalDelivery, SellerIntent: IntentPhysicalDelivery,
+		SettlementDate: &sd,
+	}
+	fj, err := buildFillJournal(rt, "itest")
+	if err != nil {
+		t.Fatalf("buildFillJournal: %v", err)
+	}
+	svc := &BalanceService{}
+	btx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outcomes, _, err := svc.commitBatchSet(ctx, btx, []ResolvedTrade{rt}, [][]ledger.Journal{{fj}})
+	if err != nil {
+		_ = btx.Rollback(ctx)
+		t.Fatalf("commitBatchSet: %v", err)
+	}
+	if err := btx.Commit(ctx); err != nil {
+		t.Fatalf("batch commit: %v", err)
+	}
+	if len(outcomes) != 1 || !outcomes[0].Applied {
+		t.Fatalf("outcome = %+v", outcomes[0])
+	}
+	var got time.Time
+	if err := pool.QueryRow(ctx,
+		`SELECT settlement_date FROM trades WHERE id=$1`, tradeID).Scan(&got); err != nil {
+		t.Fatalf("read tape row: %v", err)
+	}
+	if !got.Equal(sd) {
+		t.Fatalf("settlement_date = %v, want %v", got, sd)
+	}
+	// fees landed on the tape for the confirm-time collector
+	var bf, sf string
+	if err := pool.QueryRow(ctx,
+		`SELECT buyer_fee::text, seller_fee::text FROM trades WHERE id=$1`, tradeID).
+		Scan(&bf, &sf); err != nil {
+		t.Fatal(err)
+	}
+	if bf != "0.50000000" || sf != "0.10000000" {
+		t.Fatalf("taped fees = %s/%s, want 0.50000000/0.10000000", bf, sf)
 	}
 }

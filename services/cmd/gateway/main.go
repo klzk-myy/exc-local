@@ -3318,8 +3318,12 @@ func run() error {
 	var settleSvc *settlement.SettlementService
 	var confirmationSvc *backoffice.ConfirmationService
 	if bic := strings.TrimSpace(os.Getenv("EXC_SENDER_BIC")); bic != "" && instHolCal != nil {
+		// Poster carries the PD fee journals inside the confirm tx —
+		// §5.45.2 fee recognition rides the settlement-confirm commit.
+		settleStore := settlement.NewPgxSettlementStore(pool)
+		settleStore.Poster = ledgerSvc
 		settleSvc, serr = settlement.NewSettlementService(
-			settlement.NewPgxSettlementStore(pool), instHolCal,
+			settleStore, instHolCal,
 			settlement.SettlementOptions{
 				SenderBIC: bic,
 				Cutoff:    railCutoffSvc,

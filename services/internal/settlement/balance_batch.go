@@ -160,6 +160,7 @@ func (s *BalanceService) commitBatchSet(ctx context.Context, tx pgx.Tx, trades [
 	qtys := make([]string, 0, len(appliedIdx))
 	bfs := make([]string, 0, len(appliedIdx))
 	sfs := make([]string, 0, len(appliedIdx))
+	sds := make([]string, 0, len(appliedIdx))
 	sids2 := make([]int64, 0, len(appliedIdx))
 	seqs := make([]int64, 0, len(appliedIdx))
 	for _, i := range appliedIdx {
@@ -176,24 +177,29 @@ func (s *BalanceService) commitBatchSet(ctx context.Context, tx pgx.Tx, trades [
 		sfs = append(sfs, t.SellerFee.String())
 		sids2 = append(sids2, t.Fill.ShardID)
 		seqs = append(seqs, int64(t.Fill.EngineSeq))
+		if t.SettlementDate != nil {
+			sds = append(sds, t.SettlementDate.Format("2006-01-02"))
+		} else {
+			sds = append(sds, "")
+		}
 	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO trades (id, instrument_id, buy_order_id, sell_order_id,
 		    buyer_account_id, seller_account_id, price, quantity,
-		    buyer_fee, seller_fee, shard_id, trade_seq)
+		    buyer_fee, seller_fee, settlement_date, shard_id, trade_seq)
 		OVERRIDING SYSTEM VALUE
 		SELECT u.id, u.iid, u.bo, u.so, u.ba, u.sa,
 		       u.px::numeric, u.qty::numeric, u.bf::numeric, u.sf::numeric,
-		       u.sid::smallint, u.seq
+		       NULLIF(u.sd,'')::date, u.sid::smallint, u.seq
 		  FROM unnest($1::bigint[], $2::bigint[], $3::bigint[], $4::bigint[],
 		              $5::bigint[], $6::bigint[], $7::text[], $8::text[],
-		              $9::text[], $10::text[], $11::bigint[], $12::bigint[])
+		              $9::text[], $10::text[], $11::text[], $12::bigint[], $13::bigint[])
 		      WITH ORDINALITY
-		      AS u(id, iid, bo, so, ba, sa, px, qty, bf, sf, sid, seq, ord)
+		      AS u(id, iid, bo, so, ba, sa, px, qty, bf, sf, sd, sid, seq, ord)
 		 ORDER BY u.ord
 		ON CONFLICT DO NOTHING`,
 		tids2, iids, bos, sos, buyers, sellers, pxs, qtys, bfs, sfs,
-		sids2, seqs); err != nil {
+		sds, sids2, seqs); err != nil {
 		return nil, nil, fmt.Errorf("balance: batch tape insert: %w", err)
 	}
 	markStep("1b.trades", stepStart)
@@ -228,7 +234,7 @@ func (s *BalanceService) commitBatchSet(ctx context.Context, tx pgx.Tx, trades [
 		shas = append(shas, journalHash(f.j))
 	}
 	journalIDs := make(map[int]int64, len(flat)) // flat-index → journal id
-	fillJournalIDs := map[int]int64{}           // trades-index → FILL journal id
+	fillJournalIDs := map[int]int64{}            // trades-index → FILL journal id
 	rows, err = tx.Query(ctx, `
 		INSERT INTO journal_entries
 		    (entry_type, reference_id, description, posted_by, idempotency_key, payload_sha256)

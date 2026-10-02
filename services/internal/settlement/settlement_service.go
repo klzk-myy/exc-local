@@ -49,6 +49,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/shopspring/decimal"
 
+	"exchange/internal/ledger"
 	excerrors "exchange/pkg/errors"
 )
 
@@ -156,6 +157,10 @@ type SettlementInstruction struct {
 	ConfirmationRef *string
 	CreatedAt       time.Time
 	SettledAt       *time.Time
+	// DerivativeContractID marks legs generated for derivative contracts
+	// (migration 254) — they carry their own settlement model and skip
+	// the spot PD fee-recognition seam.
+	DerivativeContractID *int64
 }
 
 // SettlementFill is the engine fill resolved to account ids — the wire
@@ -256,6 +261,42 @@ type SettlementTx interface {
 	SetSettled(ctx context.Context, instructionID int64, settledAt time.Time, confirmationRef string) error
 	// RecordNostroMovement appends the nostro intent row.
 	RecordNostroMovement(ctx context.Context, m NostroMovement) error
+	// TradeFeeSpec loads the trade's persisted fee facts for confirm-time
+	// PD fee recognition (Task 3.3.4/§5.45.2 — fees travel with the
+	// settlement-confirm journal). The trades row is locked FOR UPDATE so
+	// concurrent confirms of the same trade's four legs serialize on it.
+	// found=false when trade_id resolves to no spot trade (derivative
+	// contract legs, manual instructions) — those carry their own
+	// settlement model and are skipped, not failed.
+	TradeFeeSpec(ctx context.Context, tradeID int64) (spec TradeFeeSpec, found bool, err error)
+	// FeeJournalPosted reports whether journal_entries already carries a
+	// committed journal under this idempotency key — the second+
+	// confirmed leg of the same trade dedups on it (a 23505 mid-tx would
+	// abort the confirm instead).
+	FeeJournalPosted(ctx context.Context, idempotencyKey string) (bool, error)
+	// PostJournal posts a validated journal inside the confirm tx (the
+	// Task 3.3.6 contract — the SETTLED flip, nostro intent and fee legs
+	// commit or abort together).
+	PostJournal(ctx context.Context, j ledger.Journal) (ledger.PostResult, error)
+}
+
+// TradeFeeSpec is the settlement-confirm view of one spot trade's fee
+// legs — rebuilt from trades.*_fee (execution-persisted amounts; never
+// re-quoted, so a tier change after execution cannot move the number) and
+// the orders' order_seq for the maker/taker role the fee was priced
+// under. PhysicalDelivery mirrors the recon gate (recon_sources.go
+// ExpectedFees): trades.settlement_date IS NOT NULL.
+type TradeFeeSpec struct {
+	TradeID          int64
+	PhysicalDelivery bool
+	BuyerAccountID   int64
+	SellerAccountID  int64
+	BaseCurrency     string
+	QuoteCurrency    string
+	BuyerFee         decimal.Decimal
+	SellerFee        decimal.Decimal
+	BuyerRole        LiquidityRole
+	SellerRole       LiquidityRole
 }
 
 // ---------------------------------------------------------------------------
@@ -671,12 +712,18 @@ func nostroAccountRef(n NostroAccount) string {
 // ---------------------------------------------------------------------------
 
 // ConfirmSettlement processes the correspondent-bank confirmation for one
-// instruction: flips PENDING→SETTLED and records the nostro movement
-// intent (PAY → DEBIT, RECEIVE → CREDIT) in nostro_movements inside the
-// same transaction.
+// instruction: flips PENDING→SETTLED, records the nostro movement intent
+// (PAY → DEBIT, RECEIVE → CREDIT) in nostro_movements and posts the
+// trade's physical-delivery fee journals — all inside the same
+// transaction (§5.45.2 — fee recognition travels with the
+// settlement-confirm journal; recon_sources.go ExpectedFees only looks
+// for collected fee:* legs once an instruction is SETTLED, so the two
+// must commit atomically).
 //
-// Idempotent: confirming an already-SETTLED leg returns it unchanged.
-// FAILED/RECONCILED legs conflict (SETTLEMENT_STATE_CONFLICT). The
+// Idempotent: confirming an already-SETTLED leg returns it unchanged; a
+// sibling leg's confirm dedups on the fee:{trade}:{acct}:{role}
+// idempotency keys — the first leg to SETTLE books the fees, the rest
+// skip. FAILED/RECONCILED legs conflict (SETTLEMENT_STATE_CONFLICT). The
 // nostro_accounts.balance mutation itself is Phase-24 nostro accounting
 // (Task 24.3.1); the PENDING nostro_movements row is the intent it
 // posts. // PHASE-24 SEAM
@@ -723,6 +770,9 @@ func (s *SettlementService) ConfirmSettlement(ctx context.Context, instructionID
 		}); err != nil {
 			return fmt.Errorf("settlement: nostro movement %d: %w", instructionID, err)
 		}
+		if err := s.postDeliveryFees(ctx, tx, leg); err != nil {
+			return err
+		}
 		leg.Status = SettleSettled
 		leg.SettledAt = &settledAt
 		if confirmationRef != "" {
@@ -732,6 +782,69 @@ func (s *SettlementService) ConfirmSettlement(ctx context.Context, instructionID
 		return nil
 	})
 	return out, err
+}
+
+// postDeliveryFees recognizes the trade's trading fees at settlement
+// confirmation (spec §5.45.2). Rolling-margin trades return immediately —
+// their fee journals committed inside the fill tx. Physical-delivery
+// trades post one fee journal per non-zero side under the
+// fee:{trade}:{acct}:{role} idempotency keys, deduped by
+// FeeJournalPosted so whichever of the trade's four legs confirms first
+// books them and the rest no-op.
+//
+// The fee is denominated in each side's RECEIVED currency, which for PD
+// is delivered to the beneficiary's bank off-exchange — it never lands on
+// the wallet — so the debit carries AllowNegative (same convention as the
+// swap-free admin fee): the fee accrues as a receivable rather than
+// blocking a payment the correspondent already confirmed. Derivative
+// contract legs and instructions whose trade_id resolves to no spot
+// trade skip the seam entirely — they carry their own settlement model.
+func (s *SettlementService) postDeliveryFees(ctx context.Context, tx SettlementTx, leg SettlementInstruction) error {
+	if leg.DerivativeContractID != nil {
+		return nil
+	}
+	spec, found, err := tx.TradeFeeSpec(ctx, leg.TradeID)
+	if err != nil {
+		return fmt.Errorf("settlement: fee spec for trade %d: %w", leg.TradeID, err)
+	}
+	if !found || !spec.PhysicalDelivery {
+		return nil
+	}
+	for _, side := range []struct {
+		acct int64
+		role LiquidityRole
+		ccy  string
+		amt  decimal.Decimal
+	}{
+		{spec.BuyerAccountID, spec.BuyerRole, spec.BaseCurrency, spec.BuyerFee},
+		{spec.SellerAccountID, spec.SellerRole, spec.QuoteCurrency, spec.SellerFee},
+	} {
+		if side.amt.IsZero() {
+			continue
+		}
+		key := FeeIdempotencyKey(spec.TradeID, side.acct, side.role)
+		posted, err := tx.FeeJournalPosted(ctx, key)
+		if err != nil {
+			return fmt.Errorf("settlement: fee dedup %q: %w", key, err)
+		}
+		if posted {
+			continue // sibling leg already booked this fee
+		}
+		j, err := BuildFeeJournal(FeeQuote{
+			AccountID: side.acct, Role: side.role,
+			Currency: side.ccy, Amount: side.amt,
+		}, spec.TradeID, "settlement-confirm")
+		if err != nil {
+			return fmt.Errorf("settlement: fee journal %q: %w", key, err)
+		}
+		for i := range j.Effects {
+			j.Effects[i].AllowNegative = true
+		}
+		if _, err := tx.PostJournal(ctx, j); err != nil {
+			return fmt.Errorf("settlement: post fee %q: %w", key, err)
+		}
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -1015,6 +1128,10 @@ type pacs009Doc struct {
 // pgtype-decimal shim — the convention used across this package.
 type PgxSettlementStore struct {
 	Pool *pgxpool.Pool
+	// Poster carries fee journals inside the confirm tx (the same
+	// journalPoster seam balanceBatch uses; *LedgerService satisfies it).
+	// Nil fails PD fee posting closed rather than settling off-ledger.
+	Poster journalPoster
 }
 
 // NewPgxSettlementStore wires the store.
@@ -1178,7 +1295,7 @@ func (s *PgxSettlementStore) InTx(ctx context.Context, fn func(ctx context.Conte
 		return fmt.Errorf("settlement tx begin: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if err := fn(ctx, pgxSettlementTx{tx: tx}); err != nil {
+	if err := fn(ctx, pgxSettlementTx{tx: tx, poster: s.Poster}); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -1187,7 +1304,10 @@ func (s *PgxSettlementStore) InTx(ctx context.Context, fn func(ctx context.Conte
 	return nil
 }
 
-type pgxSettlementTx struct{ tx pgx.Tx }
+type pgxSettlementTx struct {
+	tx     pgx.Tx
+	poster journalPoster
+}
 
 func (t pgxSettlementTx) LockInstruction(ctx context.Context, id int64) (SettlementInstruction, bool, error) {
 	var l SettlementInstruction
@@ -1197,12 +1317,13 @@ func (t pgxSettlementTx) LockInstruction(ctx context.Context, id int64) (Settlem
 		SELECT id, trade_id, account_id, currency, amount::text, direction::text,
 		       settlement_date, nostro_account_id, status::text,
 		       swift_message_id, message_format::text, message_payload,
-		       confirmation_ref, created_at, settled_at
+		       confirmation_ref, created_at, settled_at, derivative_contract_id
 		  FROM settlement_instructions WHERE id = $1 FOR UPDATE`, id).
 		Scan(&l.ID, &l.TradeID, &l.AccountID, &l.Currency, &amt,
 			(*string)(&l.Direction), &l.SettlementDate, &l.NostroAccountID,
 			(*string)(&l.Status), &l.SwiftMessageID, &mf,
-			&l.MessagePayload, &l.ConfirmationRef, &l.CreatedAt, &l.SettledAt)
+			&l.MessagePayload, &l.ConfirmationRef, &l.CreatedAt, &l.SettledAt,
+			&l.DerivativeContractID)
 	if stderrors.Is(err, pgx.ErrNoRows) {
 		return SettlementInstruction{}, false, nil
 	}
@@ -1248,4 +1369,64 @@ func (t pgxSettlementTx) RecordNostroMovement(ctx context.Context, m NostroMovem
 		m.SettlementInstructionID, m.NostroAccountID, m.Currency,
 		m.Amount.String(), string(m.Direction), string(m.Status), m.ConfirmationRef)
 	return err
+}
+
+// TradeFeeSpec reads the persisted fee legs + the maker/taker order_seqs
+// the roles were priced under. FOR UPDATE OF t serializes concurrent
+// confirms of the same trade's legs on the trades row.
+func (t pgxSettlementTx) TradeFeeSpec(ctx context.Context, tradeID int64) (TradeFeeSpec, bool, error) {
+	var spec TradeFeeSpec
+	var bf, sf string
+	var boSeq, soSeq int64
+	err := t.tx.QueryRow(ctx, `
+		SELECT t.id, (t.settlement_date IS NOT NULL),
+		       t.buyer_account_id, t.seller_account_id,
+		       i.base_currency, i.quote_currency,
+		       COALESCE(t.buyer_fee::text,'0'), COALESCE(t.seller_fee::text,'0'),
+		       COALESCE(bo.order_seq,0), COALESCE(so.order_seq,0)
+		  FROM trades t
+		  JOIN instruments i ON i.id = t.instrument_id
+		  LEFT JOIN orders bo ON bo.id = t.buy_order_id
+		  LEFT JOIN orders so ON so.id = t.sell_order_id
+		 WHERE t.id = $1
+		 FOR UPDATE OF t`, tradeID).
+		Scan(&spec.TradeID, &spec.PhysicalDelivery,
+			&spec.BuyerAccountID, &spec.SellerAccountID,
+			&spec.BaseCurrency, &spec.QuoteCurrency, &bf, &sf,
+			&boSeq, &soSeq)
+	if stderrors.Is(err, pgx.ErrNoRows) {
+		return TradeFeeSpec{}, false, nil
+	}
+	if err != nil {
+		return TradeFeeSpec{}, false, err
+	}
+	if spec.BuyerFee, err = decimal.NewFromString(bf); err != nil {
+		return TradeFeeSpec{}, false, fmt.Errorf("trade %d buyer_fee %q: %w", tradeID, bf, err)
+	}
+	if spec.SellerFee, err = decimal.NewFromString(sf); err != nil {
+		return TradeFeeSpec{}, false, fmt.Errorf("trade %d seller_fee %q: %w", tradeID, sf, err)
+	}
+	// Same derivation as PgxTradeResolver.enrich — the resting order
+	// (lower order_seq) is the maker.
+	spec.BuyerRole, spec.SellerRole = RoleMaker, RoleTaker
+	if boSeq > soSeq {
+		spec.BuyerRole, spec.SellerRole = RoleTaker, RoleMaker
+	}
+	return spec, true, nil
+}
+
+func (t pgxSettlementTx) FeeJournalPosted(ctx context.Context, key string) (bool, error) {
+	var exists bool
+	err := t.tx.QueryRow(ctx, `
+		SELECT EXISTS(SELECT 1 FROM journal_entries WHERE idempotency_key = $1)`, key).
+		Scan(&exists)
+	return exists, err
+}
+
+func (t pgxSettlementTx) PostJournal(ctx context.Context, j ledger.Journal) (ledger.PostResult, error) {
+	if t.poster == nil {
+		return ledger.PostResult{}, excerrors.New("INTERNAL_ERROR",
+			"settlement: journal poster not wired — PD fee recognition cannot post")
+	}
+	return t.poster.PostJournal(ctx, t.tx, j)
 }
