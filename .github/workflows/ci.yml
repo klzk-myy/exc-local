@@ -232,6 +232,83 @@ jobs:
       - name: Build + bundle budget gate
         run: npm run build
 
+      # Advisory coverage — v8 report uploaded as an artifact; no gate.
+      - name: Unit test coverage (vitest --coverage)
+        run: npx vitest run --coverage --coverage.reporter=text --coverage.reporter=json-summary
+
+      - name: Upload frontend coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-frontend
+          path: frontend/coverage/coverage-summary.json
+          if-no-files-found: ignore
+
+  # ── 2d. Gated coverage (advisory) — env-gated unit tests against the
+  #       ephemeral stack; reports per-package coverage incl. the suites
+  #       that skip entirely in the pure unit run (EXC_PG_TEST /
+  #       EXC_REDIS_TEST / EXC_NATS_TEST / EXC_CH_TEST). Non-gating: the
+  #       report is an artifact, not a threshold.
+  coverage:
+    name: Gated coverage report (advisory)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      EXC_PG_TEST: "1"
+      EXC_REDIS_TEST: "1"
+      EXC_NATS_TEST: "1"
+      EXC_CH_TEST: "1"
+      EXC_PG_DSN: postgres://exchange:exchange_dev@127.0.0.1:5433/exchange?sslmode=disable
+      EXC_TEST_DSN: postgres://exchange:exchange_dev@127.0.0.1:5433/exchange?sslmode=disable
+      EXC_REDIS_TEST_ADDR: 127.0.0.1:16379
+      EXC_REDIS_TEST_DB: "13"
+      EXC_NATS_URLS: nats://127.0.0.1:4222,nats://127.0.0.1:4223,nats://127.0.0.1:4224
+      EXC_CLICKHOUSE_HTTP: http://127.0.0.1:8123
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: services/go.mod
+          cache: true
+          cache-dependency-path: services/go.sum
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build postgres image (gha layer cache)
+        run: |
+          docker buildx build --load -t exc-postgres:16-partman \
+            --cache-from type=gha,scope=exc-postgres \
+            --cache-to   type=gha,mode=max,scope=exc-postgres \
+            deploy/postgres
+
+      - name: Ephemeral stack up
+        run: docker compose -f docker-compose.dev.yml up -d --wait
+
+      - name: Health-check the topology
+        run: scripts/ci/wait_stack.sh
+
+      - name: Apply all migrations
+        run: scripts/ci/apply_migrations.sh
+
+      - name: Go gated coverage (services module)
+        working-directory: services
+        run: |
+          go test -count=1 -coverprofile=cover.out -covermode=atomic ./internal/... ./pkg/...
+          go tool cover -func=cover.out | tail -40
+
+      - name: Upload Go coverage profile
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-go
+          path: services/cover.out
+          if-no-files-found: ignore
+
+      - name: Teardown ephemeral stack
+        if: always()
+        run: docker compose -f docker-compose.dev.yml down -v
+
   # ── 3. Migrations on ephemeral PostgreSQL 16 ─────────────────────────────
   migrations:
     name: Migrations on ephemeral PG16
