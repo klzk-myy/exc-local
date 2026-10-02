@@ -21,3 +21,7 @@ data:
   EXC_SENTINEL_ADDRS: "redis-sentinel.exchange-testnet.svc:26379"
   EXC_REDIS_ADDR: "mymaster"
   EXC_SHARDING_CONFIG: "/etc/exchange/sharding.yaml"
+  # Venue BIC for settlement message signing (settlement-service dispatch
+  # daemon fails closed without it). Test/testnet BIC — replace with the
+  # production venue BIC in the prod overlay.
+  EXC_SENDER_BIC: "EXCHUS33"

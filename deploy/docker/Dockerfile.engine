@@ -1,0 +1,46 @@
+# Dockerfile.engine — C++ matching engine image (prod docker redesign, 2026-10-02).
+#
+# Canonical deployment remains bare metal per spec §19.1/§19.13.1 (NUMA-pinned,
+# no containers in hot path) — that is the only topology in which p99 ≤50µs
+# soak/benchmark numbers count as production evidence. This image exists for
+# the opt-in docker alternative (dev parity + operator-managed prod with an
+# explicit jitter waiver, spec §27): it MUST run with `ipc: host` + /dev/shm
+# + WAL volume (see docker-compose.app.yml), and the host still provides
+# isolcpus/NUMA/PTP — containers add latency jitter that bare metal avoids.
+#
+# Build (from repo root):
+#   docker build -f deploy/docker/Dockerfile.engine -t exc-matching-engine:local .
+# Target is the `matching_engine` CMake target only (not the test suite).
+
+FROM gcc:13-bookworm AS builder
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends cmake libnuma-dev flatbuffers-compiler libflatbuffers-dev \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+COPY core/ ./core/
+
+# Release, tests off. NOTE: core sets -march=native, so the image is tuned to
+# the BUILD host CPU — rebuild per CPU family for heterogeneous fleets.
+RUN cmake -S core -B /build -DCMAKE_BUILD_TYPE=Release -DEXCH_BUILD_TESTS=OFF \
+ && cmake --build /build -j --target matching_engine
+
+# Runtime is trixie (not bookworm): gcc:13's libstdc++ needs GLIBCXX_3.4.32,
+# which bookworm's libstdc++6 does not provide — verified failure 2026-10-02.
+FROM debian:trixie-slim AS runtime
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends numactl libnuma1 ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /build/matching_engine /opt/exchange/bin/matching-engine
+RUN chmod +x /opt/exchange/bin/matching-engine
+
+# WAL + snapshots are state — never bake them into the image; mount volumes.
+VOLUME ["/var/lib/exchange/wal", "/var/lib/exchange/snapshots"]
+
+ENTRYPOINT ["/opt/exchange/bin/matching-engine"]
+# Defaults mirror deploy/scripts/dev_stack.sh daemon_cmd(matching-engine);
+# compose overrides per shard via `command:`.
+CMD ["-shard", "0", "-ipc-base", "exchange_ipc", "-wal-dir", "/var/lib/exchange/wal", "-redis", "redis-primary:6379", "-symbol", "EUR/USD", "-instrument-id", "1", "-dev-all-accounts"]

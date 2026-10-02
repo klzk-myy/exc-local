@@ -1,0 +1,372 @@
+# docker-compose.app.yml — application tier (prod docker redesign, 2026-10-02).
+#
+# Opt-in docker alternative to bare-metal Stages 1–5. Canonical deployment is
+# unchanged: bare metal C++ core (spec §19.1/§19.13.1, Task 9.3.1) + K8s Go
+# services (Task 9.3.2). This file exists for operators who accept the jitter
+# waiver (spec §27): containers add latency jitter, so soak/benchmark numbers
+# taken under this file are NOT production p99 evidence.
+#
+# Network model (single-host, exact host parity): the app tier uses
+# `network_mode: host` — 127.0.0.1 inside a container IS the host, so every
+# host-mapped address (dev.env seeds, published infra ports) behaves exactly
+# like bare-metal host mode, with zero per-binary config translation. Side
+# benefit: no veth NAT hop on the trading path. Constraint: single Linux
+# host only (no multi-host, no Docker Desktop); stop host-mode daemons first
+# (port conflicts trip the dev_stack preflight, same as host mode).
+# `ports:` is therefore absent below (meaningless under host networking).
+#
+# Same project as docker-compose.dev.yml (`name: exc-dev`) so `depends_on`
+# resolves infra services (redis-primary health, nats-1) in one model —
+# dev_stack.sh loads BOTH files together; standalone `up` of this file alone
+# is not supported.
+#
+# Supervision mapping (supervisord still required? No — for daemons running
+# here): compose `restart: unless-stopped` + per-service `healthcheck`
+# replaces supervisord/PID files. Only PTP (ptp4l/phc2sys) stays host-only —
+# it needs the hardware clock; docker mode uses the software-clock fallback
+# per spec §19.13.4, exactly like bare-metal dev.
+#
+# Driven by deploy/scripts/dev_stack.sh:
+#   EXC_APP_MODE=docker deploy/scripts/dev_stack.sh start app
+# Images (override with EXC_*_IMAGE):
+#   docker build -f deploy/docker/Dockerfile.engine -t exc-matching-engine:local .
+#   docker build -f deploy/docker/Dockerfile.go      -t exc-go-service:local .
+#   docker build -f deploy/docker/Dockerfile.aeron   -t exc-aeronmd:local .
+#   docker build -f deploy/docker/Dockerfile.frontend -t exc-frontend:local .
+# Host ports mirror dev_stack.sh DAEMONS (stop host-mode daemons first).
+name: exc-dev
+
+x-go-env: &go-env
+  EXC_SHM_BASE: ${SHM_BASE:-exchange_ipc}
+  EXC_IPC_BASE: ${SHM_BASE:-exchange_ipc}
+  # Host-mapped defaults: correct under network_mode:host (dev_stack.sh
+  # passes its live values inline; dev.env supplies the rest via export).
+  EXC_REDIS_ADDR: ${REDIS_ADDR:-127.0.0.1:16379}
+  EXC_REDIS_DB: ${EXC_REDIS_DB:-0}
+  EXC_SENTINEL_ADDRS: ${EXC_SENTINEL_ADDRS:-127.0.0.1:36379,127.0.0.1:36380,127.0.0.1:36381}
+  EXC_NATS_URLS: ${EXC_NATS_URLS:-}
+  EXC_JWT_HS256_KEY_B64: ${EXC_JWT_HS256_KEY_B64:-}
+  EXC_CH_URL: ${EXC_CH_URL:-}
+  EXC_CH_DATABASE: ${EXC_CH_DATABASE:-}
+  EXC_CH_USER: ${EXC_CH_USER:-}
+  EXC_CH_PASSWORD: ${EXC_CH_PASSWORD:-}
+  EXC_DOCS_SECRET: ${EXC_DOCS_SECRET:-}
+  EXC_SENDER_BIC: ${EXC_SENDER_BIC:-EXCHUS33}
+  # Canonical driver dir (systemd unit): the driver is started with the same
+  # --aeron-dir below, so clients and driver always agree.
+  AERON_DIR: ${AERON_DIR:-/dev/shm/aeron-exchange}
+  EXC_ORACLE_HEALTH_ADDR: "0.0.0.0:8090"
+  EXC_RISK_HEALTH_ADDR: "0.0.0.0:8091"
+
+x-go-common: &go-common
+  image: ${GO_DOCKER_IMAGE:-exc-go-service:local}
+  ipc: host
+  network_mode: host
+  volumes:
+    - /dev/shm:/dev/shm
+  environment: *go-env
+  restart: unless-stopped
+
+services:
+  # ── Stage 1 — IPC foundation (EXC_ENGINE_MODE=docker) ────────────────────
+  # Host parity: runs the vendored binary with no flags, exactly like
+  # daemon_cmd(aeronmd). Canonical prod flags (--config/--aeron-dir per
+  # deploy/systemd/aeronmd.service) remain an operator `command:` override.
+  aeronmd:
+    image: ${AERON_DOCKER_IMAGE:-exc-aeronmd:local}
+    ipc: host
+    network_mode: host
+    volumes:
+      - /dev/shm:/dev/shm
+    environment:
+      AERON_DIR: ${AERON_DIR:-/dev/shm/aeron-exchange}
+    # Same dir the clients use (AERON_DIR above). NOTE: ENTRYPOINT already
+    # supplies argv[0], so this is flags-only — repeating the binary path
+    # makes the driver parse it as a properties file (fixed 2026-10-02).
+    # The vendored binary takes Java-style -D properties, not the systemd
+    # unit's --aeron-dir long flags (--aeron-dir exits "invalid option").
+    command: ["-Daeron.dir=${AERON_DIR:-/dev/shm/aeron-exchange}"]
+    restart: unless-stopped
+
+  watchdogd:
+    <<: *go-common
+    volumes:
+      - /dev/shm:/dev/shm
+    # Flags mirror daemon_cmd(watchdogd); -metrics binds all interfaces so
+    # the healthcheck + host scrapes reach it (host default is 127.0.0.1).
+    command: ["/app/bin/watchdogd", "-redis-addr", "${REDIS_ADDR:-127.0.0.1:16379}", "-aeron-dir", "${AERON_DIR:-/dev/shm/aeron-exchange}", "-metrics", "0.0.0.0:9110", "-ptp=false", "-ptp-expected=false", "-no-demote"]
+    environment:
+      <<: *go-env
+      AERON_DIR: ${AERON_DIR:-/dev/shm/aeron-exchange}
+    depends_on:
+      aeronmd:
+        condition: service_started
+      redis-primary:
+        condition: service_healthy
+      nats-1:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:9110/metrics"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+  # ── Stage 2 — core matching engine (EXC_ENGINE_MODE=docker) ──────────────
+  matching-engine:
+    image: ${ENGINE_DOCKER_IMAGE:-exc-matching-engine:local}
+    ipc: host
+    network_mode: host
+    volumes:
+      - /dev/shm:/dev/shm
+      - ${WAL_DIR:-wal-data}:/var/lib/exchange/wal
+      - snapshots-data:/var/lib/exchange/snapshots
+    environment:
+      EXC_REDIS_ADDR: ${REDIS_ADDR:-127.0.0.1:16379}
+      AERON_DIR: ${AERON_DIR:-/dev/shm/aeron-exchange}
+    # Mirrors daemon_cmd(matching-engine) in dev_stack.sh.
+    command: ["-shard", "0", "-ipc-base", "${SHM_BASE:-exchange_ipc}", "-wal-dir", "/var/lib/exchange/wal", "-redis", "${REDIS_ADDR:-127.0.0.1:16379}", "-symbol", "EUR/USD", "-instrument-id", "1", "-dev-all-accounts"]
+    depends_on:
+      aeronmd:
+        condition: service_started
+      redis-primary:
+        condition: service_healthy
+      nats-1:
+        condition: service_started
+    stop_grace_period: 15s # systemd TimeoutStopSec=15s (snapshot + WAL fsync)
+    restart: unless-stopped
+
+  # Cross-shard ctl relay (Phase-3 Task 4, spec §2.2a): Aeron IPC is
+  # point-to-point per channel alias, so dst_shard ctl frames only reach
+  # their engine shard through this relay — load-bearing for multi-shard
+  # basket 2PC. Mirrors daemon_cmd(xshardrelay) in dev_stack.sh.
+  xshardrelay:
+    <<: *go-common
+    command: ["/app/bin/xshardrelay", "-shards", "${EXC_XSHARD_SHARDS:-0}"]
+    depends_on:
+      aeronmd:
+        condition: service_started
+      matching-engine:
+        condition: service_started
+
+  # ── Stage 3 — bridges, oracles & feeds (EXC_GO_MODE=docker) ───────────────
+  bridge:
+    <<: *go-common
+    command: ["/app/bin/bridge"]
+    depends_on:
+      matching-engine:
+        condition: service_started
+      redis-primary:
+        condition: service_healthy
+      nats-1:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:9100/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
+
+  oracle:
+    <<: *go-common
+    command: ["/app/bin/oracle"]
+    environment:
+      <<: *go-env
+      EXC_ORACLE_SIM: "1"
+    depends_on:
+      matching-engine:
+        condition: service_started
+      redis-primary:
+        condition: service_healthy
+      nats-1:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:8090/health/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
+
+  marketdata:
+    <<: *go-common
+    command: ["/app/bin/marketdata"]
+    depends_on:
+      matching-engine:
+        condition: service_started
+      redis-primary:
+        condition: service_healthy
+      nats-1:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:8081/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
+
+  # ── Stage 4 — business logic, risk & compliance ───────────────────────────
+  risk:
+    <<: *go-common
+    command: ["/app/bin/risk"]
+    depends_on:
+      matching-engine:
+        condition: service_started
+      redis-primary:
+        condition: service_healthy
+      nats-1:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:8091/health/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
+
+  settlement:
+    <<: *go-common
+    command: ["/app/bin/settlement"]
+    environment:
+      <<: *go-env
+      EXC_SENDER_BIC: ${EXC_SENDER_BIC:-EXCHUS33}
+    depends_on:
+      matching-engine:
+        condition: service_started
+      redis-primary:
+        condition: service_healthy
+      nats-1:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:8083/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
+
+  compliance:
+    <<: *go-common
+    command: ["/app/bin/compliance"]
+    depends_on:
+      matching-engine:
+        condition: service_started
+      redis-primary:
+        condition: service_healthy
+      nats-1:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:8084/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
+
+  analytics:
+    <<: *go-common
+    command: ["/app/bin/analytics"]
+    volumes:
+      - /dev/shm:/dev/shm
+      - ch-spool:/var/spool/exchange
+    environment:
+      <<: *go-env
+      EXC_CH_SPOOL_DIR: /var/spool/exchange
+    depends_on:
+      matching-engine:
+        condition: service_started
+      nats-1:
+        condition: service_started
+
+  recovery-orchestrator:
+    <<: *go-common
+    command: ["/app/bin/recovery-orchestrator"]
+    depends_on:
+      matching-engine:
+        condition: service_started
+      redis-primary:
+        condition: service_healthy
+      nats-1:
+        condition: service_started
+
+  sentinel-exporter:
+    <<: *go-common
+    command: ["/app/bin/sentinel_exporter"]
+    depends_on:
+      redis-primary:
+        condition: service_healthy
+
+  # ── Stage 5 — client edge gateways ────────────────────────────────────────
+  admin:
+    <<: *go-common
+    command: ["/app/bin/admin"]
+    depends_on:
+      matching-engine:
+        condition: service_started
+      redis-primary:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:8085/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
+
+  gateway:
+    <<: *go-common
+    command: ["/app/bin/gateway"]
+    depends_on:
+      matching-engine:
+        condition: service_started
+      redis-primary:
+        condition: service_healthy
+      nats-1:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
+
+  fix:
+    <<: *go-common
+    command: ["/app/bin/fix"]
+    depends_on:
+      matching-engine:
+        condition: service_started
+      redis-primary:
+        condition: service_healthy
+      nats-1:
+        condition: service_started
+
+  # SBE binary order entry (Phase-3 Task 4 / Task 18.3.8): metrics-only on
+  # :8089 until EXC_FIXSBE_ENABLED=1 + TLS material arm the :9890 listener.
+  fixsbe:
+    <<: *go-common
+    command: ["/app/bin/fixsbe"]
+    depends_on:
+      matching-engine:
+        condition: service_started
+      redis-primary:
+        condition: service_healthy
+      nats-1:
+        condition: service_started
+
+  # ── Stage 5 — trader UI (always docker; no host-mode binary) ──────────────
+  # nginx serves the Vite build on :3000, /api + /ws proxied to gateway.
+  frontend:
+    image: ${FRONTEND_DOCKER_IMAGE:-exc-frontend:local}
+    network_mode: host
+    depends_on:
+      gateway:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+volumes:
+  wal-data:
+  snapshots-data:
+  ch-spool:

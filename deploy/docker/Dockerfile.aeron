@@ -1,0 +1,26 @@
+# Dockerfile.aeron — Aeron C media driver image (full-project docker, 2026-10-02).
+#
+# Packages the vendored driver binary (core/third_party/aeron/bin/aeronmd —
+# the same binary dev_stack.sh runs on host, so driver/client versions always
+# match the engine image built from the same tree). Needs libuuid1 at runtime
+# (ldd-confirmed shared dep). MUST run with `ipc: host` + /dev/shm (see
+# docker-compose.app.yml): the driver owns the IPC rings the engine and Go
+# services map. Runs the bare binary exactly like host mode; canonical prod
+# flags (--config/--aeron-dir per deploy/systemd/aeronmd.service) remain an
+# operator override via `command:`.
+#
+# Build (from repo root):
+#   docker build -f deploy/docker/Dockerfile.aeron -t exc-aeronmd:local .
+
+FROM debian:bookworm-slim AS runtime
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends libuuid1 ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY core/third_party/aeron/bin/aeronmd /opt/aeron/bin/aeronmd
+RUN chmod +x /opt/aeron/bin/aeronmd
+
+ENTRYPOINT ["/opt/aeron/bin/aeronmd"]
+# Bare default mirrors daemon_cmd(aeronmd) in dev_stack.sh (host parity).
+CMD []
