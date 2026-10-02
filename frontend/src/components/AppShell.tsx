@@ -1,6 +1,6 @@
 /**
- * SPA shell: top nav (auto-discovered from `features/◦/nav.ts`), the
- * Task 10.3.19 connection banner, WS status pill, FX market-hours badge,
+ * SPA shell: left sidebar nav (auto-discovered from `features/◦/nav.ts`),
+ * the Task 10.3.19 connection banner, WS status pill, FX market-hours badge,
  * and the routed <Outlet/>.
  */
 import { useEffect } from 'react';
@@ -9,6 +9,7 @@ import { NavLink, Outlet } from 'react-router';
 import { navBySection } from '@/app/manifest';
 import { wsClient } from '@/app/runtime';
 import { ConnectionBanner, StalePricingBadge } from '@/components/ConnectionBanner';
+import { NotificationBell } from '@/features/notifications/NotificationBell';
 import { isFxMarketOpen } from '@/lib/market/tradingHours';
 import { useWsStatus } from '@/lib/ws';
 
@@ -63,42 +64,49 @@ export function AppShell() {
   return (
     <div className="flex min-h-screen flex-col">
       <ConnectionBanner />
-      <header className="flex items-center gap-4 border-b border-neutral-800 px-4 py-2">
-        <span className="text-lg font-bold tracking-tight">Exchange</span>
-        <nav
-          aria-label="Primary"
-          className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
-        >
-          {[...sections.entries()].map(([section, items]) => (
-            <div key={section} className="flex shrink-0 items-center gap-1">
-              {items.map(({ item }) => (
-                <NavLink
-                  key={`${item.section}:${item.to}`}
-                  to={item.to}
-                  end={item.to === '/'}
-                  className={({ isActive }) =>
-                    `whitespace-nowrap rounded px-3 py-1.5 text-sm font-medium transition-colors ${
-                      isActive
-                        ? 'bg-neutral-800 text-white'
-                        : 'text-neutral-400 hover:bg-neutral-900 hover:text-neutral-200'
-                    }`
-                  }
-                >
-                  {item.label}
-                </NavLink>
-              ))}
+      <div className="flex min-h-0 flex-1">
+        <aside className="flex w-56 shrink-0 flex-col border-r border-neutral-800 bg-neutral-950">
+          <div className="border-b border-neutral-800 px-4 py-3">
+            <span className="text-lg font-bold tracking-tight">Exchange</span>
+          </div>
+          <nav aria-label="Primary" className="min-h-0 flex-1 overflow-y-auto p-2">
+            {[...sections.entries()].map(([section, items]) => (
+              <div key={section} className="mb-1">
+                <div className="px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">
+                  {section}
+                </div>
+                {items.map(({ item }) => (
+                  <NavLink
+                    key={`${item.section}:${item.to}`}
+                    to={item.to}
+                    end={item.to === '/'}
+                    className={({ isActive }) =>
+                      `block rounded px-3 py-1.5 text-sm font-medium transition-colors ${
+                        isActive
+                          ? 'bg-neutral-800 text-white'
+                          : 'text-neutral-400 hover:bg-neutral-900 hover:text-neutral-200'
+                      }`
+                    }
+                  >
+                    {item.label}
+                  </NavLink>
+                ))}
+              </div>
+            ))}
+          </nav>
+          <div className="flex flex-col items-stretch gap-1.5 border-t border-neutral-800 p-3">
+            <StalePricingBadge />
+            <MarketHoursBadge />
+            <div className="flex items-center gap-2">
+              <NotificationBell />
+              <ConnectionPill />
             </div>
-          ))}
-        </nav>
-        <div className="flex shrink-0 items-center gap-2 whitespace-nowrap">
-          <StalePricingBadge />
-          <MarketHoursBadge />
-          <ConnectionPill />
-        </div>
-      </header>
-      <main className="flex-1">
-        <Outlet />
-      </main>
+          </div>
+        </aside>
+        <main className="min-w-0 flex-1">
+          <Outlet />
+        </main>
+      </div>
     </div>
   );
 }

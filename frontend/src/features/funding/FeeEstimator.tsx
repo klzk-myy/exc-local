@@ -1,8 +1,8 @@
 /**
  * Fee estimator — POST /api/v1/funding/fee-estimate (Phase-11 Task 11.3.9).
- * The route is registered but Status=Stub until Phase-11 lands the fee
- * schedule engine — a 501 degrades to "estimator unavailable" rather than
- * an error banner (the withdrawal form stays usable without it).
+ * The route is live (Phase-11 Task 11.3.9 — supersedes the earlier
+ * Status=Stub note) — an error still degrades to "estimator unavailable"
+ * rather than an error banner (the withdrawal form stays usable).
  */
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';

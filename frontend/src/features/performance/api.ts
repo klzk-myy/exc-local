@@ -1,8 +1,8 @@
 /**
  * Performance feature wire seams — parses the live order-history rows
- * (orders.Order.View()) and tolerantly probes the registered-but-stub
- * reporting endpoints. Stub endpoints return RFC 7807 errors (501
- * NOT_IMPLEMENTED / SERVICE_DEGRADED); callers catch + mark derived.
+ * (orders.Order.View()) and tolerantly probes the live reporting
+ * endpoints. Error envelopes (SERVICE_DEGRADED et al.) are caught and
+ * marked derived — supersedes the earlier "registered-but-stub 501" note.
  */
 import type { ApiClient } from '@/lib/api';
 

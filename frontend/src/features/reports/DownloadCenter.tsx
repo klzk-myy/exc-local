@@ -11,7 +11,7 @@
  *
  * Binary responses bypass ApiClient's JSON path — `downloadFile`
  * streams the blob and maps an RFC 7807 error body to ApiError, which
- * renders as an explicit "not yet available" note on stub routes.
+ * renders as an explicit "not available" note on failure.
  */
 import { useState } from 'react';
 
@@ -63,7 +63,7 @@ function DownloadCard({
       {status.kind === 'error' ? (
         isNotImplemented(status.err) ? (
           <p className="mt-2 text-xs text-amber-400">
-            This report is registered but not yet live (501 NOT_IMPLEMENTED).
+            This report returned 501 NOT_IMPLEMENTED (route expected live — regression signal).
           </p>
         ) : status.err instanceof ApiError ? (
           <p className="mt-2 text-xs text-red-400">
@@ -166,7 +166,7 @@ export function DownloadCenter() {
 
       <DownloadCard
         title="Account statement"
-        desc="Monthly account statement (Phase-20 Task 20.3.6) — endpoint registered, not yet live."
+        desc="Monthly account statement (Phase-20 Task 20.3.6) — endpoint live."
         action="Download statement"
         status={st('statement')}
         onGo={() => {
@@ -178,7 +178,7 @@ export function DownloadCenter() {
 
       <DownloadCard
         title="Trade confirmation"
-        desc="Per-trade MiFID II confirmation (Phase-20) — enter a trade id; endpoint registered, not yet live."
+        desc="Per-trade MiFID II confirmation (Phase-20) — enter a trade id; endpoint live."
         action="Download confirmation"
         status={st('conf')}
         onGo={() => {
@@ -207,7 +207,7 @@ export function DownloadCenter() {
 
       <DownloadCard
         title="Income report"
-        desc="Funding/fee income ledger export (Phase-20) — endpoint registered, not yet live."
+        desc="Funding/fee income ledger export (Phase-20) — endpoint live."
         action="Download income"
         status={st('income')}
         onGo={() => {
@@ -219,7 +219,7 @@ export function DownloadCenter() {
 
       <DownloadCard
         title="Account snapshot"
-        desc="Point-in-time balances & positions snapshot (Phase-20) — endpoint registered, not yet live."
+        desc="Point-in-time balances & positions snapshot (Phase-20) — endpoint live."
         action="Download snapshot"
         status={st('snap')}
         onGo={() => {
@@ -229,7 +229,7 @@ export function DownloadCenter() {
 
       <DownloadCard
         title="TCA report"
-        desc="Transaction-cost analysis per account (Phase-23) — endpoint registered, not yet live."
+        desc="Transaction-cost analysis per account (Phase-23) — endpoint live."
         action="Download TCA"
         status={st('tca')}
         onGo={() => {

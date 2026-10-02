@@ -2,25 +2,26 @@
  * Settings & security-center API — Task 10.3.22.
  *
  * Route registry (services/internal/gateway/routes_v1.go):
- *   GET/PUT  /api/v1/account/profile                       (Phase-12, stub)
- *   POST     /api/v1/account/change-password               (Phase-12, stub)
- *   GET      /api/v1/account/login-history                 (Phase-12, stub)
- *   GET/PUT  /api/v1/account/notifications/preferences     (Phase-12, stub)
- *   PUT      /api/v1/account/settings/anti-phishing-code   (Phase-12, stub)
- *   POST     /api/v1/account/webauthn/{register,authenticate} (Phase-12, stub)
- *   POST     /api/v1/account/emergency-freeze              (Phase-12, stub)
- *   POST     /api/v1/account/unfreeze-request              (Phase-12, stub)
- *   POST     /api/v1/account/cooling-off                   (Phase-14 Task 14.3.11, stub)
- *   POST     /api/v1/account/close                         (Phase-14 Task 14.3.9, stub)
- *   PUT      /api/v1/account/consent                       (Phase-14 Task 14.3.7, stub)
- *   POST     /api/v1/account/gdpr/{export,erase}           (Phase-21 Task 21.3.7, stub)
- *   GET/POST/DELETE /api/v1/developer/api-keys[/{id}]      (Phase-05 Task 5.3.16, LIVE)
+ *   GET/PUT  /api/v1/account/profile                       (Phase-12, live)
+ *   POST     /api/v1/account/change-password               (Phase-12, live)
+ *   GET      /api/v1/account/login-history                 (Phase-12, live)
+ *   GET/PUT  /api/v1/account/notifications/preferences     (Phase-12, live)
+ *   PUT      /api/v1/account/settings/anti-phishing-code   (Phase-12, live)
+ *   POST     /api/v1/account/webauthn/{register,authenticate} (Phase-12, live)
+ *   POST     /api/v1/account/emergency-freeze              (Phase-12, live)
+ *   POST     /api/v1/account/unfreeze-request              (Phase-12, live)
+ *   POST     /api/v1/account/cooling-off                   (Phase-14 Task 14.3.11, live)
+ *   POST     /api/v1/account/close                         (Phase-14 Task 14.3.9, live)
+ *   PUT      /api/v1/account/consent                       (Phase-14 Task 14.3.7, live)
+ *   POST     /api/v1/account/gdpr/{export,erase}           (Phase-21 Task 21.3.7, live)
+ *   GET/POST/DELETE /api/v1/developer/api-keys[/{id}]      (Phase-05 Task 5.3.16, live)
  *   GET/POST /api/v1/account/sub-accounts                  (Phase-05 Task 5.3.11, live)
  *   POST     /api/v1/account/sub-accounts/{id}/api-keys    (live)
  *   DELETE   /api/v1/account/sub-accounts/{id}/api-keys/{keyId} (live)
  *
- * Phase-12 routes are Status=Stub (501 NOT_IMPLEMENTED) until the owning
- * task lands — components render the envelope error and stay usable.
+ * All routes above are `v1live` (StatusLive) — supersedes the earlier
+ * "Phase-12 routes are Status=Stub (501)" note; the registry now has zero
+ * StatusStub rows and every row mounts a real handler.
  */
 import type { ApiClient } from '@/lib/api';
 

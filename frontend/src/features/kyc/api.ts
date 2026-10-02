@@ -6,7 +6,8 @@
  *   POST /api/v1/kyc/submit  → multi-step submission (Phase-12 Task 12.3.4;
  *                              documents stored S3+SSE-KMS server-side)
  *
- * Both routes are Phase-12/14 stubs — the UI degrades on 501.
+ * Both routes are live (supersedes the earlier "Phase-12/14 stubs — UI
+ * degrades on 501" note — the registry has zero StatusStub rows).
  *
  * Canonical values (spec §14.2 / Task 12.3.4):
  *   T0 → no trading, no withdrawals

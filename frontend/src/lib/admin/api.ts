@@ -19,9 +19,10 @@
  * X-Admin-Env header is stamped by the bound context — a page rendered
  * for staging cannot emit a production call.
  *
- * Registered-but-stub routes (Status=Stub — /admin/ops-board, /admin/
- * instruments*, /account/pnl, …) are NOT fetched here; callers surface
- * them as "unavailable" panels per the fail-closed rule.
+ * Previously-stub routes (/admin/ops-board, /admin/instruments*,
+ * /account/pnl, …) are all live — the registry carries zero StatusStub
+ * rows. Runtime errors still surface as "unavailable" panels per the
+ * fail-closed rule.
  */
 import type { ApiClient, QueryParams } from '@/lib/api/client';
 import { ApiError } from '@/lib/api';

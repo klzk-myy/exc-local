@@ -1,9 +1,9 @@
 /**
  * Client-side performance derivation (Phase-10 Task 10.3.18 fallback
  * path). The aggregate reporting endpoints — /api/v1/account/pnl,
- * /account/income, /account/snapshots, /reports/tca — are registered
- * stubs (Phase-13/Phase-20 owners) and return 501 today. When they land
- * this page prefers them; until then we derive from live surfaces:
+ * /account/income, /account/snapshots, /reports/tca — are live
+ * (Phase-13/Phase-20 owners); this module remains the fallback the
+ * page uses when a probe reports unavailable. Live surfaces:
  *
  *   GET /api/v1/positions   open positions (realized + unrealized P&L)
  *   GET /api/v1/orders      order history (filled qty × avg_fill_price)

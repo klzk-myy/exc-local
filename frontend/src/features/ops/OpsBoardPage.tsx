@@ -5,10 +5,10 @@
  *   GET /api/v1/system/status       public aggregate (components[])
  *   GET /api/v1/admin/ops/health    admin export (env-scoped; auditor+)
  *
- * Registered-but-stub siblings render as unavailable panels instead of
+ * Sibling routes render as unavailable panels on error instead of
  * fabricated content:
  *   GET /api/v1/admin/ops-board     Phase-15 Task 15.3.12 (market-ops
- *                                 console board — Risk Manager)
+ *                                 console board — Risk Manager) — live
  *   /api/v1/admin/instruments/{id}/{activate|suspend|…}  Phase-15
  *                                 Task 15.3.1 lifecycle actions
  *

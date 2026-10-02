@@ -11,8 +11,8 @@
  *                                             + Idempotency-Key (money-moving, §8.8)
  *   GET  /api/v1/transfers                    ?currency&direction&from&to&cursor
  *   POST /api/v1/funding/fee-estimate         {amount, currency, rail, direction}
- *                                             (Phase-11 Task 11.3.9 — Status=Stub → 501
- *                                             degrades to "estimator unavailable")
+ *                                             (Phase-11 Task 11.3.9 — live; error
+ *                                             envelope still degrades gracefully)
  *   GET  /api/v1/account/balances             → {account_id, balances[]}
  */
 import type { ApiClient } from '@/lib/api';
@@ -298,7 +298,7 @@ export async function transferHistory(
 }
 
 // ---------------------------------------------------------------------------
-// Fee estimator (Phase-11 Task 11.3.9 — stub route; degrade on 501)
+// Fee estimator (Phase-11 Task 11.3.9 — live route; degrade on envelope error)
 // ---------------------------------------------------------------------------
 
 export interface FeeEstimate {

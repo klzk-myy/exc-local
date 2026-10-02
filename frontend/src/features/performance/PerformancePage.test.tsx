@@ -60,7 +60,7 @@ const STUB_501 = {
   body: {
     type: 'error',
     error: 'NOT_IMPLEMENTED',
-    message: 'registered stub — lands Phase-13/20',
+    message: 'endpoint returned NOT_IMPLEMENTED',
     status: 501,
   },
 };

@@ -4,9 +4,9 @@
  *
  * Truthfulness contract:
  *   - The aggregate endpoints (/account/pnl, /account/income,
- *     /account/snapshots, /reports/tca) are registered stubs until
- *     Phase-13/20; the page probes them and renders an "unavailable"
- *     card when they 501 — never fabricated aggregates.
+ *     /account/snapshots, /reports/tca) are live (Phase-13/20); the page
+ *     still probes them and renders an "unavailable" card on error —
+ *     never fabricated aggregates.
  *   - All figures are computed client-side from the live order history +
  *     positions endpoints and carry a "derived" badge (FIFO-approximate
  *     matching — not a ledger view; the derivation rules are disclosed
@@ -74,7 +74,7 @@ function Stat({ label, value, badge }: { label: string; value: string; badge?: b
 }
 
 /** Probe a reporting endpoint; "available" means a 2xx parse, anything
- * else renders as unavailable (the stub surface 501s today). */
+ * else renders as unavailable. */
 function useReportingProbe(api: ApiClient, path: string, label: string) {
   return useQuery({
     queryKey: ['performance', 'probe', path],

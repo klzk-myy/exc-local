@@ -125,9 +125,9 @@ export function SolvencyPanel() {
 }
 
 /** Per-account Merkle inclusion proof — the caller's own salted leaf
- * plus the sibling digests that recompute the published root. Renders
- * honest-unavailable on 501, honest-empty when no snapshot covers the
- * account yet. */
+ * plus the sibling digests that recompute the published root. The route
+ * is live; renders honest-unavailable on error, honest-empty when no
+ * snapshot covers the account yet. */
 function AccountProofSection() {
   const q = useQuery({
     queryKey: ['reports', 'account-solvency-proof'],

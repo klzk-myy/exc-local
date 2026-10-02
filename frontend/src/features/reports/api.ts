@@ -2,9 +2,9 @@
  * Reports & transparency adapters (Task 10.3.28).
  *
  *   Live  — GET /fees · GET /announcements · GET /system/status ·
- *           GET /tax/report (csv/pdf/json).
- *   Stub  — statements / income / snapshots / confirmations / TCA /
- *           solvency+PoR — all registered, all 501 today.
+ *           GET /tax/report (csv/pdf/json) · statements / income /
+ *           snapshots / confirmations / TCA / solvency+PoR are `v1live`
+ *           (supersedes the earlier "registered, all 501 today" note).
  * Wire payloads are narrowed from `unknown`; nothing is fabricated.
  */
 import { apiClient } from '@/app/runtime';
@@ -153,7 +153,7 @@ export async function fetchSystemStatus(
 }
 
 // ---------------------------------------------------------------------------
-// Solvency / proof-of-reserves (stub — Phase-13 Task 13.3.7)
+// Solvency / proof-of-reserves (live — Phase-13 Task 13.3.7)
 // ---------------------------------------------------------------------------
 
 /** Narrowed PoR daily-root payload — rendered verbatim when live. */
