@@ -142,3 +142,13 @@ func (s *Service) Unfollow(ctx context.Context, followID, actorAccountID int64) 
 	return &UnfollowResult{Follow: uf, CancelledChildren: cancelled,
 		Disclosure: FollowDisclosure}, nil
 }
+
+// MyFollows serves GET /copy/follows — the caller's own follow list
+// (all statuses, newest-first) joined to strategy display fields so the
+// UI can render the unfollow target without a second lookup.
+func (s *Service) MyFollows(ctx context.Context, accountID int64) ([]FollowView, error) {
+	if accountID <= 0 {
+		return nil, errorf(CodeInvalidRequest, "account context required")
+	}
+	return s.store.FollowsByInvestor(ctx, accountID, 0)
+}

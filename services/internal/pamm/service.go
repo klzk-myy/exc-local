@@ -115,6 +115,59 @@ func (s *Service) Redeem(ctx context.Context, req MovementRequest) (*MovementRes
 	return s.move(ctx, req, TxnRedeem)
 }
 
+// ---------------------------------------------------------------------------
+// Read surface (Phase-8 frontend: browse / detail / statement)
+// ---------------------------------------------------------------------------
+
+// BrowsePools lists ACTIVE pools for the discovery surface — keyset
+// pagination on pool_id DESC.
+func (s *Service) BrowsePools(ctx context.Context, limit int, afterID int64) ([]Pool, error) {
+	return s.store.ListPools(ctx, limit, afterID)
+}
+
+// PoolDetail composes the pool row, live allocation totals and the
+// caller's own allocation (nil when the caller is not invested). Any
+// authenticated account may read a pool's public detail — invested
+// totals are aggregate (per-investor rows stay caller-scoped).
+func (s *Service) PoolDetail(ctx context.Context, poolID, callerAccountID int64) (*PoolSummary, error) {
+	p, err := s.store.PoolByID(ctx, poolID)
+	if err != nil {
+		return nil, err
+	}
+	if p == nil {
+		return nil, errorf(CodeNotFound, "pool %d not found", poolID)
+	}
+	n, total, err := s.store.PoolTotals(ctx, poolID)
+	if err != nil {
+		return nil, err
+	}
+	mine, err := s.store.AllocationFor(ctx, poolID, callerAccountID)
+	if err != nil {
+		return nil, err
+	}
+	return &PoolSummary{Pool: *p, InvestorCount: n,
+		TotalInvested: total, MyAllocation: mine}, nil
+}
+
+// PoolStatement returns the caller's sub-ledger movements for a pool.
+// The pool's manager sees the pool-wide ledger (account scope 0); every
+// other caller sees only their own rows — never another investor's.
+func (s *Service) PoolStatement(ctx context.Context, poolID, callerAccountID int64,
+	limit int, afterID int64) ([]StatementRow, error) {
+	p, err := s.store.PoolByID(ctx, poolID)
+	if err != nil {
+		return nil, err
+	}
+	if p == nil {
+		return nil, errorf(CodeNotFound, "pool %d not found", poolID)
+	}
+	scope := callerAccountID
+	if p.ManagerAccountID == callerAccountID {
+		scope = 0 // pool-wide manager view
+	}
+	return s.store.StatementFor(ctx, poolID, scope, limit, afterID)
+}
+
 func (s *Service) move(ctx context.Context, req MovementRequest, kind TxnType) (*MovementResult, error) {
 	if req.PoolID <= 0 || req.InvestorAccountID <= 0 {
 		return nil, errorf(CodeInvalidRequest, "pool_id and investor_account_id required")

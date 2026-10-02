@@ -20,7 +20,7 @@ const ndfSource = "CENTRAL_BANK:PTAX" // Banco Central do Brasil fixing page
 func bookNdf(t *testing.T, svc *NdfService, side ContractSide, notional, agreed string) *Contract {
 	t.Helper()
 	agreedD := decimal.RequireFromString(agreed)
-	c, err := svc.BookNdf(context.Background(), NdfBookRequest{
+	req := NdfBookRequest{
 		NdfOrderRequest: NdfOrderRequest{
 			Pair:            mustPair(t, "USD", "BRL"),
 			Side:            side,
@@ -31,14 +31,39 @@ func bookNdf(t *testing.T, svc *NdfService, side ContractSide, notional, agreed 
 			FixingSource:    ndfSource,
 		},
 		TradeID: 301, AccountID: 7, InstrumentID: 44,
-		SpotRate:       decimal.RequireFromString("5.00"),
 		AgreedRate:     &agreedD,
 		IdempotencyKey: "ndf:301:7:" + string(side) + notional,
-	})
+	}
+	// The §27.1 fair-value gate requires the agreed rate within 25 bps
+	// of CIP — derive the fixture spot so fair ≈ agreed (contract-rate
+	// assertions downstream keep their 5.10 arithmetic).
+	req.SpotRate = ndfFixtureSpot(t, svc, req.NdfOrderRequest, agreedD)
+	c, err := svc.BookNdf(context.Background(), req)
 	if err != nil {
 		t.Fatalf("book: %v", err)
 	}
 	return c
+}
+
+// ndfFixtureSpot returns the spot that makes the CIP fair value equal
+// the agreed rate under the shared test pricer.
+func ndfFixtureSpot(t *testing.T, svc *NdfService, o NdfOrderRequest,
+	agreed decimal.Decimal) decimal.Decimal {
+	t.Helper()
+	ctx := context.Background()
+	fixingDate, err := svc.ValidateNdfOrder(o)
+	if err != nil {
+		t.Fatalf("validate: %v", err)
+	}
+	spotDate, err := svc.Dates.SpotDate(o.Pair, o.TradeDay, o.SettlementCycle)
+	if err != nil {
+		t.Fatalf("spot date: %v", err)
+	}
+	q, err := svc.Pricer.PriceForward(ctx, o.Pair, decimal.One, spotDate, fixingDate)
+	if err != nil {
+		t.Fatalf("ratio: %v", err)
+	}
+	return agreed.Div(q.ForwardRate)
 }
 
 func TestNdfBookingNoPhysicalLegs(t *testing.T) {

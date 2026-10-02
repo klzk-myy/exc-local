@@ -58,7 +58,16 @@ const (
 	CodeBenchmarkUnavailable    = "BENCHMARK_UNAVAILABLE"                // 503
 	CodeDerivativeStateConflict = "DERIVATIVE_STATE_CONFLICT"            // 409
 	CodeTxnConflictExhausted    = "TRANSACTION_CONFLICT_RETRY_EXHAUSTED" // 503
+	// CodeFairValueDivergence — spec §27.1 MTF/Fair-Value matrix row
+	// (503, L1): an explicit agreed forward/NDF rate diverges from the
+	// CIP fair value beyond the canonical band (25 bps — the §27.1
+	// oracle-divergence convention).
+	CodeFairValueDivergence = "FAIR_VALUE_DIVERGENCE" // 503
 )
+
+// FairValueDivergenceBps is the |agreed − CIP fair| / fair band in basis
+// points. 25 mirrors the spec §27.1 oracle-divergence threshold.
+const FairValueDivergenceBps = 25
 
 // ---------------------------------------------------------------------------
 // Instrument vocabulary (spec §5.1 instrument_type_enum — reuse the same

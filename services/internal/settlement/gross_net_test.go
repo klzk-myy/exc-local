@@ -33,6 +33,9 @@ type memGrossNetStore struct {
 	modeErr error
 	legsErr error
 	txErr   error
+	// cutoffQueue seam (optional interface on the real store).
+	released int
+	queued   []int64
 	// failClaimAfter: when >0, ClaimLegs short-claims to force the
 	// constituent-moved abort path.
 	failClaimAfter int
@@ -494,5 +497,110 @@ func TestIntegrationClaimLegsAtomic(t *testing.T) {
 	}
 	if msgID != "NBTEST1" {
 		t.Fatalf("msg id %q", msgID)
+	}
+}
+
+// grossLegFor builds a GROSS-mode due leg for the cutoff tests.
+func grossLegFor(_ *testing.T, id int64, ccy, amt string, day time.Time) NettableLeg {
+	return NettableLeg{
+		Instruction: SettlementInstruction{ID: id, TradeID: 90, AccountID: 10,
+			Currency: ccy, Amount: decimal.RequireFromString(amt),
+			Direction: DirectionPay, SettlementDate: day, Status: SettlePending},
+		Mode: SettlementGross, CounterpartyID: 20, Nostro: testNostro,
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Dispatch-time rail cut-off gate (Task 24.3.20 parity — cutoffQueue seam)
+// ---------------------------------------------------------------------------
+
+func (m *memGrossNetStore) ReleaseQueued(_ context.Context, _ time.Time) (int, error) {
+	m.released++
+	return 0, nil
+}
+
+func (m *memGrossNetStore) QueueForNextCycle(_ context.Context, id int64,
+	newDate, _ time.Time) (bool, error) {
+	m.queued = append(m.queued, id)
+	return true, nil
+}
+
+// thinGrossNetStore implements GrossNetStore but not the optional
+// cutoffQueue seam — proves the constructor fails closed when a cutoff
+// is wired against a store that cannot queue legs.
+type thinGrossNetStore struct{}
+
+func (thinGrossNetStore) SettlementModeFor(context.Context, int64) (SettlementMode, error) {
+	return SettlementGross, nil
+}
+func (thinGrossNetStore) DueLegsEnriched(context.Context, time.Time) ([]NettableLeg, error) {
+	return nil, nil
+}
+func (thinGrossNetStore) InTx(ctx context.Context, fn func(context.Context, GrossNetTx) error) error {
+	return fn(ctx, nil)
+}
+
+// Dispatch-time cutoff: a same-day leg past its rail window rolls to
+// QUEUED_FOR_NEXT_CYCLE and never reaches the dispatcher.
+func TestGrossNetDispatchCutoffRollsSameDayLeg(t *testing.T) {
+	day := mustTime(t, "2025-06-10T00:00:00Z").Truncate(24 * time.Hour)
+	// 19:00 ET = past the 18:30 Fedwire window.
+	st := &memGrossNetStore{legs: []NettableLeg{
+		grossLegFor(t, 11, "USD", "100.00", day),
+	}}
+	cutoff := newCutoffSvc(t, defaultSchedules, mustTime(t, "2025-06-10T23:00:00Z"))
+	disp := &NullDispatcher{}
+	s, err := NewGrossNetService(st, GrossNetOptions{
+		SenderBIC: "EXCHUS33", Dispatcher: disp, Cutoff: cutoff,
+		Clock: func() time.Time { return mustTime(t, "2025-06-10T23:00:00Z") },
+	})
+	if err != nil {
+		t.Fatalf("service: %v", err)
+	}
+	rep, err := s.DispatchDue(context.Background(), day)
+	if err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	if rep.Queued != 1 || rep.GrossClaimed != 0 || len(disp.Sent) != 0 {
+		t.Fatalf("leg must roll, not dispatch: %+v sent=%d", rep, len(disp.Sent))
+	}
+	if len(st.queued) != 1 || st.queued[0] != 11 {
+		t.Fatalf("queued ids: %v", st.queued)
+	}
+}
+
+// Inside the window the same leg dispatches normally.
+func TestGrossNetDispatchInsideWindowDispatches(t *testing.T) {
+	day := mustTime(t, "2025-06-10T00:00:00Z").Truncate(24 * time.Hour)
+	// 18:00 ET = before the 18:30 Fedwire cut-off.
+	st := &memGrossNetStore{legs: []NettableLeg{
+		grossLegFor(t, 12, "USD", "100.00", day),
+	}}
+	cutoff := newCutoffSvc(t, defaultSchedules, mustTime(t, "2025-06-10T22:00:00Z"))
+	disp := &NullDispatcher{}
+	s, err := NewGrossNetService(st, GrossNetOptions{
+		SenderBIC: "EXCHUS33", Dispatcher: disp, Cutoff: cutoff,
+		Clock: func() time.Time { return mustTime(t, "2025-06-10T22:00:00Z") },
+	})
+	if err != nil {
+		t.Fatalf("service: %v", err)
+	}
+	rep, err := s.DispatchDue(context.Background(), day)
+	if err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	if rep.GrossClaimed != 1 || rep.Queued != 0 || len(disp.Sent) != 1 {
+		t.Fatalf("leg must dispatch: %+v sent=%d", rep, len(disp.Sent))
+	}
+}
+
+// Cutoff wired against a store without the queue seam → constructor
+// refuses (fail closed, never silently skips the gate).
+func TestGrossNetCutoffRequiresQueueSeam(t *testing.T) {
+	cutoff := newCutoffSvc(t, defaultSchedules, time.Now())
+	if _, err := NewGrossNetService(thinGrossNetStore{}, GrossNetOptions{
+		SenderBIC: "EXCHUS33", Cutoff: cutoff,
+	}); err == nil {
+		t.Fatal("cutoff without queue seam must fail construction")
 	}
 }

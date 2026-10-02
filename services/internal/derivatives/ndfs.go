@@ -189,6 +189,14 @@ func (s *NdfService) BookNdf(ctx context.Context, req NdfBookRequest) (*Contract
 		if !req.AgreedRate.IsPositive() {
 			return nil, excerrors.New(CodeInvalidRequest, "agreed ndf rate must be > 0")
 		}
+		spotDate, err := s.Dates.SpotDate(req.Pair, req.TradeDay, req.SettlementCycle)
+		if err != nil {
+			return nil, err
+		}
+		if err := checkFairValue(ctx, s.Pricer, req.Pair, spot, spotDate,
+			fixingDate, *req.AgreedRate); err != nil {
+			return nil, err
+		}
 		k = *req.AgreedRate
 	} else {
 		spotDate, err := s.Dates.SpotDate(req.Pair, req.TradeDay, req.SettlementCycle)

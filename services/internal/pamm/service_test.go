@@ -2,6 +2,7 @@ package pamm
 
 import (
 	"context"
+	"sort"
 	"testing"
 	"time"
 
@@ -69,6 +70,71 @@ func (f *fakeStore) PoolByAccountID(_ context.Context, id int64) (*Pool, error) 
 		return &cp, nil
 	}
 	return nil, nil
+}
+func (f *fakeStore) ListPools(_ context.Context, limit int, afterID int64) ([]Pool, error) {
+	var out []Pool
+	for _, p := range f.pools {
+		if p.Status == PoolActive && (afterID <= 0 || p.PoolID < afterID) {
+			out = append(out, *p)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].PoolID > out[j].PoolID })
+	if limit <= 0 {
+		limit = 50
+	}
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+func (f *fakeStore) PoolTotals(_ context.Context, poolID int64) (int, decimal.Decimal, error) {
+	n := 0
+	total := decimal.Zero
+	for _, a := range f.allocs {
+		if a.PoolID == poolID && a.Status == AllocActive {
+			n++
+			total = total.Add(a.Invested)
+		}
+	}
+	return n, total, nil
+}
+func (f *fakeStore) AllocationFor(_ context.Context, poolID, inv int64) (*Allocation, error) {
+	if a, ok := f.allocs[allocKey(poolID, inv)]; ok {
+		cp := *a
+		return &cp, nil
+	}
+	return nil, nil
+}
+func (f *fakeStore) StatementFor(_ context.Context, poolID, accountID int64,
+	limit int, afterID int64) ([]StatementRow, error) {
+	var out []StatementRow
+	for i, e := range f.subledger {
+		if e.PoolID == nil || *e.PoolID != poolID {
+			continue
+		}
+		if accountID > 0 && e.AccountID != accountID {
+			continue
+		}
+		id := int64(i + 1)
+		if afterID > 0 && id >= afterID {
+			continue
+		}
+		out = append(out, StatementRow{
+			EntryID: id, TxnType: e.TxnType, PoolID: e.PoolID,
+			CopyFollowID: e.CopyFollowID, AccountID: e.AccountID,
+			Currency: e.Currency, Direction: e.Direction, Amount: e.Amount,
+			JournalEntryID: e.JournalEntryID, ReferenceID: e.ReferenceID,
+			Narrative: e.Narrative, PostedAt: time.Now(),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].EntryID > out[j].EntryID })
+	if limit <= 0 {
+		limit = 50
+	}
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
 }
 func (f *fakeStore) AllocationForUpdate(_ context.Context, poolID, inv int64) (*Allocation, error) {
 	if a, ok := f.allocs[allocKey(poolID, inv)]; ok {
@@ -296,5 +362,86 @@ func TestInvest_Idempotency(t *testing.T) {
 	}
 	if len(fs.subledger) != 2 {
 		t.Fatalf("collision wrote subledger rows: %d", len(fs.subledger))
+	}
+}
+
+// --- read surface (browse / detail / statement) ------------------------------
+
+func TestBrowsePools_ActiveOnly(t *testing.T) {
+	svc, fs, _ := svcEnv(t)
+	p, _ := svc.CreatePool(context.Background(), 10, "alpha", "USD", "100")
+	fs.pools[p.PoolID].Status = PoolSuspended
+	p2, _ := svc.CreatePool(context.Background(), 10, "beta", "USD", "50")
+
+	pools, err := svc.BrowsePools(context.Background(), 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pools) != 1 || pools[0].PoolID != p2.PoolID {
+		t.Fatalf("browse: %+v", pools)
+	}
+	// keyset cursor
+	pools, _ = svc.BrowsePools(context.Background(), 0, p2.PoolID)
+	if len(pools) != 0 {
+		t.Fatalf("after-cursor leaked suspended/self: %+v", pools)
+	}
+}
+
+func TestPoolDetail_TotalsAndMyAllocation(t *testing.T) {
+	svc, _, _ := svcEnv(t)
+	p, _ := svc.CreatePool(context.Background(), 10, "alpha", "USD", "100")
+	if _, err := svc.Invest(context.Background(), MovementRequest{
+		PoolID: p.PoolID, InvestorAccountID: 42, Amount: "500"}); err != nil {
+		t.Fatal(err)
+	}
+	sum, err := svc.PoolDetail(context.Background(), p.PoolID, 42)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sum.InvestorCount != 1 || !sum.TotalInvested.Equal(d("500")) {
+		t.Fatalf("totals %+v", sum)
+	}
+	if sum.MyAllocation == nil || !sum.MyAllocation.Invested.Equal(d("500")) {
+		t.Fatalf("my_allocation %+v", sum.MyAllocation)
+	}
+	// Non-investor sees totals but no allocation.
+	sum, _ = svc.PoolDetail(context.Background(), p.PoolID, 77)
+	if sum.MyAllocation != nil {
+		t.Fatal("non-investor leaked an allocation row")
+	}
+	if _, err := svc.PoolDetail(context.Background(), 9999, 42); err == nil {
+		t.Fatal("unknown pool did not 404")
+	}
+}
+
+func TestPoolStatement_InvestorScopedManagerWide(t *testing.T) {
+	svc, _, _ := svcEnv(t)
+	p, _ := svc.CreatePool(context.Background(), 10, "alpha", "USD", "100")
+	_, _ = svc.Invest(context.Background(), MovementRequest{
+		PoolID: p.PoolID, InvestorAccountID: 42, Amount: "500"})
+	_, _ = svc.Invest(context.Background(), MovementRequest{
+		PoolID: p.PoolID, InvestorAccountID: 43, Amount: "250"})
+
+	// Investor 42 sees only own rows.
+	rows, err := svc.PoolStatement(context.Background(), p.PoolID, 42, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rows {
+		if r.AccountID != 42 {
+			t.Fatalf("investor saw another investor's row: %+v", r)
+		}
+	}
+	if len(rows) != 1 { // one row per touched account — pool-side leg is the pool's
+		t.Fatalf("investor rows=%d", len(rows))
+	}
+	// Manager sees pool-wide.
+	rows, _ = svc.PoolStatement(context.Background(), p.PoolID, 10, 0, 0)
+	seen := map[int64]bool{}
+	for _, r := range rows {
+		seen[r.AccountID] = true
+	}
+	if !seen[42] || !seen[43] {
+		t.Fatalf("manager pool-wide view missing investors: %+v", seen)
 	}
 }

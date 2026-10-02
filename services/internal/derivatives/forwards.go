@@ -16,6 +16,7 @@ package derivatives
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"exchange/pkg/decimal"
@@ -111,6 +112,10 @@ func (s *ForwardService) BookForward(ctx context.Context, req ForwardBookRequest
 		if !req.AgreedRate.IsPositive() {
 			return nil, excerrors.New(CodeInvalidRequest,
 				"agreed forward rate must be > 0")
+		}
+		if err := checkFairValue(ctx, s.Pricer, req.Pair, spot, spotDate,
+			req.ValueDate, *req.AgreedRate); err != nil {
+			return nil, err
 		}
 		fwd = *req.AgreedRate
 	} else {
@@ -259,4 +264,27 @@ func DueSettlements(ctx context.Context, store ContractStore, asOf time.Time, li
 		return nil
 	})
 	return out, err
+}
+
+// checkFairValue gates an explicit agreed rate against the CIP fair
+// value (spec §27.1 MTF/Fair-Value row): |agreed − fair| / fair beyond
+// FairValueDivergenceBps → FAIR_VALUE_DIVERGENCE (503, L1). Pricer
+// failures propagate — booking an unchecked negotiated rate against a
+// broken curve is fail-closed per §2.7.
+func checkFairValue(ctx context.Context, p *Pricer, pair Pair,
+	spot decimal.Decimal, spotDate, valueDate time.Time,
+	agreed decimal.Decimal) error {
+	q, err := p.PriceForward(ctx, pair, spot, spotDate, valueDate)
+	if err != nil {
+		return err
+	}
+	divergenceBps := agreed.Sub(q.ForwardRate).Abs().
+		Div(q.ForwardRate).Mul(decimal.NewFromInt(10000))
+	if divergenceBps.GreaterThan(decimal.NewFromInt(FairValueDivergenceBps)) {
+		return excerrors.New(CodeFairValueDivergence, fmt.Sprintf(
+			"agreed rate %s diverges %s bps from CIP fair value %s (band %d bps)",
+			agreed.String(), divergenceBps.Round(1).String(),
+			q.ForwardRate.String(), FairValueDivergenceBps))
+	}
+	return nil
 }

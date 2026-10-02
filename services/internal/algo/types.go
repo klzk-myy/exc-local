@@ -361,6 +361,11 @@ func ParseAlgoSubmit(body []byte) (*SubmitRequest, error) {
 	if raw, ok := obj["params"]; ok {
 		req.Params = raw
 	}
+	// `algo_params` is the order-surface spelling of `params` — the
+	// frontend and /orders bodies use it; accept either.
+	if raw, ok := obj["algo_params"]; ok && len(req.Params) == 0 {
+		req.Params = raw
+	}
 	return req, nil
 }
 

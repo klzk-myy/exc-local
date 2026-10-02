@@ -103,6 +103,35 @@ type SubledgerEntry struct {
 	IdempotencyKey string
 }
 
+// StatementRow is the investor-facing read model over
+// pamm_subledger_entries — the semantic movement plus its journal
+// coordinates (id/posted_at are read-model only; writes use
+// SubledgerEntry).
+type StatementRow struct {
+	EntryID        int64           `json:"entry_id"`
+	TxnType        TxnType         `json:"txn_type"`
+	PoolID         *int64          `json:"pool_id,omitempty"`
+	CopyFollowID   *int64          `json:"copy_follow_id,omitempty"`
+	AccountID      int64           `json:"account_id"`
+	Currency       string          `json:"currency"`
+	Direction      string          `json:"direction"`
+	Amount         decimal.Decimal `json:"amount"`
+	JournalEntryID *int64          `json:"journal_entry_id,omitempty"`
+	ReferenceID    int64           `json:"reference_id,omitempty"`
+	Narrative      string          `json:"narrative,omitempty"`
+	PostedAt       time.Time       `json:"posted_at"`
+}
+
+// PoolSummary is the pool-detail read model: the pool row plus its
+// live allocation totals and (when the caller has one) the caller's own
+// allocation.
+type PoolSummary struct {
+	Pool          Pool            `json:"pool"`
+	InvestorCount int             `json:"investor_count"`
+	TotalInvested decimal.Decimal `json:"total_invested"`
+	MyAllocation  *Allocation     `json:"my_allocation,omitempty"`
+}
+
 // FillAllocation is one pamm_fill_allocations row — the pro-rata share of
 // a pool master fill attributed to one investor.
 type FillAllocation struct {

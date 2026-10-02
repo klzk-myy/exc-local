@@ -770,7 +770,7 @@ type legFacts struct {
 // nil-tolerant for test fixtures; production wires all three.
 type PgxTradeResolver struct {
 	Pool *pgxpool.Pool
-	Fees *FeeService      // Task 3.3.4 trading fee (delivery-ccy per side)
+	Fees *FeeService       // Task 3.3.4 trading fee (delivery-ccy per side)
 	Comm *CommissionEngine // Task 3.3.13/17 raw commission + VIP rebate
 	Cal  *HolidayCalendar  // PD value date (recon fee gate)
 }

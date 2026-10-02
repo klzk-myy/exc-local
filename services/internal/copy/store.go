@@ -38,6 +38,10 @@ type Store interface {
 	CreateFollow(ctx context.Context, f *Follow) (*Follow, error)
 	FollowByID(ctx context.Context, id int64) (*Follow, error)
 	ActiveFollowsForStrategy(ctx context.Context, strategyID int64) ([]Follow, error)
+	// FollowsByInvestor lists one investor's follows (all statuses —
+	// the UI renders history, not just ACTIVE) newest-first, joined to
+	// the strategy display fields for presentation.
+	FollowsByInvestor(ctx context.Context, investorAccountID int64, limit int) ([]FollowView, error)
 	// Unfollow flips status ACTIVE → UNFOLLOWED atomically (predicate
 	// guards double-unfollow) and returns the updated row.
 	Unfollow(ctx context.Context, followID int64) (*Follow, error)
@@ -317,6 +321,43 @@ func (s *PgxStore) ActiveFollowsForStrategy(ctx context.Context, strategyID int6
 			f.StopLossCap = &d
 		}
 		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
+// FollowsByInvestor implements Store.
+func (s *PgxStore) FollowsByInvestor(ctx context.Context, investorAccountID int64, limit int) ([]FollowView, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT f.`+followCols+`, st.display_name, st.status::text
+		  FROM copy_follows f
+		  JOIN copy_strategies st ON st.strategy_id = f.strategy_id
+		 WHERE f.investor_account_id = $1
+		 ORDER BY f.follow_id DESC
+		 LIMIT $2`, investorAccountID, limit)
+	if err != nil {
+		return nil, errorf(CodeInternalError, "list investor follows: %v", err)
+	}
+	defer rows.Close()
+	out := []FollowView{}
+	for rows.Next() {
+		var fv FollowView
+		var notional string
+		var slc *string
+		if err := rows.Scan(&fv.FollowID, &fv.InvestorAccountID, &fv.StrategyID,
+			&notional, &fv.Currency, &fv.SafetyMode, &slc, &fv.Status,
+			&fv.UnfollowedAt, &fv.CreatedAt,
+			&fv.StrategyName, &fv.StrategyStatus); err != nil {
+			return nil, errorf(CodeInternalError, "scan investor follow: %v", err)
+		}
+		fv.AllocationNotional = decimal.RequireFromString(notional)
+		if slc != nil {
+			d := decimal.RequireFromString(*slc)
+			fv.StopLossCap = &d
+		}
+		out = append(out, fv)
 	}
 	return out, rows.Err()
 }

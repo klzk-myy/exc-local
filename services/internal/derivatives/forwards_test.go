@@ -165,15 +165,27 @@ func TestForwardBookAgreedRate(t *testing.T) {
 	store := newMemStore()
 	svc := fwdSvcFor(t, store)
 	agreed := decimal.RequireFromString("1.095")
+	// §27.1 fair-value gate: the agreed rate must sit within 25 bps of
+	// CIP — derive the fixture spot so fair ≈ agreed.
+	ctx := context.Background()
+	pair := mustPair(t, "EUR", "USD")
+	spotDate, err := svc.Dates.SpotDate(pair, day(2026, 1, 8), 1)
+	if err != nil {
+		t.Fatalf("spot date: %v", err)
+	}
+	q, err := svc.Pricer.PriceForward(ctx, pair, decimal.One, spotDate, day(2026, 2, 10))
+	if err != nil {
+		t.Fatalf("ratio: %v", err)
+	}
 	c, err := svc.BookForward(context.Background(), ForwardBookRequest{
 		ForwardOrderRequest: ForwardOrderRequest{
-			Pair: mustPair(t, "EUR", "USD"), Side: SideSell,
+			Pair: pair, Side: SideSell,
 			Notional:  decimal.RequireFromString("500000"),
 			ValueDate: day(2026, 2, 10), SettlementCycle: 1,
 			TradeDay: day(2026, 1, 8),
 		},
 		TradeID: 102, AccountID: 8, InstrumentID: 42,
-		SpotRate:   decimal.RequireFromString("1.10"),
+		SpotRate:   agreed.Div(q.ForwardRate),
 		AgreedRate: &agreed,
 	})
 	if err != nil {
@@ -270,5 +282,27 @@ func TestDueSettlements(t *testing.T) {
 	due, err = DueSettlements(ctx, store, day(2026, 2, 10), 100)
 	if err != nil || len(due) != 1 || due[0].ID != c.ID {
 		t.Fatalf("due: %v %+v", err, due)
+	}
+}
+
+// §27.1 MTF/Fair-Value row: an explicit agreed rate beyond the 25 bps
+// band around CIP fair value → FAIR_VALUE_DIVERGENCE (503, L1).
+func TestForwardBookFairValueDivergence(t *testing.T) {
+	store := newMemStore()
+	svc := fwdSvcFor(t, store)
+	agreed := decimal.RequireFromString("1.20") // fair ≈ 1.10 — ~9% off
+	_, err := svc.BookForward(context.Background(), ForwardBookRequest{
+		ForwardOrderRequest: ForwardOrderRequest{
+			Pair: mustPair(t, "EUR", "USD"), Side: SideSell,
+			Notional:  decimal.RequireFromString("500000"),
+			ValueDate: day(2026, 2, 10), SettlementCycle: 1,
+			TradeDay: day(2026, 1, 8),
+		},
+		TradeID: 103, AccountID: 8, InstrumentID: 42,
+		SpotRate:   decimal.RequireFromString("1.10"),
+		AgreedRate: &agreed,
+	})
+	if codeOf(t, err) != CodeFairValueDivergence {
+		t.Fatalf("want FAIR_VALUE_DIVERGENCE, got %v", err)
 	}
 }

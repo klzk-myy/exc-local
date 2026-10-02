@@ -247,8 +247,22 @@ type GrossNetOptions struct {
 	Format MessageFormat
 	// Dispatcher is the rail send seam; nil installs NullDispatcher.
 	Dispatcher MessageDispatcher
+	// Cutoff is the optional Task 24.3.20 rail cut-off enforcer — same
+	// contract as SettlementOptions.Cutoff. When wired, DispatchDue
+	// releases QUEUED_FOR_NEXT_CYCLE legs whose rolled date arrived and
+	// re-rolls same-day legs whose rail window closed. Requires a store
+	// implementing the cutoffQueue seam (PgxGrossNetStore does).
+	Cutoff *RailCutoffService
 	// Clock overrides time.Now (tests); nil defaults to time.Now.
 	Clock func() time.Time
+}
+
+// cutoffQueue is the optional store seam the dispatch-time rail
+// cut-off gate needs — the same QueueForNextCycle/ReleaseQueued pair
+// SettlementStore carries for the mode-blind path.
+type cutoffQueue interface {
+	ReleaseQueued(ctx context.Context, day time.Time) (int, error)
+	QueueForNextCycle(ctx context.Context, instructionID int64, newDate, at time.Time) (bool, error)
 }
 
 // GrossNetService is the mode-aware settlement-instruction engine: it
@@ -259,6 +273,7 @@ type GrossNetService struct {
 	senderBIC  string
 	format     MessageFormat
 	dispatcher MessageDispatcher
+	cutoff     *RailCutoffService
 	clock      func() time.Time
 }
 
@@ -288,11 +303,18 @@ func NewGrossNetService(store GrossNetStore, opts GrossNetOptions) (*GrossNetSer
 	if clk == nil {
 		clk = time.Now
 	}
+	if opts.Cutoff != nil {
+		if _, ok := store.(cutoffQueue); !ok {
+			return nil, excerrors.New(CodeSettlementInvalidMessage,
+				"gross-net service: cutoff wired but store lacks the queue seam (fail closed)")
+		}
+	}
 	return &GrossNetService{
 		store:      store,
 		senderBIC:  opts.SenderBIC,
 		format:     format,
 		dispatcher: d,
+		cutoff:     opts.Cutoff,
 		clock:      clk,
 	}, nil
 }
@@ -335,6 +357,8 @@ type BatchError struct {
 type GrossNetDispatchReport struct {
 	AsOf          time.Time
 	Due           int // dispatch-eligible legs
+	Released      int // QUEUED_FOR_NEXT_CYCLE legs whose rolled date arrived
+	Queued        int // same-day legs rolled past a closed rail cut-off
 	GrossClaimed  int // GROSS legs claimed + dispatched individually
 	Batches       int // NET batches formed
 	NetClaimed    int // legs claimed by dispatched NET batches
@@ -357,11 +381,50 @@ func (s *GrossNetService) DispatchDue(ctx context.Context, asOf time.Time) (*Gro
 	day := normalizeDay(asOf)
 	rep := &GrossNetDispatchReport{AsOf: day}
 
+	// Release QUEUED_FOR_NEXT_CYCLE legs whose rolled value date has
+	// arrived (Task 24.3.20 parity with the mode-blind DispatchDue).
+	if roller, ok := s.store.(cutoffQueue); ok {
+		n, rerr := roller.ReleaseQueued(ctx, day)
+		if rerr != nil {
+			return nil, fmt.Errorf("gross-net: release queued %s: %w", day.Format("2006-01-02"), rerr)
+		}
+		rep.Released = n
+	}
+
 	legs, err := s.store.DueLegsEnriched(ctx, day)
 	if err != nil {
 		return nil, fmt.Errorf("gross-net: due scan %s: %w", day.Format("2006-01-02"), err)
 	}
 	rep.Due = len(legs)
+
+	// Dispatch-day cut-off re-evaluation (Task 24.3.20 step 3): a leg
+	// whose rail window closed since generation rolls forward and
+	// queues for the next cycle rather than dispatching into a closed
+	// window.
+	if s.cutoff != nil {
+		roller := s.store.(cutoffQueue) // constructor enforces the seam
+		var kept []NettableLeg
+		for _, l := range legs {
+			d, cerr := s.cutoff.EvaluateForCurrency(l.Instruction.Currency, s.clock())
+			if cerr != nil {
+				rep.Errors = append(rep.Errors, InstructionError{InstructionID: l.Instruction.ID, Err: cerr})
+				continue
+			}
+			if d.CutoffPassed && !normalizeDay(l.Instruction.SettlementDate).After(day) {
+				claimed, qerr := roller.QueueForNextCycle(ctx, l.Instruction.ID, d.ValueDate, s.clock().UTC())
+				if qerr != nil {
+					rep.Errors = append(rep.Errors, InstructionError{InstructionID: l.Instruction.ID, Err: qerr})
+					continue
+				}
+				if claimed {
+					rep.Queued++
+				}
+				continue // rolled — or lost the predicate to another dispatcher
+			}
+			kept = append(kept, l)
+		}
+		legs = kept
+	}
 
 	var grossLegs, netLegs []NettableLeg
 	for _, l := range legs {
@@ -695,4 +758,36 @@ func (t pgxGrossNetTx) ClaimLegs(ctx context.Context, ids []int64, ref string,
 		return 0, err
 	}
 	return int(tag.RowsAffected()), nil
+}
+
+// ReleaseQueued returns QUEUED_FOR_NEXT_CYCLE legs to PENDING once the
+// rolled settlement_date has arrived — same SQL contract as
+// PgxSettlementStore.ReleaseQueued (the cutoffQueue seam).
+func (s *PgxGrossNetStore) ReleaseQueued(ctx context.Context, day time.Time) (int, error) {
+	tag, err := s.Pool.Exec(ctx, `
+		UPDATE settlement_instructions
+		   SET status = 'PENDING', updated_at = now()
+		 WHERE status = 'QUEUED_FOR_NEXT_CYCLE' AND settlement_date <= $1`,
+		day)
+	if err != nil {
+		return 0, err
+	}
+	return int(tag.RowsAffected()), nil
+}
+
+// QueueForNextCycle rolls a PENDING leg's settlement_date to the next
+// business day and flags it QUEUED_FOR_NEXT_CYCLE — same SQL contract
+// as PgxSettlementStore.QueueForNextCycle.
+func (s *PgxGrossNetStore) QueueForNextCycle(ctx context.Context, instructionID int64,
+	newDate, at time.Time) (bool, error) {
+	tag, err := s.Pool.Exec(ctx, `
+		UPDATE settlement_instructions
+		   SET settlement_date = $2, status = 'QUEUED_FOR_NEXT_CYCLE',
+		       updated_at = $3
+		 WHERE id = $1 AND status = 'PENDING' AND swift_message_id IS NULL`,
+		instructionID, newDate, at)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() == 1, nil
 }

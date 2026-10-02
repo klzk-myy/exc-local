@@ -892,3 +892,28 @@ func TestSpreadRollbackOnPartial(t *testing.T) {
 		t.Fatalf("unwind qty %s != filled 10", unwind.Qty)
 	}
 }
+
+// Phase-3 Task 2 — the frontend spells the params field "algo_params";
+// ParseAlgoSubmit must accept both keys (SubmitRequest.AlgoParams uses
+// the same json tag so JSON decodes it natively; this pins the alias).
+func TestParseAlgoSubmitAlgoParamsAlias(t *testing.T) {
+	body := []byte(`{"algo_type":"TWAP","symbol":"EURUSD","side":"BUY",
+		"total_qty":"1000000","algo_params":{"slices":10}}`)
+	req, err := ParseAlgoSubmit(body)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(req.Params) == 0 {
+		t.Fatal("algo_params alias not captured")
+	}
+	var p map[string]any
+	if err := json.Unmarshal(req.Params, &p); err != nil || p["slices"] != float64(10) {
+		t.Fatalf("params: %s err=%v", req.Params, err)
+	}
+	// Legacy "params" key still works.
+	req2, err := ParseAlgoSubmit([]byte(`{"algo_type":"TWAP","symbol":"EURUSD",
+		"side":"BUY","total_qty":"100","params":{"slices":4}}`))
+	if err != nil || len(req2.Params) == 0 {
+		t.Fatalf("legacy params key: %v", err)
+	}
+}

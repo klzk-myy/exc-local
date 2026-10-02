@@ -2,6 +2,7 @@ package copy
 
 import (
 	"context"
+	"sort"
 	"testing"
 	"time"
 
@@ -112,6 +113,25 @@ func (f *fakeStore) ActiveFollowsForStrategy(ctx context.Context, sid int64) ([]
 		if fl.StrategyID == sid && fl.Status == FollowActive {
 			out = append(out, *fl)
 		}
+	}
+	return out, nil
+}
+func (f *fakeStore) FollowsByInvestor(ctx context.Context, acct int64, limit int) ([]FollowView, error) {
+	var out []FollowView
+	for _, fl := range f.follows {
+		if fl.InvestorAccountID != acct {
+			continue
+		}
+		fv := FollowView{Follow: *fl}
+		if st := f.strategies[fl.StrategyID]; st != nil {
+			fv.StrategyName = st.DisplayName
+			fv.StrategyStatus = st.Status
+		}
+		out = append(out, fv)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].FollowID > out[j].FollowID })
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
 	}
 	return out, nil
 }
@@ -564,5 +584,42 @@ func TestProfitShare_IdempotentPeriod(t *testing.T) {
 	// accrual-row UNIQUE(follow_id, period_end) is the idempotent fence.
 	if len(poster.journals) != 1 {
 		t.Fatalf("journals=%d", len(poster.journals))
+	}
+}
+
+// MyFollows returns the caller's follows (all statuses) with strategy
+// display fields joined — the unfollow-target read the UI needs.
+func TestMyFollows_JoinsStrategyFields(t *testing.T) {
+	fs := newFakeStore()
+	svc, _, _, _ := newTestService(fs)
+	st := listedStrategy(t, svc, fs, "0")
+	f, err := svc.Follow(context.Background(), FollowInput{
+		InvestorAccountID: 42, StrategyID: st.StrategyID,
+		AllocationNotional: "5000"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, err := svc.MyFollows(context.Background(), 42)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].FollowID != f.FollowID {
+		t.Fatalf("follows %+v", rows)
+	}
+	if rows[0].StrategyName != st.DisplayName || rows[0].StrategyStatus != st.Status {
+		t.Fatalf("join fields %+v", rows[0])
+	}
+	// Another investor's follows are not visible.
+	rows, _ = svc.MyFollows(context.Background(), 77)
+	if len(rows) != 0 {
+		t.Fatalf("leaked follows %+v", rows)
+	}
+	// After unfollow the row stays listed (history), status flips.
+	if _, err := svc.Unfollow(context.Background(), f.FollowID, 42); err != nil {
+		t.Fatal(err)
+	}
+	rows, _ = svc.MyFollows(context.Background(), 42)
+	if len(rows) != 1 || rows[0].Status != FollowUnfollowed {
+		t.Fatalf("post-unfollow rows %+v", rows)
 	}
 }

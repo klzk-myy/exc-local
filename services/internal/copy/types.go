@@ -148,6 +148,15 @@ type Follow struct {
 	CreatedAt          time.Time        `json:"created_at"`
 }
 
+// FollowView is the investor-facing follow read model — the follow row
+// joined with the strategy's display fields (presentation-only; the
+// strategy columns are read through, never mutated).
+type FollowView struct {
+	Follow
+	StrategyName   string         `json:"strategy_name"`
+	StrategyStatus StrategyStatus `json:"strategy_status"`
+}
+
 // ChildOrder mirrors one copy_child_orders row.
 type ChildOrder struct {
 	ChildID       int64           `json:"child_id"`

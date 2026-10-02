@@ -25,6 +25,18 @@ type Store interface {
 	// PoolByID / PoolByAccountID resolve pool rows.
 	PoolByID(ctx context.Context, poolID int64) (*Pool, error)
 	PoolByAccountID(ctx context.Context, poolAccountID int64) (*Pool, error)
+	// ListPools browses ACTIVE pools newest-first; afterID is the keyset
+	// cursor (pool_id < afterID when >0).
+	ListPools(ctx context.Context, limit int, afterID int64) ([]Pool, error)
+	// PoolTotals aggregates ACTIVE allocations for the detail view.
+	PoolTotals(ctx context.Context, poolID int64) (investors int, totalInvested decimal.Decimal, err error)
+	// AllocationFor is the non-locking single-investor allocation read
+	// (the detail endpoint's my_allocation field). nil = no row.
+	AllocationFor(ctx context.Context, poolID, investorAccountID int64) (*Allocation, error)
+	// StatementFor lists sub-ledger rows for a pool, newest-first with a
+	// keyset cursor (entry id < afterID when >0). accountID >0 scopes to
+	// one investor; accountID == 0 returns the pool-wide view (manager).
+	StatementFor(ctx context.Context, poolID, accountID int64, limit int, afterID int64) ([]StatementRow, error)
 	// AllocationForUpdate locks and returns the investor's allocation row
 	// (nil when none exists).
 	AllocationForUpdate(ctx context.Context, poolID, investorAccountID int64) (*Allocation, error)
@@ -205,6 +217,139 @@ func (s *PgxStore) PoolByAccountID(ctx context.Context, poolAccountID int64) (*P
 		return nil, errorf(CodeInternalError, "read pool by account %d: %v", poolAccountID, err)
 	}
 	return p, nil
+}
+
+// ListPools implements Store — ACTIVE pools newest-first, keyset on
+// pool_id DESC.
+func (s *PgxStore) ListPools(ctx context.Context, limit int, afterID int64) ([]Pool, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	q := `SELECT ` + poolCols + ` FROM pamm_pools WHERE status = 'ACTIVE'`
+	args := []any{}
+	if afterID > 0 {
+		q += ` AND pool_id < $1`
+		args = append(args, afterID)
+	}
+	q += fmt.Sprintf(` ORDER BY pool_id DESC LIMIT $%d`, len(args)+1)
+	args = append(args, limit)
+	rows, err := s.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, errorf(CodeInternalError, "list pools: %v", err)
+	}
+	defer rows.Close()
+	out := []Pool{}
+	for rows.Next() {
+		var p Pool
+		var min string
+		if err := rows.Scan(&p.PoolID, &p.ManagerAccountID, &p.PoolAccountID,
+			&p.Name, &p.Currency, &min, &p.Status, &p.CreatedAt); err != nil {
+			return nil, errorf(CodeInternalError, "scan pool: %v", err)
+		}
+		d, err := decimal.NewFromString(min)
+		if err != nil {
+			return nil, errorf(CodeInternalError, "pool %d min_investment: %v", p.PoolID, err)
+		}
+		p.MinInvestment = d
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// PoolTotals implements Store.
+func (s *PgxStore) PoolTotals(ctx context.Context, poolID int64) (int, decimal.Decimal, error) {
+	var n int
+	var total *string
+	err := s.pool.QueryRow(ctx, `
+		SELECT count(*), sum(invested)::text
+		  FROM pamm_allocations
+		 WHERE pool_id = $1 AND status = 'ACTIVE'`, poolID).
+		Scan(&n, &total)
+	if err != nil {
+		return 0, decimal.Zero, errorf(CodeInternalError, "pool totals %d: %v", poolID, err)
+	}
+	if total == nil {
+		return 0, decimal.Zero, nil
+	}
+	return n, decimal.RequireFromString(*total), nil
+}
+
+// AllocationFor implements Store — non-locking read; nil when absent.
+func (s *PgxStore) AllocationFor(ctx context.Context, poolID, investorAccountID int64) (*Allocation, error) {
+	var a Allocation
+	var invested string
+	err := s.pool.QueryRow(ctx, `
+		SELECT allocation_id, pool_id, investor_account_id, currency,
+		       invested::text, status, created_at
+		  FROM pamm_allocations
+		 WHERE pool_id = $1 AND investor_account_id = $2`, poolID, investorAccountID).
+		Scan(&a.AllocationID, &a.PoolID, &a.InvestorAccountID, &a.Currency,
+			&invested, &a.Status, &a.CreatedAt)
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, errorf(CodeInternalError, "read allocation: %v", err)
+	}
+	a.Invested = decimal.RequireFromString(invested)
+	return &a, nil
+}
+
+const stmtCols = `id, txn_type::text, pool_id, copy_follow_id, account_id,
+	currency, direction, amount::text, journal_entry_id, reference_id,
+	narrative, posted_at`
+
+// StatementFor implements Store.
+func (s *PgxStore) StatementFor(ctx context.Context, poolID, accountID int64,
+	limit int, afterID int64) ([]StatementRow, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	q := `SELECT ` + stmtCols + ` FROM pamm_subledger_entries WHERE pool_id = $1`
+	args := []any{poolID}
+	n := 2
+	if accountID > 0 {
+		q += fmt.Sprintf(` AND account_id = $%d`, n)
+		args = append(args, accountID)
+		n++
+	}
+	if afterID > 0 {
+		q += fmt.Sprintf(` AND id < $%d`, n)
+		args = append(args, afterID)
+		n++
+	}
+	q += fmt.Sprintf(` ORDER BY id DESC LIMIT $%d`, n)
+	args = append(args, limit)
+
+	rows, err := s.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, errorf(CodeInternalError, "pool statement %d: %v", poolID, err)
+	}
+	defer rows.Close()
+	out := []StatementRow{}
+	for rows.Next() {
+		var e StatementRow
+		var amt, narr string
+		var nsql *string
+		if err := rows.Scan(&e.EntryID, &e.TxnType, &e.PoolID, &e.CopyFollowID,
+			&e.AccountID, &e.Currency, &e.Direction, &amt, &e.JournalEntryID,
+			&e.ReferenceID, &nsql, &e.PostedAt); err != nil {
+			return nil, errorf(CodeInternalError, "scan statement: %v", err)
+		}
+		e.Amount = decimal.RequireFromString(amt)
+		if nsql != nil {
+			narr = *nsql
+		}
+		e.Narrative = narr
+		out = append(out, e)
+	}
+	return out, rows.Err()
 }
 
 // AllocationForUpdate implements Store — locks the row when present.

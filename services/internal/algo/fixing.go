@@ -189,7 +189,7 @@ func (s *FixingService) nextFixing(ctx context.Context, inst *orders.Instrument,
 		}
 	}
 	if best.IsZero() {
-		return time.Time{}, excerrors.New("INVALID_REQUEST",
+		return time.Time{}, excerrors.New("FIXING_WINDOW_CLOSED",
 			fmt.Sprintf("no enabled %s fixing window on %s", orderBenchmark, inst.Symbol))
 	}
 	return best, nil
