@@ -188,7 +188,9 @@ func TestOI_SnapshotSource(t *testing.T) {
 func TestOI_History(t *testing.T) {
 	p := NewOIProducer(OIProducerConfig{}, nil,
 		func(string, uint64, any) {})
-	now := time.Now()
+	// Minute-aligned base — an unaligned now()+1s can straddle a bucket
+	// boundary and split the samples into two candles.
+	now := time.Now().Truncate(time.Minute)
 	p.Push(OISample{Symbol: testSym, OpenInterest: mustDec(t, "10"),
 		AsOf: now})
 	p.tick(now)

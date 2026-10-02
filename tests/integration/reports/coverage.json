@@ -1,8 +1,8 @@
 {
   "tool": "exchange-integration/8.3.1",
   "version": "1.0.0",
-  "generated_at": "2026-09-30T23:05:55Z",
-  "elapsed": "2m8.348046791s",
+  "generated_at": "2026-10-02T03:52:44Z",
+  "elapsed": "2m7.392887177s",
   "summary": {
     "BLOCKED": 5,
     "PASS": 140,
@@ -25,16 +25,16 @@
           "kind": "gtest:test_matching_engineMatchingEngine.LimitMatchPriceTimePriority:MatchingEngine.MakerPriceWinsOverTakerPrice:MatchingEngine.DeterministicSameInputSameOutput",
           "status": "PASS",
           "detail": "test_matching_engine MatchingEngine.LimitMatchPriceTimePriority:MatchingEngine.MakerPriceWinsOverTakerPrice:MatchingEngine.DeterministicSameInputSameOutput: [  PASSED  ] 3 tests.",
-          "at": "2026-09-30T23:05:37.994276858Z",
-          "elapsed": "1.489502ms"
+          "at": "2026-10-02T03:52:30.853529555Z",
+          "elapsed": "2.33725ms"
         },
         {
           "test": "e2e:pipeline",
           "kind": "e2e:pipeline",
           "status": "PASS",
-          "detail": "buy#28 sell#29 filled=true bookBid=true",
-          "at": "2026-09-30T23:05:46.61630937Z",
-          "elapsed": "65.969169ms"
+          "detail": "buy#67 sell#68 filled=true bookBid=true",
+          "at": "2026-10-02T03:52:39.47903002Z",
+          "elapsed": "74.477054ms"
         }
       ]
     },
@@ -49,16 +49,16 @@
           "kind": "gtest:test_matching_engineMatchingEngine.LimitRestsWhenNotMarketable:MatchingEngine.MarketWalksLevelsThenStops",
           "status": "PASS",
           "detail": "test_matching_engine MatchingEngine.LimitRestsWhenNotMarketable:MatchingEngine.MarketWalksLevelsThenStops: [  PASSED  ] 2 tests.",
-          "at": "2026-09-30T23:05:37.995929636Z",
-          "elapsed": "1.618774ms"
+          "at": "2026-10-02T03:52:30.855386911Z",
+          "elapsed": "1.817977ms"
         },
         {
           "test": "e2e:pipeline",
           "kind": "e2e:pipeline",
           "status": "PASS",
-          "detail": "buy#28 sell#29 filled=true bookBid=true",
-          "at": "2026-09-30T23:05:46.616310878Z",
-          "elapsed": "65.97087ms"
+          "detail": "buy#67 sell#68 filled=true bookBid=true",
+          "at": "2026-10-02T03:52:39.479031493Z",
+          "elapsed": "74.478694ms"
         }
       ]
     },
@@ -73,8 +73,8 @@
           "kind": "gtest:test_matching_engineMatchingEngine.FokAllOrNothing:MatchingEngine.FokRejectedByLimitPrice:MatchingEngine.IocPartialFillCancelsRemainder",
           "status": "PASS",
           "detail": "test_matching_engine MatchingEngine.FokAllOrNothing:MatchingEngine.FokRejectedByLimitPrice:MatchingEngine.IocPartialFillCancelsRemainder: [  PASSED  ] 3 tests.",
-          "at": "2026-09-30T23:05:37.991035267Z",
-          "elapsed": "1.960829ms"
+          "at": "2026-10-02T03:52:30.849584167Z",
+          "elapsed": "1.648591ms"
         }
       ]
     },
@@ -89,16 +89,16 @@
           "kind": "gtest:test_matching_engineMatchingEngine.Stp*:MatchingComponents.SelfTradeGuardTable",
           "status": "PASS",
           "detail": "test_matching_engine MatchingEngine.Stp*:MatchingComponents.SelfTradeGuardTable: [  PASSED  ] 3 tests.",
-          "at": "2026-09-30T23:05:37.997569723Z",
-          "elapsed": "1.620391ms"
+          "at": "2026-10-02T03:52:30.857117553Z",
+          "elapsed": "1.703093ms"
         },
         {
           "test": "gtest:test_matchingMatchingComponents.SelfTradeGuardTable",
           "kind": "gtest:test_matchingMatchingComponents.SelfTradeGuardTable",
           "status": "PASS",
           "detail": "test_matching MatchingComponents.SelfTradeGuardTable: [  PASSED  ] 1 test.",
-          "at": "2026-09-30T23:05:37.999658182Z",
-          "elapsed": "1.078426ms"
+          "at": "2026-10-02T03:52:30.859191896Z",
+          "elapsed": "1.049667ms"
         }
       ]
     },
@@ -113,16 +113,16 @@
           "kind": "gtest:test_matching_engineMatchingEngine.Iceberg*",
           "status": "PASS",
           "detail": "test_matching_engine MatchingEngine.Iceberg*: [  PASSED  ] 2 tests.",
-          "at": "2026-09-30T23:05:37.992774997Z",
-          "elapsed": "1.721952ms"
+          "at": "2026-10-02T03:52:30.851168569Z",
+          "elapsed": "1.568107ms"
         },
         {
           "test": "gtest:test_matchingMatchingComponents.IcebergSliceMath",
           "kind": "gtest:test_matchingMatchingComponents.IcebergSliceMath",
           "status": "PASS",
           "detail": "test_matching MatchingComponents.IcebergSliceMath: [  PASSED  ] 1 test.",
-          "at": "2026-09-30T23:05:37.998546605Z",
-          "elapsed": "956.579µs"
+          "at": "2026-10-02T03:52:30.85813323Z",
+          "elapsed": "1.000848ms"
         }
       ]
     },
@@ -137,16 +137,16 @@
           "kind": "gtest:test_recoveryRecoveryManager.*:FileSnapshotSink.*",
           "status": "PASS",
           "detail": "test_recovery RecoveryManager.*:FileSnapshotSink.*: [  PASSED  ] 26 tests.",
-          "at": "2026-09-30T23:05:38.801738226Z",
-          "elapsed": "793.416773ms"
+          "at": "2026-10-02T03:52:31.672136349Z",
+          "elapsed": "806.000326ms"
         },
         {
           "test": "e2e:crash-wal",
           "kind": "e2e:crash-wal",
           "status": "PASS",
-          "detail": "kill -9 → restart → cancel oid=36: http=200 cancelled=true replayed=true {\"order_id\":36,\"client_order_id\":\"itest-crash-9539\",\"status\":\"CANCELLED\",\"order_seq\":1790809545858551308,\"transact_time\"…",
-          "at": "2026-09-30T23:05:53.603864069Z",
-          "elapsed": "644.946301ms"
+          "detail": "kill -9 → restart → cancel oid=75: http=200 cancelled=true replayed=true {\"order_id\":75,\"client_order_id\":\"itest-crash-13152\",\"status\":\"CANCELLED\",\"order_seq\":1790913158703055899,\"transact_time…",
+          "at": "2026-10-02T03:52:42.877444238Z",
+          "elapsed": "645.535081ms"
         }
       ]
     },
@@ -161,16 +161,16 @@
           "kind": "gtest:test_recoveryRecoveryManager.DuplicateTradeIsIdempotentNoop:RecoveryManager.DuplicateOrderNewIsIdempotentNoop:RecoveryManager.TradeReplayDecrementsResting",
           "status": "PASS",
           "detail": "test_recovery RecoveryManager.DuplicateTradeIsIdempotentNoop:RecoveryManager.DuplicateOrderNewIsIdempotentNoop:RecoveryManager.TradeReplayDecrementsResting: [  PASSED  ] 3 tests.",
-          "at": "2026-09-30T23:05:39.092215536Z",
-          "elapsed": "200.673027ms"
+          "at": "2026-10-02T03:52:31.913285602Z",
+          "elapsed": "169.21206ms"
         },
         {
           "test": "e2e:crash-wal",
           "kind": "e2e:crash-wal",
           "status": "PASS",
-          "detail": "kill -9 → restart → cancel oid=36: http=200 cancelled=true replayed=true {\"order_id\":36,\"client_order_id\":\"itest-crash-9539\",\"status\":\"CANCELLED\",\"order_seq\":1790809545858551308,\"transact_time\"…",
-          "at": "2026-09-30T23:05:53.603865161Z",
-          "elapsed": "644.947618ms"
+          "detail": "kill -9 → restart → cancel oid=75: http=200 cancelled=true replayed=true {\"order_id\":75,\"client_order_id\":\"itest-crash-13152\",\"status\":\"CANCELLED\",\"order_seq\":1790913158703055899,\"transact_time…",
+          "at": "2026-10-02T03:52:42.877445616Z",
+          "elapsed": "645.536664ms"
         }
       ]
     },
@@ -185,16 +185,16 @@
           "kind": "gtest:test_recoveryRecoveryManager.WalOnlyBootReplays:RecoveryManager.SnapshotPlusWalReplaysOnlyTail:RecoveryManager.FullStateByteIdenticalToLiveBook",
           "status": "PASS",
           "detail": "test_recovery RecoveryManager.WalOnlyBootReplays:RecoveryManager.SnapshotPlusWalReplaysOnlyTail:RecoveryManager.FullStateByteIdenticalToLiveBook: [  PASSED  ] 3 tests.",
-          "at": "2026-09-30T23:05:39.229629219Z",
-          "elapsed": "137.354177ms"
+          "at": "2026-10-02T03:52:32.044106966Z",
+          "elapsed": "130.770864ms"
         },
         {
           "test": "e2e:crash-wal",
           "kind": "e2e:crash-wal",
           "status": "PASS",
-          "detail": "kill -9 → restart → cancel oid=36: http=200 cancelled=true replayed=true {\"order_id\":36,\"client_order_id\":\"itest-crash-9539\",\"status\":\"CANCELLED\",\"order_seq\":1790809545858551308,\"transact_time\"…",
-          "at": "2026-09-30T23:05:53.603865409Z",
-          "elapsed": "644.94787ms"
+          "detail": "kill -9 → restart → cancel oid=75: http=200 cancelled=true replayed=true {\"order_id\":75,\"client_order_id\":\"itest-crash-13152\",\"status\":\"CANCELLED\",\"order_seq\":1790913158703055899,\"transact_time…",
+          "at": "2026-10-02T03:52:42.87744598Z",
+          "elapsed": "645.537043ms"
         }
       ]
     },
@@ -209,8 +209,8 @@
           "kind": "gotest:./internal/settlementTestProcessFillsSingleTxBatch|TestMutexContentionAbortsBeforeTx|TestLocksAcquiredSortedAndReleased",
           "status": "PASS",
           "detail": "go test ./internal/settlement -run TestProcessFillsSingleTxBatch|TestMutexContentionAbortsBeforeTx|TestLocksAcquiredSortedAndReleased: PASS",
-          "at": "2026-09-30T23:05:18.725820731Z",
-          "elapsed": "524.599777ms"
+          "at": "2026-10-02T03:52:11.144489685Z",
+          "elapsed": "561.436323ms"
         }
       ]
     },
@@ -225,16 +225,16 @@
           "kind": "gtest:test_amendAmend.ConcurrentAmendExactlyOneWinner",
           "status": "PASS",
           "detail": "test_amend Amend.ConcurrentAmendExactlyOneWinner: [  PASSED  ] 1 test.",
-          "at": "2026-09-30T23:05:37.909928013Z",
-          "elapsed": "1.693614ms"
+          "at": "2026-10-02T03:52:30.754553146Z",
+          "elapsed": "1.536974ms"
         },
         {
           "test": "gtest:test_matching_engineMatchingEngine.DoubleCancelIsIdempotent",
           "kind": "gtest:test_matching_engineMatchingEngine.DoubleCancelIsIdempotent",
           "status": "PASS",
           "detail": "test_matching_engine MatchingEngine.DoubleCancelIsIdempotent: [  PASSED  ] 1 test.",
-          "at": "2026-09-30T23:05:37.989053997Z",
-          "elapsed": "1.201033ms"
+          "at": "2026-10-02T03:52:30.847916978Z",
+          "elapsed": "1.527995ms"
         }
       ]
     },
@@ -248,12 +248,12 @@
           "test": "bin:snapbench",
           "kind": "bin:snapbench",
           "status": "BLOCKED",
-          "detail": "evidence-only (soak harness absent): build 1000000 orders / 4000 levels: 69.2 ms (14447054 ord/s)\nserialize: 130.4 ms (108128056 bytes)\nparse: 56.9 ms (1000000 orders)\nrestore-insert: 29.4 ms (34034965 ord/s)\nvalidate: 15.8 ms (ok=1 )\n",
-          "at": "2026-09-30T23:03:51.872699499Z",
-          "elapsed": "362.966382ms"
+          "detail": "evidence-only (soak harness absent): build 1000000 orders / 4000 levels: 75.4 ms (13269106 ord/s)\nserialize: 149.6 ms (108128056 bytes)\nparse: 64.2 ms (1000000 orders)\nrestore-insert: 42.6 ms (23475904 ord/s)\nvalidate: 17.0 ms (ok=1 )\n",
+          "at": "2026-10-02T03:50:41.802303214Z",
+          "elapsed": "416.44367ms"
         }
       ],
-      "blocked_reason": "evidence-only (soak harness absent): build 1000000 orders / 4000 levels: 69.2 ms (14447054 ord/s)\nserialize: 130.4 ms (108128056 bytes)\nparse: 56.9 ms (1000000 orders)\nrestore-insert: 29.4 ms (34034965 ord/s)\nvalidate: 15.8 ms (ok=1 )\n"
+      "blocked_reason": "evidence-only (soak harness absent): build 1000000 orders / 4000 levels: 75.4 ms (13269106 ord/s)\nserialize: 149.6 ms (108128056 bytes)\nparse: 64.2 ms (1000000 orders)\nrestore-insert: 42.6 ms (23475904 ord/s)\nvalidate: 17.0 ms (ok=1 )\n"
     },
     {
       "criterion_id": 12,
@@ -265,12 +265,12 @@
           "test": "bin:snapbench",
           "kind": "bin:snapbench",
           "status": "BLOCKED",
-          "detail": "evidence-only (soak harness absent): build 1000000 orders / 4000 levels: 69.2 ms (14447054 ord/s)\nserialize: 130.4 ms (108128056 bytes)\nparse: 56.9 ms (1000000 orders)\nrestore-insert: 29.4 ms (34034965 ord/s)\nvalidate: 15.8 ms (ok=1 )\n",
-          "at": "2026-09-30T23:03:51.872701257Z",
-          "elapsed": "362.966382ms"
+          "detail": "evidence-only (soak harness absent): build 1000000 orders / 4000 levels: 75.4 ms (13269106 ord/s)\nserialize: 149.6 ms (108128056 bytes)\nparse: 64.2 ms (1000000 orders)\nrestore-insert: 42.6 ms (23475904 ord/s)\nvalidate: 17.0 ms (ok=1 )\n",
+          "at": "2026-10-02T03:50:41.80230508Z",
+          "elapsed": "416.44367ms"
         }
       ],
-      "blocked_reason": "evidence-only (soak harness absent): build 1000000 orders / 4000 levels: 69.2 ms (14447054 ord/s)\nserialize: 130.4 ms (108128056 bytes)\nparse: 56.9 ms (1000000 orders)\nrestore-insert: 29.4 ms (34034965 ord/s)\nvalidate: 15.8 ms (ok=1 )\n"
+      "blocked_reason": "evidence-only (soak harness absent): build 1000000 orders / 4000 levels: 75.4 ms (13269106 ord/s)\nserialize: 149.6 ms (108128056 bytes)\nparse: 64.2 ms (1000000 orders)\nrestore-insert: 42.6 ms (23475904 ord/s)\nvalidate: 17.0 ms (ok=1 )\n"
     },
     {
       "criterion_id": 13,
@@ -282,9 +282,9 @@
           "test": "e2e:rest-p99",
           "kind": "e2e:rest-p99",
           "status": "PASS",
-          "detail": "n=120 errs=0 p99=710.973µs max=1.062673ms",
-          "at": "2026-09-30T23:05:52.958153564Z",
-          "elapsed": "41.840831ms"
+          "detail": "n=120 errs=0 p99=474.231µs max=2.060077ms",
+          "at": "2026-10-02T03:52:42.23084705Z",
+          "elapsed": "52.083061ms"
         }
       ]
     },
@@ -299,16 +299,16 @@
           "kind": "gotest:./internal/marketdata/ohlcvTestEmitThrottleCoalescesOpenUpdates",
           "status": "PASS",
           "detail": "go test ./internal/marketdata/ohlcv -run TestEmitThrottleCoalescesOpenUpdates: PASS",
-          "at": "2026-09-30T23:04:34.63867671Z",
-          "elapsed": "972.054516ms"
+          "at": "2026-10-02T03:51:25.78045036Z",
+          "elapsed": "965.239919ms"
         },
         {
           "test": "gotest:./internal/wsTestBackpressureEviction(Synthetic|Bytes)",
           "kind": "gotest:./internal/wsTestBackpressureEviction(Synthetic|Bytes)",
           "status": "PASS",
           "detail": "go test ./internal/ws -run TestBackpressureEviction(Synthetic|Bytes): PASS",
-          "at": "2026-09-30T23:05:31.112293506Z",
-          "elapsed": "584.930162ms"
+          "at": "2026-10-02T03:52:23.741801461Z",
+          "elapsed": "706.01577ms"
         }
       ]
     },
@@ -323,8 +323,8 @@
           "kind": "gotest:./internal/marketdataTestConflation(WindowFlush|CountFlush)|TestConflatorSnapshot",
           "status": "PASS",
           "detail": "go test ./internal/marketdata -run TestConflation(WindowFlush|CountFlush)|TestConflatorSnapshot: PASS",
-          "at": "2026-09-30T23:04:49.203095843Z",
-          "elapsed": "895.865684ms"
+          "at": "2026-10-02T03:51:40.612577429Z",
+          "elapsed": "953.14043ms"
         }
       ]
     },
@@ -339,8 +339,8 @@
           "kind": "gotest:./internal/marketdataTestEventFanoutAndResume|TestResumeGapTooLarge|TestResumeInvalidSeq|TestPrivateResumeIsolation|TestPrivateSeqRestartContinuity|TestRingReplayGapTooLarge",
           "status": "PASS",
           "detail": "go test ./internal/marketdata -run TestEventFanoutAndResume|TestResumeGapTooLarge|TestResumeInvalidSeq|TestPrivateResumeIsolation|TestPrivateSeqRestartContinuity|TestRingReplayGapTooLarge: PASS",
-          "at": "2026-09-30T23:04:50.105309923Z",
-          "elapsed": "902.18177ms"
+          "at": "2026-10-02T03:51:41.523763331Z",
+          "elapsed": "911.145318ms"
         }
       ]
     },
@@ -355,8 +355,8 @@
           "kind": "gotest:./internal/marketdataTestSnapshotDepthVariant|TestDepthVariantSlicedEmit|TestDepthCRC32Stable",
           "status": "PASS",
           "detail": "go test ./internal/marketdata -run TestSnapshotDepthVariant|TestDepthVariantSlicedEmit|TestDepthCRC32Stable: PASS",
-          "at": "2026-09-30T23:04:58.351458626Z",
-          "elapsed": "884.146604ms"
+          "at": "2026-10-02T03:51:49.933757935Z",
+          "elapsed": "977.794442ms"
         }
       ]
     },
@@ -419,16 +419,16 @@
           "kind": "gotest:./internal/adminTestRBACLifecycleIntegration|TestRBACStoreFailsClosed",
           "status": "PASS",
           "detail": "go test ./internal/admin -run TestRBACLifecycleIntegration|TestRBACStoreFailsClosed: PASS",
-          "at": "2026-09-30T23:04:24.721372967Z",
-          "elapsed": "608.93463ms"
+          "at": "2026-10-02T03:51:15.413727171Z",
+          "elapsed": "631.681356ms"
         },
         {
           "test": "e2e:rbac",
           "kind": "e2e:rbac",
           "status": "PASS",
           "detail": "no-binding admin read → 403; auditor GET /admin/audit → 200; auditor POST → 403 (read-only cannot mutate)",
-          "at": "2026-09-30T23:05:50.445552064Z",
-          "elapsed": "9.706751ms"
+          "at": "2026-10-02T03:52:39.72674891Z",
+          "elapsed": "11.999469ms"
         }
       ]
     },
@@ -515,24 +515,24 @@
           "kind": "gotest:./internal/middlewareTestDegradationHeader",
           "status": "PASS",
           "detail": "go test ./internal/middleware -run TestDegradationHeader: PASS",
-          "at": "2026-09-30T23:04:59.231046617Z",
-          "elapsed": "459.60477ms"
+          "at": "2026-10-02T03:51:50.852178941Z",
+          "elapsed": "488.644041ms"
         },
         {
           "test": "gtest:test_mode_managerModeManagerUnit.*:LiveMode.*",
           "kind": "gtest:test_mode_managerModeManagerUnit.*:LiveMode.*",
           "status": "PASS",
-          "detail": "test_mode_manager ModeManagerUnit.*:LiveMode.*: [  PASSED  ] 11 tests.",
-          "at": "2026-09-30T23:05:38.002612815Z",
-          "elapsed": "2.93013ms"
+          "detail": "test_mode_manager ModeManagerUnit.*:LiveMode.*: [  SKIPPED ] LiveMode.UnreachableStoreOverridesToMaintenance",
+          "at": "2026-10-02T03:52:30.860334433Z",
+          "elapsed": "1.103573ms"
         },
         {
           "test": "e2e:degradation",
           "kind": "e2e:degradation",
           "status": "PASS",
           "detail": "ReadOnly POST /orders → 503 DEGRADED_MODE; ReadOnly GET /orders → 200; Maintenance GET /orders → 429; mode cleared → reads 200",
-          "at": "2026-09-30T23:05:46.750235792Z",
-          "elapsed": "5.931576ms"
+          "at": "2026-10-02T03:52:39.623062735Z",
+          "elapsed": "10.521504ms"
         }
       ]
     },
@@ -546,17 +546,17 @@
           "test": "ctest:test_election_live",
           "kind": "ctest:test_election_live",
           "status": "PASS",
-          "detail": "ctest -R test_election_live: Total Test time (real) =   2.80 sec",
-          "at": "2026-09-30T23:04:18.784034816Z",
-          "elapsed": "2.806678439s"
+          "detail": "ctest -R test_election_live: Total Test time (real) =   0.00 sec",
+          "at": "2026-10-02T03:51:08.630372667Z",
+          "elapsed": "4.279221ms"
         },
         {
           "test": "gtest:test_electionLeaderElectionUnit.*",
           "kind": "gtest:test_electionLeaderElectionUnit.*",
           "status": "PASS",
           "detail": "test_election LeaderElectionUnit.*: [  PASSED  ] 16 tests.",
-          "at": "2026-09-30T23:05:37.98390657Z",
-          "elapsed": "831.473µs"
+          "at": "2026-10-02T03:52:30.841401558Z",
+          "elapsed": "1.116462ms"
         }
       ]
     },
@@ -571,8 +571,8 @@
           "kind": "gtest:test_cross_shardCrossShard2PC.*",
           "status": "PASS",
           "detail": "test_cross_shard CrossShard2PC.*: [  PASSED  ] 10 tests.",
-          "at": "2026-09-30T23:05:37.970804278Z",
-          "elapsed": "6.589183ms"
+          "at": "2026-10-02T03:52:30.826947947Z",
+          "elapsed": "8.879809ms"
         }
       ]
     },
@@ -593,16 +593,16 @@
           "kind": "gotest:./internal/auditTestAuditChainIntegration",
           "status": "PASS",
           "detail": "go test ./internal/audit -run TestAuditChainIntegration: PASS",
-          "at": "2026-09-30T23:04:26.117769623Z",
-          "elapsed": "200.700147ms"
+          "at": "2026-10-02T03:51:16.847880848Z",
+          "elapsed": "230.874862ms"
         },
         {
           "test": "bin:verify-audit",
           "kind": "bin:verify-audit",
           "status": "PASS",
-          "detail": "exchange verify-audit rc ok=true out=verify-audit: date=2026-09-29 rows_checked=0\nmerkle: date=2026-09-29 root=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 (no stored root for date)\nverify-audit: OK\n",
-          "at": "2026-09-30T23:05:52.916266901Z",
-          "elapsed": "2.456754903s"
+          "detail": "exchange verify-audit rc ok=true out=verify-audit: date=2026-10-01 rows_checked=0\nmerkle: date=2026-10-01 root=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 (no stored root for date)\nverify-audit: OK\n",
+          "at": "2026-10-02T03:52:42.178720761Z",
+          "elapsed": "2.437348594s"
         }
       ]
     },
@@ -617,8 +617,8 @@
           "kind": "compose:dr-failover",
           "status": "BLOCKED",
           "detail": "compose leg unrun (no scenario runner bound for dr-failover)",
-          "at": "2026-09-30T23:03:56.262679199Z",
-          "elapsed": "61.947µs"
+          "at": "2026-10-02T03:50:48.165367969Z",
+          "elapsed": "75.978µs"
         }
       ],
       "blocked_reason": "compose leg unrun (no scenario runner bound for dr-failover)"
@@ -760,8 +760,8 @@
           "kind": "gotest:./internal/marketdata/ohlcvTestPG",
           "status": "PASS",
           "detail": "go test ./internal/marketdata/ohlcv -run TestPG: PASS",
-          "at": "2026-09-30T23:04:36.594114166Z",
-          "elapsed": "934.208809ms"
+          "at": "2026-10-02T03:51:27.74659044Z",
+          "elapsed": "986.570522ms"
         }
       ]
     },
@@ -788,8 +788,8 @@
           "kind": "gotest:./internal/accountsTestIntegration|TestSubAccount|TestHierarchy",
           "status": "PASS",
           "detail": "go test ./internal/accounts -run TestIntegration|TestSubAccount|TestHierarchy: PASS",
-          "at": "2026-09-30T23:04:20.66545134Z",
-          "elapsed": "1.144097732s"
+          "at": "2026-10-02T03:51:10.938271255Z",
+          "elapsed": "1.535601399s"
         }
       ]
     },
@@ -804,16 +804,16 @@
           "kind": "gotest:./internal/authTest.*Allowlist|TestHMACKeyLifecycleAndVerify",
           "status": "PASS",
           "detail": "go test ./internal/auth -run Test.*Allowlist|TestHMACKeyLifecycleAndVerify: PASS",
-          "at": "2026-09-30T23:04:26.631778838Z",
-          "elapsed": "513.934426ms"
+          "at": "2026-10-02T03:51:17.366885172Z",
+          "elapsed": "518.968731ms"
         },
         {
           "test": "e2e:ip-allowlist",
           "kind": "e2e:ip-allowlist",
           "status": "PASS",
           "detail": "allowlisted(192.0.2.0/24) key from loopback → 403 TOKEN_IP_FORBIDDEN",
-          "at": "2026-09-30T23:05:46.550322968Z",
-          "elapsed": "582.903µs"
+          "at": "2026-10-02T03:52:39.404529818Z",
+          "elapsed": "666.675µs"
         }
       ]
     },
@@ -828,8 +828,8 @@
           "kind": "gotest:./internal/authTestSession|Test.*Session.*",
           "status": "PASS",
           "detail": "go test ./internal/auth -run TestSession|Test.*Session.*: PASS",
-          "at": "2026-09-30T23:04:27.579732338Z",
-          "elapsed": "396.23014ms"
+          "at": "2026-10-02T03:51:18.538181568Z",
+          "elapsed": "478.371517ms"
         }
       ]
     },
@@ -844,8 +844,8 @@
           "kind": "e2e:frozen",
           "status": "PASS",
           "detail": "frozen account POST /orders → 403 ACCOUNT_FROZEN",
-          "at": "2026-09-30T23:05:46.760239564Z",
-          "elapsed": "9.860993ms"
+          "at": "2026-10-02T03:52:39.633109999Z",
+          "elapsed": "9.886802ms"
         }
       ]
     },
@@ -860,16 +860,16 @@
           "kind": "gotest:./internal/testenvTestIntegrationResetAccount",
           "status": "PASS",
           "detail": "go test ./internal/testenv -run TestIntegrationResetAccount: PASS",
-          "at": "2026-09-30T23:05:20.099332086Z",
-          "elapsed": "209.567904ms"
+          "at": "2026-10-02T03:52:12.593711836Z",
+          "elapsed": "233.519322ms"
         },
         {
           "test": "e2e:test-reset",
           "kind": "e2e:test-reset",
           "status": "PASS",
           "detail": "POST /test/reset → 200; USD available=0.00000000 after",
-          "at": "2026-09-30T23:05:46.778927266Z",
-          "elapsed": "18.127679ms"
+          "at": "2026-10-02T03:52:39.657884672Z",
+          "elapsed": "23.428414ms"
         }
       ]
     },
@@ -884,8 +884,8 @@
           "kind": "e2e:announcements",
           "status": "PASS",
           "detail": "/api/v1/announcements → 200 (54B); /api/v1/maintenance/schedule → 200 (54B)",
-          "at": "2026-09-30T23:05:50.435828677Z",
-          "elapsed": "1.383815ms"
+          "at": "2026-10-02T03:52:39.714713888Z",
+          "elapsed": "2.192912ms"
         }
       ]
     },
@@ -900,8 +900,8 @@
           "kind": "gotest:./internal/promosTestPromo|TestIntegration|TestPG",
           "status": "PASS",
           "detail": "go test ./internal/promos -run TestPromo|TestIntegration|TestPG: PASS",
-          "at": "2026-09-30T23:05:07.030619392Z",
-          "elapsed": "356.644534ms"
+          "at": "2026-10-02T03:51:58.710269795Z",
+          "elapsed": "364.799758ms"
         }
       ]
     },
@@ -915,9 +915,9 @@
           "test": "e2e:openapi",
           "kind": "e2e:openapi",
           "status": "PASS",
-          "detail": "openapi.json → 200, 546 paths declared",
-          "at": "2026-09-30T23:05:46.79210179Z",
-          "elapsed": "10.351912ms"
+          "detail": "openapi.json → 200, 548 paths declared",
+          "at": "2026-10-02T03:52:39.673313895Z",
+          "elapsed": "11.757335ms"
         }
       ]
     },
@@ -932,8 +932,8 @@
           "kind": "gotest:./internal/webhooksTest",
           "status": "PASS",
           "detail": "go test ./internal/webhooks -run Test: PASS",
-          "at": "2026-09-30T23:05:20.480794428Z",
-          "elapsed": "381.41527ms"
+          "at": "2026-10-02T03:52:12.977354107Z",
+          "elapsed": "383.594717ms"
         }
       ]
     },
@@ -966,8 +966,8 @@
           "kind": "e2e:amend",
           "status": "PASS",
           "detail": "qty-down keep-priority amend → 200; stale seq → 409 STALE_MODIFY; amendments endpoint=429 audit_rows=1",
-          "at": "2026-09-30T23:05:46.657659075Z",
-          "elapsed": "19.631923ms"
+          "at": "2026-10-02T03:52:39.526561355Z",
+          "elapsed": "24.057114ms"
         }
       ]
     },
@@ -982,16 +982,16 @@
           "kind": "gtest:test_amendAmend.FenceResetsAfterOrderDeath:Amend.UnknownOrderRejected",
           "status": "PASS",
           "detail": "test_amend Amend.FenceResetsAfterOrderDeath:Amend.UnknownOrderRejected: [  PASSED  ] 2 tests.",
-          "at": "2026-09-30T23:05:37.91120125Z",
-          "elapsed": "1.252558ms"
+          "at": "2026-10-02T03:52:30.756211076Z",
+          "elapsed": "1.640625ms"
         },
         {
           "test": "e2e:amend",
           "kind": "e2e:amend",
           "status": "PASS",
           "detail": "qty-down keep-priority amend → 200; stale seq → 409 STALE_MODIFY; amendments endpoint=429 audit_rows=1",
-          "at": "2026-09-30T23:05:46.657660026Z",
-          "elapsed": "19.633092ms"
+          "at": "2026-10-02T03:52:39.526562472Z",
+          "elapsed": "24.058406ms"
         }
       ]
     },
@@ -1006,8 +1006,8 @@
           "kind": "gotest:./internal/marketdataTest.*Checksum|TestCRC|TestDepth",
           "status": "PASS",
           "detail": "go test ./internal/marketdata -run Test.*Checksum|TestCRC|TestDepth: PASS",
-          "at": "2026-09-30T23:04:37.794336395Z",
-          "elapsed": "1.200177239s"
+          "at": "2026-10-02T03:51:28.969953154Z",
+          "elapsed": "1.223328026s"
         }
       ]
     },
@@ -1022,8 +1022,8 @@
           "kind": "gotest:./internal/wsTest",
           "status": "PASS",
           "detail": "go test ./internal/ws -run Test: PASS",
-          "at": "2026-09-30T23:05:37.906066075Z",
-          "elapsed": "4.992605462s"
+          "at": "2026-10-02T03:52:30.749881685Z",
+          "elapsed": "5.085696917s"
         }
       ]
     },
@@ -1038,8 +1038,8 @@
           "kind": "compose:pg-pitr",
           "status": "BLOCKED",
           "detail": "compose leg unrun (no scenario runner bound for pg-pitr)",
-          "at": "2026-09-30T23:03:58.998600594Z",
-          "elapsed": "92.321µs"
+          "at": "2026-10-02T03:50:51.044520745Z",
+          "elapsed": "66.976µs"
         }
       ],
       "blocked_reason": "compose leg unrun (no scenario runner bound for pg-pitr)"
@@ -1055,8 +1055,8 @@
           "kind": "compose:pg-rpo-rto",
           "status": "BLOCKED",
           "detail": "compose leg unrun (no scenario runner bound for pg-rpo-rto)",
-          "at": "2026-09-30T23:03:58.998758261Z",
-          "elapsed": "71.65µs"
+          "at": "2026-10-02T03:50:51.044557005Z",
+          "elapsed": "25.678µs"
         }
       ],
       "blocked_reason": "compose leg unrun (no scenario runner bound for pg-rpo-rto)"
@@ -1071,9 +1071,9 @@
           "test": "compose:redis-dr",
           "kind": "compose:redis-dr",
           "status": "PASS",
-          "detail": "[crash-drill 23:03:59] === Redis Sentinel crash-failover drill (Task 9.3.20) ===\n[crash-drill 23:03:59] compose=/www/wwwroot/exc.local/docker-compose.dev.yml primary=exc-dev-redis-primary-1 sentinels=[exc-dev-redis-sentinel-1-1 exc-dev-redis-sentinel-2-1 exc-dev-redis-sentinel-3-1]\n[crash-drill 23:03:59] current master: 10.99.0.11:6379 (container exc-dev-redis-primary-1)\n[crash-drill 23:03:59] sen…",
-          "at": "2026-09-30T23:04:15.970038397Z",
-          "elapsed": "16.971243743s"
+          "detail": "[crash-drill 03:50:51] === Redis Sentinel crash-failover drill (Task 9.3.20) ===\n[crash-drill 03:50:51] compose=/www/wwwroot/exc.local/docker-compose.dev.yml primary=exc-dev-redis-primary-1 sentinels=[exc-dev-redis-sentinel-1-1 exc-dev-redis-sentinel-2-1 exc-dev-redis-sentinel-3-1]\n[crash-drill 03:50:51] current master: 10.99.0.11:6379 (container exc-dev-redis-primary-1)\n[crash-drill 03:50:51] sen…",
+          "at": "2026-10-02T03:51:08.616645153Z",
+          "elapsed": "17.572076036s"
         }
       ]
     },
@@ -1106,16 +1106,16 @@
           "kind": "gotest:./internal/deprecationTest",
           "status": "PASS",
           "detail": "go test ./internal/deprecation -run Test: PASS",
-          "at": "2026-09-30T23:04:29.154078175Z",
-          "elapsed": "237.442817ms"
+          "at": "2026-10-02T03:51:20.301369304Z",
+          "elapsed": "278.155484ms"
         },
         {
           "test": "e2e:deprecation",
           "kind": "e2e:deprecation",
           "status": "PASS",
           "detail": "api_deprecations rows=0; unauth GET → 401",
-          "at": "2026-09-30T23:05:50.45947505Z",
-          "elapsed": "3.859655ms"
+          "at": "2026-10-02T03:52:39.741326991Z",
+          "elapsed": "4.606578ms"
         }
       ]
     },
@@ -1130,8 +1130,8 @@
           "kind": "e2e:dev-portal",
           "status": "PASS",
           "detail": "/developer → 200; GET /developer/api-keys(signed) → 418",
-          "at": "2026-09-30T23:05:46.792655953Z",
-          "elapsed": "538.293µs"
+          "at": "2026-10-02T03:52:39.674314674Z",
+          "elapsed": "971.877µs"
         }
       ]
     },
@@ -1146,8 +1146,8 @@
           "kind": "gotest:./internal/fundingTestChargeback|Test.*Chargeback|TestIntegration",
           "status": "PASS",
           "detail": "go test ./internal/funding -run TestChargeback|Test.*Chargeback|TestIntegration: PASS",
-          "at": "2026-09-30T23:04:30.036500741Z",
-          "elapsed": "882.388958ms"
+          "at": "2026-10-02T03:51:21.222472007Z",
+          "elapsed": "921.064758ms"
         }
       ]
     },
@@ -1162,8 +1162,8 @@
           "kind": "gotest:./internal/taxTest",
           "status": "PASS",
           "detail": "go test ./internal/tax -run Test: PASS",
-          "at": "2026-09-30T23:05:19.889718713Z",
-          "elapsed": "227.362548ms"
+          "at": "2026-10-02T03:52:12.360148991Z",
+          "elapsed": "237.956879ms"
         }
       ]
     },
@@ -1178,16 +1178,16 @@
           "kind": "gotest:./internal/ratelimitTestRedis",
           "status": "PASS",
           "detail": "go test ./internal/ratelimit -run TestRedis: PASS",
-          "at": "2026-09-30T23:05:07.835230076Z",
-          "elapsed": "230.051388ms"
+          "at": "2026-10-02T03:51:59.505110723Z",
+          "elapsed": "224.094186ms"
         },
         {
           "test": "e2e:rate-limit",
           "kind": "e2e:rate-limit",
           "status": "PASS",
           "detail": "public tier burst: map[200:10 418:29 429:1] retry-after=\"1\"",
-          "at": "2026-09-30T23:05:46.740479372Z",
-          "elapsed": "13.051118ms"
+          "at": "2026-10-02T03:52:39.605906292Z",
+          "elapsed": "10.866469ms"
         }
       ]
     },
@@ -1334,8 +1334,8 @@
           "kind": "gtest:test_cross_shardCrossShard2PC.*",
           "status": "PASS",
           "detail": "test_cross_shard CrossShard2PC.*: [  PASSED  ] 10 tests.",
-          "at": "2026-09-30T23:05:37.97080614Z",
-          "elapsed": "6.589183ms"
+          "at": "2026-10-02T03:52:30.826949056Z",
+          "elapsed": "8.879809ms"
         }
       ]
     },
@@ -1362,8 +1362,8 @@
           "kind": "gotest:./internal/settlementTestLedgerIntegration|TestJournalHash",
           "status": "PASS",
           "detail": "go test ./internal/settlement -run TestLedgerIntegration|TestJournalHash: PASS",
-          "at": "2026-09-30T23:05:15.818377128Z",
-          "elapsed": "618.018159ms"
+          "at": "2026-10-02T03:52:08.165165705Z",
+          "elapsed": "621.194669ms"
         }
       ]
     },
@@ -1378,8 +1378,8 @@
           "kind": "gotest:./internal/settlementTestIntegration_Rollover(Tuesday|WednesdayTriple|Weekend)",
           "status": "PASS",
           "detail": "go test ./internal/settlement -run TestIntegration_Rollover(Tuesday|WednesdayTriple|Weekend): PASS",
-          "at": "2026-09-30T23:05:13.680593966Z",
-          "elapsed": "885.75282ms"
+          "at": "2026-10-02T03:52:05.917199567Z",
+          "elapsed": "923.374135ms"
         }
       ]
     },
@@ -1394,8 +1394,8 @@
           "kind": "gotest:./internal/settlementTestNextWeekdayCutoff_WeekendSkip|TestRolloverCutoff_",
           "status": "PASS",
           "detail": "go test ./internal/settlement -run TestNextWeekdayCutoff_WeekendSkip|TestRolloverCutoff_: PASS",
-          "at": "2026-09-30T23:05:17.653899624Z",
-          "elapsed": "607.506728ms"
+          "at": "2026-10-02T03:52:10.007519221Z",
+          "elapsed": "563.682909ms"
         }
       ]
     },
@@ -1530,16 +1530,16 @@
           "kind": "gotest:./internal/fundingTestTransfer|TestIntegration",
           "status": "PASS",
           "detail": "go test ./internal/funding -run TestTransfer|TestIntegration: PASS",
-          "at": "2026-09-30T23:04:30.837566633Z",
-          "elapsed": "801.012324ms"
+          "at": "2026-10-02T03:51:22.04655309Z",
+          "elapsed": "824.035647ms"
         },
         {
           "test": "e2e:transfer",
           "kind": "e2e:transfer",
           "status": "PASS",
-          "detail": "POST /transfers → 201 {\"transfer\":{\"id\":2,\"account_id\":151,\"from_account_id\":151,\"to_account_id\":152,\"currency\":\"USD\",\"amount\":\"5000\",\"status\":\"COMPLETED\",\"actor\":\"SELF\",\"actor_id\":134,\"journal_entry_id\":4737,\"idempotency_… | A 100000→95000 B 1000000→1005000 moved=true | GET /transfers → 200",
-          "at": "2026-09-30T23:05:50.426888786Z",
-          "elapsed": "3.634218369s"
+          "detail": "POST /transfers → 201 {\"transfer\":{\"id\":5,\"account_id\":497,\"from_account_id\":497,\"to_account_id\":498,\"currency\":\"USD\",\"amount\":\"5000\",\"status\":\"COMPLETED\",\"actor\":\"SELF\",\"actor_id\":470,\"journal_entry_id\":12525,\"idempotency… | A 100000→95000 B 1000000→1005000 moved=true | GET /transfers → 200",
+          "at": "2026-10-02T03:52:39.704404798Z",
+          "elapsed": "30.05735ms"
         }
       ]
     },
@@ -1566,16 +1566,16 @@
           "kind": "gotest:./internal/authTestSignedRequestReplayAndWindow|TestHMACKeyLifecycleAndVerify",
           "status": "PASS",
           "detail": "go test ./internal/auth -run TestSignedRequestReplayAndWindow|TestHMACKeyLifecycleAndVerify: PASS",
-          "at": "2026-09-30T23:04:28.085879935Z",
-          "elapsed": "506.100203ms"
+          "at": "2026-10-02T03:51:19.127862953Z",
+          "elapsed": "589.628254ms"
         },
         {
           "test": "e2e:hmac",
           "kind": "e2e:hmac",
           "status": "PASS",
           "detail": "valid HMAC signature accepted; corrupted signature → 401 INVALID_SIGNATURE; stale timestamp → TIMESTAMP_OUT_OF_WINDOW; replayed signature → REPLAY_ATTACK_DETECTED; missing credentials → 401 UNAUTHORIZED; read-scope key on POST /orders → INSUFFICIENT_SCOPE",
-          "at": "2026-09-30T23:05:46.549717374Z",
-          "elapsed": "7.328256ms"
+          "at": "2026-10-02T03:52:39.403831166Z",
+          "elapsed": "12.113399ms"
         }
       ]
     },
@@ -1590,16 +1590,16 @@
           "kind": "gotest:./internal/middlewareTestPGIdemStoreLifecycle|TestRedisIdemStoreLifecycle",
           "status": "PASS",
           "detail": "go test ./internal/middleware -run TestPGIdemStoreLifecycle|TestRedisIdemStoreLifecycle: PASS",
-          "at": "2026-09-30T23:04:59.641661413Z",
-          "elapsed": "410.557807ms"
+          "at": "2026-10-02T03:51:51.288238868Z",
+          "elapsed": "435.992688ms"
         },
         {
           "test": "e2e:idempotent-submit",
           "kind": "e2e:idempotent-submit",
           "status": "PASS",
-          "detail": "replay=true(id=30 c1=202 c2=202 b1={\"order_id\":30,\"client_order_id\":\"itest-idem-9539\",\"status\":\"ACTIVE\",\"order_seq\":1790809545858551291… b2={\"order_id\":30,\"client_order_id\":\"itest-idem-9539\",\"status\":\"ACTIVE\",\"order_seq\":1790809545858551291…) collision=true(409 IDEMPOTENCY_KEY_COLLISION)",
-          "at": "2026-09-30T23:05:46.637997231Z",
-          "elapsed": "21.608025ms"
+          "detail": "replay=true(id=69 c1=202 c2=202 b1={\"order_id\":69,\"client_order_id\":\"itest-idem-13152\",\"status\":\"ACTIVE\",\"order_seq\":179091315870305588… b2={\"order_id\":69,\"client_order_id\":\"itest-idem-13152\",\"status\":\"ACTIVE\",\"order_seq\":179091315870305588…) collision=true(409 IDEMPOTENCY_KEY_COLLISION)",
+          "at": "2026-10-02T03:52:39.50248394Z",
+          "elapsed": "23.367357ms"
         }
       ]
     },
@@ -1638,8 +1638,8 @@
           "kind": "e2e:mass-cancel",
           "status": "PASS",
           "detail": "DELETE /orders?symbol=EUR/USD → 200 {\"cancelled\":5,\"per_symbol\":{\"EUR/USD\":5}}",
-          "at": "2026-09-30T23:05:46.690272779Z",
-          "elapsed": "32.532004ms"
+          "at": "2026-10-02T03:52:39.560597255Z",
+          "elapsed": "33.938555ms"
         }
       ]
     },
@@ -1654,8 +1654,8 @@
           "kind": "gtest:test_stpStpModes.*",
           "status": "PASS",
           "detail": "test_stp StpModes.*: [  PASSED  ] 7 tests.",
-          "at": "2026-09-30T23:05:39.243670584Z",
-          "elapsed": "2.733186ms"
+          "at": "2026-10-02T03:52:32.060395498Z",
+          "elapsed": "2.565956ms"
         }
       ]
     },
@@ -1676,16 +1676,16 @@
           "kind": "gotest:./internal/marketapiTestPgStoreInstrumentsIntegration",
           "status": "PASS",
           "detail": "go test ./internal/marketapi -run TestPgStoreInstrumentsIntegration: PASS",
-          "at": "2026-09-30T23:04:33.666586393Z",
-          "elapsed": "270.561621ms"
+          "at": "2026-10-02T03:51:24.815172045Z",
+          "elapsed": "274.586657ms"
         },
         {
           "test": "e2e:instruments",
           "kind": "e2e:instruments",
           "status": "PASS",
           "detail": "exchange-info=200 bytes=39689",
-          "at": "2026-09-30T23:05:46.781734747Z",
-          "elapsed": "2.690995ms"
+          "at": "2026-10-02T03:52:39.661540297Z",
+          "elapsed": "3.60032ms"
         }
       ]
     },
@@ -1700,16 +1700,16 @@
           "kind": "gtest:test_pretradePreTrade.TickLot:PreTrade.MinNotional:PreTrade.QtyBounds:PreTrade.PriceBand",
           "status": "PASS",
           "detail": "test_pretrade PreTrade.TickLot:PreTrade.MinNotional:PreTrade.QtyBounds:PreTrade.PriceBand: [  PASSED  ] 4 tests.",
-          "at": "2026-09-30T23:05:38.008292767Z",
-          "elapsed": "2.137403ms"
+          "at": "2026-10-02T03:52:30.866105973Z",
+          "elapsed": "2.198042ms"
         },
         {
           "test": "e2e:validation",
           "kind": "e2e:validation",
           "status": "PASS",
           "detail": "qty=1 → 400 INVALID_REQUEST; off-tick → 400 INVALID_REQUEST; unknown symbol → 400 INVALID_REQUEST",
-          "at": "2026-09-30T23:05:46.510018256Z",
-          "elapsed": "16.045663ms"
+          "at": "2026-10-02T03:52:39.353856397Z",
+          "elapsed": "16.021141ms"
         }
       ]
     },
@@ -1729,9 +1729,9 @@
           "test": "compose:ch-backup",
           "kind": "compose:ch-backup",
           "status": "PASS",
-          "detail": "\u003e\u003e tools: chb=/tmp/ch-restore-drill/bin/clickhouse-backup (Version: 2.8.1)\n\u003e\u003e network=exc-dev_default scratch_image=clickhouse/clickhouse-server:25.8-alpine backup=daily-20260930 bucket=exchange-ch-backup\n\u003e\u003e starting S3 gateway container exc-ch-s3gw (versitygw posix)\n\u003e\u003e creating bucket exchange-ch-backup\n\u003e\u003e starting scratch ClickHouse exc-ch-scratch (clickhouse/clickhouse-server:25.8-alpine)\n\u003e\u003e sa…",
-          "at": "2026-09-30T23:03:56.262585343Z",
-          "elapsed": "4.389848595s"
+          "detail": "\u003e\u003e tools: chb=/tmp/ch-restore-drill/bin/clickhouse-backup (Version: 2.8.1)\n\u003e\u003e network=exc-dev_default scratch_image=clickhouse/clickhouse-server:25.8-alpine backup=daily-20261002 bucket=exchange-ch-backup\n\u003e\u003e starting S3 gateway container exc-ch-s3gw (versitygw posix)\n\u003e\u003e creating bucket exchange-ch-backup\n\u003e\u003e starting scratch ClickHouse exc-ch-scratch (clickhouse/clickhouse-server:25.8-alpine)\n\u003e\u003e sa…",
+          "at": "2026-10-02T03:50:48.165221876Z",
+          "elapsed": "6.362836996s"
         }
       ]
     },
@@ -1764,16 +1764,16 @@
           "kind": "gotest:./internal/supportTest",
           "status": "PASS",
           "detail": "go test ./internal/support -run Test: PASS",
-          "at": "2026-09-30T23:05:19.662301021Z",
-          "elapsed": "407.60384ms"
+          "at": "2026-10-02T03:52:12.122140359Z",
+          "elapsed": "428.046518ms"
         },
         {
           "test": "e2e:tickets",
           "kind": "e2e:tickets",
           "status": "PASS",
           "detail": "ticket create → 201; list → 200",
-          "at": "2026-09-30T23:05:50.455604648Z",
-          "elapsed": "2.899754ms"
+          "at": "2026-10-02T03:52:39.736697831Z",
+          "elapsed": "3.267051ms"
         }
       ]
     },
@@ -1800,8 +1800,8 @@
           "kind": "gotest:./internal/sbeTestEndToEnd_ABMulticast_ReplayGapFill|TestEndToEnd_BothFeedsLost_TCPReplayAndSnapshot|TestDeterministicReplayOrdering",
           "status": "PASS",
           "detail": "go test ./internal/sbe -run TestEndToEnd_ABMulticast_ReplayGapFill|TestEndToEnd_BothFeedsLost_TCPReplayAndSnapshot|TestDeterministicReplayOrdering: PASS",
-          "at": "2026-09-30T23:05:09.829885608Z",
-          "elapsed": "145.268296ms"
+          "at": "2026-10-02T03:52:01.688720854Z",
+          "elapsed": "178.230873ms"
         }
       ]
     },
@@ -1894,8 +1894,8 @@
           "kind": "gotest:./internal/balanceTestIntegration_SettleQuoteAndSweep",
           "status": "PASS",
           "detail": "go test ./internal/balance -run TestIntegration_SettleQuoteAndSweep: PASS",
-          "at": "2026-09-30T23:04:28.309871847Z",
-          "elapsed": "223.947997ms"
+          "at": "2026-10-02T03:51:19.351992223Z",
+          "elapsed": "224.092149ms"
         }
       ]
     },
@@ -1910,8 +1910,8 @@
           "kind": "gotest:./internal/redisTestRedisSentinel|TestSentinel",
           "status": "PASS",
           "detail": "go test ./internal/redis -run TestRedisSentinel|TestSentinel: PASS",
-          "at": "2026-09-30T23:05:09.684568553Z",
-          "elapsed": "177.187076ms"
+          "at": "2026-10-02T03:52:01.51043984Z",
+          "elapsed": "215.389906ms"
         }
       ]
     },
@@ -1944,8 +1944,8 @@
           "kind": "gotest:./internal/ipcTestAeronRoundTripCpp",
           "status": "PASS",
           "detail": "go test ./internal/ipc -run TestAeronRoundTripCpp: PASS",
-          "at": "2026-09-30T23:04:32.854788687Z",
-          "elapsed": "2.017171624s"
+          "at": "2026-10-02T03:51:24.064882841Z",
+          "elapsed": "2.018280254s"
         }
       ]
     },
@@ -1966,8 +1966,8 @@
           "kind": "e2e:ws-auth",
           "status": "PASS",
           "detail": "ws authenticate ACK",
-          "at": "2026-09-30T23:05:52.958898457Z",
-          "elapsed": "721.521µs"
+          "at": "2026-10-02T03:52:42.231884897Z",
+          "elapsed": "1.005515ms"
         }
       ]
     },
@@ -1982,8 +1982,8 @@
           "kind": "gtest:test_book_protectionBookProtection.*",
           "status": "PASS",
           "detail": "test_book_protection BookProtection.*: [  PASSED  ] 19 tests.",
-          "at": "2026-09-30T23:05:37.92062579Z",
-          "elapsed": "9.406783ms"
+          "at": "2026-10-02T03:52:30.76654975Z",
+          "elapsed": "10.322453ms"
         }
       ]
     },
@@ -2015,9 +2015,9 @@
           "test": "e2e:rate-headers",
           "kind": "e2e:rate-headers",
           "status": "PASS",
-          "detail": "X-Ratelimit-Limit=5; X-Ratelimit-Remaining=2; X-Ratelimit-Reset=1790809547; account/rate-limits=200",
-          "at": "2026-09-30T23:05:46.727399477Z",
-          "elapsed": "4.123856ms"
+          "detail": "X-Ratelimit-Limit=5; X-Ratelimit-Remaining=2; X-Ratelimit-Reset=1790913160; account/rate-limits=200",
+          "at": "2026-10-02T03:52:39.595013414Z",
+          "elapsed": "4.658598ms"
         }
       ]
     },
@@ -2122,8 +2122,8 @@
           "kind": "gotest:./internal/middlewareTestAPIVersion|TestVersion",
           "status": "PASS",
           "detail": "go test ./internal/middleware -run TestAPIVersion|TestVersion: PASS",
-          "at": "2026-09-30T23:04:58.771399918Z",
-          "elapsed": "419.889187ms"
+          "at": "2026-10-02T03:51:50.363492195Z",
+          "elapsed": "429.674723ms"
         }
       ]
     },
@@ -2138,8 +2138,8 @@
           "kind": "gotest:./internal/natsTestIntegration(PublishFetchAck|Redelivery|EnsureStreams|Health)",
           "status": "PASS",
           "detail": "go test ./internal/nats -run TestIntegration(PublishFetchAck|Redelivery|EnsureStreams|Health): PASS",
-          "at": "2026-09-30T23:05:06.480811297Z",
-          "elapsed": "6.839093336s"
+          "at": "2026-10-02T03:51:58.150751885Z",
+          "elapsed": "6.862456251s"
         }
       ]
     },
@@ -2154,8 +2154,8 @@
           "kind": "gotest:./internal/bridgeTestBridgeAgainstLiveNATS",
           "status": "PASS",
           "detail": "go test ./internal/bridge -run TestBridgeAgainstLiveNATS: PASS",
-          "at": "2026-09-30T23:04:28.916598789Z",
-          "elapsed": "395.743603ms"
+          "at": "2026-10-02T03:51:20.023150247Z",
+          "elapsed": "443.904394ms"
         }
       ]
     },
@@ -2188,8 +2188,8 @@
           "kind": "gtest:test_cross_shardCrossShard2PC.ReserveTimeoutFullCompensation:CrossShard2PC.ConcurrentLimitExceeded",
           "status": "PASS",
           "detail": "test_cross_shard CrossShard2PC.ReserveTimeoutFullCompensation:CrossShard2PC.ConcurrentLimitExceeded: [  PASSED  ] 2 tests.",
-          "at": "2026-09-30T23:05:37.981223597Z",
-          "elapsed": "2.125236ms"
+          "at": "2026-10-02T03:52:30.837625846Z",
+          "elapsed": "2.143842ms"
         }
       ]
     },
@@ -2204,8 +2204,8 @@
           "kind": "gotest:./internal/wsTest.*Rate|Test.*Throttle|Test",
           "status": "PASS",
           "detail": "go test ./internal/ws -run Test.*Rate|Test.*Throttle|Test: PASS",
-          "at": "2026-09-30T23:05:25.517404126Z",
-          "elapsed": "5.036563266s"
+          "at": "2026-10-02T03:52:17.989906694Z",
+          "elapsed": "5.012501809s"
         }
       ]
     },
@@ -2244,8 +2244,8 @@
           "kind": "gtest:test_book_protectionBookProtection.Slippage*",
           "status": "PASS",
           "detail": "test_book_protection BookProtection.Slippage*: [  PASSED  ] 5 tests.",
-          "at": "2026-09-30T23:05:37.922212776Z",
-          "elapsed": "1.56344ms"
+          "at": "2026-10-02T03:52:30.768275927Z",
+          "elapsed": "1.70648ms"
         }
       ]
     },
@@ -2260,8 +2260,8 @@
           "kind": "gotest:./internal/settlementTestIntegration_Rollover|TestComputeAdminFee",
           "status": "PASS",
           "detail": "go test ./internal/settlement -run TestIntegration_Rollover|TestComputeAdminFee: PASS",
-          "at": "2026-09-30T23:05:14.536265091Z",
-          "elapsed": "855.624234ms"
+          "at": "2026-10-02T03:52:06.839646142Z",
+          "elapsed": "922.41515ms"
         }
       ]
     },
@@ -2276,8 +2276,8 @@
           "kind": "gotest:./internal/settlementTestPip|TestPipValue|TestPipCalc",
           "status": "PASS",
           "detail": "go test ./internal/settlement -run TestPip|TestPipValue|TestPipCalc: PASS",
-          "at": "2026-09-30T23:05:18.201186824Z",
-          "elapsed": "547.254669ms"
+          "at": "2026-10-02T03:52:10.583003096Z",
+          "elapsed": "575.440357ms"
         }
       ]
     },
@@ -2292,8 +2292,8 @@
           "kind": "gotest:./internal/settlementTestCommission|TestFeeModel|TestRollingFillJournal(FourLegs|ZeroFees|FeeExceeds)",
           "status": "PASS",
           "detail": "go test ./internal/settlement -run TestCommission|TestFeeModel|TestRollingFillJournal(FourLegs|ZeroFees|FeeExceeds): PASS",
-          "at": "2026-09-30T23:05:12.093574404Z",
-          "elapsed": "540.582379ms"
+          "at": "2026-10-02T03:52:04.291494374Z",
+          "elapsed": "571.225061ms"
         }
       ]
     },
@@ -2313,9 +2313,9 @@
           "test": "compose:haproxy-topology",
           "kind": "compose:haproxy-topology",
           "status": "PASS",
-          "detail": "stub backend: ./stub_go\n=== haproxy -c ===\nhaproxy-5329-test\n365f0cd4ff9f9c9bc8a1cfbb9b5af3ba7b0762bb656e0a27d439d9a1cade9a90\nproxy:  http://localhost:8080  https://localhost:8443 (-k)\nsocket: /www/wwwroot/exc.local/deploy/haproxy/test/run/admin.sock\n",
-          "at": "2026-09-30T23:03:58.998466162Z",
-          "elapsed": "2.73577112s"
+          "detail": "stub backend: ./stub_go\n=== haproxy -c ===\n1409e7e6e9eafa1d3c7d58ab4fcd5fe53b59b617e6d3a6ec0a3cee305fb4b1b9\nproxy:  http://localhost:8080  https://localhost:8443 (-k)\nsocket: /www/wwwroot/exc.local/deploy/haproxy/test/run/admin.sock\n",
+          "at": "2026-10-02T03:50:51.044419512Z",
+          "elapsed": "2.879021126s"
         }
       ]
     },
@@ -2330,8 +2330,8 @@
           "kind": "gotest:./internal/marketdata/ohlcvTestPG",
           "status": "PASS",
           "detail": "go test ./internal/marketdata/ohlcv -run TestPG: PASS",
-          "at": "2026-09-30T23:04:36.594116745Z",
-          "elapsed": "934.208809ms"
+          "at": "2026-10-02T03:51:27.746592143Z",
+          "elapsed": "986.570522ms"
         }
       ]
     },
@@ -2346,8 +2346,8 @@
           "kind": "gotest:./internal/adminTestLPIntegration",
           "status": "PASS",
           "detail": "go test ./internal/admin -run TestLPIntegration: PASS",
-          "at": "2026-09-30T23:04:24.112394517Z",
-          "elapsed": "573.334717ms"
+          "at": "2026-10-02T03:51:14.781994989Z",
+          "elapsed": "598.679431ms"
         }
       ]
     },
@@ -2428,8 +2428,8 @@
           "kind": "e2e:manual-liquidation",
           "status": "PASS",
           "detail": "unauth → 401; risk-manager submit → 400 DUAL_CONTROL_REQUIRED",
-          "at": "2026-09-30T23:05:50.45263451Z",
-          "elapsed": "7.014121ms"
+          "at": "2026-10-02T03:52:39.733355736Z",
+          "elapsed": "6.513562ms"
         }
       ]
     },
@@ -2474,8 +2474,8 @@
           "kind": "gotest:./internal/wsTest",
           "status": "PASS",
           "detail": "go test ./internal/ws -run Test: PASS",
-          "at": "2026-09-30T23:05:37.906068647Z",
-          "elapsed": "4.992605462s"
+          "at": "2026-10-02T03:52:30.749883642Z",
+          "elapsed": "5.085696917s"
         }
       ]
     },
@@ -2532,8 +2532,8 @@
           "kind": "e2e:ws-auth",
           "status": "PASS",
           "detail": "ws authenticate ACK",
-          "at": "2026-09-30T23:05:52.958900001Z",
-          "elapsed": "723.165µs"
+          "at": "2026-10-02T03:52:42.231885851Z",
+          "elapsed": "1.006624ms"
         }
       ]
     },
@@ -2547,9 +2547,9 @@
           "test": "e2e:batch",
           "kind": "e2e:batch",
           "status": "PASS",
-          "detail": "POST /orders/batch → 200 {\"results\":[{\"index\":0,\"status\":\"ACCEPTED\",\"order_id\":34,\"client_order_id\":\"itest-b1-9539\"},{\"index\":1,\"status\":\"ACCEPTED\",\"order_id\":35,\"client_order_id\":\"itest-b2-9539\"}]}",
-          "at": "2026-09-30T23:05:46.713225139Z",
-          "elapsed": "22.91568ms"
+          "detail": "POST /orders/batch → 200 {\"results\":[{\"index\":0,\"status\":\"ACCEPTED\",\"order_id\":73,\"client_order_id\":\"itest-b1-13152\"},{\"index\":1,\"status\":\"ACCEPTED\",\"order_id\":74,\"client_order_id\":\"itest-b2-13152\"}]}",
+          "at": "2026-10-02T03:52:39.578450423Z",
+          "elapsed": "17.82022ms"
         }
       ]
     },
@@ -2570,8 +2570,8 @@
           "kind": "gotest:./internal/accountsTestIntegration|TestSub|TestHierarchy",
           "status": "PASS",
           "detail": "go test ./internal/accounts -run TestIntegration|TestSub|TestHierarchy: PASS",
-          "at": "2026-09-30T23:04:21.808247571Z",
-          "elapsed": "1.142744804s"
+          "at": "2026-10-02T03:51:12.30842738Z",
+          "elapsed": "1.37011091s"
         }
       ]
     },
@@ -2586,8 +2586,8 @@
           "kind": "gotest:./internal/accountsTestDeadMan|TestCountdown",
           "status": "PASS",
           "detail": "go test ./internal/accounts -run TestDeadMan|TestCountdown: PASS",
-          "at": "2026-09-30T23:04:19.52131127Z",
-          "elapsed": "521.256371ms"
+          "at": "2026-10-02T03:51:09.402602754Z",
+          "elapsed": "556.690032ms"
         }
       ]
     },
@@ -2602,16 +2602,16 @@
           "kind": "gotest:./internal/ratelimitTestRedisBanEscalationAndTTL",
           "status": "PASS",
           "detail": "go test ./internal/ratelimit -run TestRedisBanEscalationAndTTL: PASS",
-          "at": "2026-09-30T23:05:07.605115786Z",
-          "elapsed": "215.516543ms"
+          "at": "2026-10-02T03:51:59.280961259Z",
+          "elapsed": "201.556525ms"
         },
         {
           "test": "e2e:ip-ban",
           "kind": "e2e:ip-ban",
           "status": "PASS",
-          "detail": "saw429=true saw418=true last=418 {\"type\":\"error\",\"error\":\"IP_BANNED\",\"message\":\"ip banned for repeated post-429 abuse\",\"status\":418,\"request_id\":\"req-a75…",
-          "at": "2026-09-30T23:05:46.744287308Z",
-          "elapsed": "3.784221ms"
+          "detail": "saw429=true saw418=true last=418 {\"type\":\"error\",\"error\":\"IP_BANNED\",\"message\":\"ip banned for repeated post-429 abuse\",\"status\":418,\"request_id\":\"req-1cd…",
+          "at": "2026-10-02T03:52:39.612519265Z",
+          "elapsed": "6.585718ms"
         }
       ]
     },
@@ -2626,8 +2626,8 @@
           "kind": "e2e:instruments",
           "status": "PASS",
           "detail": "exchange-info=200 bytes=39689",
-          "at": "2026-09-30T23:05:46.78173554Z",
-          "elapsed": "2.691888ms"
+          "at": "2026-10-02T03:52:39.661541404Z",
+          "elapsed": "3.6015ms"
         }
       ]
     },
@@ -2642,8 +2642,8 @@
           "kind": "e2e:mass-cancel",
           "status": "PASS",
           "detail": "DELETE /orders?symbol=EUR/USD → 200 {\"cancelled\":5,\"per_symbol\":{\"EUR/USD\":5}}",
-          "at": "2026-09-30T23:05:46.690273979Z",
-          "elapsed": "32.533413ms"
+          "at": "2026-10-02T03:52:39.560599181Z",
+          "elapsed": "33.941352ms"
         }
       ]
     },
@@ -2658,8 +2658,8 @@
           "kind": "gotest:./internal/marketdataTestBBO_(EveryTopChange|OneSidedBook|SymbolFanout)",
           "status": "PASS",
           "detail": "go test ./internal/marketdata -run TestBBO_(EveryTopChange|OneSidedBook|SymbolFanout): PASS",
-          "at": "2026-09-30T23:04:46.824379639Z",
-          "elapsed": "947.364945ms"
+          "at": "2026-10-02T03:51:38.14166975Z",
+          "elapsed": "980.155063ms"
         }
       ]
     },
@@ -2674,8 +2674,8 @@
           "kind": "gotest:./internal/marketdataTestAggTrades_(GroupsLineage|IDMonotonicPerSymbol|PriceBreakSplits|UnknownTakerSingletons)",
           "status": "PASS",
           "detail": "go test ./internal/marketdata -run TestAggTrades_(GroupsLineage|IDMonotonicPerSymbol|PriceBreakSplits|UnknownTakerSingletons): PASS",
-          "at": "2026-09-30T23:04:45.876962741Z",
-          "elapsed": "972.030273ms"
+          "at": "2026-10-02T03:51:37.161464003Z",
+          "elapsed": "1.015585529s"
         }
       ]
     },
@@ -2690,8 +2690,8 @@
           "kind": "gotest:./internal/marketdataTestLiquidations_(InvisibleBeforeTwoSeconds|DelayFloorEnforced|Anonymized)|TestDelayGate_(NeverReleasesEarly|FIFOOrder|AgedEventReleasesEarlier|CancelDropsPending)",
           "status": "PASS",
           "detail": "go test ./internal/marketdata -run TestLiquidations_(InvisibleBeforeTwoSeconds|DelayFloorEnforced|Anonymized)|TestDelayGate_(NeverReleasesEarly|FIFOOrder|AgedEventReleasesEarlier|CancelDropsPending): PASS",
-          "at": "2026-09-30T23:04:53.192065168Z",
-          "elapsed": "3.086721401s"
+          "at": "2026-10-02T03:51:44.56587152Z",
+          "elapsed": "3.042057357s"
         }
       ]
     },
@@ -2706,8 +2706,8 @@
           "kind": "gotest:./internal/marketdata/ohlcvTestPG|TestInterval|TestTimeframe",
           "status": "PASS",
           "detail": "go test ./internal/marketdata/ohlcv -run TestPG|TestInterval|TestTimeframe: PASS",
-          "at": "2026-09-30T23:04:35.659855174Z",
-          "elapsed": "1.021142791s"
+          "at": "2026-10-02T03:51:26.759971132Z",
+          "elapsed": "979.456431ms"
         }
       ]
     },
@@ -2722,8 +2722,8 @@
           "kind": "gotest:./internal/marketdataTestParseChannelDepthVariants|TestDepthVariant(CadenceGate|PrevChain|WireEndToEnd)",
           "status": "PASS",
           "detail": "go test ./internal/marketdata -run TestParseChannelDepthVariants|TestDepthVariant(CadenceGate|PrevChain|WireEndToEnd): PASS",
-          "at": "2026-09-30T23:04:54.362661383Z",
-          "elapsed": "1.170556674s"
+          "at": "2026-10-02T03:51:45.78550727Z",
+          "elapsed": "1.219580565s"
         }
       ]
     },
@@ -2786,16 +2786,16 @@
           "kind": "gtest:test_pretradePreTrade.StpNoneGatedToProfessionalEcp",
           "status": "PASS",
           "detail": "test_pretrade PreTrade.StpNoneGatedToProfessionalEcp: [  PASSED  ] 1 test.",
-          "at": "2026-09-30T23:05:38.006133294Z",
-          "elapsed": "1.555742ms"
+          "at": "2026-10-02T03:52:30.863886823Z",
+          "elapsed": "1.589072ms"
         },
         {
           "test": "gtest:test_stpStpNone.*",
           "kind": "gtest:test_stpStpNone.*",
           "status": "PASS",
           "detail": "test_stp StpNone.*: [  PASSED  ] 3 tests.",
-          "at": "2026-09-30T23:05:39.246438965Z",
-          "elapsed": "2.749557ms"
+          "at": "2026-10-02T03:52:32.062930539Z",
+          "elapsed": "2.515944ms"
         }
       ]
     },
@@ -2822,8 +2822,8 @@
           "kind": "gtest:test_trade_throughExecutionCollar.*:EngineCollar.*",
           "status": "PASS",
           "detail": "test_trade_through ExecutionCollar.*:EngineCollar.*: [  PASSED  ] 10 tests.",
-          "at": "2026-09-30T23:05:39.3433018Z",
-          "elapsed": "2.601957ms"
+          "at": "2026-10-02T03:52:32.152497849Z",
+          "elapsed": "2.261494ms"
         }
       ]
     },
@@ -2838,8 +2838,8 @@
           "kind": "gotest:./internal/marketdataTestRefPriceSnapshot|TestGapJournalBounded|TestTicker_ExpiryEvictsOldTrades",
           "status": "PASS",
           "detail": "go test ./internal/marketdata -run TestRefPriceSnapshot|TestGapJournalBounded|TestTicker_ExpiryEvictsOldTrades: PASS",
-          "at": "2026-09-30T23:04:55.362644369Z",
-          "elapsed": "999.945274ms"
+          "at": "2026-10-02T03:51:46.756583396Z",
+          "elapsed": "971.038468ms"
         }
       ]
     },
@@ -2854,8 +2854,8 @@
           "kind": "gtest:test_stpStpGroups.*:StpTransfer.*",
           "status": "PASS",
           "detail": "test_stp StpGroups.*:StpTransfer.*: [  PASSED  ] 5 tests.",
-          "at": "2026-09-30T23:05:39.240892964Z",
-          "elapsed": "11.212425ms"
+          "at": "2026-10-02T03:52:32.05778787Z",
+          "elapsed": "13.637996ms"
         }
       ]
     },
@@ -2870,8 +2870,8 @@
           "kind": "gtest:test_stpStpTransfer.*:StpWal.*",
           "status": "PASS",
           "detail": "test_stp StpTransfer.*:StpWal.*: [  PASSED  ] 5 tests.",
-          "at": "2026-09-30T23:05:39.340648908Z",
-          "elapsed": "94.189868ms"
+          "at": "2026-10-02T03:52:32.150196155Z",
+          "elapsed": "87.247637ms"
         }
       ]
     },
@@ -2885,9 +2885,9 @@
           "test": "e2e:cancel-replace",
           "kind": "e2e:cancel-replace",
           "status": "PASS",
-          "detail": "POST /orders/27/cancel-replace → 200 {\"cancel_outcome\":\"SUPERSEDED\",\"mode\":\"STOP_ON_FAILURE\",\"new_outcome\":\"APPLIED\",\"order\":{\"account_id\":151,\"client_order_id\":\"itest-cr-9539\",\"created_at\":\"2026-0…",
-          "at": "2026-09-30T23:05:46.52640277Z",
-          "elapsed": "16.34479ms"
+          "detail": "POST /orders/66/cancel-replace → 200 {\"cancel_outcome\":\"SUPERSEDED\",\"mode\":\"STOP_ON_FAILURE\",\"new_outcome\":\"APPLIED\",\"order\":{\"account_id\":497,\"client_order_id\":\"itest-cr-13152\",\"created_at\":\"2026-…",
+          "at": "2026-10-02T03:52:39.37402751Z",
+          "elapsed": "20.139021ms"
         }
       ]
     },
@@ -2902,8 +2902,8 @@
           "kind": "e2e:amend",
           "status": "PASS",
           "detail": "qty-down keep-priority amend → 200; stale seq → 409 STALE_MODIFY; amendments endpoint=429 audit_rows=1",
-          "at": "2026-09-30T23:05:46.657660505Z",
-          "elapsed": "19.633571ms"
+          "at": "2026-10-02T03:52:39.526563009Z",
+          "elapsed": "24.058953ms"
         }
       ]
     },
@@ -2918,16 +2918,16 @@
           "kind": "gotest:./internal/authTestEd25519KeyEndToEnd|TestRSAKeyEndToEnd",
           "status": "PASS",
           "detail": "go test ./internal/auth -run TestEd25519KeyEndToEnd|TestRSAKeyEndToEnd: PASS",
-          "at": "2026-09-30T23:04:27.18345858Z",
-          "elapsed": "551.635718ms"
+          "at": "2026-10-02T03:51:18.059773463Z",
+          "elapsed": "692.838239ms"
         },
         {
           "test": "e2e:ed25519",
           "kind": "e2e:ed25519",
           "status": "PASS",
-          "detail": "Ed25519-signed GET /orders → 200 {\"data\":[{\"account_id\":151,\"client_order_id\":\"itest-cr-9539\",\"created_at\":\"2026-09-30T23:05:46.514672Z\",\"filled_qty\":\"0\"…",
-          "at": "2026-09-30T23:05:46.53693372Z",
-          "elapsed": "10.513713ms"
+          "detail": "Ed25519-signed GET /orders → 200 {\"data\":[{\"account_id\":497,\"client_order_id\":\"itest-cr-13152\",\"created_at\":\"2026-10-02T03:52:39.358729Z\",\"filled_qty\":\"0…",
+          "at": "2026-10-02T03:52:39.384028751Z",
+          "elapsed": "9.967836ms"
         }
       ]
     },
@@ -2942,8 +2942,8 @@
           "kind": "gotest:./internal/sbeTestNegotiate(Active|UnknownSchemaAndVersion|DeprecatedWarnsWithinWindow|RetiredFailsExplicitly|REST_HeadersAndErrors|WS)",
           "status": "PASS",
           "detail": "go test ./internal/sbe -run TestNegotiate(Active|UnknownSchemaAndVersion|DeprecatedWarnsWithinWindow|RetiredFailsExplicitly|REST_HeadersAndErrors|WS): PASS",
-          "at": "2026-09-30T23:05:09.971018886Z",
-          "elapsed": "141.076387ms"
+          "at": "2026-10-02T03:52:01.849639521Z",
+          "elapsed": "160.872065ms"
         }
       ]
     },
@@ -2963,9 +2963,9 @@
           "test": "e2e:quote-order",
           "kind": "e2e:quote-order",
           "status": "PASS",
-          "detail": "POST /orders/test quote_market → 400 {\"type\":\"error\",\"error\":\"QUOTE_QUANTITY_INVALID\",\"message\":\"no reference price for quote conversion\",\"status\":400,\"request_id\":\"req-07f741d5…; rejected by coded validation (oracle-less stack)",
-          "at": "2026-09-30T23:05:46.541617367Z",
-          "elapsed": "4.63844ms"
+          "detail": "POST /orders/test quote_market → 200 {\"estimated_base_qty\":\"0\",\"estimated_quote_qty\":\"1000\",\"margin\":\"0\",\"commission_estimate\":\"0\",\"spread_estimate\":\"100\",\"risk_level\":\"MEDIUM\",…",
+          "at": "2026-10-02T03:52:39.390503239Z",
+          "elapsed": "6.387572ms"
         }
       ]
     },
@@ -2985,9 +2985,9 @@
           "test": "e2e:rate-headers",
           "kind": "e2e:rate-headers",
           "status": "PASS",
-          "detail": "X-Ratelimit-Limit=5; X-Ratelimit-Remaining=2; X-Ratelimit-Reset=1790809547; account/rate-limits=200 | meta:{\"account_id\":151,\"orders\":[{\"interval\":\"1s\",\"count\":0,\"window_start\":1790809546,\"reset_epoch\":1790809547,\"limit\":-1},{\"…",
-          "at": "2026-09-30T23:05:46.727400605Z",
-          "elapsed": "4.125061ms"
+          "detail": "X-Ratelimit-Limit=5; X-Ratelimit-Remaining=2; X-Ratelimit-Reset=1790913160; account/rate-limits=200 | meta:{\"account_id\":497,\"orders\":[{\"interval\":\"1s\",\"count\":0,\"window_start\":1790913159,\"reset_epoch\":1790913160,\"limit\":-1},{\"…",
+          "at": "2026-10-02T03:52:39.595014961Z",
+          "elapsed": "4.660333ms"
         }
       ]
     },
@@ -3002,8 +3002,8 @@
           "kind": "gotest:./internal/wsTestDrainAdvisory(MergesFailoverEndpoints|OrderingAndDeadline)|TestDrainReturnsWhenClientsLeave|TestDrainTwiceFails|TestFeedFailoverAdvisory",
           "status": "PASS",
           "detail": "go test ./internal/ws -run TestDrainAdvisory(MergesFailoverEndpoints|OrderingAndDeadline)|TestDrainReturnsWhenClientsLeave|TestDrainTwiceFails|TestFeedFailoverAdvisory: PASS",
-          "at": "2026-09-30T23:05:32.364560312Z",
-          "elapsed": "1.252221061s"
+          "at": "2026-10-02T03:52:25.069791187Z",
+          "elapsed": "1.327934359s"
         }
       ]
     },
@@ -3024,8 +3024,8 @@
           "kind": "gotest:./internal/marketdataTestBlockTape_(DelayedAndAnonymous|BelowThresholdIgnored|NonUSDUnresolved|CorrectionPrePublication|CorrectionPostPublication)",
           "status": "PASS",
           "detail": "go test ./internal/marketdata -run TestBlockTape_(DelayedAndAnonymous|BelowThresholdIgnored|NonUSDUnresolved|CorrectionPrePublication|CorrectionPostPublication): PASS",
-          "at": "2026-09-30T23:04:48.307187399Z",
-          "elapsed": "1.482763531s"
+          "at": "2026-10-02T03:51:39.659394265Z",
+          "elapsed": "1.517691339s"
         }
       ]
     },
@@ -3070,16 +3070,16 @@
           "kind": "ctest:test_ipc",
           "status": "PASS",
           "detail": "ctest -R test_ipc: Total Test time (real) =   0.21 sec",
-          "at": "2026-09-30T23:04:18.999993157Z",
-          "elapsed": "215.916903ms"
+          "at": "2026-10-02T03:51:08.845862043Z",
+          "elapsed": "215.460277ms"
         },
         {
           "test": "gotest:./internal/ipcTestRing(ZeroLoss1000|Backpressure)|TestEncodeDecodeIdentities",
           "kind": "gotest:./internal/ipcTestRing(ZeroLoss1000|Backpressure)|TestEncodeDecodeIdentities",
           "status": "PASS",
           "detail": "go test ./internal/ipc -run TestRing(ZeroLoss1000|Backpressure)|TestEncodeDecodeIdentities: PASS",
-          "at": "2026-09-30T23:04:33.073409354Z",
-          "elapsed": "218.562394ms"
+          "at": "2026-10-02T03:51:24.258914411Z",
+          "elapsed": "193.986718ms"
         }
       ]
     },
@@ -3093,9 +3093,9 @@
           "test": "bin:faultinject",
           "kind": "bin:faultinject",
           "status": "PASS",
-          "detail": "== building walverify (core WAL harness) ==\n== building exchange CLI (audit verify path) ==\n== building faultinject harness ==\n== running fault-injection suite ==\nwal_corrupt                  \u001b[32mPASS\u001b[0m  (38 checks, 64ms)\nwal_crash_recovery           \u001b[32mPASS\u001b[0m  (10 checks, 10ms)\nclock_jump                   \u001b[32mPASS\u001b[0m  (33 checks, 200ms)\naudit_chain_tamper           \u001b[32mPASS\u001b[0m  (8 che…",
-          "at": "2026-09-30T23:03:51.50968861Z",
-          "elapsed": "4.238685999s"
+          "detail": "== building walverify (core WAL harness) ==\n== building exchange CLI (audit verify path) ==\n== building faultinject harness ==\n== running fault-injection suite ==\nwal_corrupt                  \u001b[32mPASS\u001b[0m  (38 checks, 69ms)\nwal_crash_recovery           \u001b[32mPASS\u001b[0m  (10 checks, 11ms)\nclock_jump                   \u001b[32mPASS\u001b[0m  (33 checks, 200ms)\naudit_chain_tamper           \u001b[32mPASS\u001b[0m  (8 che…",
+          "at": "2026-10-02T03:50:41.38575477Z",
+          "elapsed": "4.375299895s"
         }
       ]
     },
@@ -3110,8 +3110,8 @@
           "kind": "gtest:test_engine_pumpEngineLoop.Watermark*:EnginePump.OutboundBackpressureCountsOverload:EnginePump.PoolExhaustionIsAtomicReject",
           "status": "PASS",
           "detail": "test_engine_pump EngineLoop.Watermark*:EnginePump.OutboundBackpressureCountsOverload:EnginePump.PoolExhaustionIsAtomicReject: [  PASSED  ] 4 tests.",
-          "at": "2026-09-30T23:05:37.98480106Z",
-          "elapsed": "877.992µs"
+          "at": "2026-10-02T03:52:30.842715999Z",
+          "elapsed": "1.297132ms"
         }
       ]
     },
@@ -3132,8 +3132,8 @@
           "kind": "gotest:./internal/settlementTestLedgerIntegration|TestPostRequiresLockBackend",
           "status": "PASS",
           "detail": "go test ./internal/settlement -run TestLedgerIntegration|TestPostRequiresLockBackend: PASS",
-          "at": "2026-09-30T23:05:16.424326161Z",
-          "elapsed": "605.902709ms"
+          "at": "2026-10-02T03:52:08.813158659Z",
+          "elapsed": "647.947448ms"
         }
       ]
     },
@@ -3148,24 +3148,24 @@
           "kind": "gtest:test_recoveryRecoveryManager.Corrupt*:RecoveryManager.SequenceGapFailsClosed:RecoveryManager.MidSegmentCorruptionFailsClosed",
           "status": "PASS",
           "detail": "test_recovery RecoveryManager.Corrupt*:RecoveryManager.SequenceGapFailsClosed:RecoveryManager.MidSegmentCorruptionFailsClosed: [  PASSED  ] 4 tests.",
-          "at": "2026-09-30T23:05:38.891488283Z",
-          "elapsed": "89.696257ms"
+          "at": "2026-10-02T03:52:31.74402222Z",
+          "elapsed": "71.833355ms"
         },
         {
           "test": "gtest:test_walWalCrashRecovery.*:WalRecovery.*:WalRoundTrip.*:WalRotation.*",
           "kind": "gtest:test_walWalCrashRecovery.*:WalRecovery.*:WalRoundTrip.*:WalRotation.*",
           "status": "PASS",
           "detail": "test_wal WalCrashRecovery.*:WalRecovery.*:WalRoundTrip.*:WalRotation.*: [  PASSED  ] 8 tests.",
-          "at": "2026-09-30T23:05:39.395947585Z",
-          "elapsed": "50.682975ms"
+          "at": "2026-10-02T03:52:32.195269028Z",
+          "elapsed": "40.322019ms"
         },
         {
           "test": "e2e:crash-wal",
           "kind": "e2e:crash-wal",
           "status": "PASS",
-          "detail": "kill -9 → restart → cancel oid=36: http=200 cancelled=true replayed=true {\"order_id\":36,\"client_order_id\":\"itest-crash-9539\",\"status\":\"CANCELLED\",\"order_seq\":1790809545858551308,\"transact_time\"…",
-          "at": "2026-09-30T23:05:53.603865742Z",
-          "elapsed": "644.948204ms"
+          "detail": "kill -9 → restart → cancel oid=75: http=200 cancelled=true replayed=true {\"order_id\":75,\"client_order_id\":\"itest-crash-13152\",\"status\":\"CANCELLED\",\"order_seq\":1790913158703055899,\"transact_time…",
+          "at": "2026-10-02T03:52:42.877446345Z",
+          "elapsed": "645.537408ms"
         }
       ]
     },
@@ -3180,16 +3180,16 @@
           "kind": "gotest:./internal/recoveryTestChaos",
           "status": "PASS",
           "detail": "go test ./internal/recovery -run TestChaos: PASS",
-          "at": "2026-09-30T23:05:08.601414884Z",
-          "elapsed": "766.119506ms"
+          "at": "2026-10-02T03:52:00.245196729Z",
+          "elapsed": "740.039393ms"
         },
         {
           "test": "gotest:./internal/settlementTestChaosContention|Chaos",
           "kind": "gotest:./internal/settlementTestChaosContention|Chaos",
           "status": "PASS",
           "detail": "go test ./internal/settlement -run TestChaosContention|Chaos: PASS",
-          "at": "2026-09-30T23:05:11.552939474Z",
-          "elapsed": "1.031670191s"
+          "at": "2026-10-02T03:52:03.720214665Z",
+          "elapsed": "1.284107582s"
         }
       ]
     },
@@ -3204,8 +3204,8 @@
           "kind": "e2e:error-envelope",
           "status": "PASS",
           "detail": "unauth → 401 envelope{error,request_id}; malformed → 400 INVALID_REQUEST; unknown route → 404 404 page not found\n",
-          "at": "2026-09-30T23:05:50.429050355Z",
-          "elapsed": "2.076573ms"
+          "at": "2026-10-02T03:52:39.709333162Z",
+          "elapsed": "4.837873ms"
         }
       ]
     },
@@ -3220,8 +3220,8 @@
           "kind": "gotest:./internal/wsTest.*Slow|Test.*Evict|Test",
           "status": "PASS",
           "detail": "go test ./internal/ws -run Test.*Slow|Test.*Evict|Test: PASS",
-          "at": "2026-09-30T23:05:30.527320599Z",
-          "elapsed": "5.009872778s"
+          "at": "2026-10-02T03:52:23.035699347Z",
+          "elapsed": "5.045744925s"
         }
       ]
     },
@@ -3236,16 +3236,16 @@
           "kind": "gotest:./internal/observabilityTestDLQ|Test.*Alert|Test",
           "status": "PASS",
           "detail": "go test ./internal/observability -run TestDLQ|Test.*Alert|Test: PASS",
-          "at": "2026-09-30T23:05:06.67391016Z",
-          "elapsed": "193.053695ms"
+          "at": "2026-10-02T03:51:58.345416031Z",
+          "elapsed": "194.607469ms"
         },
         {
           "test": "e2e:ready",
           "kind": "e2e:ready",
           "status": "PASS",
           "detail": "ready=200 status=ok mode=Normal",
-          "at": "2026-09-30T23:05:46.542370583Z",
-          "elapsed": "744.572µs"
+          "at": "2026-10-02T03:52:39.391699227Z",
+          "elapsed": "1.153612ms"
         }
       ]
     },
@@ -3428,8 +3428,8 @@
           "kind": "gotest:./internal/recoveryTestOrch|TestDigest",
           "status": "PASS",
           "detail": "go test ./internal/recovery -run TestOrch|TestDigest: PASS",
-          "at": "2026-09-30T23:05:09.507339441Z",
-          "elapsed": "307.872656ms"
+          "at": "2026-10-02T03:52:01.2949951Z",
+          "elapsed": "333.074583ms"
         }
       ]
     },
@@ -3444,16 +3444,16 @@
           "kind": "gtest:test_amendAmend.*",
           "status": "PASS",
           "detail": "test_amend Amend.*: [  PASSED  ] 15 tests.",
-          "at": "2026-09-30T23:05:37.908210303Z",
-          "elapsed": "2.096602ms"
+          "at": "2026-10-02T03:52:30.752995038Z",
+          "elapsed": "3.071058ms"
         },
         {
           "test": "e2e:amend",
           "kind": "e2e:amend",
           "status": "PASS",
           "detail": "qty-down keep-priority amend → 200; stale seq → 409 STALE_MODIFY; amendments endpoint=429 audit_rows=1",
-          "at": "2026-09-30T23:05:46.657660722Z",
-          "elapsed": "19.633789ms"
+          "at": "2026-10-02T03:52:39.526563334Z",
+          "elapsed": "24.059278ms"
         }
       ]
     },
@@ -3468,8 +3468,8 @@
           "kind": "gotest:./internal/settlementTestLedgerIntegration",
           "status": "PASS",
           "detail": "go test ./internal/settlement -run TestLedgerIntegration: PASS",
-          "at": "2026-09-30T23:05:17.04634034Z",
-          "elapsed": "621.971731ms"
+          "at": "2026-10-02T03:52:09.443768865Z",
+          "elapsed": "630.560358ms"
         }
       ]
     },
@@ -3484,8 +3484,8 @@
           "kind": "e2e:list",
           "status": "PASS",
           "detail": "GET /orders → 200 envelope({\"data\":[],\"next_cursor\":\"\",\"limit\":100,\"total\":0})",
-          "at": "2026-09-30T23:05:50.432966881Z",
-          "elapsed": "3.88413ms"
+          "at": "2026-10-02T03:52:39.710628544Z",
+          "elapsed": "1.233413ms"
         }
       ]
     },
@@ -3500,16 +3500,16 @@
           "kind": "gotest:./internal/marketdataTestSeq|Test.*Sequen",
           "status": "PASS",
           "detail": "go test ./internal/marketdata -run TestSeq|Test.*Sequen: PASS",
-          "at": "2026-09-30T23:04:57.467265682Z",
-          "elapsed": "882.800497ms"
+          "at": "2026-10-02T03:51:48.95591213Z",
+          "elapsed": "929.096281ms"
         },
         {
           "test": "gotest:./internal/wsTestRedisDedupStoreLifecycle|Test.*Seq|Test.*Gap",
           "kind": "gotest:./internal/wsTestRedisDedupStoreLifecycle|Test.*Seq|Test.*Gap",
           "status": "PASS",
           "detail": "go test ./internal/ws -run TestRedisDedupStoreLifecycle|Test.*Seq|Test.*Gap: PASS",
-          "at": "2026-09-30T23:05:32.913416985Z",
-          "elapsed": "548.807834ms"
+          "at": "2026-10-02T03:52:25.664136698Z",
+          "elapsed": "594.300083ms"
         }
       ]
     },
@@ -3572,16 +3572,16 @@
           "kind": "gotest:./internal/adminTestRBACLifecycleIntegration",
           "status": "PASS",
           "detail": "go test ./internal/admin -run TestRBACLifecycleIntegration: PASS",
-          "at": "2026-09-30T23:04:25.346560132Z",
-          "elapsed": "625.136678ms"
+          "at": "2026-10-02T03:51:16.030909481Z",
+          "elapsed": "617.136419ms"
         },
         {
           "test": "e2e:rbac",
           "kind": "e2e:rbac",
           "status": "PASS",
           "detail": "no-binding admin read → 403; auditor GET /admin/audit → 200; auditor POST → 403 (read-only cannot mutate)",
-          "at": "2026-09-30T23:05:50.445552735Z",
-          "elapsed": "9.707576ms"
+          "at": "2026-10-02T03:52:39.726749977Z",
+          "elapsed": "12.000726ms"
         }
       ]
     },
@@ -3596,8 +3596,8 @@
           "kind": "gotest:./internal/adminTestCapExpiry|TestMiddleware|TestIntersectScopeNeverWidens|TestAssertScope",
           "status": "PASS",
           "detail": "go test ./internal/admin -run TestCapExpiry|TestMiddleware|TestIntersectScopeNeverWidens|TestAssertScope: PASS",
-          "at": "2026-09-30T23:04:22.375927517Z",
-          "elapsed": "567.636526ms"
+          "at": "2026-10-02T03:51:12.938440799Z",
+          "elapsed": "629.978487ms"
         }
       ]
     },
@@ -3630,8 +3630,8 @@
           "kind": "gotest:./internal/recoveryTestDigestChainVerification|TestCheckpointerBoundariesAndImbalance",
           "status": "PASS",
           "detail": "go test ./internal/recovery -run TestDigestChainVerification|TestCheckpointerBoundariesAndImbalance: PASS",
-          "at": "2026-09-30T23:05:08.896106213Z",
-          "elapsed": "294.649835ms"
+          "at": "2026-10-02T03:52:00.585526481Z",
+          "elapsed": "340.276675ms"
         }
       ]
     },
@@ -3646,8 +3646,8 @@
           "kind": "gotest:./internal/recoveryTestDigest|TestCheckpointer|TestOrch",
           "status": "PASS",
           "detail": "go test ./internal/recovery -run TestDigest|TestCheckpointer|TestOrch: PASS",
-          "at": "2026-09-30T23:05:09.199416203Z",
-          "elapsed": "303.262546ms"
+          "at": "2026-10-02T03:52:00.961866663Z",
+          "elapsed": "376.292637ms"
         }
       ]
     },
@@ -3661,9 +3661,9 @@
           "test": "e2e:time",
           "kind": "e2e:time",
           "status": "PASS",
-          "detail": "GET /time → 200 {\"offset_us\":371,\"server_time_ms\":1790809550433,\"synchronized\":true,\"timezone\":\"UTC\"}",
-          "at": "2026-09-30T23:05:50.433255383Z",
-          "elapsed": "272.224µs"
+          "detail": "GET /time → 200 {\"offset_us\":331,\"server_time_ms\":1790913159710,\"synchronized\":true,\"timezone\":\"UTC\"}",
+          "at": "2026-10-02T03:52:39.710953328Z",
+          "elapsed": "313.322µs"
         }
       ]
     },
@@ -3678,8 +3678,8 @@
           "kind": "e2e:venue-info",
           "status": "PASS",
           "detail": "GET /exchange-info → 200 bytes=39689",
-          "at": "2026-09-30T23:05:50.434433598Z",
-          "elapsed": "1.166931ms"
+          "at": "2026-10-02T03:52:39.712510553Z",
+          "elapsed": "1.542117ms"
         }
       ]
     },
@@ -3694,8 +3694,8 @@
           "kind": "gotest:./internal/marketdataTest.*OI|Test.*OpenInterest|Test",
           "status": "PASS",
           "detail": "go test ./internal/marketdata -run Test.*OI|Test.*OpenInterest|Test: PASS",
-          "at": "2026-09-30T23:04:44.904887884Z",
-          "elapsed": "7.110505945s"
+          "at": "2026-10-02T03:51:36.145833134Z",
+          "elapsed": "7.175834903s"
         }
       ]
     },
@@ -3739,9 +3739,9 @@
           "test": "e2e:transfer",
           "kind": "e2e:transfer",
           "status": "PASS",
-          "detail": "POST /transfers → 201 {\"transfer\":{\"id\":2,\"account_id\":151,\"from_account_id\":151,\"to_account_id\":152,\"currency\":\"USD\",\"amount\":\"5000\",\"status\":\"COMPLETED\",\"actor\":\"SELF\",\"actor_id\":134,\"journal_entry_id\":4737,\"idempotency_… | A 100000→95000 B 1000000→1005000 moved=true | GET /transfers → 200",
-          "at": "2026-09-30T23:05:50.426889943Z",
-          "elapsed": "3.634219682s"
+          "detail": "POST /transfers → 201 {\"transfer\":{\"id\":5,\"account_id\":497,\"from_account_id\":497,\"to_account_id\":498,\"currency\":\"USD\",\"amount\":\"5000\",\"status\":\"COMPLETED\",\"actor\":\"SELF\",\"actor_id\":470,\"journal_entry_id\":12525,\"idempotency… | A 100000→95000 B 1000000→1005000 moved=true | GET /transfers → 200",
+          "at": "2026-10-02T03:52:39.704406346Z",
+          "elapsed": "30.059078ms"
         }
       ]
     },
@@ -3756,8 +3756,8 @@
           "kind": "gotest:./internal/ledgerTestDustSweep",
           "status": "PASS",
           "detail": "go test ./internal/ledger -run TestDustSweep: PASS",
-          "at": "2026-09-30T23:04:33.23118387Z",
-          "elapsed": "157.733686ms"
+          "at": "2026-10-02T03:51:24.394801297Z",
+          "elapsed": "135.840619ms"
         }
       ]
     },
@@ -3790,8 +3790,8 @@
           "kind": "gtest:test_pretradePreTrade.StpModeResolution:PreTrade.StpUnsetResolvesAccountDefaultAndStamps:PreTrade.StpUnknownValueRejected",
           "status": "PASS",
           "detail": "test_pretrade PreTrade.StpModeResolution:PreTrade.StpUnsetResolvesAccountDefaultAndStamps:PreTrade.StpUnknownValueRejected: [  PASSED  ] 3 tests.",
-          "at": "2026-09-30T23:05:38.004554674Z",
-          "elapsed": "1.910823ms"
+          "at": "2026-10-02T03:52:30.862277453Z",
+          "elapsed": "1.932559ms"
         }
       ]
     },
@@ -3812,8 +3812,8 @@
           "kind": "gotest:./internal/ledgerTestMinorUnitZeroSumInvariant|TestDisplayAmount|TestStorageAmount|TestProfileSwitchZeroBalanceGuard|TestDayAnchorUTC",
           "status": "PASS",
           "detail": "go test ./internal/ledger -run TestMinorUnitZeroSumInvariant|TestDisplayAmount|TestStorageAmount|TestProfileSwitchZeroBalanceGuard|TestDayAnchorUTC: PASS",
-          "at": "2026-09-30T23:04:33.395959418Z",
-          "elapsed": "164.676346ms"
+          "at": "2026-10-02T03:51:24.540544033Z",
+          "elapsed": "145.704648ms"
         }
       ]
     },
@@ -3870,8 +3870,8 @@
           "kind": "gotest:./internal/adminTestGovernancePackIntegration|Test.*Rollup|Test.*Roll",
           "status": "PASS",
           "detail": "go test ./internal/admin -run TestGovernancePackIntegration|Test.*Rollup|Test.*Roll: PASS",
-          "at": "2026-09-30T23:04:22.953740555Z",
-          "elapsed": "577.747771ms"
+          "at": "2026-10-02T03:51:13.585158443Z",
+          "elapsed": "646.681452ms"
         }
       ]
     },
@@ -3886,8 +3886,8 @@
           "kind": "gotest:./internal/adminTestGovernancePackIntegration",
           "status": "PASS",
           "detail": "go test ./internal/admin -run TestGovernancePackIntegration: PASS",
-          "at": "2026-09-30T23:04:23.539004255Z",
-          "elapsed": "585.216095ms"
+          "at": "2026-10-02T03:51:14.183281213Z",
+          "elapsed": "598.070545ms"
         }
       ]
     },
@@ -3986,16 +3986,16 @@
           "kind": "gtest:test_engine_pumpEnginePump.TickStampsWalTimeTick",
           "status": "PASS",
           "detail": "test_engine_pump EnginePump.TickStampsWalTimeTick: [  PASSED  ] 1 test.",
-          "at": "2026-09-30T23:05:37.986090214Z",
-          "elapsed": "1.274059ms"
+          "at": "2026-10-02T03:52:30.84467113Z",
+          "elapsed": "1.934093ms"
         },
         {
           "test": "gtest:test_expiryExpiryGtd.*:ExpiryTif.*",
           "kind": "gtest:test_expiryExpiryGtd.*:ExpiryTif.*",
           "status": "PASS",
           "detail": "test_expiry ExpiryGtd.*:ExpiryTif.*: [  PASSED  ] 4 tests.",
-          "at": "2026-09-30T23:05:37.987841578Z",
-          "elapsed": "1.728149ms"
+          "at": "2026-10-02T03:52:30.846361828Z",
+          "elapsed": "1.673017ms"
         }
       ]
     },
@@ -4040,8 +4040,8 @@
           "kind": "gtest:test_trade_throughTradeThroughGuard.*:EngineTradeThrough.*",
           "status": "PASS",
           "detail": "test_trade_through TradeThroughGuard.*:EngineTradeThrough.*: [  PASSED  ] 16 tests.",
-          "at": "2026-09-30T23:05:39.345240568Z",
-          "elapsed": "1.91395ms"
+          "at": "2026-10-02T03:52:32.154927781Z",
+          "elapsed": "2.408853ms"
         }
       ]
     },
@@ -4062,16 +4062,16 @@
           "kind": "ctest:test_book_pipette",
           "status": "PASS",
           "detail": "ctest -R test_book_pipette: Total Test time (real) =   0.00 sec",
-          "at": "2026-09-30T23:04:15.974546405Z",
-          "elapsed": "4.432498ms"
+          "at": "2026-10-02T03:51:08.621863152Z",
+          "elapsed": "5.153431ms"
         },
         {
           "test": "ctest:test_decimal",
           "kind": "ctest:test_decimal",
           "status": "PASS",
           "detail": "ctest -R test_decimal: Total Test time (real) =   0.00 sec",
-          "at": "2026-09-30T23:04:15.977335805Z",
-          "elapsed": "2.768858ms"
+          "at": "2026-10-02T03:51:08.626068727Z",
+          "elapsed": "4.161298ms"
         }
       ]
     },
@@ -4086,8 +4086,8 @@
           "kind": "gtest:test_credit_matrixCreditMatrix.*",
           "status": "PASS",
           "detail": "test_credit_matrix CreditMatrix.*: [  PASSED  ] 9 tests.",
-          "at": "2026-09-30T23:05:37.964172179Z",
-          "elapsed": "41.939736ms"
+          "at": "2026-10-02T03:52:30.818012192Z",
+          "elapsed": "49.7141ms"
         }
       ]
     },
@@ -4102,8 +4102,8 @@
           "kind": "gtest:test_cross_shardCrossShard2PC.*:OptimisticCrossShard.*:BasketCtlCodec.*",
           "status": "PASS",
           "detail": "test_cross_shard CrossShard2PC.*:OptimisticCrossShard.*:BasketCtlCodec.*: [  PASSED  ] 12 tests.",
-          "at": "2026-09-30T23:05:37.979070332Z",
-          "elapsed": "8.236655ms"
+          "at": "2026-10-02T03:52:30.835462723Z",
+          "elapsed": "8.48977ms"
         }
       ]
     },
@@ -4118,8 +4118,8 @@
           "kind": "gtest:test_discretionaryDiscretionary*.*",
           "status": "PASS",
           "detail": "test_discretionary Discretionary*.*: [  PASSED  ] 22 tests.",
-          "at": "2026-09-30T23:05:37.983055204Z",
-          "elapsed": "1.807085ms"
+          "at": "2026-10-02T03:52:30.840267369Z",
+          "elapsed": "2.624929ms"
         }
       ]
     },
@@ -4134,8 +4134,8 @@
           "kind": "gotest:./internal/settlementTestIntegration_PhysicalDeliveryExcluded|TestPhysicalDeliveryJournalLocksDeliverables|TestMixedSettlementIntentAborts",
           "status": "PASS",
           "detail": "go test ./internal/settlement -run TestIntegration_PhysicalDeliveryExcluded|TestPhysicalDeliveryJournalLocksDeliverables|TestMixedSettlementIntentAborts: PASS",
-          "at": "2026-09-30T23:05:12.794805291Z",
-          "elapsed": "701.196676ms"
+          "at": "2026-10-02T03:52:04.993785374Z",
+          "elapsed": "702.254534ms"
         }
       ]
     },
@@ -4150,8 +4150,8 @@
           "kind": "gotest:./internal/settlementTestIntegration_SwapFree|TestComputeAdminFee_GraceBoundary",
           "status": "PASS",
           "detail": "go test ./internal/settlement -run TestIntegration_SwapFree|TestComputeAdminFee_GraceBoundary: PASS",
-          "at": "2026-09-30T23:05:15.200313786Z",
-          "elapsed": "664.001362ms"
+          "at": "2026-10-02T03:52:07.543934625Z",
+          "elapsed": "704.237316ms"
         }
       ]
     },
@@ -4166,8 +4166,8 @@
           "kind": "gotest:./internal/marketdataTestSeq|Test.*Depth",
           "status": "PASS",
           "detail": "go test ./internal/marketdata -run TestSeq|Test.*Depth: PASS",
-          "at": "2026-09-30T23:04:56.584430442Z",
-          "elapsed": "1.221749929s"
+          "at": "2026-10-02T03:51:48.026765763Z",
+          "elapsed": "1.270145192s"
         }
       ]
     },
@@ -4218,8 +4218,8 @@
           "kind": "gotest:./internal/balanceTestIntegration_|TestAutoExchange",
           "status": "PASS",
           "detail": "go test ./internal/balance -run TestIntegration_|TestAutoExchange: PASS",
-          "at": "2026-09-30T23:04:28.520809779Z",
-          "elapsed": "210.875145ms"
+          "at": "2026-10-02T03:51:19.579198116Z",
+          "elapsed": "227.164901ms"
         }
       ]
     },
@@ -4234,8 +4234,8 @@
           "kind": "gotest:./internal/settlementTestCarry|TestIntegration_Carry",
           "status": "PASS",
           "detail": "go test ./internal/settlement -run TestCarry|TestIntegration_Carry: PASS",
-          "at": "2026-09-30T23:05:10.521222343Z",
-          "elapsed": "550.139509ms"
+          "at": "2026-10-02T03:52:02.436063848Z",
+          "elapsed": "586.379458ms"
         }
       ]
     },
@@ -4250,8 +4250,8 @@
           "kind": "gotest:./internal/promosTestVIP|TestTier|TestIntegration",
           "status": "PASS",
           "detail": "go test ./internal/promos -run TestVIP|TestTier|TestIntegration: PASS",
-          "at": "2026-09-30T23:05:07.389547252Z",
-          "elapsed": "358.88059ms"
+          "at": "2026-10-02T03:51:59.079302754Z",
+          "elapsed": "368.989216ms"
         }
       ]
     },
@@ -4266,8 +4266,8 @@
           "kind": "gotest:./internal/settlementTestRebate|TestNegativeFee|TestMakerRebate",
           "status": "PASS",
           "detail": "go test ./internal/settlement -run TestRebate|TestNegativeFee|TestMakerRebate: PASS",
-          "at": "2026-09-30T23:05:19.254652406Z",
-          "elapsed": "528.785657ms"
+          "at": "2026-10-02T03:52:11.694038995Z",
+          "elapsed": "549.504287ms"
         }
       ]
     },
@@ -4282,8 +4282,8 @@
           "kind": "gotest:./internal/archiverTest",
           "status": "PASS",
           "detail": "go test ./internal/archiver -run Test: PASS",
-          "at": "2026-09-30T23:04:25.917017859Z",
-          "elapsed": "570.420387ms"
+          "at": "2026-10-02T03:51:16.616973962Z",
+          "elapsed": "586.006383ms"
         }
       ]
     }

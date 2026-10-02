@@ -408,7 +408,7 @@ func TestE2E_MassCancel(t *testing.T) {
 
 	for _, tag := range []string{"a", "b"} {
 		code, _, raw := submitOrder(t, s, s.fx.Key,
-			orderBody("EUR/USD", "BUY", "1.0400", "1000", "GTC", "itest-mc-"+tag+"-"+stk.runTag))
+			orderBody("EUR/USD", "BUY", "1.0600", "1000", "GTC", "itest-mc-"+tag+"-"+stk.runTag))
 		if code != 202 {
 			recordLeg(153, "e2e:mass-cancel", start, false, "seed order: "+string(raw))
 			t.Fatalf("seed order → %d", code)
@@ -666,7 +666,7 @@ func TestE2E_FrozenAccount(t *testing.T) {
 	}()
 
 	resp, b, _ := cli(t).Signed(ctx, s.fx.Key, http.MethodPost, "/api/v1/orders",
-		orderBody("EUR/USD", "BUY", "1.0100", "1000", "GTC", "itest-frozen-"+stk.runTag))
+		orderBody("EUR/USD", "BUY", "1.0800", "1000", "GTC", "itest-frozen-"+stk.runTag))
 	envx, _ := itest.DecodeEnvelope(b)
 	ok := resp.StatusCode >= 400 && envx.Error != ""
 	detail := fmt.Sprintf("frozen account POST /orders → %d %s", resp.StatusCode, envx.Error)

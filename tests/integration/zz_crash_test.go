@@ -36,10 +36,11 @@ func TestE2E_EngineCrashRecovery(t *testing.T) {
 	}
 	defer pool.Close()
 
-	// 1. Rest a GTC BUY near the price-collar floor — deep enough not to
-	// cross any seeded ask, inside the §5.9 reference band.
+	// 1. Rest a GTC BUY inside the §5.9 reference band — the sim oracle's
+	// deterministic EUR/USD base sits near 1.10, so the band floor is
+	// ~1.045 and 1.08 rests deep enough not to cross any seeded ask.
 	code, ack, raw := submitOrder(t, s, s.fx.Key,
-		orderBody("EUR/USD", "BUY", "1.0310", "1000", "GTC", "itest-crash-"+stk.runTag))
+		orderBody("EUR/USD", "BUY", "1.0800", "1000", "GTC", "itest-crash-"+stk.runTag))
 	if code != 202 {
 		for _, id := range []int{6, 7, 8, 302} {
 			record(id, false, "seed resting order failed: "+trunc(string(raw), 120))

@@ -10,9 +10,11 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -84,6 +86,42 @@ func SeedFixture(ctx context.Context, pool *pgxpool.Pool, dataKey []byte, runTag
 				return nil, fmt.Errorf("seed journal_sums %s: %w", cur, err)
 			}
 		}
+	}
+	// The delegated p21gov legs publish ACTIVE execution policies into
+	// this persistent scratch DB — once one exists, Task 14.3.7's
+	// consent gate makes order entry close-only for any account lacking
+	// an EXECUTION_POLICY consent row. Record the fixture's consent
+	// exactly as ConsentExecPolicy does (dual write) so order legs
+	// stay admissible regardless of scratch-DB policy residue.
+	var polID int64
+	var polVersion string
+	polErr := pool.QueryRow(ctx,
+		`SELECT id, version FROM execution_policies WHERE status='ACTIVE'`).
+		Scan(&polID, &polVersion)
+	switch {
+	case polErr == nil:
+		for _, acct := range []int64{fx.AccountID, fx.AccountB} {
+			if _, err := pool.Exec(ctx,
+				`INSERT INTO execution_policy_consents
+				    (account_id, policy_id, version, consented_by)
+				 VALUES ($1,$2,$3,$4)
+				 ON CONFLICT (account_id, policy_id) DO NOTHING`,
+				acct, polID, polVersion, fx.UserID); err != nil {
+				return nil, fmt.Errorf("consent execution_policy_consents: %w", err)
+			}
+			if _, err := pool.Exec(ctx,
+				`INSERT INTO account_consents
+				    (account_id, consent_type, doc_ref, consented_by)
+				 VALUES ($1,'EXECUTION_POLICY',$2,$3)
+				 ON CONFLICT (account_id, consent_type, doc_ref) DO NOTHING`,
+				acct, polVersion, fx.UserID); err != nil {
+				return nil, fmt.Errorf("consent account_consents: %w", err)
+			}
+		}
+	case errors.Is(polErr, pgx.ErrNoRows):
+		// pre-launch scratch DB — nothing to consent to
+	default:
+		return nil, fmt.Errorf("probe active execution policy: %w", polErr)
 	}
 	var err error
 	kf := &Fixture{UserID: fx.UserID, AccountID: fx.AccountID}
