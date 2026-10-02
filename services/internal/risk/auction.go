@@ -30,6 +30,7 @@ package risk
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -72,6 +73,11 @@ const (
 	AuctionPhaseFill      = "FILL"
 	AuctionPhaseExtend    = "EXTEND"
 	AuctionPhaseForceCash = "FORCE_CASH"
+	// AuctionPhaseParked is the terminal state for an auction whose
+	// close legs can never be dispatched (account TRADING_HALTED /
+	// missing). Parking stops the per-tick retry storm; the row stays
+	// queryable history and a single P1 alert carries the detail.
+	AuctionPhaseParked = "PARKED"
 )
 
 // Auction event vocabulary (spec §13.4 event log).
@@ -249,6 +255,14 @@ func (e *AuctionEngine) Open(ctx context.Context, p LiqPosition,
 	row.ID = id
 
 	if err := e.submitLeg(ctx, p, row, floor, row.PhaseEndAt); err != nil {
+		if isParkable(err) {
+			e.appendEvent(ctx, id, auctionEventStarted, map[string]string{
+				"position_id": fmt.Sprint(p.ID), "reason": reason,
+				"floor": floor.String(), "qty": p.Quantity.Abs().String(),
+			})
+			e.park(ctx, row, p, err.Error())
+			return nil
+		}
 		return err
 	}
 	e.publishState(ctx, row, p, 0)
@@ -364,22 +378,94 @@ func (e *AuctionEngine) advance(ctx context.Context, a AuctionRow) error {
 	case AuctionPhaseCall, AuctionPhaseExtend, AuctionPhaseFill:
 		residualRatio := a.UnfilledQty.Div(a.OriginalQty())
 		if pastDeadline {
-			return e.forceCash(ctx, a, *p)
+			return e.parkOnTerminal(ctx, a, *p, e.forceCash(ctx, a, *p))
 		}
 		if a.Phase != AuctionPhaseFill &&
 			residualRatio.GreaterThan(decimal.RequireFromString(AuctionExtendThreshold)) {
-			return e.extend(ctx, a, *p)
+			return e.parkOnTerminal(ctx, a, *p, e.extend(ctx, a, *p))
 		}
 		// ≤50% residual: FILL — keep the order working at the current
 		// floor until the absolute deadline.
-		return e.toFill(ctx, a, *p)
+		return e.parkOnTerminal(ctx, a, *p, e.toFill(ctx, a, *p))
 	case AuctionPhaseForceCash:
 		// Residual still open after force-cash dispatch — retry once per
 		// tick; the deficiency-vs-fund accounting lands in RecordFill.
-		return e.forceCash(ctx, a, *p)
+		return e.parkOnTerminal(ctx, a, *p, e.forceCash(ctx, a, *p))
+	case AuctionPhaseParked:
+		// Terminal — ActiveAuctions excludes parked rows; this is the
+		// defensive path for a scan racing the phase update.
+		return nil
 	default:
 		return fmt.Errorf("auction %d: unknown phase %q", a.ID, a.Phase)
 	}
+}
+
+// parkOnTerminal converts an undispatchable rejection into a PARKED
+// transition — one event + one alert, then the row leaves the scan.
+// Any other error passes through for the normal retry ladder.
+func (e *AuctionEngine) parkOnTerminal(ctx context.Context, a AuctionRow,
+	p LiqPosition, err error) error {
+
+	if err == nil {
+		return nil
+	}
+	if !isParkable(err) {
+		return err
+	}
+	e.park(ctx, a, p, err.Error())
+	return nil
+}
+
+// park transitions the auction to the terminal PARKED phase after an
+// undispatchable leg rejection: one AUCTION_FAILED event, one P1
+// alert, live keys retired. The residual stays recorded for ops —
+// when the halt lifts an operator closes the position manually; the
+// ladder does not resurrect itself.
+func (e *AuctionEngine) park(ctx context.Context, a AuctionRow,
+	p LiqPosition, detail string) {
+
+	now := e.now()
+	if err := e.store.UpdateAuctionPhase(ctx, a.ID, AuctionPhaseParked,
+		a.FloorPrice, now, now); err != nil {
+		// A failed PARKED write is transient — leave the row active so
+		// the next tick retries the transition.
+		e.logf("auction %d park transition: %v", a.ID, err)
+		return
+	}
+	e.appendEvent(ctx, a.ID, auctionEventFailed, map[string]string{
+		"detail": detail, "terminal": AuctionPhaseParked,
+	})
+	e.raiseAlert(ctx, SeverityP1, CodeLiquidationFailed, fmt.Sprintf(
+		"auction %d parked: close undispatchable (%s)", a.ID, detail),
+		map[string]string{
+			"auction_id":  fmt.Sprint(a.ID),
+			"position_id": fmt.Sprint(p.ID),
+			"account_id":  fmt.Sprint(p.AccountID),
+			"detail":      detail,
+		})
+	e.retireState(ctx, a)
+}
+
+// isParkable reports whether a leg-dispatch failure is terminal for
+// the auction: a TRADING_HALTED account cannot accept reduce-only
+// legs (admission rejects them), and a missing account/instrument can
+// never be dispatched to. The check walks the whole wrap chain — leg
+// errors surface inside a CodeLiquidationFailed wrap. Liquidity and
+// transient I/O failures stay on the retry ladder.
+func isParkable(err error) bool {
+	for err != nil {
+		var e *excerrors.Error
+		if errors.As(err, &e) {
+			switch e.Code {
+			case "TRADING_HALTED", "ORDER_NOT_FOUND", "ACCOUNT_NOT_FOUND":
+				return true
+			}
+			err = e.Unwrap()
+			continue
+		}
+		err = errors.Unwrap(err)
+	}
+	return false
 }
 
 // extend decays the floor 0.5% and resubmits the residual for the next

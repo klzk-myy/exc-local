@@ -537,8 +537,9 @@ func (s *PgLiquidationStore) RecordAuctionFill(ctx context.Context, id int64,
 func (s *PgLiquidationStore) ActiveAuctions(ctx context.Context) ([]AuctionRow, error) {
 	rows, err := s.Pool.Query(ctx, `SELECT `+auctionCols+`
 		FROM liquidation_auctions
-		WHERE unfilled_qty > 0
-		   OR phase_end_at > now()
+		WHERE phase <> 'PARKED'
+		  AND (unfilled_qty > 0
+		   OR phase_end_at > now())
 		ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("active auctions: %w", err)

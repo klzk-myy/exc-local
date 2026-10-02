@@ -4,10 +4,12 @@ package risk
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"exchange/pkg/decimal"
+	excerrors "exchange/pkg/errors"
 )
 
 func TestFloorFor(t *testing.T) {
@@ -105,6 +107,33 @@ func TestPenaltyAndDeficiency(t *testing.T) {
 		decimal.RequireFromString("1"), decimal.Zero, decimal.Zero)
 	if !pen.IsZero() || !def.IsZero() {
 		t.Fatalf("zero-basis pen=%s def=%s, want 0/0", pen, def)
+	}
+}
+
+func TestIsParkable(t *testing.T) {
+	halted := excerrors.New("TRADING_HALTED", "trading suspended (account)")
+	// Terminal codes park — even through the CodeLiquidationFailed wrap
+	// submitLeg/resubmit apply to dispatch failures.
+	for _, err := range []error{
+		halted,
+		excerrors.Wrap(CodeLiquidationFailed, "auction leg dispatch", halted),
+		excerrors.Wrap("INTERNAL_ERROR", "outer", excerrors.New("ORDER_NOT_FOUND", "account gone")),
+		excerrors.New("ACCOUNT_NOT_FOUND", "account 7 not found"),
+	} {
+		if !isParkable(err) {
+			t.Fatalf("isParkable(%v) = false, want true", err)
+		}
+	}
+	// Liquidity, transient I/O and generic failures stay retryable.
+	for _, err := range []error{
+		nil,
+		excerrors.New("ORDER_REJECTED_NO_LIQUIDITY", "no ref price"),
+		excerrors.Wrap(CodeLiquidationFailed, "leg dispatch", errors.New("conn refused")),
+		errors.New("plain failure"),
+	} {
+		if isParkable(err) {
+			t.Fatalf("isParkable(%v) = true, want false", err)
+		}
 	}
 }
 

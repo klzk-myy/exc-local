@@ -1,0 +1,1 @@
+ALTER TYPE auction_phase_enum ADD VALUE IF NOT EXISTS 'PARKED';
