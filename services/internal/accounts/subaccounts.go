@@ -154,8 +154,12 @@ func (s *SubAccountService) Create(ctx context.Context, masterID int64) (*SubAcc
 	var id int64
 	var createdAt time.Time
 	if err := tx.QueryRow(ctx,
-		`INSERT INTO accounts (user_id, account_type, kyc_tier, parent_account_id)
-		 VALUES ($1, $2, $3, $4) RETURNING id, created_at`,
+		`INSERT INTO accounts (user_id, account_type, kyc_tier, parent_account_id, fee_tier_id)
+		 VALUES ($1, $2, $3, $4, COALESCE(
+		     (SELECT fee_tier_id FROM accounts WHERE id=$4),
+		     (SELECT id FROM fee_tiers WHERE tier_name='STANDARD'),
+		     (SELECT id FROM fee_tiers ORDER BY id LIMIT 1)))
+		 RETURNING id, created_at`,
 		userID, acctType, kycTier, masterID).Scan(&id, &createdAt); err != nil {
 		return nil, errorf("INTERNAL_ERROR", "create sub-account: %v", err)
 	}

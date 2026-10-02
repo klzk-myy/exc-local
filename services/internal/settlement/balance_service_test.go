@@ -7,6 +7,7 @@ package settlement
 import (
 	"context"
 	stderrors "errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -97,6 +98,10 @@ func (t *fakeBalanceTx) RecordProcessed(_ context.Context, tradeID, shardID int6
 }
 
 func (t *fakeBalanceTx) RecordTrade(_ context.Context, _ ResolvedTrade) error { return nil }
+
+func (t *fakeBalanceTx) AccrueVolume(_ context.Context, _ CommissionVolumeAccrual) error {
+	return nil
+}
 
 func (t *fakeBalanceTx) PostJournal(_ context.Context, j ledger.Journal) (ledger.PostResult, error) {
 	if t.s.posterErr != nil {
@@ -255,40 +260,35 @@ func TestRollingFillJournalFourLegs(t *testing.T) {
 		t.Fatalf("entry type/ref: %s/%d", j.EntryType, j.ReferenceID)
 	}
 
-	// GL lines — quote side: 12500 USD released; 12497.5 to seller + 2.5 fee.
+	// GL lines — gross delivery; the fill journal carries NO fee legs
+	// (fees post as separate FEE journals from ResolvedTrade.FeeJournals).
 	dr := lineOf(t, j, ledger.CustomerLiability("USD"), true)
 	if !dr.Debit.Equal(dec("12500")) {
 		t.Fatalf("buyer quote debit %s", dr.Debit)
 	}
 	cr := lineOf(t, j, ledger.CustomerLiability("USD"), false)
-	if !cr.Credit.Equal(dec("12497.5")) {
+	if !cr.Credit.Equal(dec("12500")) {
 		t.Fatalf("seller quote credit %s", cr.Credit)
 	}
-	fr := lineOf(t, j, ledger.TradingFeeRevenue("USD"), false)
-	if !fr.Credit.Equal(dec("2.5")) {
-		t.Fatalf("seller fee line %s", fr.Credit)
-	}
-	// Base side: 10000 EUR delivered; 9999.5 to buyer + 0.5 fee.
 	dr = lineOf(t, j, ledger.CustomerLiability("EUR"), true)
 	if !dr.Debit.Equal(dec("10000")) {
 		t.Fatalf("seller base debit %s", dr.Debit)
 	}
 	cr = lineOf(t, j, ledger.CustomerLiability("EUR"), false)
-	if !cr.Credit.Equal(dec("9999.5")) {
+	if !cr.Credit.Equal(dec("10000")) {
 		t.Fatalf("buyer base credit %s", cr.Credit)
 	}
-	fr = lineOf(t, j, ledger.TradingFeeRevenue("EUR"), false)
-	if !fr.Credit.Equal(dec("0.5")) {
-		t.Fatalf("buyer fee line %s", fr.Credit)
+	if len(j.Lines) != 4 {
+		t.Fatalf("fill journal must carry exactly 4 gross lines, got %d", len(j.Lines))
 	}
 
-	// Wallet effects — the four legs.
+	// Wallet effects — the four legs, gross.
 	e := effectOf(t, j, 1001, "USD")
 	if !e.LockedDelta.Equal(dec("-12500")) || !e.AvailableDelta.IsZero() {
 		t.Fatalf("buyer quote effect %+v", e)
 	}
 	e = effectOf(t, j, 1001, "EUR")
-	if !e.AvailableDelta.Equal(dec("9999.5")) || !e.LockedDelta.IsZero() {
+	if !e.AvailableDelta.Equal(dec("10000")) || !e.LockedDelta.IsZero() {
 		t.Fatalf("buyer base effect %+v", e)
 	}
 	e = effectOf(t, j, 2002, "EUR")
@@ -296,8 +296,66 @@ func TestRollingFillJournalFourLegs(t *testing.T) {
 		t.Fatalf("seller base effect %+v", e)
 	}
 	e = effectOf(t, j, 2002, "USD")
-	if !e.AvailableDelta.Equal(dec("12497.5")) || !e.LockedDelta.IsZero() {
+	if !e.AvailableDelta.Equal(dec("12500")) || !e.LockedDelta.IsZero() {
 		t.Fatalf("seller quote effect %+v", e)
+	}
+}
+
+// TestFeeJournalPostsInsideCommit — the Task 3.3.4 contract: a resolved
+// fill carrying FeeJournals posts fill + fee legs in ONE commit, keyed
+// fee:{trade}:{acct}:{role}; the recon collected-fee leg is the wallet
+// debit on the FEE-typed ledger row.
+func TestFeeJournalPostsInsideCommit(t *testing.T) {
+	store := newFakeStore()
+	svc := newBalanceServiceForTest(store, &fakeLocker{}, &fakeDispatcher{}, &fakeManagedPoster{}, &fakeAlerter{})
+	rt := resolvedRM(42, 1, 2)
+	// Buyer fee 0.5 EUR (maker side per resolvedRM's fixtures) + seller
+	// fee 2.5 USD — mirrors the tape values; journals built by the
+	// production resolver enrich path.
+	bq := FeeQuote{AccountID: 1001, Role: RoleTaker, Currency: "EUR",
+		Notional: dec("10000"), RateBps: dec("0.5"), Amount: dec("0.5"), TierName: "test"}
+	sq := FeeQuote{AccountID: 2002, Role: RoleMaker, Currency: "USD",
+		Notional: dec("12500"), RateBps: dec("2"), Amount: dec("2.5"), TierName: "test"}
+	bj, err := BuildFeeJournal(bq, 42, "test")
+	if err != nil {
+		t.Fatalf("buyer fee journal: %v", err)
+	}
+	sj, err := BuildFeeJournal(sq, 42, "test")
+	if err != nil {
+		t.Fatalf("seller fee journal: %v", err)
+	}
+	rt.BuyerFee, rt.SellerFee = bq.Amount, sq.Amount
+	rt.FeeJournals = []ledger.Journal{bj, sj}
+	outcomes, err := svc.ProcessFills(context.Background(), []ResolvedTrade{rt})
+	if err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	if len(outcomes) != 1 || !outcomes[0].Applied {
+		t.Fatalf("outcomes %+v", outcomes)
+	}
+	// Fill + two FEE journals in one commit.
+	if len(store.posted) != 3 {
+		t.Fatalf("posted %d journals, want 3 (fill + 2 fee legs)", len(store.posted))
+	}
+	keys := map[string]bool{}
+	feeDebits := decimal.Zero
+	for _, j := range store.posted {
+		keys[j.IdempotencyKey] = true
+		if j.EntryType == ledger.EntryFee {
+			for _, e := range j.Effects {
+				if e.AvailableDelta.IsNegative() {
+					feeDebits = feeDebits.Add(e.AvailableDelta.Abs())
+				}
+			}
+		}
+	}
+	for _, want := range []string{"trade-fill:42", "fee:42:1001:TAKER", "fee:42:2002:MAKER"} {
+		if !keys[want] {
+			t.Fatalf("missing journal %q — have %v", want, keys)
+		}
+	}
+	if !feeDebits.Equal(dec("3")) {
+		t.Fatalf("fee wallet debits %s, want 3 (0.5 EUR + 2.5 USD)", feeDebits)
 	}
 }
 
@@ -311,15 +369,126 @@ func TestRollingFillJournalZeroFees(t *testing.T) {
 	}
 }
 
-func TestRollingFillFeeExceedsProceedsAborts(t *testing.T) {
-	rt := resolvedRM(8, 1, 2)
-	rt.SellerFee = dec("13000") // > 12500 quote proceeds
-	_, err := buildFillJournal(rt, "test")
+// enrichResolver builds a resolver with a map-keyed fake tier store —
+// drives resolver enrich tests without a pool.
+func enrichResolver(t *testing.T, tiers map[int64]FeeTier) *PgxTradeResolver {
+	t.Helper()
+	svc, err := NewFeeService(&fakeFeeStore{tiers: tiers}, nil, "test", nil)
+	if err != nil {
+		t.Fatalf("fee service: %v", err)
+	}
+	return &PgxTradeResolver{Fees: svc}
+}
+
+// TestFeeExceedsProceedsAborts — the bound moved to resolver enrich: a
+// tier rate producing a fee larger than the received amount fails closed
+// before the journal is ever built.
+func TestFeeExceedsProceedsAborts(t *testing.T) {
+	r := enrichResolver(t, map[int64]FeeTier{
+		1: {ID: 1, TierName: "absurd", TakerBps: dec("20000")},
+		2: {ID: 1, TierName: "absurd", TakerBps: dec("20000")},
+	})
+	rt := resolvedRM(8, 1, 2) // qty 10000 @1.25; taker = higher order_seq side
+	// Buyer taker (boSeq>soSeq): base fee 20000bps × 10000 = 20000 > qty.
+	err := r.enrich(context.Background(), &rt, legFacts{boSeq: 2, soSeq: 1, symbol: "EUR/USD"})
 	requireCodeT(t, err, CodeFeeExceedsProceeds)
-	rt.SellerFee = decimal.Zero
-	rt.BuyerFee = dec("10001") // > 10000 base delivered
-	_, err = buildFillJournal(rt, "test")
+	// Seller taker: quote fee 20000bps × 12500 = 25000 > proceeds.
+	rt = resolvedRM(8, 1, 2)
+	err = r.enrich(context.Background(), &rt, legFacts{boSeq: 1, soSeq: 2, symbol: "EUR/USD"})
 	requireCodeT(t, err, CodeFeeExceedsProceeds)
+}
+
+// TestEnrichComputesMakerTakerFees — resting side prices at maker_bps,
+// incoming at taker_bps; buyer fee denominated in base, seller in quote.
+func TestEnrichComputesMakerTakerFees(t *testing.T) {
+	tier := FeeTier{ID: 1, TierName: "std", MakerBps: dec("1"), TakerBps: dec("2")}
+	r := enrichResolver(t, map[int64]FeeTier{1: tier, 2: tier})
+	rt := resolvedRM(9, 1, 2) // 10000 EUR @ 1.25 → 12500 USD
+	// Sell order rested first (soSeq<boSeq) → seller MAKER, buyer TAKER.
+	if err := r.enrich(context.Background(), &rt, legFacts{
+		boSeq: 2, soSeq: 1, symbol: "EUR/USD"}); err != nil {
+		t.Fatalf("enrich: %v", err)
+	}
+	// Buyer taker: 10000 base × 2bps = 2.00000000 EUR.
+	if !rt.BuyerFee.Equal(dec("2")) {
+		t.Fatalf("buyer fee %s, want 2 (base-denominated taker)", rt.BuyerFee)
+	}
+	// Seller maker: 12500 quote × 1bps = 1.25000000 USD.
+	if !rt.SellerFee.Equal(dec("1.25")) {
+		t.Fatalf("seller fee %s, want 1.25 (quote-denominated maker)", rt.SellerFee)
+	}
+	if len(rt.FeeJournals) != 2 {
+		t.Fatalf("want 2 fee journals, got %d", len(rt.FeeJournals))
+	}
+	// Reverse the order_seq — roles flip.
+	rt = resolvedRM(10, 1, 2)
+	if err := r.enrich(context.Background(), &rt, legFacts{
+		boSeq: 1, soSeq: 2, symbol: "EUR/USD"}); err != nil {
+		t.Fatalf("enrich: %v", err)
+	}
+	if !rt.BuyerFee.Equal(dec("1")) || !rt.SellerFee.Equal(dec("2.5")) {
+		t.Fatalf("role flip: buyer %s seller %s", rt.BuyerFee, rt.SellerFee)
+	}
+}
+
+// TestEnrichZeroRateTier — a 0/0 tier yields zero fees and no fee
+// journals (free-tier fills stay 4-line journals).
+func TestEnrichZeroRateTier(t *testing.T) {
+	r := enrichResolver(t, map[int64]FeeTier{
+		1: {ID: 1, TierName: "free"}, 2: {ID: 1, TierName: "free"}})
+	rt := resolvedRM(11, 1, 2)
+	if err := r.enrich(context.Background(), &rt, legFacts{
+		boSeq: 2, soSeq: 1, symbol: "EUR/USD"}); err != nil {
+		t.Fatalf("enrich: %v", err)
+	}
+	if !rt.BuyerFee.IsZero() || !rt.SellerFee.IsZero() || len(rt.FeeJournals) != 0 {
+		t.Fatalf("zero-tier must stay fee-free: %+v", rt.FeeJournals)
+	}
+}
+
+// TestEnrichMissingTierFailsClosed — FEE_TIER_NOT_FOUND aborts the fill
+// (§2.7: never silently settle fee-free).
+func TestEnrichMissingTierFailsClosed(t *testing.T) {
+	r := enrichResolver(t, map[int64]FeeTier{}) // no tier for acct 1
+	rt := resolvedRM(12, 1, 2)
+	err := r.enrich(context.Background(), &rt, legFacts{boSeq: 2, soSeq: 1})
+	if err == nil {
+		t.Fatal("missing fee tier must fail closed")
+	}
+	var coded *excerrors.Error
+	if !stderrors.As(err, &coded) || coded.Cause == nil ||
+		!strings.Contains(coded.Cause.Error(), CodeFeeTierNotFound) {
+		t.Fatalf("want wrapped FEE_TIER_NOT_FOUND, got %v", err)
+	}
+}
+
+// TestEnrichMakerRebate — a negative maker rate flips the fee journal:
+// the account is credited from fee revenue (spec §8.5).
+func TestEnrichMakerRebate(t *testing.T) {
+	tier := FeeTier{ID: 1, TierName: "vip", MakerBps: dec("-0.5"), TakerBps: dec("1")}
+	r := enrichResolver(t, map[int64]FeeTier{1: tier, 2: tier})
+	rt := resolvedRM(13, 1, 2)
+	// Seller maker → negative maker_bps → rebate: SellerFee < 0 and the
+	// journal credits the seller wallet.
+	if err := r.enrich(context.Background(), &rt, legFacts{
+		boSeq: 2, soSeq: 1, symbol: "EUR/USD"}); err != nil {
+		t.Fatalf("enrich: %v", err)
+	}
+	if !rt.SellerFee.Equal(dec("-0.625")) { // 12500 × -0.5bps
+		t.Fatalf("seller rebate %s, want -0.625", rt.SellerFee)
+	}
+	var rebateFound bool
+	for _, j := range rt.FeeJournals {
+		if j.IdempotencyKey == "fee:13:2:MAKER" {
+			rebateFound = true
+			if len(j.Effects) != 1 || !j.Effects[0].AvailableDelta.Equal(dec("0.625")) {
+				t.Fatalf("rebate effect %+v", j.Effects)
+			}
+		}
+	}
+	if !rebateFound {
+		t.Fatalf("maker rebate journal missing: %+v", rt.FeeJournals)
+	}
 }
 
 func TestFillJournalInvalidInputRejected(t *testing.T) {
@@ -574,12 +743,13 @@ func TestImbalanceAbortPropagatesAndPagesP0(t *testing.T) {
 }
 
 func TestBatchIsolationContainsPoisonedFill(t *testing.T) {
-	// Fill 2 is poisoned (fee exceeds proceeds). The batch aborts; the
-	// isolation pass must still commit fills 1 and 3.
+	// Fill 2 is poisoned (malformed currency fails journal validation).
+	// The batch aborts; the isolation pass must still commit fills 1
+	// and 3.
 	store := newFakeStore()
 	svc := newBalanceServiceForTest(store, &fakeLocker{}, &fakeDispatcher{}, &fakeManagedPoster{}, &fakeAlerter{})
 	poison := resolvedRM(2, 13, 14)
-	poison.SellerFee = dec("999999")
+	poison.BaseCurrency = "XX"
 	outcomes, err := svc.ProcessFills(context.Background(),
 		[]ResolvedTrade{resolvedRM(1, 11, 12), poison, resolvedRM(3, 15, 16)})
 	if err == nil {

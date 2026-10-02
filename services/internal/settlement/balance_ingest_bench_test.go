@@ -163,7 +163,7 @@ func TestIngestBenchSustainedRate(t *testing.T) {
 		return n
 	})
 
-	consumer, err := NewFillConsumer(svc, NewPgxTradeResolver(pool), src, 0, 5000, 10*time.Millisecond)
+	consumer, err := NewFillConsumer(svc, NewPgxTradeResolver(pool, nil, nil, nil), src, 0, 5000, 10*time.Millisecond)
 	if err != nil {
 		t.Fatalf("consumer: %v", err)
 	}

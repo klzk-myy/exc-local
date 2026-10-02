@@ -233,8 +233,11 @@ func (s *Service) ProvisionTx(ctx context.Context, tx pgx.Tx, userID int64) (int
 	expiresAt := s.now().UTC().Add(s.lifetime)
 	var accountID int64
 	if err := tx.QueryRow(ctx,
-		`INSERT INTO accounts (user_id, account_type, demo_expires_at)
-		 VALUES ($1,'DEMO',$2) RETURNING id`,
+		`INSERT INTO accounts (user_id, account_type, demo_expires_at, fee_tier_id)
+		 VALUES ($1,'DEMO',$2, COALESCE(
+		     (SELECT id FROM fee_tiers WHERE tier_name='STANDARD'),
+		     (SELECT id FROM fee_tiers ORDER BY id LIMIT 1)))
+		 RETURNING id`,
 		userID, expiresAt).Scan(&accountID); err != nil {
 		return 0, excerrors.Wrap("INTERNAL_ERROR", "demo: account insert", err)
 	}

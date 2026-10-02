@@ -116,8 +116,12 @@ func (s *PgxStore) CreatePool(ctx context.Context, managerAccountID int64,
 
 	var poolAcctID int64
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO accounts (user_id, account_type, kyc_tier, parent_account_id)
-		VALUES ($1, 'MARGIN', $2, $3) RETURNING id`,
+		INSERT INTO accounts (user_id, account_type, kyc_tier, parent_account_id, fee_tier_id)
+		VALUES ($1, 'MARGIN', $2, $3, COALESCE(
+		    (SELECT fee_tier_id FROM accounts WHERE id=$3),
+		    (SELECT id FROM fee_tiers WHERE tier_name='STANDARD'),
+		    (SELECT id FROM fee_tiers ORDER BY id LIMIT 1)))
+		RETURNING id`,
 		mgr.UserID, mgr.KycTier, managerAccountID).Scan(&poolAcctID); err != nil {
 		return nil, errorf(CodeInternalError, "create pool account: %v", err)
 	}

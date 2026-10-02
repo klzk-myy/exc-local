@@ -116,6 +116,7 @@ type EngineFill struct {
 type ResolvedTrade struct {
 	Fill            EngineFill
 	InstrumentID    int64
+	Symbol          string
 	BuyerAccountID  int64
 	SellerAccountID int64
 	BaseCurrency    string
@@ -123,11 +124,34 @@ type ResolvedTrade struct {
 	// BuyerFee is charged in BASE currency (deducted from the base the
 	// buyer receives); SellerFee is charged in QUOTE currency (deducted
 	// from the quote the seller receives) — the standard receive-side
-	// netting convention. Zero fees are legal.
+	// netting convention. Signed: a negative value is a rebate credited
+	// to the account. Zero fees are legal.
 	BuyerFee     decimal.Decimal
 	SellerFee    decimal.Decimal
 	BuyerIntent  SettlementIntent
 	SellerIntent SettlementIntent
+	// SettlementDate is the FX value date for PHYSICAL_DELIVERY fills —
+	// recorded on the trades row; recon gates fee expectation on it
+	// (fees post at settlement-confirm, per §5.45.2). Nil for
+	// ROLLING_MARGIN fills whose fees post at execution.
+	SettlementDate *time.Time
+	// FeeJournals are the FEE-type journals posted inside the fill commit
+	// (per-side trading fee per Task 3.3.4 plus raw-model commission /
+	// maker-rebate per Task 3.3.13/3.3.17). Empty for PHYSICAL_DELIVERY —
+	// those fee legs are built from trades.*_fee at settlement confirm.
+	FeeJournals []ledger.Journal
+	// Volumes are the commission volume accruals (Task 3.3.13) written
+	// inside the same commit — monthly tier tracking is usage
+	// measurement, recorded at fill time for both intents.
+	Volumes []CommissionVolumeAccrual
+}
+
+// CommissionVolumeAccrual is one account's monthly-volume upsert from a
+// commission Quote — accrued inside the settlement tx.
+type CommissionVolumeAccrual struct {
+	AccountID int64
+	Month     time.Time
+	DeltaUSD  decimal.Decimal
 }
 
 // TradeResolver resolves an engine fill to its balance-mutation inputs.
@@ -164,14 +188,18 @@ type balanceTx interface {
 	// false when trade_id already exists (idempotent replay → skip).
 	RecordProcessed(ctx context.Context, tradeID, shardID int64) (applied bool, err error)
 	// RecordTrade writes the public tape row (trades, id = the engine
-	// trade id the resolver's fee lookup keys on) inside the caller's
-	// tx — the tape and the ledger commit or abort together, so the
-	// public tape never advertises an unsettled fill. Called only for
-	// rows that cleared processed_trades dedup.
+	// trade id recon keys expected fees on) inside the caller's tx — the
+	// tape and the ledger commit or abort together, so the public tape
+	// never advertises an unsettled fill. Called only for rows that
+	// cleared processed_trades dedup.
 	RecordTrade(ctx context.Context, t ResolvedTrade) error
 	// PostJournal posts a validated journal inside the caller's tx (the
 	// Task 3.3.6 contract — no locks/retry/dispatch of its own).
 	PostJournal(ctx context.Context, j ledger.Journal) (ledger.PostResult, error)
+	// AccrueVolume upserts one commission monthly-volume row inside the
+	// fill commit — atomic with the ledger so aborted attempts and
+	// replays never double-count (Task 3.3.13 tier-boundary semantics).
+	AccrueVolume(ctx context.Context, v CommissionVolumeAccrual) error
 }
 
 // balanceStore runs fn inside a SERIALIZABLE transaction, rolling back on
@@ -300,13 +328,17 @@ func (s *BalanceService) ProcessFills(ctx context.Context, trades []ResolvedTrad
 // schedule: SQLSTATE 40001/40P01 → backoff 5/15/45ms + jitter, max 3
 // attempts, exhaustion → TRANSACTION_CONFLICT_RETRY_EXHAUSTED (HTTP 503).
 func (s *BalanceService) commitWithRetry(ctx context.Context, trades []ResolvedTrade) ([]FillOutcome, error) {
-	journals := make([]ledger.Journal, 0, len(trades))
+	journals := make([][]ledger.Journal, 0, len(trades))
 	for i := range trades {
 		j, err := buildFillJournal(trades[i], s.postedBy)
 		if err != nil {
 			return nil, err // structural defect — never reaches a tx
 		}
-		journals = append(journals, j)
+		// Element 0 is the fill journal (drives FillOutcome.JournalID);
+		// FeeJournals append — FEE legs (trading fee / commission /
+		// rebate) post in the same tx, after the fill journal credits
+		// the receive-side balances they net against.
+		journals = append(journals, append([]ledger.Journal{j}, trades[i].FeeJournals...))
 	}
 	// Set-based commit for multi-fill batches — measured ~7x the serial
 	// row-by-row path on identical SERIALIZABLE semantics. (A parallel
@@ -362,7 +394,7 @@ func (s *BalanceService) commitWithRetry(ctx context.Context, trades []ResolvedT
 // commitBatch is one attempt: lock already held; all fills posted in a
 // single SERIALIZABLE tx; BalanceChanged events dispatched after commit.
 func (s *BalanceService) commitBatch(ctx context.Context, trades []ResolvedTrade,
-	journals []ledger.Journal) ([]FillOutcome, error) {
+	journals [][]ledger.Journal) ([]FillOutcome, error) {
 
 	outcomes := make([]FillOutcome, 0, len(trades))
 	var events []ledger.BalanceEvent
@@ -379,14 +411,27 @@ func (s *BalanceService) commitBatch(ctx context.Context, trades []ResolvedTrade
 			if err := tx.RecordTrade(ctx, trades[i]); err != nil {
 				return fmt.Errorf("balance: tape insert trade %d: %w", trades[i].Fill.TradeID, err)
 			}
-			res, err := tx.PostJournal(ctx, journals[i])
-			if err != nil {
-				return err
+			var fillRes ledger.PostResult
+			for _, j := range journals[i] {
+				res, err := tx.PostJournal(ctx, j)
+				if err != nil {
+					return fmt.Errorf("balance: journal post trade %d (%s): %w",
+						trades[i].Fill.TradeID, j.IdempotencyKey, err)
+				}
+				events = append(events, res.Events...)
+				if j.EntryType == ledger.EntryTradeFill {
+					fillRes = res
+				}
+			}
+			for _, v := range trades[i].Volumes {
+				if err := tx.AccrueVolume(ctx, v); err != nil {
+					return fmt.Errorf("balance: volume accrual trade %d acct %d: %w",
+						trades[i].Fill.TradeID, v.AccountID, err)
+				}
 			}
 			outcomes = append(outcomes, FillOutcome{
-				TradeID: trades[i].Fill.TradeID, JournalID: res.JournalID, Applied: true,
+				TradeID: trades[i].Fill.TradeID, JournalID: fillRes.JournalID, Applied: true,
 			})
-			events = append(events, res.Events...)
 		}
 		return nil
 	})
@@ -487,23 +532,16 @@ func quoteAmount(rt ResolvedTrade) decimal.Decimal {
 }
 
 // buildRollingJournal is the four-legged mutation for ROLLING_MARGIN
-// fills (Task 3.3.1): reservations consumed, proceeds credited net of
-// receive-side fees, fee revenue booked to 4010.
+// fills (Task 3.3.1): reservations consumed, proceeds credited GROSS.
+// Trading fees are NOT netted here — they post as separate FEE journals
+// (fee:{trade}:{acct}:{role}) inside the same commit so recon's
+// collected-fee and 4010-revenue legs see them (FeeService doc contract);
+// the net wallet effect is identical.
 func buildRollingJournal(rt ResolvedTrade, postedBy string) (ledger.Journal, error) {
 	q := rt.Fill.Qty
 	qa := quoteAmount(rt)
-	buyerCredit := q.Sub(rt.BuyerFee)
-	sellerCredit := qa.Sub(rt.SellerFee)
-	if buyerCredit.IsNegative() {
-		return ledger.Journal{}, excerrors.New(CodeFeeExceedsProceeds, fmt.Sprintf(
-			"trade %d: buyer fee %s exceeds base delivered %s",
-			rt.Fill.TradeID, rt.BuyerFee, q))
-	}
-	if sellerCredit.IsNegative() {
-		return ledger.Journal{}, excerrors.New(CodeFeeExceedsProceeds, fmt.Sprintf(
-			"trade %d: seller fee %s exceeds quote proceeds %s",
-			rt.Fill.TradeID, rt.SellerFee, qa))
-	}
+	buyerCredit := q
+	sellerCredit := qa
 
 	desc := fmt.Sprintf("trade %d %s/%s fill", rt.Fill.TradeID, rt.BaseCurrency, rt.QuoteCurrency)
 	j := ledger.Journal{
@@ -514,31 +552,21 @@ func buildRollingJournal(rt ResolvedTrade, postedBy string) (ledger.Journal, err
 		IdempotencyKey: fmt.Sprintf("trade-fill:%d", rt.Fill.TradeID),
 	}
 
-	// Quote currency: buyer deliverable released → seller proceeds + fee.
+	// Quote currency: buyer deliverable released → seller proceeds.
 	j.Lines = append(j.Lines,
 		ledger.DebitLine(ledger.CustomerLiability(rt.QuoteCurrency), rt.QuoteCurrency, qa,
 			fmt.Sprintf("buyer %d quote released", rt.BuyerAccountID)),
 		ledger.CreditLine(ledger.CustomerLiability(rt.QuoteCurrency), rt.QuoteCurrency, sellerCredit,
-			fmt.Sprintf("seller %d quote proceeds net of fee", rt.SellerAccountID)),
+			fmt.Sprintf("seller %d quote proceeds", rt.SellerAccountID)),
 	)
-	if rt.SellerFee.IsPositive() {
-		j.Lines = append(j.Lines,
-			ledger.CreditLine(ledger.TradingFeeRevenue(rt.QuoteCurrency), rt.QuoteCurrency, rt.SellerFee,
-				fmt.Sprintf("seller %d trading fee", rt.SellerAccountID)))
-	}
 
-	// Base currency: seller deliverable released → buyer proceeds + fee.
+	// Base currency: seller deliverable released → buyer proceeds.
 	j.Lines = append(j.Lines,
 		ledger.DebitLine(ledger.CustomerLiability(rt.BaseCurrency), rt.BaseCurrency, q,
 			fmt.Sprintf("seller %d base delivered", rt.SellerAccountID)),
 		ledger.CreditLine(ledger.CustomerLiability(rt.BaseCurrency), rt.BaseCurrency, buyerCredit,
-			fmt.Sprintf("buyer %d base received net of fee", rt.BuyerAccountID)),
+			fmt.Sprintf("buyer %d base received", rt.BuyerAccountID)),
 	)
-	if rt.BuyerFee.IsPositive() {
-		j.Lines = append(j.Lines,
-			ledger.CreditLine(ledger.TradingFeeRevenue(rt.BaseCurrency), rt.BaseCurrency, rt.BuyerFee,
-				fmt.Sprintf("buyer %d trading fee", rt.BuyerAccountID)))
-	}
 
 	j.Effects = []ledger.AccountEffect{
 		{AccountID: rt.BuyerAccountID, Currency: rt.QuoteCurrency,
@@ -595,11 +623,13 @@ func buildDeliveryJournal(rt ResolvedTrade, postedBy string) (ledger.Journal, er
 // affectedAccounts is the sorted distinct account set across journals —
 // deterministic lock order (deadlock-safe), mirroring
 // Journal.AffectedAccounts over a whole batch.
-func affectedAccounts(journals []ledger.Journal) []int64 {
+func affectedAccounts(journals [][]ledger.Journal) []int64 {
 	seen := map[int64]struct{}{}
-	for _, j := range journals {
-		for _, e := range j.Effects {
-			seen[e.AccountID] = struct{}{}
+	for _, js := range journals {
+		for _, j := range js {
+			for _, e := range j.Effects {
+				seen[e.AccountID] = struct{}{}
+			}
 		}
 	}
 	ids := make([]int64, 0, len(seen))
@@ -655,27 +685,34 @@ func (t pgxBalanceTx) RecordProcessed(ctx context.Context, tradeID, shardID int6
 
 // RecordTrade lands the public tape row: id is the engine trade id
 // (OVERRIDING SYSTEM VALUE — the trades.id identity column doubles as
-// the engine trade-id key the resolver's fee lookup reads), shard/seq
-// come from the fill. ON CONFLICT DO NOTHING covers the (id, created_at)
-// partition key on a same-instant re-delivery.
+// the engine trade-id key recon's fee expectation reads), shard/seq
+// come from the fill, settlement_date is the PD value date (NULL for
+// rolling margin — execution-time fees). ON CONFLICT DO NOTHING covers
+// the (id, created_at) partition key on a same-instant re-delivery.
 func (t pgxBalanceTx) RecordTrade(ctx context.Context, r ResolvedTrade) error {
 	_, err := t.tx.Exec(ctx, `
 		INSERT INTO trades (id, instrument_id, buy_order_id, sell_order_id,
 		    buyer_account_id, seller_account_id, price, quantity,
-		    buyer_fee, seller_fee, shard_id, trade_seq)
+		    buyer_fee, seller_fee, settlement_date, shard_id, trade_seq)
 		OVERRIDING SYSTEM VALUE
-		VALUES ($1,$2,$3,$4,$5,$6,$7::numeric,$8::numeric,$9::numeric,$10::numeric,$11,$12)
+		VALUES ($1,$2,$3,$4,$5,$6,$7::numeric,$8::numeric,$9::numeric,$10::numeric,$11,$12,$13)
 		ON CONFLICT DO NOTHING`,
 		int64(r.Fill.TradeID), r.InstrumentID, int64(r.Fill.BuyOrderID),
 		int64(r.Fill.SellOrderID), r.BuyerAccountID, r.SellerAccountID,
 		r.Fill.Price.String(), r.Fill.Qty.String(),
-		r.BuyerFee.String(), r.SellerFee.String(),
+		r.BuyerFee.String(), r.SellerFee.String(), r.SettlementDate,
 		int16(r.Fill.ShardID), int64(r.Fill.EngineSeq))
 	return err
 }
 
 func (t pgxBalanceTx) PostJournal(ctx context.Context, j ledger.Journal) (ledger.PostResult, error) {
 	return t.poster.PostJournal(ctx, t.tx, j)
+}
+
+// AccrueVolume applies the shared commission upsert inside the commit.
+func (t pgxBalanceTx) AccrueVolume(ctx context.Context, v CommissionVolumeAccrual) error {
+	_, err := t.tx.Exec(ctx, recordFillVolumeSQL, v.AccountID, v.Month, v.DeltaUSD.String())
+	return err
 }
 
 // ledgerLockAdapter / ledgerDispatchAdapter expose the LedgerService's
@@ -696,77 +733,207 @@ func (a ledgerDispatchAdapter) Dispatch(ctx context.Context, events []ledger.Bal
 }
 
 // ---------------------------------------------------------------------------
-// PgxTradeResolver — orders ⨝ instruments ⨝ accounts, fees from trades.
+// PgxTradeResolver — orders ⨝ instruments ⨝ accounts; fees COMPUTED via
+// FeeService (Task 3.3.4) + CommissionEngine (Task 3.3.13/3.3.17).
 // ---------------------------------------------------------------------------
+
+// legFacts carries the order/instrument/account columns fee and value-date
+// computation needs beyond ResolvedTrade's scalar fields.
+type legFacts struct {
+	symbol          string
+	lotSize         decimal.Decimal
+	settlementCycle int
+	boSeq, soSeq    int64
+	buyerVip        int
+	sellerVip       int
+	buyerMakerBps   decimal.Decimal // vip_tier_schedule maker rate
+	sellerMakerBps  decimal.Decimal
+}
 
 // PgxTradeResolver resolves engine fills against PostgreSQL. The
 // settlement_intent columns come from migration 104 (parallel task):
 // order-level intent wins over the account default (spec §5.4 note).
+//
+// Fees are COMPUTED at resolve time — the trades row does not exist yet
+// (RecordTrade writes it inside the settlement commit from these values,
+// so the tape row IS the recon expected-fee record). Fees/Comm/Cal are
+// nil-tolerant for test fixtures; production wires all three.
 type PgxTradeResolver struct {
 	Pool *pgxpool.Pool
+	Fees *FeeService      // Task 3.3.4 trading fee (delivery-ccy per side)
+	Comm *CommissionEngine // Task 3.3.13/17 raw commission + VIP rebate
+	Cal  *HolidayCalendar  // PD value date (recon fee gate)
 }
 
-// NewPgxTradeResolver wraps a pool.
-func NewPgxTradeResolver(pool *pgxpool.Pool) *PgxTradeResolver {
-	return &PgxTradeResolver{Pool: pool}
+// NewPgxTradeResolver wraps a pool. feeSvc/commEng/cal may be nil in
+// tests — nil fees resolve to zero; a nil calendar fails PD fills closed.
+func NewPgxTradeResolver(pool *pgxpool.Pool, feeSvc *FeeService, commEng *CommissionEngine, cal *HolidayCalendar) *PgxTradeResolver {
+	return &PgxTradeResolver{Pool: pool, Fees: feeSvc, Comm: commEng, Cal: cal}
 }
 
-// Resolve loads both order legs, the instrument currencies and each
-// side's effective settlement intent, then attaches fees from the trades
-// row when it has already landed (buyer_fee/seller_fee, migration 006);
-// a missing trades row means zero fees at fill time.
+// enrich computes the per-side trading fees, commission assessment and
+// PD value date for a leg-resolved trade. Mutates rt in place.
+func (r *PgxTradeResolver) enrich(ctx context.Context, rt *ResolvedTrade, l legFacts) error {
+	rt.Symbol = l.symbol
+	isPD := rt.BuyerIntent == IntentPhysicalDelivery
+	tid := int64(rt.Fill.TradeID)
+
+	// The wire TradeFill carries no aggressor flag: the resting order is
+	// the maker — it reached the book first, i.e. the lower order_seq.
+	buyerRole, sellerRole := RoleMaker, RoleTaker
+	if l.boSeq > l.soSeq {
+		buyerRole, sellerRole = RoleTaker, RoleMaker
+	}
+
+	if r.Fees != nil {
+		bq, err := r.Fees.Quote(ctx, FeeParams{
+			TradeID: tid, AccountID: rt.BuyerAccountID, Role: buyerRole,
+			Quantity: rt.Fill.Qty, Price: rt.Fill.Price,
+			FeeCurrency: rt.BaseCurrency, Notional: rt.Fill.Qty})
+		if err != nil {
+			return excerrors.Wrap(CodeTradeFillUnresolvable,
+				fmt.Sprintf("buyer fee quote trade %d acct %d", tid, rt.BuyerAccountID), err)
+		}
+		sq, err := r.Fees.Quote(ctx, FeeParams{
+			TradeID: tid, AccountID: rt.SellerAccountID, Role: sellerRole,
+			Quantity: rt.Fill.Qty, Price: rt.Fill.Price,
+			FeeCurrency: rt.QuoteCurrency})
+		if err != nil {
+			return excerrors.Wrap(CodeTradeFillUnresolvable,
+				fmt.Sprintf("seller fee quote trade %d acct %d", tid, rt.SellerAccountID), err)
+		}
+		// A fee can never exceed the received amount it nets against.
+		if bq.Amount.Abs().GreaterThan(rt.Fill.Qty) {
+			return excerrors.New(CodeFeeExceedsProceeds, fmt.Sprintf(
+				"trade %d: buyer fee %s exceeds base delivered %s", tid, bq.Amount, rt.Fill.Qty))
+		}
+		if sq.Amount.Abs().GreaterThan(quoteAmount(*rt)) {
+			return excerrors.New(CodeFeeExceedsProceeds, fmt.Sprintf(
+				"trade %d: seller fee %s exceeds quote proceeds %s", tid, sq.Amount, quoteAmount(*rt)))
+		}
+		rt.BuyerFee, rt.SellerFee = bq.Amount, sq.Amount
+		if !isPD {
+			// Receive-side netting posts at execution as FEE journals in
+			// the fill tx; PD fee legs are rebuilt from trades.*_fee by
+			// the settlement-confirm flow (§5.45.2 — fees travel with
+			// the confirm journal).
+			for _, q := range []FeeQuote{bq, sq} {
+				if q.Amount.IsZero() {
+					continue
+				}
+				j, err := r.Fees.Journal(q, tid)
+				if err != nil {
+					return excerrors.Wrap(CodeTradeFillUnresolvable,
+						fmt.Sprintf("fee journal trade %d acct %d", tid, q.AccountID), err)
+				}
+				rt.FeeJournals = append(rt.FeeJournals, j)
+			}
+		}
+	}
+
+	if r.Comm != nil {
+		for _, side := range []struct {
+			acct int64
+			role FillRole
+			vip  int
+			mk   decimal.Decimal
+		}{
+			{rt.BuyerAccountID, FillRole(buyerRole), l.buyerVip, l.buyerMakerBps},
+			{rt.SellerAccountID, FillRole(sellerRole), l.sellerVip, l.sellerMakerBps},
+		} {
+			a, err := r.Comm.Quote(ctx, CommissionFill{
+				AccountID: side.acct, TradeID: tid, InstrumentID: rt.InstrumentID,
+				Symbol: l.symbol, Role: side.role, Quantity: rt.Fill.Qty,
+				Price: rt.Fill.Price, LotSize: l.lotSize,
+				QuoteCurrency: rt.QuoteCurrency, MakerBps: side.mk,
+				VipTier: side.vip, PostedBy: "commission-engine"})
+			if err != nil {
+				return excerrors.Wrap(CodeTradeFillUnresolvable,
+					fmt.Sprintf("commission assess trade %d acct %d", tid, side.acct), err)
+			}
+			if a.FillVolumeUSD.IsPositive() {
+				rt.Volumes = append(rt.Volumes, CommissionVolumeAccrual{
+					AccountID: side.acct, Month: a.Month, DeltaUSD: a.FillVolumeUSD})
+			}
+			if !isPD {
+				rt.FeeJournals = append(rt.FeeJournals, a.Journals...)
+			}
+		}
+	}
+
+	if isPD {
+		if r.Cal == nil {
+			return excerrors.New(CodeTradeFillUnresolvable, fmt.Sprintf(
+				"trade %d: physical delivery requires a holiday calendar for the value date", tid))
+		}
+		sd, err := r.Cal.SettlementDate(rt.BaseCurrency, rt.QuoteCurrency,
+			time.Now().UTC(), l.settlementCycle)
+		if err != nil {
+			return excerrors.Wrap(CodeTradeFillUnresolvable,
+				fmt.Sprintf("value date trade %d %s", tid, l.symbol), err)
+		}
+		rt.SettlementDate = &sd
+	}
+	return nil
+}
+
+// Resolve loads both order legs, the instrument, VIP maker rates and each
+// side's effective settlement intent, then computes fees (see enrich).
 func (r *PgxTradeResolver) Resolve(ctx context.Context, f EngineFill) (ResolvedTrade, error) {
 	rt := ResolvedTrade{Fill: f}
+	var l legFacts
+	var lotSize, bmk, smk string
 	err := r.Pool.QueryRow(ctx, `
 		SELECT bo.account_id, so.account_id, bo.instrument_id,
 		       i.base_currency, i.quote_currency,
 		       COALESCE(bo.settlement_intent::text, ab.settlement_intent::text, 'ROLLING_MARGIN'),
-		       COALESCE(so.settlement_intent::text, sa.settlement_intent::text, 'ROLLING_MARGIN')
+		       COALESCE(so.settlement_intent::text, sa.settlement_intent::text, 'ROLLING_MARGIN'),
+		       i.symbol, COALESCE(i.lot_size::text,'0'), COALESCE(i.settlement_cycle,1),
+		       COALESCE(bo.order_seq,0), COALESCE(so.order_seq,0),
+		       COALESCE(ab.vip_tier,0), COALESCE(sa.vip_tier,0),
+		       COALESCE(vb.maker_bps::text,'0'), COALESCE(vs.maker_bps::text,'0')
 		  FROM orders bo
 		  JOIN orders so      ON so.id = $2
 		  JOIN instruments i  ON i.id = bo.instrument_id
 		  JOIN accounts ab    ON ab.id = bo.account_id
 		  JOIN accounts sa    ON sa.id = so.account_id
+		  LEFT JOIN vip_tier_schedule vb ON vb.vip_tier = ab.vip_tier
+		  LEFT JOIN vip_tier_schedule vs ON vs.vip_tier = sa.vip_tier
 		 WHERE bo.id = $1`,
 		int64(f.BuyOrderID), int64(f.SellOrderID)).
 		Scan(&rt.BuyerAccountID, &rt.SellerAccountID, &rt.InstrumentID,
 			&rt.BaseCurrency, &rt.QuoteCurrency,
-			(*string)(&rt.BuyerIntent), (*string)(&rt.SellerIntent))
+			(*string)(&rt.BuyerIntent), (*string)(&rt.SellerIntent),
+			&l.symbol, &lotSize, &l.settlementCycle, &l.boSeq, &l.soSeq,
+			&l.buyerVip, &l.sellerVip, &bmk, &smk)
 	if err != nil {
 		return ResolvedTrade{}, excerrors.Wrap(CodeTradeFillUnresolvable, fmt.Sprintf(
 			"resolve fill trade %d (orders %d/%d)", f.TradeID, f.BuyOrderID, f.SellOrderID), err)
 	}
-	var bf, sf *decimal.Decimal
-	var shard *int16
-	err = r.Pool.QueryRow(ctx, `
-		SELECT buyer_fee, seller_fee, shard_id FROM trades WHERE id = $1`,
-		int64(f.TradeID)).Scan(&bf, &sf, &shard)
-	switch {
-	case err == nil:
-		if bf != nil {
-			rt.BuyerFee = *bf
-		}
-		if sf != nil {
-			rt.SellerFee = *sf
-		}
-		if shard != nil {
-			rt.Fill.ShardID = int64(*shard)
-		}
-	case stderrors.Is(err, pgx.ErrNoRows):
-		// trades row not yet persisted — zero fees at fill time.
-	default:
+	if l.lotSize, err = decimal.NewFromString(lotSize); err != nil {
 		return ResolvedTrade{}, excerrors.Wrap(CodeTradeFillUnresolvable,
-			fmt.Sprintf("resolve fees for trade %d", f.TradeID), err)
+			fmt.Sprintf("lot size %q trade %d", lotSize, f.TradeID), err)
+	}
+	if l.buyerMakerBps, err = decimal.NewFromString(bmk); err != nil {
+		return ResolvedTrade{}, excerrors.Wrap(CodeTradeFillUnresolvable,
+			fmt.Sprintf("buyer maker bps %q trade %d", bmk, f.TradeID), err)
+	}
+	if l.sellerMakerBps, err = decimal.NewFromString(smk); err != nil {
+		return ResolvedTrade{}, excerrors.Wrap(CodeTradeFillUnresolvable,
+			fmt.Sprintf("seller maker bps %q trade %d", smk, f.TradeID), err)
+	}
+	if err := r.enrich(ctx, &rt, l); err != nil {
+		return ResolvedTrade{}, err
 	}
 	return rt, nil
 }
 
-// ResolveBatch is the set-based Resolve: two queries regardless of batch
-// size (order-pair join over unnest, then the trades fee lookup). The
-// FillConsumer prefers it — per-fill resolution is the throughput ceiling
-// of the serial path. Order of fills is preserved in the output; any
-// unresolvable leg fails the whole batch (fail-closed — a dropped fill
-// is lost settlement).
+// ResolveBatch is the set-based Resolve: one order-pair join over unnest
+// regardless of batch size, then per-fill fee computation (enrich). The
+// FillConsumer prefers it — per-fill leg resolution is the throughput
+// ceiling of the serial path. Order of fills is preserved in the output;
+// any unresolvable leg fails the batch (fail-closed — a dropped fill is
+// lost settlement).
 func (r *PgxTradeResolver) ResolveBatch(ctx context.Context, fills []EngineFill) ([]ResolvedTrade, error) {
 	out := make([]ResolvedTrade, len(fills))
 	if len(fills) == 0 {
@@ -774,11 +941,9 @@ func (r *PgxTradeResolver) ResolveBatch(ctx context.Context, fills []EngineFill)
 	}
 	boIDs := make([]int64, len(fills))
 	soIDs := make([]int64, len(fills))
-	tids := make([]int64, len(fills))
 	for i := range fills {
 		boIDs[i] = int64(fills[i].BuyOrderID)
 		soIDs[i] = int64(fills[i].SellOrderID)
-		tids[i] = int64(fills[i].TradeID)
 		out[i].Fill = fills[i]
 	}
 
@@ -787,19 +952,26 @@ func (r *PgxTradeResolver) ResolveBatch(ctx context.Context, fills []EngineFill)
 		buyer, seller, instrument int64
 		base, quote               string
 		buyerIntent, sellerIntent string
+		facts                     legFacts
 	}
 	legs := map[legKey]legRow{}
 	rows, err := r.Pool.Query(ctx, `
 		SELECT u.bo, u.so, bo.account_id, so.account_id, bo.instrument_id,
 		       i.base_currency, i.quote_currency,
 		       COALESCE(bo.settlement_intent::text, ab.settlement_intent::text, 'ROLLING_MARGIN'),
-		       COALESCE(so.settlement_intent::text, sa.settlement_intent::text, 'ROLLING_MARGIN')
+		       COALESCE(so.settlement_intent::text, sa.settlement_intent::text, 'ROLLING_MARGIN'),
+		       i.symbol, COALESCE(i.lot_size::text,'0'), COALESCE(i.settlement_cycle,1),
+		       COALESCE(bo.order_seq,0), COALESCE(so.order_seq,0),
+		       COALESCE(ab.vip_tier,0), COALESCE(sa.vip_tier,0),
+		       COALESCE(vb.maker_bps::text,'0'), COALESCE(vs.maker_bps::text,'0')
 		  FROM unnest($1::bigint[], $2::bigint[]) AS u(bo, so)
 		  JOIN orders bo      ON bo.id = u.bo
 		  JOIN orders so      ON so.id = u.so
 		  JOIN instruments i  ON i.id = bo.instrument_id
 		  JOIN accounts ab    ON ab.id = bo.account_id
-		  JOIN accounts sa    ON sa.id = so.account_id`,
+		  JOIN accounts sa    ON sa.id = so.account_id
+		  LEFT JOIN vip_tier_schedule vb ON vb.vip_tier = ab.vip_tier
+		  LEFT JOIN vip_tier_schedule vs ON vs.vip_tier = sa.vip_tier`,
 		boIDs, soIDs)
 	if err != nil {
 		return nil, excerrors.Wrap(CodeTradeFillUnresolvable, "batch resolve legs", err)
@@ -807,45 +979,35 @@ func (r *PgxTradeResolver) ResolveBatch(ctx context.Context, fills []EngineFill)
 	for rows.Next() {
 		var k legKey
 		var l legRow
+		var lotSize, bmk, smk string
 		if err := rows.Scan(&k.bo, &k.so, &l.buyer, &l.seller, &l.instrument,
-			&l.base, &l.quote, &l.buyerIntent, &l.sellerIntent); err != nil {
+			&l.base, &l.quote, &l.buyerIntent, &l.sellerIntent,
+			&l.facts.symbol, &lotSize, &l.facts.settlementCycle,
+			&l.facts.boSeq, &l.facts.soSeq, &l.facts.buyerVip, &l.facts.sellerVip,
+			&bmk, &smk); err != nil {
 			rows.Close()
 			return nil, excerrors.Wrap(CodeTradeFillUnresolvable, "batch scan legs", err)
+		}
+		if l.facts.lotSize, err = decimal.NewFromString(lotSize); err != nil {
+			rows.Close()
+			return nil, excerrors.Wrap(CodeTradeFillUnresolvable,
+				fmt.Sprintf("lot size %q orders %d/%d", lotSize, k.bo, k.so), err)
+		}
+		if l.facts.buyerMakerBps, err = decimal.NewFromString(bmk); err != nil {
+			rows.Close()
+			return nil, excerrors.Wrap(CodeTradeFillUnresolvable,
+				fmt.Sprintf("buyer maker bps %q orders %d/%d", bmk, k.bo, k.so), err)
+		}
+		if l.facts.sellerMakerBps, err = decimal.NewFromString(smk); err != nil {
+			rows.Close()
+			return nil, excerrors.Wrap(CodeTradeFillUnresolvable,
+				fmt.Sprintf("seller maker bps %q orders %d/%d", smk, k.bo, k.so), err)
 		}
 		legs[k] = l
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
 		return nil, excerrors.Wrap(CodeTradeFillUnresolvable, "batch resolve legs", err)
-	}
-
-	type feeKey struct{ tid int64 }
-	fees := map[feeKey]struct {
-		bf, sf *decimal.Decimal
-		shard  *int16
-	}{}
-	rows, err = r.Pool.Query(ctx, `
-		SELECT t.id, t.buyer_fee, t.seller_fee, t.shard_id
-		  FROM trades t JOIN unnest($1::bigint[]) AS u(tid) ON t.id = u.tid`, tids)
-	if err != nil {
-		return nil, excerrors.Wrap(CodeTradeFillUnresolvable, "batch resolve fees", err)
-	}
-	for rows.Next() {
-		var tid int64
-		var bf, sf *decimal.Decimal
-		var shard *int16
-		if err := rows.Scan(&tid, &bf, &sf, &shard); err != nil {
-			rows.Close()
-			return nil, excerrors.Wrap(CodeTradeFillUnresolvable, "batch scan fees", err)
-		}
-		fees[feeKey{tid}] = struct {
-			bf, sf *decimal.Decimal
-			shard  *int16
-		}{bf, sf, shard}
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return nil, excerrors.Wrap(CodeTradeFillUnresolvable, "batch resolve fees", err)
 	}
 
 	for i := range fills {
@@ -862,16 +1024,8 @@ func (r *PgxTradeResolver) ResolveBatch(ctx context.Context, fills []EngineFill)
 		out[i].QuoteCurrency = l.quote
 		out[i].BuyerIntent = SettlementIntent(l.buyerIntent)
 		out[i].SellerIntent = SettlementIntent(l.sellerIntent)
-		if f, ok := fees[feeKey{tids[i]}]; ok {
-			if f.bf != nil {
-				out[i].BuyerFee = *f.bf
-			}
-			if f.sf != nil {
-				out[i].SellerFee = *f.sf
-			}
-			if f.shard != nil {
-				out[i].Fill.ShardID = int64(*f.shard)
-			}
+		if err := r.enrich(ctx, &out[i], l.facts); err != nil {
+			return nil, err
 		}
 	}
 	return out, nil

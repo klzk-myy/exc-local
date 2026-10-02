@@ -110,7 +110,15 @@ var bpsDenom = decimal.NewFromInt(10_000)
 // rounded to the DECIMAL(28,8) quantum. Signed — a negative rateBps
 // (rebate tier) yields a negative fee.
 func ComputeFee(quantity, price, rateBps decimal.Decimal) decimal.Decimal {
-	return quantity.Mul(price).Mul(rateBps).Div(bpsDenom).Round(8)
+	return ComputeFeeOnNotional(quantity.Mul(price), rateBps)
+}
+
+// ComputeFeeOnNotional applies the bps rate to an explicit notional
+// expressed in the fee currency — used when the fee is denominated in a
+// currency other than the quote (e.g. the buyer leg: trades.buyer_fee is
+// charged in the BASE currency, so its notional is the fill quantity).
+func ComputeFeeOnNotional(notional, rateBps decimal.Decimal) decimal.Decimal {
+	return notional.Mul(rateBps).Div(bpsDenom).Round(8)
 }
 
 // ---------------------------------------------------------------------------
@@ -124,9 +132,15 @@ type FeeParams struct {
 	Role      LiquidityRole // MAKER = resting order, TAKER = incoming
 	Quantity  decimal.Decimal
 	Price     decimal.Decimal
-	// FeeCurrency is the denomination — the instrument's quote currency
-	// for per-side billing. Must be a 3-letter uppercase ISO code.
+	// FeeCurrency is the denomination — for per-side billing each side is
+	// charged in the currency it receives (buyer: base, seller: quote —
+	// the trades.buyer_fee/seller_fee contract recon verifies). Must be a
+	// 3-letter uppercase ISO code.
 	FeeCurrency string
+	// Notional, when > 0, replaces Quantity×Price as the fee base —
+	// expressed in FeeCurrency. The buyer leg passes the fill quantity
+	// (base notional); zero keeps the quote-notional default.
+	Notional decimal.Decimal
 	// MinFee floors a positive fee (spec §8.5 min_fee_usd, default 0);
 	// the caller resolves any per-instrument config — pass decimal.Zero
 	// for none. Never applied to rebates.
@@ -213,13 +227,17 @@ func (s *FeeService) Quote(ctx context.Context, p FeeParams) (FeeQuote, error) {
 	if err != nil {
 		return FeeQuote{}, err
 	}
+	notional := p.Quantity.Mul(p.Price)
+	if p.Notional.IsPositive() {
+		notional = p.Notional
+	}
 	q := FeeQuote{
 		AccountID:    p.AccountID,
 		Role:         p.Role,
 		Currency:     p.FeeCurrency,
-		Notional:     p.Quantity.Mul(p.Price).Round(8),
+		Notional:     notional.Round(8),
 		RateBps:      rate,
-		Amount:       ComputeFee(p.Quantity, p.Price, rate),
+		Amount:       ComputeFeeOnNotional(notional, rate),
 		PromoApplied: promo,
 		TierID:       tier.ID,
 		TierName:     tier.TierName,
@@ -286,6 +304,13 @@ func BuildFeeJournal(q FeeQuote, tradeID int64, postedBy string) (ledger.Journal
 		}}
 	}
 	return j, nil
+}
+
+// Journal renders the GL journal for a computed quote using the service's
+// postedBy — the entry point for callers embedding the fee in their own
+// settlement tx (the balance path posts it inside the fill commit).
+func (s *FeeService) Journal(q FeeQuote, tradeID int64) (ledger.Journal, error) {
+	return BuildFeeJournal(q, tradeID, s.postedBy)
 }
 
 // FeeIdempotencyKey is the journal_entries.idempotency_key used for fee

@@ -1390,8 +1390,28 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("copy engine: %w", err)
 	}
+	// Task 3.3.4 + Task 3.3.13 fee/commission wiring — the resolver
+	// computes the per-side trading fee (delivery currency) and the
+	// raw-model commission at resolve; FEE/commission journals post
+	// inside the fill commit and the trades row records the recon
+	// expected-fee values.
+	tradeFeeSvc, ferr := settlement.NewFeeService(settlement.NewPgxFeeStore(pool), nil, "", nil)
+	if ferr != nil {
+		return fmt.Errorf("trade fee service: %w", ferr)
+	}
+	commEng, cerr := settlement.NewCommissionEngine(
+		settlement.NewPgProfileFeeModelSource(pool),
+		settlement.NewPgCommissionStore(pool), usdConv, nil)
+	if cerr != nil {
+		return fmt.Errorf("commission engine: %w", cerr)
+	}
+	fillCal, cerr := settlement.LoadCalendar(context.Background(), pool)
+	if cerr != nil {
+		log.Warn("fill resolver: holiday calendar unavailable — PD fills fail closed", "err", cerr)
+	}
+	tradeResolver := settlement.NewPgxTradeResolver(pool, tradeFeeSvc, commEng, fillCal)
 	if natsClient != nil {
-		fanout, ferr := pamm.NewTradesFanout(settlement.NewPgxTradeResolver(pool),
+		fanout, ferr := pamm.NewTradesFanout(tradeResolver,
 			pamm.PoolLegHandler{Engine: pammEngine},
 			copy.ManagerLegHandler{Engine: copyEngine})
 		if ferr != nil {
@@ -1995,7 +2015,7 @@ func run() error {
 		if terr != nil {
 			log.Warn("TCA engine init failed", "err", terr)
 		} else if tcaCons, terr := analytics.NewTCAFillConsumer(tcaEngine,
-			settlement.NewPgxTradeResolver(pool),
+			tradeResolver,
 			analytics.NewPgTCAOrderSource(pool),
 			analytics.NewPgTCASymbolSource(pool)); terr != nil {
 			log.Warn("TCA consumer init failed", "err", terr)
@@ -2162,7 +2182,7 @@ func run() error {
 			return n
 		})
 		fc, ferr := settlement.NewFillConsumer(balanceSvc,
-			settlement.NewPgxTradeResolver(pool), src, int64(sh), 0, 0)
+			tradeResolver, src, int64(sh), 0, 0)
 		if ferr != nil {
 			return fmt.Errorf("fill consumer shard %d: %w", sh, ferr)
 		}

@@ -561,11 +561,22 @@ func (l *PgLegs) OverduePending(ctx context.Context, now time.Time) ([]int64, er
 }
 
 func (l *PgLegs) ExpectedFees(ctx context.Context) ([]ExpectedFee, error) {
+	// PHYSICAL_DELIVERY fills post their fee legs inside the T+n
+	// settlement-confirm journal (spec §5.45.2 — fee recognition travels
+	// with confirmation), so a PD trade expects collected fees only once
+	// a settlement instruction for it has actually SETTLED. Before that
+	// — no instruction yet, leg in flight, or value date unreached —
+	// there is nothing collectible, and flagging it would be a false
+	// positive against a designed deferral. Rolling-margin rows carry
+	// settlement_date NULL → collected at execution.
 	rows, err := l.pool.Query(ctx, `
 		SELECT t.id, i.base_currency, i.quote_currency,
 		       t.buyer_account_id, t.seller_account_id,
 		       COALESCE(t.buyer_fee,0), COALESCE(t.seller_fee,0)
-		  FROM trades t JOIN instruments i ON i.id = t.instrument_id`)
+		  FROM trades t JOIN instruments i ON i.id = t.instrument_id
+		 WHERE t.settlement_date IS NULL
+		    OR EXISTS (SELECT 1 FROM settlement_instructions si
+		                WHERE si.trade_id = t.id AND si.status = 'SETTLED')`)
 	if err != nil {
 		return nil, err
 	}
@@ -583,12 +594,20 @@ func (l *PgLegs) ExpectedFees(ctx context.Context) ([]ExpectedFee, error) {
 }
 
 func (l *PgLegs) CollectedFees(ctx context.Context) ([]CollectedFee, error) {
+	// Only 'fee:{trade}:{acct}:{role}' journal legs count as collected
+	// trading fee — commission (commission:*) and maker-rebate
+	// (makerrebate:*) journals also post entry_type='FEE' rows with the
+	// trade reference, but settle against the 4030/5100 GL lines, not
+	// trades.*_fee. Keying on the journal idempotency key keeps the
+	// models disjoint.
 	rows, err := l.pool.Query(ctx, `
-		SELECT reference_id, account_id, currency,
-		       SUM(CASE WHEN direction='CREDIT' THEN amount ELSE -amount END)
-		  FROM ledger_entries
-		 WHERE entry_type='FEE' AND reference_id IS NOT NULL
-		 GROUP BY reference_id, account_id, currency`)
+		SELECT le.reference_id, le.account_id, le.currency,
+		       SUM(CASE WHEN le.direction='CREDIT' THEN le.amount ELSE -le.amount END)
+		  FROM ledger_entries le
+		  JOIN journal_entries je ON je.id = le.journal_entry_id
+		 WHERE le.entry_type='FEE' AND le.reference_id IS NOT NULL
+		   AND je.idempotency_key LIKE 'fee:%'
+		 GROUP BY le.reference_id, le.account_id, le.currency`)
 	if err != nil {
 		return nil, err
 	}

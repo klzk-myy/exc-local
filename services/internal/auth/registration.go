@@ -155,11 +155,18 @@ func scanUser(scan func(dest ...any) error) (*User, error) {
 // SPOT row; the Task 8.5.3.2 demo seam substitutes DEMO+virtual-seed.
 type accountProvisionFunc func(ctx context.Context, tx pgx.Tx, userID int64) (accountID int64, err error)
 
-// provisionSpotAccount is the production default: one SPOT account.
+// provisionSpotAccount is the production default: one SPOT account on the
+// STANDARD fee tier — the fill-path resolver fails closed on a NULL tier
+// (FEE_TIER_NOT_FOUND), so registration must never leave the column unset.
+// The fallback keeps the insert working if the baseline row is renamed.
 func provisionSpotAccount(ctx context.Context, tx pgx.Tx, userID int64) (int64, error) {
 	var accountID int64
 	if err := tx.QueryRow(ctx,
-		`INSERT INTO accounts (user_id, account_type) VALUES ($1,'SPOT') RETURNING id`,
+		`INSERT INTO accounts (user_id, account_type, fee_tier_id)
+		 VALUES ($1,'SPOT', COALESCE(
+		     (SELECT id FROM fee_tiers WHERE tier_name='STANDARD'),
+		     (SELECT id FROM fee_tiers ORDER BY id LIMIT 1)))
+		 RETURNING id`,
 		userID).Scan(&accountID); err != nil {
 		return 0, wrapError(CodeAuthInternal, "account insert", err)
 	}

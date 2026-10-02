@@ -175,7 +175,13 @@ type CommissionAssessment struct {
 	// MonthlyVolumeUSD is the account's month-to-date notional BEFORE this
 	// fill (tier-resolution input), in USD equivalent.
 	MonthlyVolumeUSD decimal.Decimal
-	Journals         []ledger.Journal
+	// Month is the calendar-month anchor the fill accrues to; FillVolumeUSD
+	// is this fill's USD-equivalent notional. The settlement path accrues
+	// them via RecordFillVolumeUSD INSIDE the fill-commit transaction —
+	// atomic with the ledger (Quote alone never writes).
+	Month         time.Time
+	FillVolumeUSD decimal.Decimal
+	Journals      []ledger.Journal
 }
 
 // CommissionStore is the persistence seam; PgCommissionStore implements it.
@@ -233,7 +239,28 @@ func monthStart(t time.Time) time.Time {
 // Fail-closed (spec §2.7): unknown fee model, missing tier for a raw
 // account, missing USD conversion, or a negative maker rate below VIP 4 all
 // abort with a coded error — a fill is never silently charged the wrong fee.
+//
+// Assess = Quote + immediate RecordFillVolumeUSD on the store — correct for
+// standalone callers. The settlement path calls Quote (no write) and
+// accrues the volume inside the fill-commit tx (pgxBalanceTx.AccrueVolume)
+// so replayed/aborted commits never double-count monthly volume.
 func (e *CommissionEngine) Assess(ctx context.Context, f CommissionFill) (*CommissionAssessment, error) {
+	a, err := e.Quote(ctx, f)
+	if err != nil {
+		return nil, err
+	}
+	if a.FillVolumeUSD.IsPositive() {
+		if err := e.store.RecordFillVolumeUSD(ctx, f.AccountID, a.Month, a.FillVolumeUSD); err != nil {
+			return nil, excerrors.Wrap(CodeCommissionEngineInternal,
+				fmt.Sprintf("record monthly volume acct %d", f.AccountID), err)
+		}
+	}
+	return a, nil
+}
+
+// Quote computes the assessment without any writes — the pure half of
+// Assess for callers embedding the volume accrual in their own tx.
+func (e *CommissionEngine) Quote(ctx context.Context, f CommissionFill) (*CommissionAssessment, error) {
 	if f.AccountID <= 0 {
 		return nil, excerrors.New(CodeCommissionConfigInvalid, "commission fill requires a positive account id")
 	}
@@ -290,6 +317,7 @@ func (e *CommissionEngine) Assess(ctx context.Context, f CommissionFill) (*Commi
 			month = e.clock()
 		}
 		month = monthStart(month)
+		a.Month = month
 		volUSD, err := e.store.MonthlyVolumeUSD(ctx, f.AccountID, month)
 		if err != nil {
 			return nil, excerrors.Wrap(CodeCommissionEngineInternal,
@@ -309,17 +337,16 @@ func (e *CommissionEngine) Assess(ctx context.Context, f CommissionFill) (*Commi
 		a.Tier, a.TierResolved = tier, true
 		a.Commission = CommissionTierCharge(tier, f.Quantity, f.LotSize, notionalQuote)
 
-		// Record this fill's volume AFTER tier resolution — a boundary
-		// crossing takes effect on the next fill, not mid-fill.
+		// Fill volume is accrued AFTER tier resolution — a boundary
+		// crossing takes effect on the next fill, not mid-fill. The write
+		// itself is the caller's (Assess records now; Quote callers accrue
+		// a.Month/a.FillVolumeUSD inside their own commit).
 		fillUSD, err := e.conv.ToUSD(ctx, f.QuoteCurrency, notionalQuote)
 		if err != nil {
 			return nil, excerrors.Wrap(CodeCommissionEngineInternal,
 				fmt.Sprintf("usd conversion %s", f.QuoteCurrency), err)
 		}
-		if err := e.store.RecordFillVolumeUSD(ctx, f.AccountID, month, fillUSD); err != nil {
-			return nil, excerrors.Wrap(CodeCommissionEngineInternal,
-				fmt.Sprintf("record monthly volume acct %d", f.AccountID), err)
-		}
+		a.FillVolumeUSD = fillUSD
 
 		if a.Commission.IsPositive() {
 			a.Journals = append(a.Journals, CommissionJournal(f, a.Commission, tier))
@@ -488,15 +515,20 @@ func (s *PgCommissionStore) MonthlyVolumeUSD(ctx context.Context, accountID int6
 	return d, nil
 }
 
+// recordFillVolumeSQL is the account_monthly_volume upsert — shared by
+// PgCommissionStore (standalone Assess) and pgxBalanceTx.AccrueVolume
+// (in-tx accrual inside the settlement commit).
+const recordFillVolumeSQL = `
+	INSERT INTO account_monthly_volume (account_id, month, volume_usd, fill_count)
+	VALUES ($1, $2, $3::numeric, 1)
+	ON CONFLICT (account_id, month) DO UPDATE SET
+	    volume_usd = account_monthly_volume.volume_usd + EXCLUDED.volume_usd,
+	    fill_count = account_monthly_volume.fill_count + 1,
+	    updated_at = now()`
+
 // RecordFillVolumeUSD upserts the fill's USD notional into the month's row.
 func (s *PgCommissionStore) RecordFillVolumeUSD(ctx context.Context, accountID int64, month time.Time, deltaUSD decimal.Decimal) error {
-	_, err := s.pool.Exec(ctx, `
-		INSERT INTO account_monthly_volume (account_id, month, volume_usd, fill_count)
-		VALUES ($1, $2, $3::numeric, 1)
-		ON CONFLICT (account_id, month) DO UPDATE SET
-		    volume_usd = account_monthly_volume.volume_usd + EXCLUDED.volume_usd,
-		    fill_count = account_monthly_volume.fill_count + 1,
-		    updated_at = now()`,
+	_, err := s.pool.Exec(ctx, recordFillVolumeSQL,
 		accountID, monthStart(month), deltaUSD.String())
 	return err
 }

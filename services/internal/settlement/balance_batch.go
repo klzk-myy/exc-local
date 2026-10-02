@@ -49,7 +49,7 @@ func (s pgxBalanceStore) InTxPgx(ctx context.Context, fn func(ctx context.Contex
 // fills posted in one SERIALIZABLE tx via unnest-based statements;
 // BalanceChanged events dispatched after commit.
 func (s *BalanceService) commitBatchSetDispatch(ctx context.Context, trades []ResolvedTrade,
-	journals []ledger.Journal) ([]FillOutcome, error) {
+	journals [][]ledger.Journal) ([]FillOutcome, error) {
 
 	sb, ok := s.store.(setBasedStore)
 	if !ok {
@@ -94,7 +94,7 @@ func markStep(step string, since time.Time) {
 // commitBatch/applyEffect — same dedup, same ordered validation, same
 // ledger_entries/journal_sums writes, same net==total assertion.
 func (s *BalanceService) commitBatchSet(ctx context.Context, tx pgx.Tx, trades []ResolvedTrade,
-	journals []ledger.Journal) ([]FillOutcome, []ledger.BalanceEvent, error) {
+	journals [][]ledger.Journal) ([]FillOutcome, []ledger.BalanceEvent, error) {
 
 	// 1. processed_trades dedup — one set insert; RETURNING gives the
 	//    applied set, the rest are replays (Duplicate outcome).
@@ -198,26 +198,37 @@ func (s *BalanceService) commitBatchSet(ctx context.Context, tx pgx.Tx, trades [
 	}
 	markStep("1b.trades", stepStart)
 
-	// 2. journal_entries — one unnest insert; RETURNING id +
-	//    idempotency_key gives the exact journal→id map (no reliance on
-	//    return order). 23505 → serial replay semantics apply per journal.
+	// 2. journal_entries — one unnest insert over the FLAT journal list
+	//    (each applied trade contributes its fill journal at flatIdx 0
+	//    plus any FEE legs: trading fee / commission / maker rebate).
+	//    RETURNING id + idempotency_key gives the exact journal→id map.
 	stepStart = time.Now()
-	ets := make([]string, 0, len(appliedIdx))
-	refs := make([]int64, 0, len(appliedIdx))
-	descs := make([]string, 0, len(appliedIdx))
-	pbs := make([]string, 0, len(appliedIdx))
-	idems := make([]string, 0, len(appliedIdx))
-	shas := make([]string, 0, len(appliedIdx))
-	for _, i := range appliedIdx {
-		j := journals[i]
-		ets = append(ets, string(j.EntryType))
-		refs = append(refs, j.ReferenceID)
-		descs = append(descs, j.Description)
-		pbs = append(pbs, j.PostedBy)
-		idems = append(idems, j.IdempotencyKey)
-		shas = append(shas, journalHash(j))
+	type flatJ struct {
+		j        ledger.Journal
+		tradeIdx int
 	}
-	journalIDs := make(map[int]int64, len(appliedIdx)) // trades-index → journal id
+	flat := make([]flatJ, 0, len(appliedIdx))
+	for _, i := range appliedIdx {
+		for _, j := range journals[i] {
+			flat = append(flat, flatJ{j, i})
+		}
+	}
+	ets := make([]string, 0, len(flat))
+	refs := make([]int64, 0, len(flat))
+	descs := make([]string, 0, len(flat))
+	pbs := make([]string, 0, len(flat))
+	idems := make([]string, 0, len(flat))
+	shas := make([]string, 0, len(flat))
+	for _, f := range flat {
+		ets = append(ets, string(f.j.EntryType))
+		refs = append(refs, f.j.ReferenceID)
+		descs = append(descs, f.j.Description)
+		pbs = append(pbs, f.j.PostedBy)
+		idems = append(idems, f.j.IdempotencyKey)
+		shas = append(shas, journalHash(f.j))
+	}
+	journalIDs := make(map[int]int64, len(flat)) // flat-index → journal id
+	fillJournalIDs := map[int]int64{}           // trades-index → FILL journal id
 	rows, err = tx.Query(ctx, `
 		INSERT INTO journal_entries
 		    (entry_type, reference_id, description, posted_by, idempotency_key, payload_sha256)
@@ -246,12 +257,16 @@ func (s *BalanceService) commitBatchSet(ctx context.Context, tx pgx.Tx, trades [
 	if err := rows.Err(); err != nil {
 		return nil, nil, fmt.Errorf("ledger: batch insert journal_entries: %w", err)
 	}
-	for _, i := range appliedIdx {
-		jid, ok := idemToID[journals[i].IdempotencyKey]
+	for fi, f := range flat {
+		jid, ok := idemToID[f.j.IdempotencyKey]
 		if !ok {
-			return nil, nil, fmt.Errorf("ledger: journal id missing for fill trade %d", trades[i].Fill.TradeID)
+			return nil, nil, fmt.Errorf("ledger: journal id missing for %q (trade %d)",
+				f.j.IdempotencyKey, trades[f.tradeIdx].Fill.TradeID)
 		}
-		journalIDs[i] = jid
+		journalIDs[fi] = jid
+		if f.j.EntryType == ledger.EntryTradeFill {
+			fillJournalIDs[f.tradeIdx] = jid
+		}
 	}
 
 	markStep("2.journal_entries", stepStart)
@@ -260,8 +275,8 @@ func (s *BalanceService) commitBatchSet(ctx context.Context, tx pgx.Tx, trades [
 	//    query; validate each journal against the fetched chart.
 	codeSeen := map[string]struct{}{}
 	codes := make([]string, 0, 8)
-	for _, i := range appliedIdx {
-		for _, l := range journals[i].Lines {
+	for _, f := range flat {
+		for _, l := range f.j.Lines {
 			if _, ok := codeSeen[l.AccountCode]; !ok {
 				codeSeen[l.AccountCode] = struct{}{}
 				codes = append(codes, l.AccountCode)
@@ -288,8 +303,8 @@ func (s *BalanceService) commitBatchSet(ctx context.Context, tx pgx.Tx, trades [
 		return nil, nil, fmt.Errorf("ledger: resolve accounts: %w", err)
 	}
 	chart := ledger.NewChart(chartAccs)
-	for _, i := range appliedIdx {
-		if err := journals[i].ValidateAccounts(chart); err != nil {
+	for _, f := range flat {
+		if err := f.j.ValidateAccounts(chart); err != nil {
 			return nil, nil, err
 		}
 	}
@@ -297,15 +312,15 @@ func (s *BalanceService) commitBatchSet(ctx context.Context, tx pgx.Tx, trades [
 	markStep("3.resolve_accounts", stepStart)
 	stepStart = time.Now()
 	// 4. ledger_lines — flat unnest across all applied journals.
-	ljids := make([]int64, 0, len(appliedIdx)*4)
-	lcodes := make([]string, 0, len(appliedIdx)*4)
-	ldr := make([]string, 0, len(appliedIdx)*4)
-	lcr := make([]string, 0, len(appliedIdx)*4)
-	lccy := make([]string, 0, len(appliedIdx)*4)
-	lnar := make([]string, 0, len(appliedIdx)*4)
-	for _, i := range appliedIdx {
-		for _, l := range journals[i].Lines {
-			ljids = append(ljids, journalIDs[i])
+	ljids := make([]int64, 0, len(flat)*4)
+	lcodes := make([]string, 0, len(flat)*4)
+	ldr := make([]string, 0, len(flat)*4)
+	lcr := make([]string, 0, len(flat)*4)
+	lccy := make([]string, 0, len(flat)*4)
+	lnar := make([]string, 0, len(flat)*4)
+	for fi, f := range flat {
+		for _, l := range f.j.Lines {
+			ljids = append(ljids, journalIDs[fi])
 			lcodes = append(lcodes, l.AccountCode)
 			ldr = append(ldr, l.Debit.String())
 			lcr = append(lcr, l.Credit.String())
@@ -332,7 +347,7 @@ func (s *BalanceService) commitBatchSet(ctx context.Context, tx pgx.Tx, trades [
 		SELECT journal_entry_id, currency, SUM(debit_amount)::text, SUM(credit_amount)::text
 		  FROM ledger_lines WHERE journal_entry_id = ANY($1)
 		 GROUP BY journal_entry_id, currency
-		HAVING SUM(debit_amount) <> SUM(credit_amount)`, ljids0(journalIDs, appliedIdx))
+		HAVING SUM(debit_amount) <> SUM(credit_amount)`, flatJournalIDs(journalIDs))
 	if err != nil {
 		return nil, nil, fmt.Errorf("ledger: batch zero-sum verify: %w", err)
 	}
@@ -358,28 +373,28 @@ func (s *BalanceService) commitBatchSet(ctx context.Context, tx pgx.Tx, trades [
 	//    reject journals where one (acct,ccy) is touched twice — the
 	//    ledger-entry-id map keys on it (ambiguous; force per-fill retry).
 	type effRef struct {
-		tradeIdx int
-		journal  ledger.Journal
-		effect   ledger.AccountEffect
+		flatIdx int
+		journal ledger.Journal
+		effect  ledger.AccountEffect
 	}
 	var effs []effRef
 	pairSeen := map[pairKey]struct{}{}
 	pairs := make([]pairKey, 0, 64)
-	for _, i := range appliedIdx {
-		j := journals[i]
+	for fi, f := range flat {
+		j := f.j
 		inJournal := map[pairKey]struct{}{}
 		for _, e := range j.Effects {
 			pk := pairKey{e.AccountID, e.Currency}
 			if _, dup := inJournal[pk]; dup {
 				return nil, nil, fmt.Errorf("ledger: journal for trade %d touches acct %d %s twice — refusing ambiguous batch",
-					trades[i].Fill.TradeID, e.AccountID, e.Currency)
+					trades[f.tradeIdx].Fill.TradeID, e.AccountID, e.Currency)
 			}
 			inJournal[pk] = struct{}{}
 			if _, ok := pairSeen[pk]; !ok {
 				pairSeen[pk] = struct{}{}
 				pairs = append(pairs, pk)
 			}
-			effs = append(effs, effRef{i, j, e})
+			effs = append(effs, effRef{fi, j, e})
 		}
 	}
 
@@ -451,7 +466,7 @@ func (s *BalanceService) commitBatchSet(ctx context.Context, tx pgx.Tx, trades [
 	for _, r := range effs {
 		e := r.effect
 		pk := pairKey{e.AccountID, e.Currency}
-		jid := journalIDs[r.tradeIdx]
+		jid := journalIDs[r.flatIdx]
 		st := final[pk]
 		newAvail := st[0].Add(e.AvailableDelta)
 		newLocked := st[1].Add(e.LockedDelta)
@@ -548,7 +563,7 @@ func (s *BalanceService) commitBatchSet(ctx context.Context, tx pgx.Tx, trades [
 			ccy  string
 		}
 		entryIDs := map[entryKey]int64{} // (journal,acct,ccy) — dup-in-journal rejected above
-		jids := ljids0(journalIDs, appliedIdx)
+		jids := flatJournalIDs(journalIDs)
 		rows, err = tx.Query(ctx, `
 			SELECT id, journal_entry_id, account_id, currency FROM ledger_entries
 			 WHERE journal_entry_id = ANY($1)`, jids)
@@ -627,6 +642,33 @@ func (s *BalanceService) commitBatchSet(ctx context.Context, tx pgx.Tx, trades [
 
 	markStep("11.journal_sums_assert", stepStart)
 
+	// 11b. Commission monthly-volume accrual — in the same commit so a
+	//      retried/aborted batch never double-counts (Task 3.3.13).
+	var vaccts []int64
+	var vmonths []time.Time
+	var vdeltas []string
+	for _, i := range appliedIdx {
+		for _, v := range trades[i].Volumes {
+			vaccts = append(vaccts, v.AccountID)
+			vmonths = append(vmonths, v.Month)
+			vdeltas = append(vdeltas, v.DeltaUSD.String())
+		}
+	}
+	if len(vaccts) > 0 {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO account_monthly_volume (account_id, month, volume_usd, fill_count)
+			SELECT u.aid, u.mon, u.d::numeric, 1
+			  FROM unnest($1::bigint[], $2::timestamptz[], $3::text[]) AS u(aid, mon, d)
+			ON CONFLICT (account_id, month) DO UPDATE SET
+			    volume_usd = account_monthly_volume.volume_usd + EXCLUDED.volume_usd,
+			    fill_count = account_monthly_volume.fill_count + 1,
+			    updated_at = now()`,
+			vaccts, vmonths, vdeltas); err != nil {
+			return nil, nil, fmt.Errorf("ledger: batch volume accrual: %w", err)
+		}
+	}
+	markStep("11b.volume_accrual", stepStart)
+
 	// Outcomes in input order.
 	outcomes := make([]FillOutcome, 0, len(trades))
 	for i := range trades {
@@ -636,17 +678,17 @@ func (s *BalanceService) commitBatchSet(ctx context.Context, tx pgx.Tx, trades [
 			continue
 		}
 		outcomes = append(outcomes, FillOutcome{
-			TradeID: trades[i].Fill.TradeID, JournalID: journalIDs[i], Applied: true,
+			TradeID: trades[i].Fill.TradeID, JournalID: fillJournalIDs[i], Applied: true,
 		})
 	}
 	return outcomes, events, nil
 }
 
-// ljids0 flattens the journal-id map for ANY($1) predicates.
-func ljids0(m map[int]int64, idx []int) []int64 {
-	out := make([]int64, 0, len(idx))
-	for _, i := range idx {
-		out = append(out, m[i])
+// flatJournalIDs flattens the journal-id map for ANY($1) predicates.
+func flatJournalIDs(m map[int]int64) []int64 {
+	out := make([]int64, 0, len(m))
+	for _, id := range m {
+		out = append(out, id)
 	}
 	return out
 }
