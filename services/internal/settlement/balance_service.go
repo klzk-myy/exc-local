@@ -190,7 +190,10 @@ type FillOutcome struct {
 type balanceTx interface {
 	// RecordProcessed inserts the processed_trades dedup row; applied is
 	// false when trade_id already exists (idempotent replay → skip).
-	RecordProcessed(ctx context.Context, tradeID, shardID int64) (applied bool, err error)
+	// rawFrame persists the verbatim Event frame (migration 281) — the
+	// durable source for boot-time republish repair of the
+	// commit→publish crash window.
+	RecordProcessed(ctx context.Context, tradeID, shardID int64, rawFrame []byte) (applied bool, err error)
 	// RecordTrade writes the public tape row (trades, id = the engine
 	// trade id recon keys expected fees on) inside the caller's tx — the
 	// tape and the ledger commit or abort together, so the public tape
@@ -404,7 +407,8 @@ func (s *BalanceService) commitBatch(ctx context.Context, trades []ResolvedTrade
 	var events []ledger.BalanceEvent
 	err := s.store.InTx(ctx, func(ctx context.Context, tx balanceTx) error {
 		for i := range trades {
-			applied, err := tx.RecordProcessed(ctx, int64(trades[i].Fill.TradeID), trades[i].Fill.ShardID)
+			applied, err := tx.RecordProcessed(ctx, int64(trades[i].Fill.TradeID),
+				trades[i].Fill.ShardID, trades[i].Fill.Raw)
 			if err != nil {
 				return fmt.Errorf("balance: dedup insert trade %d: %w", trades[i].Fill.TradeID, err)
 			}
@@ -676,11 +680,13 @@ type pgxBalanceTx struct {
 
 // RecordProcessed is the trade_id dedup (migration 022): ON CONFLICT the
 // row already exists → the fill was applied by an earlier commit; skip.
-func (t pgxBalanceTx) RecordProcessed(ctx context.Context, tradeID, shardID int64) (bool, error) {
+// raw_frame (migration 281) rides the same insert — it is the durable
+// republish source for the boot-time backlog repair.
+func (t pgxBalanceTx) RecordProcessed(ctx context.Context, tradeID, shardID int64, rawFrame []byte) (bool, error) {
 	tag, err := t.tx.Exec(ctx, `
-		INSERT INTO processed_trades (trade_id, processed_at, shard_id)
-		VALUES ($1, now(), $2)
-		ON CONFLICT (trade_id) DO NOTHING`, tradeID, shardID)
+		INSERT INTO processed_trades (trade_id, processed_at, shard_id, raw_frame)
+		VALUES ($1, now(), $2, $3)
+		ON CONFLICT (trade_id) DO NOTHING`, tradeID, shardID, rawFrame)
 	if err != nil {
 		return false, err
 	}
@@ -1033,4 +1039,37 @@ func (r *PgxTradeResolver) ResolveBatch(ctx context.Context, fills []EngineFill)
 		}
 	}
 	return out, nil
+}
+
+// RepublishBacklog implements BacklogSource for the boot-time republish
+// repair: committed fills on this shard within lookback whose raw Event
+// frames were persisted to processed_trades (migration 281) in the same
+// transaction as the settlement commit. trade_seq is the engine
+// sequence — the "s{shard}-{seq}" Nats-Msg-Id dedup key the bridge
+// publishes under, so re-emission of already-published fills is a
+// stream-level no-op.
+func (r *PgxTradeResolver) RepublishBacklog(ctx context.Context, shardID int64,
+	lookback time.Duration) ([]BacklogFill, error) {
+	rows, err := r.Pool.Query(ctx, `
+		SELECT pt.trade_id, i.symbol, t.trade_seq, pt.raw_frame
+		  FROM processed_trades pt
+		  JOIN trades t       ON t.id = pt.trade_id
+		  JOIN instruments i  ON i.id = t.instrument_id
+		 WHERE pt.shard_id = $1
+		   AND pt.raw_frame IS NOT NULL
+		   AND pt.processed_at > now() - $2::interval
+		 ORDER BY pt.processed_at`, shardID, lookback.String())
+	if err != nil {
+		return nil, fmt.Errorf("republish backlog scan shard %d: %w", shardID, err)
+	}
+	defer rows.Close()
+	var out []BacklogFill
+	for rows.Next() {
+		var f BacklogFill
+		if err := rows.Scan(&f.TradeID, &f.Symbol, &f.EngineSeq, &f.Raw); err != nil {
+			return nil, fmt.Errorf("republish backlog row: %w", err)
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
 }

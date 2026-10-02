@@ -84,7 +84,7 @@ type fakeBalanceTx struct {
 	posts   []ledger.Journal
 }
 
-func (t *fakeBalanceTx) RecordProcessed(_ context.Context, tradeID, shardID int64) (bool, error) {
+func (t *fakeBalanceTx) RecordProcessed(_ context.Context, tradeID, shardID int64, _ []byte) (bool, error) {
 	t.s.mu.Lock()
 	defer t.s.mu.Unlock()
 	if _, ok := t.s.processed[tradeID]; ok {

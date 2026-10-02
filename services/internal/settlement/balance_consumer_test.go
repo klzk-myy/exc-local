@@ -232,3 +232,102 @@ func TestConsumerNoRepublisherIsANoop(t *testing.T) {
 		t.Fatalf("commits=%d", store.committed())
 	}
 }
+
+// backlogResolver wraps fakeResolver with the BacklogSource seam the
+// boot-time repair reads (migration 281 durable republish source).
+type backlogResolver struct {
+	*fakeResolver
+	fills []BacklogFill
+	err   error
+}
+
+func (r *backlogResolver) RepublishBacklog(_ context.Context, shardID int64,
+	lookback time.Duration) ([]BacklogFill, error) {
+	return r.fills, r.err
+}
+
+// TestConsumerRepublishBacklog covers the crash-window repair: a fill
+// committed in a previous run (raw_frame persisted on processed_trades)
+// is re-emitted at Run start under the same subject/msgID contract —
+// JetStream dedup makes the overlap a no-op.
+func TestConsumerRepublishBacklog(t *testing.T) {
+	store := newFakeStore()
+	svc := newBalanceServiceForTest(store, &fakeLocker{}, &fakeDispatcher{}, &fakeManagedPoster{}, &fakeAlerter{})
+
+	fb := flatbuffers.NewBuilder(256)
+	frame := encodeFill(fb, 7, 42, 101, 202, 125000000, 10000_00000000)
+	resolver := &backlogResolver{
+		fakeResolver: &fakeResolver{m: map[uint64]ResolvedTrade{}},
+		fills: []BacklogFill{
+			{TradeID: 42, Symbol: "EUR/USD", EngineSeq: 7, Raw: frame},
+			{TradeID: 43, Symbol: "EUR/USD", EngineSeq: 8, Raw: frame},
+		},
+	}
+	repub := &recordingRepublisher{}
+	src := FuncSource(func(int, func([]byte)) int { return 0 })
+	c, err := NewFillConsumer(svc, resolver, src, 3, 1, time.Millisecond)
+	if err != nil {
+		t.Fatalf("consumer: %v", err)
+	}
+	c.WithRepublisher(repub)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- c.Run(ctx) }()
+	deadline := time.Now().Add(2 * time.Second)
+	for repub.count() < 4 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	cancel()
+	<-done
+
+	repub.mu.Lock()
+	defer repub.mu.Unlock()
+	if len(repub.calls) != 4 {
+		t.Fatalf("backlog republish calls=%d, want 4 (2 fills × trades+settlements)", len(repub.calls))
+	}
+	want := map[string]int{ // subject → msgID
+		"trades.3.EUR-USD s3-7":      0,
+		"settlements.3.EUR-USD s3-7": 0,
+		"trades.3.EUR-USD s3-8":      0,
+		"settlements.3.EUR-USD s3-8": 0,
+	}
+	for _, call := range repub.calls {
+		key := call.subject + " " + call.msgID
+		if _, ok := want[key]; !ok {
+			t.Fatalf("unexpected backlog publish %s", key)
+		}
+		want[key]++
+	}
+	for k, n := range want {
+		if n != 1 {
+			t.Fatalf("%s published %d times", k, n)
+		}
+	}
+}
+
+// TestConsumerRepublishBacklogScanFailsClosed — a backlog scan error
+// aborts Run before any consume (same fail-closed posture as a publish
+// failure: restart until the store answers).
+func TestConsumerRepublishBacklogScanFailsClosed(t *testing.T) {
+	store := newFakeStore()
+	svc := newBalanceServiceForTest(store, &fakeLocker{}, &fakeDispatcher{}, &fakeManagedPoster{}, &fakeAlerter{})
+	resolver := &backlogResolver{
+		fakeResolver: &fakeResolver{m: map[uint64]ResolvedTrade{}},
+		err:          errors.New("pg down"),
+	}
+	repub := &recordingRepublisher{}
+	src := FuncSource(func(int, func([]byte)) int { return 0 })
+	c, err := NewFillConsumer(svc, resolver, src, 3, 1, time.Millisecond)
+	if err != nil {
+		t.Fatalf("consumer: %v", err)
+	}
+	c.WithRepublisher(repub)
+	err = c.Run(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "backlog") {
+		t.Fatalf("Run err=%v, want backlog scan failure", err)
+	}
+	if repub.count() != 0 {
+		t.Fatalf("no publishes expected on scan failure (calls=%d)", repub.count())
+	}
+}

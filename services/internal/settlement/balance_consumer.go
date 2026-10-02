@@ -128,6 +128,29 @@ type TradeRepublisher interface {
 	PublishEvent(ctx context.Context, subject, msgID string, payload []byte) error
 }
 
+// BacklogFill is one committed fill eligible for the boot-time republish
+// repair — the durable fields needed to re-emit its Event frame under
+// the bridge's subject/msgID contract.
+type BacklogFill struct {
+	TradeID   int64
+	Symbol    string
+	EngineSeq int64
+	Raw       []byte
+}
+
+// BacklogSource is the optional resolver seam feeding republishBacklog:
+// it lists fills committed to processed_trades within lookback whose raw
+// frames were persisted in the same transaction (migration 281) — the
+// crash window between ledger commit and JetStream publish.
+type BacklogSource interface {
+	RepublishBacklog(ctx context.Context, shardID int64, lookback time.Duration) ([]BacklogFill, error)
+}
+
+// RepublishBacklogLookback bounds the boot repair scan. The gap is the
+// commit→publish window (microseconds normally); one hour of backlog is
+// far beyond any restart gap while keeping the scan trivially small.
+const RepublishBacklogLookback = time.Hour
+
 // FillConsumer batches resolved fills into BalanceService commits.
 // Construct with NewFillConsumer; Run until ctx cancellation or a
 // settlement failure (fail-closed — Run returns the error).
@@ -223,6 +246,13 @@ func (c *FillConsumer) Metrics() ConsumerMetrics {
 // ctx.Err() on cancellation; any settlement error is returned verbatim
 // (fail-closed halt — restart replays safely via processed_trades).
 func (c *FillConsumer) Run(ctx context.Context) error {
+	// Repair the committed-but-unpublished crash window before consuming:
+	// fills whose settlement commit landed but whose JetStream publish
+	// never ran. Nats-Msg-Id dedup makes re-emitted frames no-ops, so
+	// scanning a generous lookback is safe; only the gap actually lands.
+	if err := c.republishBacklog(ctx); err != nil {
+		return err
+	}
 	pending := make([]ResolvedTrade, 0, c.batchMax)
 	var oldest time.Time // timestamp of pending[0]'s enqueue
 
@@ -358,26 +388,68 @@ func (c *FillConsumer) republish(ctx context.Context, trades []ResolvedTrade) er
 		if len(rt.Fill.Raw) == 0 {
 			continue // resolved upstream (tests, non-wire sources)
 		}
-		symbol := strings.ReplaceAll(rt.Symbol, "/", "-")
-		msgID := fmt.Sprintf("s%d-%d", c.shardID, rt.Fill.EngineSeq)
-		for _, stream := range []string{"trades", "settlements"} {
-			subj, err := excnats.Subject(stream, uint32(c.shardID), symbol)
-			if err != nil {
-				// Deterministic — the symbol/stream token is our own
-				// resolved data; it will fail identically on every
-				// replay. The fill is already committed, so aborting
-				// would restart-loop the consumer forever. Dead-letter:
-				// count, log, and move on.
-				c.repubDropped.Add(1)
-				c.logf("fill republish dead-letter trade %d stream %s symbol %q: %v",
-					rt.Fill.TradeID, stream, symbol, err)
-				continue
-			}
-			if err := c.repub.PublishEvent(ctx, subj, msgID, rt.Fill.Raw); err != nil {
-				return fmt.Errorf("fill republish %s trade %d: %w", subj, rt.Fill.TradeID, err)
-			}
-			c.republished.Add(1)
+		if err := c.publishFillFrame(ctx, int64(rt.Fill.TradeID), rt.Symbol,
+			int64(rt.Fill.EngineSeq), rt.Fill.Raw); err != nil {
+			return err
 		}
+	}
+	return nil
+}
+
+// republishBacklog re-emits persisted raw frames for fills committed
+// within RepublishBacklogLookback — the durable repair for the
+// commit→publish crash window (migration 281). No-op without a
+// republisher (bridge topology) or a resolver lacking BacklogSource.
+func (c *FillConsumer) republishBacklog(ctx context.Context) error {
+	src, ok := c.resolver.(BacklogSource)
+	if !ok || c.repub == nil {
+		return nil
+	}
+	fills, err := src.RepublishBacklog(ctx, c.shardID, RepublishBacklogLookback)
+	if err != nil {
+		return fmt.Errorf("fill republish backlog scan: %w", err)
+	}
+	for i := range fills {
+		f := &fills[i]
+		if len(f.Raw) == 0 {
+			continue
+		}
+		if err := c.publishFillFrame(ctx, f.TradeID, f.Symbol, f.EngineSeq, f.Raw); err != nil {
+			return fmt.Errorf("fill republish backlog trade %d: %w", f.TradeID, err)
+		}
+	}
+	if len(fills) > 0 {
+		c.logf("fill republish backlog: re-emitted %d committed fills (shard %d)",
+			len(fills), c.shardID)
+	}
+	return nil
+}
+
+// publishFillFrame emits one committed fill's raw frame to both bridge
+// streams — subject from the resolved symbol ('/'→'-'), msgID the
+// bridge's "s{shard}-{seq}" dedup key. A deterministic subject failure
+// dead-letters (count + log); a publish error aborts the caller.
+func (c *FillConsumer) publishFillFrame(ctx context.Context, tradeID int64,
+	symbol string, engineSeq int64, raw []byte) error {
+	sym := strings.ReplaceAll(symbol, "/", "-")
+	msgID := fmt.Sprintf("s%d-%d", c.shardID, engineSeq)
+	for _, stream := range []string{"trades", "settlements"} {
+		subj, err := excnats.Subject(stream, uint32(c.shardID), sym)
+		if err != nil {
+			// Deterministic — the symbol/stream token is our own
+			// resolved data; it will fail identically on every replay.
+			// The fill is already committed, so aborting would
+			// restart-loop the consumer forever. Dead-letter: count,
+			// log, and move on.
+			c.repubDropped.Add(1)
+			c.logf("fill republish dead-letter trade %d stream %s symbol %q: %v",
+				tradeID, stream, sym, err)
+			continue
+		}
+		if err := c.repub.PublishEvent(ctx, subj, msgID, raw); err != nil {
+			return fmt.Errorf("fill republish %s trade %d: %w", subj, tradeID, err)
+		}
+		c.republished.Add(1)
 	}
 	return nil
 }

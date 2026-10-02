@@ -901,21 +901,28 @@ func TestIntegrationConfirmSettlementDeliveryFees(t *testing.T) {
 	pool := grossNetPool(t)
 	ctx := context.Background()
 
-	// Fixture: two test_scoped accounts (recon-invisible — the committed
-	// ledger residue must never trip ExpectedFees/CollectedFees/
-	// FeeRevenue), a SPOT instrument, one ACTIVE nostro, a PD trade
-	// (settlement_date set) with per-side fees, and two PENDING legs.
-	// The committed fixture is deliberately left in place: ledger rows are
-	// append-only (FK-chained), and a coherent trade+legs+journals set is
-	// the recon-clean residue — deleting the trade would orphan the
-	// revenue legs into a fee_revenue_orphan finding.
-	var buyer, seller, instrID int64
-	if err := pool.QueryRow(ctx, `
-		SELECT min(id), max(id) FROM accounts WHERE test_scoped`).Scan(&buyer, &seller); err != nil {
-		t.Skipf("test-scoped accounts empty: %v", err)
+	// Fixture: a fresh user + two accounts under an itest-*@exc.local
+	// email — the migration-280 trigger marks them test_scoped at insert,
+	// keeping the committed ledger residue recon-invisible while giving
+	// the test a hermetic principal. Shared fixture accounts drift
+	// between suites and poison the journal_sums↔balances invariant on
+	// re-runs (post confirm once and a second run's invariant check sees
+	// the earlier ledger residue against a fresh balance expectation).
+	var userID, buyer, seller, instrID int64
+	if err := pool.QueryRow(ctx,
+		`INSERT INTO users (email,status,kyc_status)
+		 VALUES ($1,'ACTIVE','VERIFIED') RETURNING id`,
+		fmt.Sprintf("itest-feeconfirm-%d@exc.local", time.Now().UnixNano())).
+		Scan(&userID); err != nil {
+		t.Skipf("user fixture: %v", err)
 	}
-	if buyer == seller {
-		t.Skip("need two distinct test-scoped accounts")
+	for _, dst := range []*int64{&buyer, &seller} {
+		if err := pool.QueryRow(ctx,
+			`INSERT INTO accounts (user_id,account_type,kyc_tier,status,base_currency,settlement_intent)
+			 VALUES ($1,'MARGIN','T2','ACTIVE','USD','PHYSICAL_DELIVERY') RETURNING id`,
+			userID).Scan(dst); err != nil {
+			t.Skipf("account fixture: %v", err)
+		}
 	}
 	if err := pool.QueryRow(ctx,
 		`SELECT id FROM instruments WHERE instrument_type='SPOT' LIMIT 1`).Scan(&instrID); err != nil {
@@ -924,8 +931,8 @@ func TestIntegrationConfirmSettlementDeliveryFees(t *testing.T) {
 	var nostroID int64
 	if err := pool.QueryRow(ctx, `
 		INSERT INTO nostro_accounts (currency, bank_name, bank_code, account_number, status)
-		VALUES ('USD','ITEST FeeBank','ITESTUS33','FEESEAM-TEST','ACTIVE')
-		RETURNING id`).Scan(&nostroID); err != nil {
+		VALUES ('USD','ITEST FeeBank','ITESTUS33',$1,'ACTIVE')
+		RETURNING id`, fmt.Sprintf("FEESEAM-%d", time.Now().UnixNano())).Scan(&nostroID); err != nil {
 		t.Skipf("nostro fixture: %v", err)
 	}
 	var tradeID int64
@@ -1041,13 +1048,23 @@ func TestIntegrationBatchTapeCarriesSettlementDate(t *testing.T) {
 	pool := grossNetPool(t)
 	ctx := context.Background()
 
-	var buyer, seller, instrID int64
-	if err := pool.QueryRow(ctx, `
-		SELECT min(id), max(id) FROM accounts WHERE test_scoped`).Scan(&buyer, &seller); err != nil {
-		t.Skipf("test-scoped accounts empty: %v", err)
+	// Hermetic principal — shared test_scoped accounts drift between
+	// suites and break the journal_sums↔balances invariant on re-runs.
+	var userID, buyer, seller, instrID int64
+	if err := pool.QueryRow(ctx,
+		`INSERT INTO users (email,status,kyc_status)
+		 VALUES ($1,'ACTIVE','VERIFIED') RETURNING id`,
+		fmt.Sprintf("itest-batchtape-%d@exc.local", time.Now().UnixNano())).
+		Scan(&userID); err != nil {
+		t.Skipf("user fixture: %v", err)
 	}
-	if buyer == seller {
-		t.Skip("need two distinct test-scoped accounts")
+	for _, dst := range []*int64{&buyer, &seller} {
+		if err := pool.QueryRow(ctx,
+			`INSERT INTO accounts (user_id,account_type,kyc_tier,status,base_currency,settlement_intent)
+			 VALUES ($1,'MARGIN','T2','ACTIVE','USD','PHYSICAL_DELIVERY') RETURNING id`,
+			userID).Scan(dst); err != nil {
+			t.Skipf("account fixture: %v", err)
+		}
 	}
 	if err := pool.QueryRow(ctx,
 		`SELECT id FROM instruments WHERE instrument_type='SPOT' LIMIT 1`).Scan(&instrID); err != nil {
@@ -1064,7 +1081,10 @@ func TestIntegrationBatchTapeCarriesSettlementDate(t *testing.T) {
 	qty := decimal.NewFromInt(100)
 	px := decimal.RequireFromString("1.0850")
 	qa := qty.Mul(px).Round(8)
-	tradeID := int64(987654001)
+	// Unique per run — migverify persists between runs, so a fixed id
+	// collides with the prior run's committed processed_trades/deposit
+	// idempotency rows.
+	tradeID := time.Now().UnixNano()
 	sd := time.Now().UTC().Truncate(24*time.Hour).AddDate(0, 0, 1)
 	for _, dep := range []struct {
 		acct int64
@@ -1100,7 +1120,8 @@ func TestIntegrationBatchTapeCarriesSettlementDate(t *testing.T) {
 
 	rt := ResolvedTrade{
 		Fill: EngineFill{TradeID: uint64(tradeID), BuyOrderID: 9001, SellOrderID: 9002,
-			Price: px, Qty: qty, ShardID: 0, EngineSeq: 1},
+			Price: px, Qty: qty, ShardID: 0, EngineSeq: 1,
+			Raw: []byte("\x01\x02itest-raw-frame")},
 		InstrumentID:   instrID,
 		BuyerAccountID: buyer, SellerAccountID: seller,
 		BaseCurrency: "EUR", QuoteCurrency: "USD",
@@ -1146,5 +1167,37 @@ func TestIntegrationBatchTapeCarriesSettlementDate(t *testing.T) {
 	}
 	if bf != "0.50000000" || sf != "0.10000000" {
 		t.Fatalf("taped fees = %s/%s, want 0.50000000/0.10000000", bf, sf)
+	}
+
+	// Migration 281: the raw Event frame rides the dedup insert — the
+	// durable source for the boot-time republish repair.
+	var rf []byte
+	if err := pool.QueryRow(ctx,
+		`SELECT raw_frame FROM processed_trades WHERE trade_id=$1`, tradeID).
+		Scan(&rf); err != nil {
+		t.Fatalf("read raw_frame: %v", err)
+	}
+	if string(rf) != "\x01\x02itest-raw-frame" {
+		t.Fatalf("raw_frame = %x", rf)
+	}
+	// And the backlog scan surfaces it under the bridge dedup key shape
+	// (symbol + engine seq) for re-emission.
+	res := &PgxTradeResolver{Pool: pool}
+	backlog, err := res.RepublishBacklog(ctx, 0, time.Hour)
+	if err != nil {
+		t.Fatalf("RepublishBacklog: %v", err)
+	}
+	found := false
+	for _, f := range backlog {
+		if f.TradeID == tradeID {
+			found = true
+			if f.EngineSeq != 1 || string(f.Raw) != "\x01\x02itest-raw-frame" ||
+				!strings.Contains(f.Symbol, "/") {
+				t.Fatalf("backlog row = %+v", f)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("trade %d absent from republish backlog", tradeID)
 	}
 }

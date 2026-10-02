@@ -97,21 +97,25 @@ func (s *BalanceService) commitBatchSet(ctx context.Context, tx pgx.Tx, trades [
 	journals [][]ledger.Journal) ([]FillOutcome, []ledger.BalanceEvent, error) {
 
 	// 1. processed_trades dedup — one set insert; RETURNING gives the
-	//    applied set, the rest are replays (Duplicate outcome).
+	//    applied set, the rest are replays (Duplicate outcome). The raw
+	//    Event frame rides along (migration 281) as the durable republish
+	//    source for boot-time backlog repair.
 	stepStart := time.Now()
 	tids := make([]int64, len(trades))
 	shards := make([]int64, len(trades))
+	frames := make([][]byte, len(trades))
 	for i := range trades {
 		tids[i] = int64(trades[i].Fill.TradeID)
 		shards[i] = trades[i].Fill.ShardID
+		frames[i] = trades[i].Fill.Raw
 	}
 	appliedSet := map[int64]struct{}{}
 	rows, err := tx.Query(ctx, `
-		INSERT INTO processed_trades (trade_id, processed_at, shard_id)
-		SELECT t.tid, now(), t.sid
-		  FROM unnest($1::bigint[], $2::bigint[]) AS t(tid, sid)
+		INSERT INTO processed_trades (trade_id, processed_at, shard_id, raw_frame)
+		SELECT t.tid, now(), t.sid, t.frame
+		  FROM unnest($1::bigint[], $2::bigint[], $3::bytea[]) AS t(tid, sid, frame)
 		ON CONFLICT (trade_id) DO NOTHING
-		RETURNING trade_id`, tids, shards)
+		RETURNING trade_id`, tids, shards, frames)
 	if err != nil {
 		return nil, nil, fmt.Errorf("balance: batch dedup insert: %w", err)
 	}
