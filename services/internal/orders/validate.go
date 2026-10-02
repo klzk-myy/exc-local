@@ -19,6 +19,11 @@ func codeErr(code, format string, args ...any) *excerrors.Error {
 
 // --- enum sets --------------------------------------------------------------
 
+// gtcMaxLifetimeDays — spec §27 R8: no resting order may outlive 90
+// calendar days. GTC submissions auto-convert to GTD at the cap;
+// explicit GTD dates beyond it clamp down.
+const gtcMaxLifetimeDays = 90
+
 func validSide(s string) bool { return s == SideBuy || s == SideSell }
 func validTIF(t string) bool {
 	switch t {
@@ -184,6 +189,23 @@ func ValidateSubmit(req *SubmitRequest, inst *Instrument, acct *Account,
 			return codeErr("INVALID_REQUEST", "gtd_expiry must be in the future")
 		}
 	}
+	// Spec §27 R8 — GTC max order lifetime is 90 calendar days:
+	// auto-convert GTC to GTD at the cap so the engine's deterministic
+	// expiry machinery emits the auto-expire (GTD_EXPIRED). An explicit
+	// GTD beyond the cap clamps down — the ceiling applies to every
+	// resting order, not just the GTC spelling.
+	cap90 := now.AddDate(0, 0, gtcMaxLifetimeDays)
+	switch req.TimeInForce {
+	case TIFGTC:
+		req.TimeInForce = TIFGTD
+		if req.GTDExpiry == nil || req.GTDExpiry.After(cap90) {
+			req.GTDExpiry = &cap90
+		}
+	case TIFGTD:
+		if req.GTDExpiry != nil && req.GTDExpiry.After(cap90) {
+			req.GTDExpiry = &cap90
+		}
+	}
 	if req.STPMode != "" && !validSTPModes[req.STPMode] {
 		return codeErr("INVALID_REQUEST", "invalid stp_mode %q", req.STPMode)
 	}
@@ -232,7 +254,11 @@ func ValidateSubmit(req *SubmitRequest, inst *Instrument, acct *Account,
 			return codeErr("INVALID_REQUEST", "price required for %s orders", req.OrderType)
 		}
 	case TypeStop:
-		if req.StopPrice == nil || !req.StopPrice.IsPositive() {
+		// A trailing stop (offset + unit, first-class or via algo_params)
+		// anchors from the reference price — no initial stop_price needed.
+		trailing := req.TrailingOffset != nil || req.TrailingOffsetUnit != "" ||
+			req.AlgoType == AlgoTrailingStop
+		if !trailing && (req.StopPrice == nil || !req.StopPrice.IsPositive()) {
 			return codeErr("INVALID_REQUEST", "stop_price required for STOP orders")
 		}
 	case TypeStopLimit:
@@ -364,7 +390,8 @@ func StaleModify(expected *uint64, current uint64) error {
 
 // ValidateModify checks an amend against the current order state.
 // wire-0-means-unchanged: absent fields pass 0 to the engine.
-func ValidateModify(req *ModifyRequest, o *Order, inst *Instrument) error {
+func ValidateModify(req *ModifyRequest, o *Order, inst *Instrument,
+	now time.Time) error {
 	if o == nil {
 		return codeErr("ORDER_NOT_FOUND", "order not found")
 	}
@@ -384,7 +411,8 @@ func ValidateModify(req *ModifyRequest, o *Order, inst *Instrument) error {
 		return codeErr("INVALID_REQUEST", "order_seq is required")
 	}
 	if req.Price == nil && req.Quantity == nil && req.StopPrice == nil &&
-		req.DisplayQty == nil && req.TimeInForce == "" && req.GTDExpiry == nil {
+		req.DisplayQty == nil && req.TimeInForce == "" && req.GTDExpiry == nil &&
+		req.TriggerSource == "" {
 		return codeErr("INVALID_REQUEST", "no mutable fields supplied")
 	}
 	if req.Quantity != nil {
@@ -448,6 +476,33 @@ func ValidateModify(req *ModifyRequest, o *Order, inst *Instrument) error {
 			return codeErr("ORDER_AMEND_REJECTED",
 				"cannot amend to IOC/FOK")
 		}
+	}
+	// Spec §27 R8 — the 90-day ceiling applies to amends too: a TIF
+	// switch to GTC resolves to GTD at the cap (an earlier stored or
+	// amended expiry wins), and any amended expiry past the cap clamps.
+	if req.TimeInForce == TIFGTC || req.TimeInForce == TIFGTD {
+		cap90 := now.AddDate(0, 0, gtcMaxLifetimeDays)
+		if req.TimeInForce == TIFGTC {
+			req.TimeInForce = TIFGTD
+			if req.GTDExpiry == nil {
+				req.GTDExpiry = o.GTDExpiry // preserve stored expiry if sooner
+			}
+		}
+		if req.GTDExpiry == nil || req.GTDExpiry.After(cap90) {
+			req.GTDExpiry = &cap90
+		}
+	} else if req.GTDExpiry != nil {
+		if cap90 := now.AddDate(0, 0, gtcMaxLifetimeDays); req.GTDExpiry.After(cap90) {
+			req.GTDExpiry = &cap90
+		}
+	}
+	// Task 16.3.17 — a trigger-source switch on a live order is rejected.
+	// The field rides the wire so the intent is rejected deterministically
+	// rather than silently dropped; the enum check itself stays here so a
+	// bogus value fails fast at the gateway.
+	if req.TriggerSource != "" && !validTriggerSource(req.TriggerSource) {
+		return codeErr("INVALID_REQUEST",
+			"trigger_source must be LAST_PRICE, MARK_PRICE or INDEX_PRICE")
 	}
 	return nil
 }

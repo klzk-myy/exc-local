@@ -15,6 +15,7 @@ import (
 	"exchange/internal/algo"
 	"exchange/internal/bots"
 	"exchange/internal/gateway"
+	"exchange/internal/orders"
 )
 
 // AlgoDeps bundles the algo handlers' seams. Engine is the Phase-16
@@ -59,9 +60,6 @@ func algoParentView(p *algo.Parent, children []algo.Child) map[string]any {
 // "total_qty","params","start_at","client_order_id"}.
 func AlgoSubmit(d *AlgoDeps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !d.algoOK(w, r) {
-			return
-		}
 		body, err := readBody(r)
 		if err != nil {
 			WriteError(w, "INVALID_REQUEST", "request body unreadable",
@@ -79,6 +77,38 @@ func AlgoSubmit(d *AlgoDeps) http.HandlerFunc {
 			return
 		}
 		req.SessionID = c.SessionID
+		// TRAILING_STOP is an engine-side order type (Task 16.3.15), not a
+		// slicing strategy — route it through the order pipeline so its
+		// params reach the OrderNew wire fields. The same body decodes via
+		// orders.ParseSubmit (algo_type/algo_params are SubmitRequest
+		// fields; total_qty needs the manual fallback).
+		if req.AlgoType == "TRAILING_STOP" {
+			oreq, oerr := orders.ParseSubmit(body)
+			if oerr != nil {
+				WriteError(w, "INVALID_REQUEST", oerr.Error(),
+					gateway.RequestIDFrom(r.Context()), nil)
+				return
+			}
+			// The algo-surface body has no `type` key — a trailing stop is
+			// a STOP order with the distance pair (the engine derives
+			// TRAILING_STOP from StopMarket + trailing_offset_unit).
+			oreq.OrderType = orders.TypeStop
+			if oreq.Quantity == nil && !req.TotalQty.IsZero() {
+				q := req.TotalQty
+				oreq.Quantity = &q
+			}
+			oreq.SessionID = c.SessionID
+			ack, serr := d.SVC.Submit(r.Context(), acct, oreq)
+			if serr != nil {
+				writeServiceErr(w, r, serr)
+				return
+			}
+			WriteJSON(w, http.StatusAccepted, ack)
+			return
+		}
+		if !d.algoOK(w, r) {
+			return
+		}
 		p, err := d.Engine.Submit(r.Context(), acct.ID, req)
 		if err != nil {
 			writeServiceErr(w, r, err)

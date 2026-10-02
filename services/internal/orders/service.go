@@ -24,6 +24,7 @@ import (
 	"exchange/internal/config"
 	"exchange/internal/ipc"
 	"exchange/internal/risk"
+	"exchange/internal/sor"
 	"exchange/pkg/decimal"
 	excerrors "exchange/pkg/errors"
 )
@@ -259,12 +260,17 @@ type Service struct {
 	commission  CommissionEstimator
 	admission   AdmissionObserver
 	product     AppropriatenessGate
-	fixing      FixingHooks     // Phase-16 Task 16.3.9 — nil ⇒ FIXING rejected
-	gslo        GSLOHooks       // Phase-16 Task 16.3.16 — nil ⇒ gslo rejected
-	composite   CompositeStore  // Phase-16 Task 16.3.14/.20 composite persistence
-	conditional ConditionalGate // Phase-16 Task 16.3.22 — nil ⇒ trigger/peg guards skipped (engine authoritative)
-	auction     AuctionGate     // Phase-16 Task 16.3.25 — nil ⇒ MOO/MOC rejected
-	notifyFn    PrivateNotify   // nil ⇒ private WS events skipped (tests/dev)
+	fixing      FixingHooks                    // Phase-16 Task 16.3.9 — nil ⇒ FIXING rejected
+	gslo        GSLOHooks                      // Phase-16 Task 16.3.16 — nil ⇒ gslo rejected
+	composite   CompositeStore                 // Phase-16 Task 16.3.14/.20 composite persistence
+	conditional ConditionalGate                // Phase-16 Task 16.3.22 — nil ⇒ trigger/peg guards skipped (engine authoritative)
+	auction     AuctionGate                    // Phase-16 Task 16.3.25 — nil ⇒ MOO/MOC rejected
+	notifyFn    PrivateNotify                  // nil ⇒ private WS events skipped (tests/dev)
+	sor         SORRouter                      // Phase-3 Task 4 — nil ⇒ always-local dispatch
+	sorBook     SORBookView                    // nil ⇒ SOR consult skipped
+	pb          PBCreditGate                   // Phase-3 Task 5 — nil ⇒ PB gate skipped
+	bilateral   BilateralGate                  // Phase-3 Task 5 — nil ⇒ screen skipped
+	dayExpiry   func(now time.Time) *time.Time // §27 R8 / §5.4 — nil ⇒ DAY fails closed at engine
 	seq         *seqAllocator
 	ackTimeout  time.Duration
 	now         func() time.Time
@@ -293,8 +299,68 @@ type Options struct {
 	Composite  CompositeStore      // nil → bracket/list submissions rejected (16.3.14/.20)
 	Auction    AuctionGate         // nil → MOO/MOC submissions rejected (Task 16.3.25)
 	Notify     PrivateNotify       // nil → private-channel events skipped (16.3.25)
+	// SOR/SORBook are the Phase-3 Task 4 smart-order-routing consult
+	// (Task 18.3.14, spec §9.8): eligible marketable orders ask the
+	// router local-vs-external AFTER the parent row is persisted and
+	// BEFORE engine dispatch. Both must be bound or the consult is
+	// skipped entirely — nil SOR = always-local (the zero-venue
+	// deployment); nil SORBook = always-local (a router without a book
+	// view would route blind).
+	SOR     SORRouter
+	SORBook SORBookView
+	// PB is the Phase-3 Task 5 prime-brokerage credit gate (Task 19.3.10,
+	// spec §13.8): post-insert ReserveHeadroom debits the client's
+	// NOP/DSL rows, cancels/expiry release, fills consume, amends
+	// re-size. Nil ⇒ gate skipped (retail flow — no pb_credit_limits
+	// rows exist for non-PB clients so even a bound store is a no-op
+	// for them).
+	PB PBCreditGate
+	// Bilateral is the Phase-3 Task 5 mutual-credit admission consult
+	// (Task 19.3.10, spec §13.8): a credit-screened account with no
+	// counterparty holding mutual headroom fails fast at admission;
+	// unscreened accounts skip. Nil ⇒ gate skipped.
+	Bilateral BilateralGate
+	// DayExpiry resolves the §6.7 session-close instant stamped onto
+	// TIF=DAY submits (spec §5.4) — admin.NextSessionClose in
+	// production. Nil ⇒ DAY orders carry no gtd_expiry and the engine
+	// fails closed (ORDER_INVALID); the gateway always binds it.
+	DayExpiry  func(now time.Time) *time.Time
 	AckTimeout time.Duration
 	Now        func() time.Time
+}
+
+// PBCreditGate is the orders-service slice of risk.PBCreditService —
+// NOP/DSL reserve·release·adjust over pb_credit_limits. Methods must be
+// idempotent per order_id (release fires from both client cancels and
+// engine cancel echoes).
+// BilateralGate is the orders-service slice of
+// risk.BilateralCreditService — the admission-time any-counterparty
+// mutual-headroom screen (notional in quoteCcy; the implementation
+// converts to USD).
+type BilateralGate interface {
+	AdmitOrder(ctx context.Context, accountID int64,
+		instrumentType, quoteCcy string, notional decimal.Decimal) error
+}
+
+type PBCreditGate interface {
+	ReserveHeadroom(ctx context.Context, orderID, accountID int64,
+		symbol, quoteCcy string, notional decimal.Decimal) error
+	ReleaseHeadroom(ctx context.Context, orderID int64) error
+	AdjustHeadroom(ctx context.Context, orderID int64,
+		symbol, quoteCcy string, deltaNotional decimal.Decimal) error
+}
+
+// SORRouter is the *sor.Router slice the service consults.
+type SORRouter interface {
+	Route(ctx context.Context, parent *sor.ParentOrder,
+		book sor.BookView) (*sor.RouteResult, error)
+}
+
+// SORBookView supplies the internal-CLOB liquidity snapshot for the
+// routing decision — production binds *sor.BookViewCache fed by the
+// orders consumer's frame tap.
+type SORBookView interface {
+	View(symbol string) sor.BookView
 }
 
 func NewService(o Options) (*Service, error) {
@@ -326,6 +392,11 @@ func NewService(o Options) (*Service, error) {
 		notifyFn:   o.Notify,
 		fixing:     o.Fixing,
 		gslo:       o.GSLO,
+		pb:         o.PB,
+		bilateral:  o.Bilateral,
+		dayExpiry:  o.DayExpiry,
+		sor:        o.SOR,
+		sorBook:    o.SORBook,
 		seq:        newSeqAllocator(),
 		ackTimeout: o.AckTimeout,
 		now:        o.Now,
@@ -383,6 +454,17 @@ func (s *Service) WithConditional(g ConditionalGate) { s.conditional = g }
 // WithComposite binds the Task 16.3.14/.20 composite persistence seam —
 // *PgStore satisfies it once migrations 075/225 apply.
 func (s *Service) WithComposite(c CompositeStore) { s.composite = c }
+
+// WithSOR binds the Phase-3 Task 4 smart-order-routing consult —
+// both halves required: a router without a book view routes blind,
+// a view without a router is dead state.
+func (s *Service) WithSOR(r SORRouter, b SORBookView) { s.sor, s.sorBook = r, b }
+
+// WithPB binds the prime-brokerage NOP/DSL credit gate (Phase-3 Task 5).
+func (s *Service) WithPB(g PBCreditGate) { s.pb = g }
+
+// WithBilateral binds the mutual-credit admission screen (Phase-3 Task 5).
+func (s *Service) WithBilateral(g BilateralGate) { s.bilateral = g }
 
 // WithAuction binds the Task 16.3.25 freeze gate post-construction —
 // the adapter reads instrument:auction:{symbol} + the auction calendar.
@@ -746,6 +828,7 @@ func (s *Service) Submit(ctx context.Context, acct *Account, req *SubmitRequest)
 	if err := ValidateSubmit(req, inst, acct, ref, s.now()); err != nil {
 		return nil, err
 	}
+	s.applyDayExpiry(req)
 	// Phase-22 Task 22.3.9 — derivative parameter contract
 	// (validate.go is frozen by change scope; the hook lives here).
 	if err := s.checkDerivativeParams(ctx, req, inst); err != nil {
@@ -788,6 +871,17 @@ func (s *Service) Submit(ctx context.Context, acct *Account, req *SubmitRequest)
 		ReduceOnly: req.ReduceOnly,
 	}); err != nil {
 		return nil, err
+	}
+
+	// Phase-3 Task 5 — §13.8 mutual bilateral credit admission screen:
+	// a credit-screened account fails fast when no counterparty pair of
+	// directed edges holds mutual headroom for this notional. Reduce-only
+	// orders close exposure — they never consume bilateral headroom.
+	if s.bilateral != nil && !req.ReduceOnly {
+		if err := s.bilateral.AdmitOrder(ctx, acct.ID, inst.InstrumentType,
+			inst.QuoteCurrency, req.Quantity.Mul(evalPrice)); err != nil {
+			return nil, err // BILATERAL_CREDIT_EXCEEDED
+		}
 	}
 
 	// Balance sufficiency (read-only — the §8.4 layer boundary forbids
@@ -844,34 +938,36 @@ func (s *Service) Submit(ctx context.Context, acct *Account, req *SubmitRequest)
 	}
 	deriv := derivParamsFromRequest(req)
 	o, dup, err := s.insertOrderTx(ctx, InsertParams{
-		AccountID:       acct.ID,
-		InstrumentID:    inst.ID,
-		ClientOrderID:   req.ClientOrderID,
-		Side:            req.Side,
-		OrderType:       req.OrderType,
-		Quantity:        *req.Quantity,
-		QuoteQuantity:   req.QuoteQuantity,
-		Price:           req.Price,
-		StopPrice:       req.StopPrice,
-		DisplayQty:      req.DisplayQty,
-		TimeInForce:     req.TimeInForce,
-		ShardID:         int(shard),
-		OrderSeq:        seq,
-		PostOnly:        req.PostOnly,
-		ReduceOnly:      req.ReduceOnly,
-		STPMode:         req.STPMode,
-		SessionID:       req.SessionID,
-		RequestHash:     hash,
-		CoDExempt:       req.CoDExempt,
-		PegMode:         strPtrOrNil(req.PegMode),
-		PegOffset:       req.PegOffset,
-		PegLimit:        req.PegLimit,
-		TriggerSource:   req.TriggerSource,
-		Hidden:          req.Hidden,
-		GSLO:            req.GSLO,
-		FixingBenchmark: strPtrOrNil(req.FixingBenchmark),
-		AlgoType:        strPtrOrNil(req.AlgoType),
-		AlgoParams:      req.AlgoParams,
+		AccountID:               acct.ID,
+		InstrumentID:            inst.ID,
+		ClientOrderID:           req.ClientOrderID,
+		Side:                    req.Side,
+		OrderType:               req.OrderType,
+		Quantity:                *req.Quantity,
+		QuoteQuantity:           req.QuoteQuantity,
+		Price:                   req.Price,
+		StopPrice:               req.StopPrice,
+		DisplayQty:              req.DisplayQty,
+		TimeInForce:             req.TimeInForce,
+		ShardID:                 int(shard),
+		OrderSeq:                seq,
+		PostOnly:                req.PostOnly,
+		ReduceOnly:              req.ReduceOnly,
+		STPMode:                 req.STPMode,
+		SessionID:               req.SessionID,
+		RequestHash:             hash,
+		GTDExpiry:               req.GTDExpiry,
+		CoDExempt:               req.CoDExempt,
+		PegMode:                 strPtrOrNil(req.PegMode),
+		PegOffset:               req.PegOffset,
+		PegLimit:                req.PegLimit,
+		TriggerSource:           req.TriggerSource,
+		Hidden:                  req.Hidden,
+		GSLO:                    req.GSLO,
+		FixingBenchmark:         strPtrOrNil(req.FixingBenchmark),
+		AlgoType:                strPtrOrNil(req.AlgoType),
+		AlgoParams:              req.AlgoParams,
+		DiscretionaryOffsetPips: req.DiscretionaryOffsetPips,
 	}, deriv)
 	if err != nil {
 		if c := DedupConflictRow(err); c != nil {
@@ -903,11 +999,32 @@ func (s *Service) Submit(ctx context.Context, acct *Account, req *SubmitRequest)
 	// base scanOrder path does not read the migration-039 columns.
 	deriv.applyTo(o)
 
+	// Phase-3 Task 5 — PB credit (Task 19.3.10): debit the client's
+	// NOP/DSL headroom now that the order row owns an id. Non-PB
+	// clients carry zero limit rows → the gate admits without a
+	// reservation. Every subsequent failure path must release.
+	pbReserved := false
+	if s.pb != nil {
+		if err := s.pb.ReserveHeadroom(ctx, o.ID, acct.ID, inst.Symbol,
+			inst.QuoteCurrency, req.Quantity.Mul(evalPrice)); err != nil {
+			_ = s.store.MarkRejected(ctx, o.ID)
+			return nil, err // PB_NOP_LIMIT_EXCEEDED / PB_DSL_LIMIT_EXCEEDED
+		}
+		pbReserved = true
+	}
+	pbRelease := func() {
+		if pbReserved {
+			pbReserved = false
+			_ = s.pb.ReleaseHeadroom(ctx, o.ID)
+		}
+	}
+
 	// Phase-16 Task 16.3.9 — FIXING orders queue locally: post the
 	// balance reservation, flip to RESERVED and return. No wire send —
 	// the fix executor consumes them at publication.
 	if req.OrderType == TypeFixing {
 		if err := s.fixing.Reserve(ctx, o, inst); err != nil {
+			pbRelease()
 			_ = s.store.MarkRejected(ctx, o.ID)
 			return nil, errInternal("fixing reservation", err)
 		}
@@ -922,6 +1039,7 @@ func (s *Service) Submit(ctx context.Context, acct *Account, req *SubmitRequest)
 	// (a guaranteed stop with no premium posted is a fabrication).
 	if req.GSLO {
 		if err := s.gslo.ChargePremium(ctx, o, inst); err != nil {
+			pbRelease()
 			_ = s.store.MarkRejected(ctx, o.ID)
 			return nil, errInternal("gslo premium", err)
 		}
@@ -934,16 +1052,44 @@ func (s *Service) Submit(ctx context.Context, acct *Account, req *SubmitRequest)
 		return s.queueAuctionOrder(ctx, o)
 	}
 
+	// Phase-3 Task 4 — SOR consult (Task 18.3.14, spec §9.8): eligible
+	// marketable orders ask the router whether internal liquidity
+	// suffices. An external route parks the parent RESERVED — leg fills
+	// arrive via the FILL_BRIDGE projection on the settlements stream;
+	// a SOR error marks the row rejected so it never reads as live.
+	if s.sor != nil && s.sorBook != nil && sorEligible(req) {
+		res, serr := s.sor.Route(ctx, &sor.ParentOrder{
+			OrderID: o.ID, AccountID: acct.ID, Symbol: inst.Symbol,
+			Side: req.Side, Qty: o.Quantity,
+			LimitPrice:    req.Price,
+			ClientOrderID: req.ClientOrderID,
+		}, s.sorBook.View(inst.Symbol))
+		if serr != nil {
+			pbRelease()
+			_ = s.store.MarkRejected(ctx, o.ID)
+			return nil, serr
+		}
+		if res.Shadow != nil {
+			_ = s.store.MarkReserved(ctx, o.ID)
+			return &Ack{OrderID: o.ID, ClientOrderID: o.ClientOrderID,
+				Status: "ROUTED_EXTERNAL", OrderSeq: seq,
+				TransactTime: s.now().UTC().Format(time.RFC3339Nano)}, nil
+		}
+		// res.Local → fall through to engine dispatch.
+	}
+
 	if s.sub != nil {
 		b := flatbuffers.NewBuilder(256)
 		payload := ipc.EncodeOrderNewEvent(b, seq,
 			uint64(s.now().UnixNano()), orderNewMsg(o, acct, req))
 		if err := s.sub.Send(ctx, shard, payload); err != nil {
-			// Compensate the read model + the GSLO premium — the engine
-			// never saw the order, so the guarantee never existed.
+			// Compensate the read model + the GSLO premium + the PB
+			// reservation — the engine never saw the order, so the
+			// guarantee never existed.
 			if req.GSLO {
 				_ = s.gslo.RefundPremium(ctx, o, inst)
 			}
+			pbRelease()
 			_ = s.store.MarkRejected(ctx, o.ID)
 			return nil, err
 		}
@@ -953,6 +1099,30 @@ func (s *Service) Submit(ctx context.Context, acct *Account, req *SubmitRequest)
 	return &Ack{OrderID: o.ID, ClientOrderID: o.ClientOrderID,
 		Status: "ACTIVE", OrderSeq: seq,
 		TransactTime: s.now().UTC().Format(time.RFC3339Nano)}, nil
+}
+
+// sorEligible limits the SOR consult to plain marketable orders — the
+// engine-side features that must rest on (or only make sense inside) the
+// internal book never route: post-only (must rest), reduce-only (closes
+// an internal position), GSLO (premium-priced guarantee), iceberg/peg/
+// trailing/algo orders (engine-managed lifecycle), stops, and composite
+// parents (auction types already returned above).
+func sorEligible(req *SubmitRequest) bool {
+	if req.OrderType != TypeLimit && req.OrderType != TypeMarket {
+		return false
+	}
+	if req.PostOnly || req.ReduceOnly || req.GSLO {
+		return false
+	}
+	if req.AlgoType != "" || len(req.AlgoParams) > 0 {
+		return false
+	}
+	if req.TriggerSource != "" || req.StopPrice != nil ||
+		req.TrailingOffset != nil || req.DisplayQty != nil ||
+		req.PegMode != "" {
+		return false
+	}
+	return true
 }
 
 // checkBalance verifies available ≥ required. SELL locks base units;
@@ -1148,7 +1318,11 @@ func (s *Service) cancelOne(ctx context.Context, o *Order) error {
 	// Queued session orders never reached the engine — cancel locally
 	// (the freeze check already ran on the caller path).
 	if IsAuctionType(o.OrderType) && !auctionInBook(o) {
-		return s.cancelQueued(ctx, o, "client")
+		err := s.cancelQueued(ctx, o, "client")
+		if err == nil && s.pb != nil {
+			_ = s.pb.ReleaseHeadroom(ctx, o.ID)
+		}
+		return err
 	}
 	if s.sub == nil {
 		// No engine transport wired — dev/test mode applies the cancel
@@ -1157,6 +1331,9 @@ func (s *Service) cancelOne(ctx context.Context, o *Order) error {
 		err := s.store.ApplyCancel(ctx, o.ID)
 		if err == nil {
 			s.otrCancelEvent(ctx, o)
+			if s.pb != nil {
+				_ = s.pb.ReleaseHeadroom(ctx, o.ID)
+			}
 		}
 		return err
 	}
@@ -1175,6 +1352,9 @@ func (s *Service) cancelOne(ctx context.Context, o *Order) error {
 	s.otrCancelEvent(ctx, o)
 	select {
 	case <-pc.done:
+		if s.pb != nil {
+			_ = s.pb.ReleaseHeadroom(ctx, o.ID)
+		}
 		return nil
 	case <-time.After(s.ackTimeout):
 		return codeErr("GATEWAY_TIMEOUT_MATCHING_ENGINE",
@@ -1237,8 +1417,16 @@ func (s *Service) modify(ctx context.Context, acct *Account, orderID int64,
 	if err := s.checkAdmission(ctx, acct, inst, o.SessionID, o.ReduceOnly); err != nil {
 		return nil, err
 	}
-	if err := ValidateModify(req, o, inst); err != nil {
+	if err := ValidateModify(req, o, inst, s.now()); err != nil {
 		return nil, err
+	}
+	// A TIF switch to DAY needs the session-close stamp — same rule as
+	// submits (engine rejects DAY without expiry).
+	if req.TimeInForce == TIFDAY && req.GTDExpiry == nil &&
+		s.dayExpiry != nil {
+		if close := s.dayExpiry(s.now()); close != nil && !close.IsZero() {
+			req.GTDExpiry = close
+		}
 	}
 	// Phase-16 Task 16.3.9 — FIXING amends stay gateway-side: the cut-off
 	// gate applies, only quantity is mutable, no wire event exists.
@@ -1270,6 +1458,32 @@ func (s *Service) modify(ctx context.Context, acct *Account, orderID int64,
 				"%s orders accept quantity amends only", o.OrderType)
 		}
 	}
+	// Phase-3 Task 5 — PB re-size (NOP/DSL): a qty-up amend re-checks the
+	// client's headroom BEFORE the CAS/wire commit so a breach never
+	// reaches the book; qty-down credits back. Compensated on every
+	// revert path below.
+	pbDelta := decimal.Zero
+	pbAdjusted := false
+	if s.pb != nil && req.Quantity != nil && !req.Quantity.Equal(o.Quantity) {
+		px := req.Price
+		if px == nil {
+			px = o.Price
+		}
+		if px != nil && px.IsPositive() {
+			pbDelta = req.Quantity.Sub(o.Quantity).Mul(*px)
+			if err := s.pb.AdjustHeadroom(ctx, o.ID, inst.Symbol,
+				inst.QuoteCurrency, pbDelta); err != nil {
+				return nil, err // PB_*_LIMIT_EXCEEDED
+			}
+			pbAdjusted = true
+		}
+	}
+	pbCompensate := func() {
+		if pbAdjusted {
+			_ = s.pb.AdjustHeadroom(ctx, o.ID, inst.Symbol,
+				inst.QuoteCurrency, pbDelta.Neg())
+		}
+	}
 	newSeq := s.seq.Next()
 	audits := auditDiff(o, req, op, actor, requestID, ip)
 	updated, ok, err := s.store.AmendCAS(ctx, orderID, o.OrderSeq, newSeq,
@@ -1279,9 +1493,11 @@ func (s *Service) modify(ctx context.Context, acct *Account, orderID int64,
 			GTDExpiry: req.GTDExpiry,
 		}, audits)
 	if err != nil {
+		pbCompensate()
 		return nil, errInternal("order amend", err)
 	}
 	if !ok {
+		pbCompensate()
 		return nil, codeErr("STALE_MODIFY",
 			"order %d modified concurrently", orderID)
 	}
@@ -1291,6 +1507,7 @@ func (s *Service) modify(ctx context.Context, acct *Account, orderID int64,
 		// the executor reads the amended row.
 		if s.fixing != nil {
 			if err := s.fixing.AdjustReservation(ctx, updated, inst); err != nil {
+				pbCompensate()
 				_ = s.store.RevertAmend(ctx, o)
 				return nil, errInternal("fixing reservation adjust", err)
 			}
@@ -1307,9 +1524,11 @@ func (s *Service) modify(ctx context.Context, acct *Account, orderID int64,
 		payload := EncodeAmendEvent(b, s.seq.Next(),
 			uint64(s.now().UnixNano()), uint64(o.ID), newSeq,
 			scaledOr(req.Price, 0), scaledOr(req.Quantity, 0),
-			scaledOr(req.StopPrice, 0), gtdNs(req.GTDExpiry))
+			scaledOr(req.StopPrice, 0), gtdNs(req.GTDExpiry),
+			scaledOr(req.DisplayQty, 0), triggerSourceAmendByte(req.TriggerSource))
 		if serr := s.sub.Send(ctx, shardOf(o, s.shards, inst.Symbol), payload); serr != nil {
 			// Revert the CAS — engine never applied the amend.
+			pbCompensate()
 			_ = s.store.RevertAmend(ctx, o)
 			return nil, serr
 		}
@@ -1362,6 +1581,20 @@ func gtdNs(t *time.Time) int64 {
 		return 0
 	}
 	return t.UnixNano()
+}
+
+// applyDayExpiry stamps the session-close deadline onto DAY submits —
+// the engine requires aux.gtd_expiry_ns for DAY (spec §5.4, Task
+// 2.3.10). A nil seam or an unreachable close leaves the field unset:
+// the engine then rejects ORDER_INVALID (fail closed — a DAY order
+// with no deadline must never rest indefinitely).
+func (s *Service) applyDayExpiry(req *SubmitRequest) {
+	if req.TimeInForce != TIFDAY || req.GTDExpiry != nil || s.dayExpiry == nil {
+		return
+	}
+	if close := s.dayExpiry(s.now()); close != nil && !close.IsZero() {
+		req.GTDExpiry = close
+	}
 }
 
 func shardOf(o *Order, m *config.ShardMap, symbol string) uint16 {
@@ -1429,7 +1662,7 @@ func (s *Service) AmendKeepPriority(ctx context.Context, acct *Account,
 		b := flatbuffers.NewBuilder(128)
 		payload := EncodeAmendEvent(b, s.seq.Next(),
 			uint64(s.now().UnixNano()), uint64(o.ID), newSeq,
-			0, decimal.Scaled(*req.Quantity), 0, 0)
+			0, decimal.Scaled(*req.Quantity), 0, 0, 0, 0xFF)
 		if serr := s.sub.Send(ctx, shardOf(o, s.shards, inst.Symbol), payload); serr != nil {
 			_ = s.store.RevertAmend(ctx, o)
 			return nil, serr
@@ -1756,6 +1989,7 @@ func (s *Service) BatchSubmit(ctx context.Context, acct *Account,
 			}
 			verr = ValidateSubmit(req, inst, acct, ref, s.now())
 			if verr == nil {
+				s.applyDayExpiry(req)
 				// Phase-22 Task 22.3.9 — per-entry derivative contract
 				// in the atomic pre-pass.
 				verr = s.checkDerivativeParams(ctx, req, inst)
@@ -1847,6 +2081,7 @@ func (s *Service) BatchSubmit(ctx context.Context, acct *Account,
 			OrderSeq: seq, PostOnly: req.PostOnly,
 			ReduceOnly: req.ReduceOnly, STPMode: req.STPMode,
 			SessionID: req.SessionID, RequestHash: hash,
+			GTDExpiry: req.GTDExpiry,
 		}, deriv)
 		if err != nil {
 			return nil, s.batchAbort(ctx, persisted, err)
@@ -2058,6 +2293,7 @@ func (s *Service) DryRun(ctx context.Context, acct *Account,
 	if err := ValidateSubmit(req, inst, acct, ref, s.now()); err != nil {
 		return nil, err
 	}
+	s.applyDayExpiry(req)
 	// Phase-22 Task 22.3.9 — dry-run predicts the real gate, so the
 	// derivative contract applies here too.
 	if err := s.checkDerivativeParams(ctx, req, inst); err != nil {

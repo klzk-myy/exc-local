@@ -140,6 +140,62 @@ func OrderSubmit(d *OrderDeps) http.HandlerFunc {
 }
 
 // ---------------------------------------------------------------------------
+// POST /api/v1/orders/basket — cross-shard basket submit (Phase-3 Task 4,
+// spec §2.2a). Same auth/account pipeline as OrderSubmit; legs execute via
+// the OptimisticShardCoordinator's TRY_MATCH path, terminal outcome lands
+// as a BasketResult event (bridge → baskets table → BasketGet projection).
+// ---------------------------------------------------------------------------
+
+// BasketSubmit validates → persists legs + op rows → dispatches to the
+// coordinator shard → acks MATCHING with the 128-bit op id.
+func BasketSubmit(d *OrderDeps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		body, err := readBody(r)
+		if err != nil {
+			WriteError(w, "INVALID_REQUEST", "request body unreadable",
+				gateway.RequestIDFrom(r.Context()), nil)
+			return
+		}
+		c, acct, ok := d.orderAuth(w, r, body, gateway.ScopeTrade)
+		if !ok {
+			return
+		}
+		_ = c
+		req, err := orders.ParseBasketSubmit(body)
+		if err != nil {
+			WriteError(w, "INVALID_REQUEST", err.Error(),
+				gateway.RequestIDFrom(r.Context()), nil)
+			return
+		}
+		ack, err := d.SVC.SubmitBasket(r.Context(), acct, req)
+		if err != nil {
+			writeServiceErr(w, r, err)
+			return
+		}
+		WriteJSON(w, http.StatusAccepted, ack)
+	}
+}
+
+// BasketGet — GET /api/v1/baskets/{op_id}: the op row + leg order
+// statuses (migration 283).
+func BasketGet(d *OrderDeps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		c, acct, ok := d.orderAuth(w, r, nil, gateway.ScopeRead)
+		if !ok {
+			return
+		}
+		_ = c
+		st, err := d.SVC.BasketStatus(r.Context(), acct,
+			r.PathValue("op_id"))
+		if err != nil {
+			writeServiceErr(w, r, err)
+			return
+		}
+		WriteJSON(w, http.StatusOK, st)
+	}
+}
+
+// ---------------------------------------------------------------------------
 // PUT /api/v1/orders/{id} — modify (Tasks 5.3.3/5.3.22)
 // ---------------------------------------------------------------------------
 

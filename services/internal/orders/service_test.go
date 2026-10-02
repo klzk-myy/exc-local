@@ -91,8 +91,18 @@ func (s *fakeStore) InsertOrderTx(_ context.Context, p InsertParams) (*Order, *D
 		TimeInForce: p.TimeInForce, Status: "PENDING",
 		OrderSeq: p.OrderSeq, PostOnly: p.PostOnly, ReduceOnly: p.ReduceOnly,
 		STPMode: p.STPMode, SessionID: p.SessionID,
-		ShardID:   &p.ShardID,
-		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+		PegMode:                 p.PegMode,
+		PegOffset:               p.PegOffset,
+		PegLimit:                p.PegLimit,
+		TriggerSource:           p.TriggerSource,
+		Hidden:                  p.Hidden,
+		GSLO:                    p.GSLO,
+		AlgoType:                p.AlgoType,
+		AlgoParams:              p.AlgoParams,
+		DiscretionaryOffsetPips: p.DiscretionaryOffsetPips,
+		GTDExpiry:               p.GTDExpiry,
+		ShardID:                 &p.ShardID,
+		CreatedAt:               time.Now(), UpdatedAt: time.Now(),
 	}
 	s.orders[o.ID] = o
 	if p.ClientOrderID != "" {
@@ -858,7 +868,8 @@ func TestEncodeCancelAmendRoundTrip(t *testing.T) {
 	b.Reset()
 	payload = EncodeAmendEvent(b, 78, 100, 123, 9,
 		decimal.Scaled(decimal.MustFromString("1.06")),
-		decimal.Scaled(decimal.MustFromString("2000")), 0, 0)
+		decimal.Scaled(decimal.MustFromString("2000")), 0, 0,
+		decimal.Scaled(decimal.MustFromString("500")), 2)
 	ev = ipc.DecodeEvent(payload)
 	if ev == nil || ev.TypeType() != wire.EventTypeOrderAmend {
 		t.Fatalf("amend event decode wrong: %+v", ev)
@@ -869,8 +880,10 @@ func TestEncodeCancelAmendRoundTrip(t *testing.T) {
 	oa := &wire.OrderAmend{}
 	oa.Init(tb.Bytes, tb.Pos)
 	if oa.OrderId() != 123 || oa.OrderSeq() != 9 ||
-		oa.Price() != 106_000_000 || oa.Qty() != 200_000_000_000 {
-		t.Fatalf("amend fields wrong: id=%d seq=%d px=%d qty=%d",
-			oa.OrderId(), oa.OrderSeq(), oa.Price(), oa.Qty())
+		oa.Price() != 106_000_000 || oa.Qty() != 200_000_000_000 ||
+		oa.DisplayQty() != 50_000_000_000 || oa.TriggerSource() != 2 {
+		t.Fatalf("amend fields wrong: id=%d seq=%d px=%d qty=%d dq=%d ts=%d",
+			oa.OrderId(), oa.OrderSeq(), oa.Price(), oa.Qty(),
+			oa.DisplayQty(), oa.TriggerSource())
 	}
 }

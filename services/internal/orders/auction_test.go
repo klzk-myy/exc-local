@@ -507,7 +507,7 @@ func TestAuctionLifecycleNotifications(t *testing.T) {
 	}
 
 	_ = st.ApplyCancel(ctx, ack.OrderID)
-	svc.OnCancel(ctx, ack.OrderID)
+	svc.OnCancel(ctx, ack.OrderID, CancelReasonUser)
 	d = sink.last(ChanOrderCancelled)
 	if d == nil || d["reason"] != ReasonAuctionCancelled {
 		t.Fatalf("cancelled notification: %+v", d)

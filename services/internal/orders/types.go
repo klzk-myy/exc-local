@@ -189,11 +189,18 @@ type Order struct {
 	FixingBenchmark *string
 	AlgoType        *string
 	AlgoParams      json.RawMessage // NULL-able JSONB
+	// DiscretionaryOffsetPips — spec §6.11 hidden price-improvement band
+	// (migration 103). Nil when zero/absent so the view omits it.
+	DiscretionaryOffsetPips *decimal.Decimal
 	// CoDExempt exempts the order from the session-scope
 	// cancel-on-disconnect sweep (spec §5.4 catalog col, §9.9,
 	// migration 229; FIX tag 9510). Dead-man/admin/close-all sweeps are
 	// unaffected — only Reason "cancel_on_disconnect" honours it.
 	CoDExempt bool
+	// GTDExpiry — effective resting deadline (migration 284): the
+	// client-supplied GTD date, or the spec §27 R8 90-day ceiling stamped
+	// when a GTC submission auto-converts. Nil for IOC/FOK.
+	GTDExpiry *time.Time
 	// ---- Phase-22 Task 22.3.9 derivative order parameters (migration
 	// 039) — populated by DerivativeParams persistence, not the base
 	// orderCols/scanOrder path (store.go owns those; see service.go) ----
@@ -281,6 +288,9 @@ func (o *Order) View() map[string]any {
 	if len(o.AlgoParams) > 0 {
 		v["algo_params"] = json.RawMessage(o.AlgoParams)
 	}
+	if o.DiscretionaryOffsetPips != nil {
+		v["discretionary_offset_pips"] = o.DiscretionaryOffsetPips.String()
+	}
 	// Phase-22 Task 22.3.9 derivative parameters (migration 039).
 	if o.Strike != nil {
 		v["strike"] = o.Strike.String()
@@ -356,6 +366,21 @@ type SubmitRequest struct {
 	TriggerSource string           // migration 066 — LAST_PRICE | MARK_PRICE | INDEX_PRICE
 	Hidden        bool
 	GSLO          bool
+	// Trailing stop (Task 16.3.15, Phase-3 wire-up): legal only on type
+	// STOP — the wire encodes it as StopMarket + trailing_offset_unit!=0
+	// and the engine derives TRAILING_STOP. TrailingOffsetUnit is
+	// PIPS | PERCENTAGE | ABSOLUTE (required when the offset is present).
+	// PIPS = whole pips; PERCENTAGE = percent of the anchor (wire carries
+	// pct*100); ABSOLUTE = a quote-currency price distance (wire ticks).
+	TrailingOffset     *decimal.Decimal
+	TrailingOffsetUnit string
+	// ActivationPrice arms the trailing loop only after the trigger
+	// source trades through it (wire activation_price, ticks).
+	ActivationPrice *decimal.Decimal
+	// DiscretionaryOffsetPips (spec §6.11, migration 103): hidden
+	// price-improvement band on a resting LIMIT — whole pips only, the
+	// engine multiplies by pip_size_ticks.
+	DiscretionaryOffsetPips *decimal.Decimal
 	// FixingBenchmark carries the canonical spec §6.4 vocabulary —
 	// WM_R_4PM | ECB_1415 | TOKYO_0955 (supersedes the plan's
 	// WM_REFINITIV_4PM_LDN / ECB_1415_CET strings). The scheduler's
@@ -395,6 +420,10 @@ type ModifyRequest struct {
 	DisplayQty  *decimal.Decimal // iceberg_visible_qty
 	TimeInForce string
 	GTDExpiry   *time.Time
+	// TriggerSource rides the amended wire surface so an attempted
+	// switch reaches the engine and is rejected deterministically
+	// (AMEND_REJECTED per Task 16.3.17) instead of silently ignored.
+	TriggerSource string
 }
 
 // CancelReplaceRequest is POST /orders/{id}/cancel-replace — an atomic
@@ -578,6 +607,7 @@ func ParseSubmit(body []byte) (*SubmitRequest, error) {
 		{"stp_mode", &req.STPMode},
 		{"peg_mode", &req.PegMode},
 		{"trigger_source", &req.TriggerSource},
+		{"trailing_offset_unit", &req.TrailingOffsetUnit},
 		{"fixing_benchmark", &req.FixingBenchmark},
 		{"algo_type", &req.AlgoType},
 		// Phase-22 Task 22.3.9 derivative params (migration 039).
@@ -606,6 +636,9 @@ func ParseSubmit(body []byte) (*SubmitRequest, error) {
 		{"iceberg_visible_qty", &req.DisplayQty},
 		{"peg_offset", &req.PegOffset},
 		{"peg_limit", &req.PegLimit},
+		{"trailing_offset", &req.TrailingOffset},
+		{"activation_price", &req.ActivationPrice},
+		{"discretionary_offset_pips", &req.DiscretionaryOffsetPips},
 		{"strike", &req.Strike},
 		{"barrier_level", &req.BarrierLevel},
 		{"premium", &req.Premium},
@@ -856,10 +889,18 @@ func ParseModify(body []byte) (*ModifyRequest, error) {
 		}
 		*k.dst = v
 	}
-	if v, _, err := strField(obj, "time_in_force"); err != nil {
-		return nil, err
-	} else {
-		req.TimeInForce = v
+	for _, k := range []struct {
+		key string
+		dst *string
+	}{
+		{"time_in_force", &req.TimeInForce},
+		{"trigger_source", &req.TriggerSource},
+	} {
+		v, _, err := strField(obj, k.key)
+		if err != nil {
+			return nil, err
+		}
+		*k.dst = strings.TrimSpace(v)
 	}
 	if req.GTDExpiry, _, err = timeField(obj, "gtd_expiry"); err != nil {
 		return nil, err

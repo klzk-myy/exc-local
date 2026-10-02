@@ -54,6 +54,22 @@ func validTriggerSource(v string) bool {
 	return false
 }
 
+// Trailing-stop distance units — Task 16.3.15 (spec §5.4). The wire
+// ordinals are the engine's kTrailUnit* values verbatim (Order.hpp).
+const (
+	TrailUnitPips       = "PIPS"       // whole pips
+	TrailUnitPercentage = "PERCENTAGE" // pct of the trail anchor (wire: pct*100)
+	TrailUnitAbsolute   = "ABSOLUTE"   // quote-currency distance (wire: ticks)
+)
+
+func validTrailUnit(v string) bool {
+	switch v {
+	case TrailUnitPips, TrailUnitPercentage, TrailUnitAbsolute:
+		return true
+	}
+	return false
+}
+
 // Peg modes — spec §5.4 peg_mode values (Phase-16 Task 16.3.11).
 const (
 	PegModeMid     = "MID"
@@ -93,6 +109,13 @@ const (
 // normalized request. Everything here is additive: requests without any
 // Phase-16 field sail through untouched.
 func validateExecParams(req *SubmitRequest) error {
+	// TRAILING_STOP fold (Task 16.3.15 wire-up, IMP-PLAN Phase-3 Task 2):
+	// lift the algo_params parameter set into the first-class fields
+	// BEFORE the field validations below so a folded trigger_source /
+	// trailing_offset run through the same enum and positivity gates.
+	if err := foldTrailingParams(req); err != nil {
+		return err
+	}
 	// §6.5 — a post-only order that would execute immediately is
 	// rejected; a MARKET order is marketable by definition.
 	if req.PostOnly && req.OrderType == TypeMarket {
@@ -192,6 +215,175 @@ func validateExecParams(req *SubmitRequest) error {
 }
 
 // ---------------------------------------------------------------------------
+// Trailing stop + discretionary offset (Task 16.3.15 / spec §6.11)
+// ---------------------------------------------------------------------------
+
+// foldTrailingParams lifts the algo_params TRAILING_STOP parameter set
+// into the first-class request fields and enforces the trailing/
+// discretionary legality matrix. The wire encodes a trailing stop as
+// StopMarket + trailing_offset_unit != 0 — the engine derives
+// OrderType::TRAILING_STOP (EnginePump).
+func foldTrailingParams(req *SubmitRequest) error {
+	if strings.EqualFold(req.AlgoType, AlgoTrailingStop) {
+		req.AlgoType = AlgoTrailingStop
+		var obj map[string]json.RawMessage
+		if len(req.AlgoParams) > 0 {
+			if err := json.Unmarshal(req.AlgoParams, &obj); err != nil {
+				return codeErr("INVALID_REQUEST",
+					"TRAILING_STOP algo_params must be a JSON object")
+			}
+		}
+		dec := func(keys ...string) (*decimal.Decimal, error) {
+			for _, k := range keys {
+				raw, ok := obj[k]
+				if !ok {
+					continue
+				}
+				var d decimal.Decimal
+				if err := json.Unmarshal(raw, &d); err != nil {
+					var s string
+					if serr := json.Unmarshal(raw, &s); serr == nil {
+						if dd, derr := decimal.NewFromString(s); derr == nil {
+							return &dd, nil
+						}
+					}
+					return nil, codeErr("INVALID_REQUEST",
+						"algo_params.%s must be a number", k)
+				}
+				return &d, nil
+			}
+			return nil, nil
+		}
+		str := func(keys ...string) (string, error) {
+			for _, k := range keys {
+				raw, ok := obj[k]
+				if !ok {
+					continue
+				}
+				var s string
+				if err := json.Unmarshal(raw, &s); err != nil {
+					return "", codeErr("INVALID_REQUEST",
+						"algo_params.%s must be a string", k)
+				}
+				return strings.ToUpper(strings.TrimSpace(s)), nil
+			}
+			return "", nil
+		}
+		var err error
+		var d *decimal.Decimal
+		if d, err = dec("trailing_offset", "offset"); err != nil {
+			return err
+		}
+		if d != nil && req.TrailingOffset == nil {
+			req.TrailingOffset = d
+		}
+		var s string
+		if s, err = str("trailing_unit", "trailing_offset_unit", "offset_unit"); err != nil {
+			return err
+		}
+		if s != "" && req.TrailingOffsetUnit == "" {
+			req.TrailingOffsetUnit = s
+		}
+		if d, err = dec("activation_price"); err != nil {
+			return err
+		}
+		if d != nil && req.ActivationPrice == nil {
+			req.ActivationPrice = d
+		}
+		if s, err = str("trigger_source"); err != nil {
+			return err
+		}
+		if s != "" && req.TriggerSource == "" {
+			req.TriggerSource = s
+		}
+		// A trailing stop is a stop order — type STOP is required (the
+		// wire needs StopMarket for the trail-unit overlay to decode;
+		// callers reaching ValidateSubmit already carry a non-empty type).
+		if req.OrderType != TypeStop {
+			return codeErr("INVALID_REQUEST",
+				"TRAILING_STOP params require order type STOP")
+		}
+	}
+	if req.TrailingOffset == nil && req.TrailingOffsetUnit == "" {
+		if req.ActivationPrice != nil {
+			return codeErr("INVALID_REQUEST",
+				"activation_price requires trailing_offset")
+		}
+	} else {
+		if req.OrderType != TypeStop {
+			return codeErr("INVALID_REQUEST",
+				"trailing_offset/trailing_offset_unit require order type STOP")
+		}
+		if req.TrailingOffset == nil || req.TrailingOffsetUnit == "" {
+			return codeErr("INVALID_REQUEST",
+				"trailing_offset and trailing_offset_unit must be supplied together")
+		}
+		if !validTrailUnit(req.TrailingOffsetUnit) {
+			return codeErr("INVALID_REQUEST",
+				"trailing_offset_unit must be PIPS, PERCENTAGE or ABSOLUTE")
+		}
+		if !req.TrailingOffset.IsPositive() {
+			return codeErr("INVALID_REQUEST",
+				"trailing_offset must be positive")
+		}
+		// Wire fidelity: PIPS carries whole pips and PERCENTAGE carries
+		// pct*100 — a finer-grained distance would truncate silently on
+		// the wire, so the gateway refuses it instead (§2.7 fail-closed).
+		switch req.TrailingOffsetUnit {
+		case TrailUnitPips:
+			if !req.TrailingOffset.IsInteger() {
+				return codeErr("INVALID_REQUEST",
+					"trailing_offset in PIPS must be a whole number")
+			}
+		case TrailUnitPercentage:
+			if !req.TrailingOffset.Shift(2).IsInteger() {
+				return codeErr("INVALID_REQUEST",
+					"trailing_offset in PERCENTAGE supports 2 decimal places (basis points)")
+			}
+		}
+		if req.ActivationPrice != nil && !req.ActivationPrice.IsPositive() {
+			return codeErr("INVALID_REQUEST",
+				"activation_price must be positive")
+		}
+		// Self-describing row (spec §5.4 algo_params persistence
+		// contract): a first-class-fields submit synthesizes the
+		// algo_params document so the read model carries the trail config.
+		if req.AlgoType == "" {
+			req.AlgoType = AlgoTrailingStop
+			doc := map[string]any{
+				"trailing_offset": req.TrailingOffset.String(),
+				"trailing_unit":   req.TrailingOffsetUnit,
+			}
+			if req.ActivationPrice != nil {
+				doc["activation_price"] = req.ActivationPrice.String()
+			}
+			if req.TriggerSource != "" {
+				doc["trigger_source"] = req.TriggerSource
+			}
+			enc, err := json.Marshal(doc)
+			if err != nil {
+				return errInternal("algo_params encode", err)
+			}
+			req.AlgoParams = enc
+		}
+	}
+	// §6.11 discretionary offset — a hidden price-improvement band on a
+	// resting LIMIT, whole pips only (the engine multiplies the pip size).
+	if req.DiscretionaryOffsetPips != nil {
+		if req.OrderType != TypeLimit {
+			return codeErr("INVALID_REQUEST",
+				"discretionary_offset_pips is only valid on LIMIT orders")
+		}
+		if !req.DiscretionaryOffsetPips.IsPositive() ||
+			!req.DiscretionaryOffsetPips.IsInteger() {
+			return codeErr("INVALID_REQUEST",
+				"discretionary_offset_pips must be a positive whole number of pips")
+		}
+	}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
 // algo_params schema validation (shared with the sibling algo engines)
 // ---------------------------------------------------------------------------
 
@@ -255,14 +447,23 @@ func ValidateAlgoParams(algoType string, params json.RawMessage) error {
 		}
 	case AlgoTrailingStop:
 		// Task 16.3.15: a trailing offset of zero trails at the touch —
-		// it is a market order in disguise; reject it.
-		off, present, err := num("offset")
+		// it is a market order in disguise; reject it. `trailing_offset`
+		// is the first-class field's spelling inside algo_params; `offset`
+		// is the original short alias — both fold into
+		// SubmitRequest.TrailingOffset.
+		off, present, err := num("trailing_offset")
 		if err != nil {
 			return err
 		}
+		if !present {
+			off, present, err = num("offset")
+			if err != nil {
+				return err
+			}
+		}
 		if !present || !off.IsPositive() {
 			return codeErr("INVALID_REQUEST",
-				"TRAILING_STOP algo_params.offset must be positive")
+				"TRAILING_STOP algo_params.trailing_offset must be positive")
 		}
 	case AlgoScaled:
 		// Scaled ladder cap: 20 levels (Task 16.3.17-family sizing rule).

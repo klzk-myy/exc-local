@@ -148,6 +148,12 @@ type InsertParams struct {
 	FixingBenchmark *string
 	AlgoType        *string
 	AlgoParams      json.RawMessage // nil ⇒ NULL
+	// DiscretionaryOffsetPips — spec §6.11 band (migration 103); nil/0
+	// persists the column default.
+	DiscretionaryOffsetPips *decimal.Decimal
+	// GTDExpiry — effective resting deadline (migration 284): client GTD
+	// date or the spec §27 R8 90-day GTC cap.
+	GTDExpiry *time.Time
 }
 
 // ListQuery is the §8.8 cursor-paginated history query. The filterable
@@ -327,7 +333,8 @@ const orderCols = `
 	created_at, updated_at,
 	peg_mode, peg_offset::text, peg_limit::text,
 	COALESCE(trigger_source,''), hidden, gslo, fixing_benchmark,
-	algo_type, algo_params, cod_exempt`
+	algo_type, algo_params, cod_exempt, discretionary_offset_pips::text,
+	gtd_expire_at`
 
 func scanOrder(row pgx.Row) (*Order, error) {
 	var (
@@ -337,6 +344,7 @@ func scanOrder(row pgx.Row) (*Order, error) {
 		pegOff, pegLim                        *string
 		algoParams                            []byte
 	)
+	var discOff string
 	err := row.Scan(&o.ID, &o.AccountID, &o.InstrumentID, &o.ClientOrderID,
 		&side, &otype, &qty, &quote, &price, &stop, &display, &tif, &status,
 		&filled, &avg, &o.ShardID, &o.BookSeq, &o.OrderSeq,
@@ -345,7 +353,8 @@ func scanOrder(row pgx.Row) (*Order, error) {
 		&o.CreatedAt, &o.UpdatedAt,
 		&o.PegMode, &pegOff, &pegLim,
 		&o.TriggerSource, &o.Hidden, &o.GSLO, &o.FixingBenchmark,
-		&o.AlgoType, &algoParams, &o.CoDExempt)
+		&o.AlgoType, &algoParams, &o.CoDExempt, &discOff,
+		&o.GTDExpiry)
 	if err != nil {
 		return nil, err
 	}
@@ -359,6 +368,13 @@ func scanOrder(row pgx.Row) (*Order, error) {
 	o.AvgFillPrice = mustParseDecPtr(avg)
 	o.PegOffset = mustParseDecPtr(pegOff)
 	o.PegLimit = mustParseDecPtr(pegLim)
+	// discretionary_offset_pips is NOT NULL DEFAULT 0.0 — nil the zero so
+	// the view only surfaces an actual band.
+	if discOff != "" && discOff != "0" && discOff != "0.0" {
+		if d, derr := decimal.NewFromString(discOff); derr == nil && d.IsPositive() {
+			o.DiscretionaryOffsetPips = &d
+		}
+	}
 	if len(algoParams) > 0 {
 		o.AlgoParams = append(json.RawMessage(nil), algoParams...)
 	}
@@ -541,13 +557,15 @@ func insertOrderInTx(ctx context.Context, tx pgx.Tx, p InsertParams) (int64, err
 		    display_qty, time_in_force, status, shard_id, order_seq,
 		    post_only, reduce_only, stp_mode, session_id, oco_group_id,
 		    peg_mode, peg_offset, peg_limit, trigger_source, hidden, gslo,
-		    fixing_benchmark, algo_type, algo_params, cod_exempt)
+		    fixing_benchmark, algo_type, algo_params, cod_exempt,
+		    discretionary_offset_pips, gtd_expire_at)
 		VALUES ($1,$2,NULLIF($3,''),$4,$5,$6::numeric,$7::numeric,$8::numeric,
 		        $9::numeric,$10::numeric,$11,'PENDING',$12,$13,$14,$15,
 		        NULLIF($16,''),NULLIF($17,''),$18,
 		        NULLIF($19,''),$20::numeric,$21::numeric,
 		        COALESCE(NULLIF($22,''),'LAST_PRICE'),$23,$24,
-		        NULLIF($25,''),NULLIF($26,''),$27::jsonb,$28)
+		        NULLIF($25,''),NULLIF($26,''),$27::jsonb,$28,
+		        COALESCE($29::numeric,0),$30)
 		RETURNING id`,
 		p.AccountID, p.InstrumentID, p.ClientOrderID, p.Side, p.OrderType,
 		p.Quantity.String(), decPtrStr(p.QuoteQuantity), decPtrStr(p.Price),
@@ -556,7 +574,8 @@ func insertOrderInTx(ctx context.Context, tx pgx.Tx, p InsertParams) (int64, err
 		p.SessionID, p.OcoGroupID,
 		p.PegMode, decPtrStr(p.PegOffset), decPtrStr(p.PegLimit),
 		p.TriggerSource, p.Hidden, p.GSLO,
-		p.FixingBenchmark, p.AlgoType, algoParams, p.CoDExempt).
+		p.FixingBenchmark, p.AlgoType, algoParams, p.CoDExempt,
+		decPtrStr(p.DiscretionaryOffsetPips), p.GTDExpiry).
 		Scan(&id)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -800,6 +819,22 @@ func (s *PgStore) ApplyCancel(ctx context.Context, orderID int64) error {
 	_, err := s.pool.Exec(ctx, `
 		UPDATE orders SET status='CANCELLED', updated_at=now()
 		WHERE id=$1 AND status = ANY($2)`, orderID, OpenStatuses)
+	return err
+}
+
+// ApplyCancelReason is the engine-echo variant: reason
+// CancelReasonExpired (GTD/DAY expiry or the spec §27 R8 90-day
+// auto-expire) lands the row EXPIRED, every other reason CANCELLED.
+// Read-model only — the engine's cancel is already authoritative.
+func (s *PgStore) ApplyCancelReason(ctx context.Context, orderID int64,
+	reason uint8) error {
+	status := "CANCELLED"
+	if reason == CancelReasonExpired {
+		status = "EXPIRED"
+	}
+	_, err := s.pool.Exec(ctx, `
+		UPDATE orders SET status=$3::order_status_enum, updated_at=now()
+		WHERE id=$1 AND status = ANY($2)`, orderID, OpenStatuses, status)
 	return err
 }
 

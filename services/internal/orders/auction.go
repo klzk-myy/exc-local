@@ -26,16 +26,22 @@ import (
 	"exchange/pkg/decimal"
 )
 
-// Private-channel vocabulary (§6.2b item 6).
+// Private-channel vocabulary (§6.2b item 6, §27 R8).
 const (
 	ChanOrderQueued      = "order.queued"
 	ChanOrderAuctionFill = "order.auction_fill"
 	ChanOrderCancelled   = "order.cancelled"
+	ChanOrderExpired     = "order.expired"
 )
 
 // AUCTION_CANCELLED is the §6.2b rejection/cancellation reason surfaced
 // on remainder cancels — also the wire detail on cancelled notifications.
 const ReasonAuctionCancelled = "AUCTION_CANCELLED"
+
+// ReasonGTDExpired is the spec §27 R8 auto-expire notice: a resting
+// order's GTD deadline (or the 90-day GTC cap stamped at admission)
+// fired in the engine.
+const ReasonGTDExpired = "GTD_EXPIRED"
 
 // notify emits a private WS frame via the bound seam — nil-safe (tests
 // and unwired dev builds skip silently, mirroring the OTR convention).
@@ -320,7 +326,22 @@ func (s *Service) OnFill(ctx context.Context, orderID int64,
 // advance the list state machine; engine-cancelled auction orders emit
 // the §6.2b `order.cancelled` notice (reason AUCTION_CANCELLED — covers
 // both the unfilled-remainder sweep and a rejected/withdrawn CALL).
-func (s *Service) OnCancel(ctx context.Context, orderID int64) {
+func (s *Service) OnCancel(ctx context.Context, orderID int64,
+	reason uint8) {
+	// Spec §27 R8: an engine expiry echo surfaces as order.expired /
+	// GTD_EXPIRED on the private channel — distinct from a user cancel.
+	if reason == CancelReasonExpired {
+		if o, err := s.store.GetOrder(ctx, orderID); err == nil && o != nil {
+			s.notify(o.AccountID, ChanOrderExpired, map[string]any{
+				"order_id":        o.ID,
+				"client_order_id": o.ClientOrderID,
+				"instrument_id":   o.InstrumentID,
+				"type":            o.OrderType,
+				"status":          "EXPIRED",
+				"reason":          ReasonGTDExpired,
+			})
+		}
+	}
 	if o, err := s.store.GetOrder(ctx, orderID); err == nil && o != nil &&
 		IsAuctionType(o.OrderType) {
 		s.notify(o.AccountID, ChanOrderCancelled, map[string]any{

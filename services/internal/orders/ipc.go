@@ -58,10 +58,12 @@ func EncodeCancelEvent(b *flatbuffers.Builder, seq, ts uint64, orderID, accountI
 }
 
 // EncodeAmendEvent serializes Event{seq, ts, OrderAmend{...}}. The wire
-// convention is 0=unchanged for price/qty/stop/gtd_expiry_ns; order_seq
-// is the engine's §6.9 #1 amend fence (stale → STALE_MODIFY in-core).
+// convention is 0=unchanged for price/qty/stop/display_qty/gtd_expiry_ns
+// and trigger_source 0xFF=unchanged; order_seq is the engine's §6.9 #1
+// amend fence (stale → STALE_MODIFY in-core).
 func EncodeAmendEvent(b *flatbuffers.Builder, seq, ts uint64,
-	orderID, orderSeq uint64, price, qty, stop, gtdExpiryNs int64) []byte {
+	orderID, orderSeq uint64, price, qty, stop, gtdExpiryNs, displayQty int64,
+	triggerSource byte) []byte {
 	wire.OrderAmendStart(b)
 	wire.OrderAmendAddOrderId(b, orderID)
 	wire.OrderAmendAddOrderSeq(b, orderSeq)
@@ -69,6 +71,8 @@ func EncodeAmendEvent(b *flatbuffers.Builder, seq, ts uint64,
 	wire.OrderAmendAddQty(b, qty)
 	wire.OrderAmendAddStopPrice(b, stop)
 	wire.OrderAmendAddGtdExpiryNs(b, gtdExpiryNs)
+	wire.OrderAmendAddDisplayQty(b, displayQty)
+	wire.OrderAmendAddTriggerSource(b, triggerSource)
 	oa := wire.OrderAmendEnd(b)
 
 	wire.EventStart(b)
@@ -100,6 +104,59 @@ func EncodeOcoLinkEvent(b *flatbuffers.Builder, seq, ts, linkID,
 	wire.EventAddTs(b, ts)
 	wire.EventAddTypeType(b, wire.EventTypeOcoLink)
 	wire.EventAddType(b, ol)
+	b.Finish(wire.EventEnd(b))
+	return b.FinishedBytes()
+}
+
+// BasketLegWire is the SubmitBasket leg rendered to wire units — side as
+// the wire.Side ordinal, qty/limit_price in 1e8 ticks, order_id the
+// persisted leg orders row, shard_id the instrument's home shard.
+type BasketLegWire struct {
+	ShardID      uint32
+	InstrumentID uint32
+	OrderID      uint64
+	Side         wire.Side
+	QtyUnits     int64
+	LimitPrice   int64
+}
+
+// EncodeBasketSubmitEvent serializes
+// Event{seq, ts, BasketSubmit{op_hi, op_lo, account_id, legs[]}} — the
+// Phase-3 Task 4 cross-shard basket ingress frame (spec §2.2a). The
+// coordinator's op dedup makes re-sends idempotent.
+func EncodeBasketSubmitEvent(b *flatbuffers.Builder, seq, ts, opHi, opLo,
+	accountID uint64, legs []BasketLegWire) []byte {
+	// BasketLeg is a table — build every leg offset first (tables cannot
+	// nest inside StartVector), then the vector of offsets back-to-front.
+	offs := make([]flatbuffers.UOffsetT, len(legs))
+	for i := range legs {
+		wire.BasketLegStart(b)
+		wire.BasketLegAddShardId(b, legs[i].ShardID)
+		wire.BasketLegAddInstrumentId(b, legs[i].InstrumentID)
+		wire.BasketLegAddOrderId(b, legs[i].OrderID)
+		wire.BasketLegAddSide(b, legs[i].Side)
+		wire.BasketLegAddQty(b, legs[i].QtyUnits)
+		wire.BasketLegAddLimitPrice(b, legs[i].LimitPrice)
+		offs[i] = wire.BasketLegEnd(b)
+	}
+	wire.BasketSubmitStartLegsVector(b, len(legs))
+	for i := len(offs) - 1; i >= 0; i-- {
+		b.PrependUOffsetT(offs[i])
+	}
+	lv := b.EndVector(len(legs))
+
+	wire.BasketSubmitStart(b)
+	wire.BasketSubmitAddOpIdHi(b, opHi)
+	wire.BasketSubmitAddOpIdLo(b, opLo)
+	wire.BasketSubmitAddAccountId(b, accountID)
+	wire.BasketSubmitAddLegs(b, lv)
+	bs := wire.BasketSubmitEnd(b)
+
+	wire.EventStart(b)
+	wire.EventAddSeq(b, seq)
+	wire.EventAddTs(b, ts)
+	wire.EventAddTypeType(b, wire.EventTypeBasketSubmit)
+	wire.EventAddType(b, bs)
 	b.Finish(wire.EventEnd(b))
 	return b.FinishedBytes()
 }
@@ -149,6 +206,49 @@ func triggerSourceByte(src string) byte {
 		return 2
 	default:
 		return 0 // "" / LAST_PRICE
+	}
+}
+
+// triggerSourceAmendByte is the OrderAmend variant: 0xFF = unchanged on
+// the amend wire, so an absent field is never mistaken for a LAST_PRICE
+// switch request.
+func triggerSourceAmendByte(src string) byte {
+	if src == "" {
+		return 0xFF
+	}
+	return triggerSourceByte(src)
+}
+
+// trailUnitByte maps the §5.4 trailing-unit vocabulary onto the engine's
+// kTrailUnit* wire ordinals (core/include/book/Order.hpp).
+func trailUnitByte(unit string) byte {
+	switch unit {
+	case TrailUnitPips:
+		return 1
+	case TrailUnitPercentage:
+		return 2
+	case TrailUnitAbsolute:
+		return 3
+	default:
+		return 0
+	}
+}
+
+// trailingOffsetWire renders the request's trailing distance into the
+// wire's unit-denominated int64: PIPS → whole pips, PERCENTAGE → pct×100,
+// ABSOLUTE → 1e8-scaled ticks. Validation guarantees integrality of the
+// PIPS/PERCENTAGE forms.
+func trailingOffsetWire(off *decimal.Decimal, unit string) int64 {
+	if off == nil {
+		return 0
+	}
+	switch unit {
+	case TrailUnitPips:
+		return off.IntPart()
+	case TrailUnitPercentage:
+		return off.Shift(2).IntPart()
+	default: // ABSOLUTE — a quote-currency distance in ticks
+		return decimal.Scaled(*off)
 	}
 }
 
@@ -235,8 +335,21 @@ func orderNewMsg(o *Order, acct *Account, req *SubmitRequest) ipc.OrderNewMsg {
 	if acct != nil && acct.TradeGroupID != nil {
 		m.TradeGroupID = uint32(*acct.TradeGroupID)
 	}
-	if req != nil && req.GTDExpiry != nil {
-		m.GtdExpiryNs = req.GTDExpiry.UnixNano()
+	if req != nil {
+		if req.GTDExpiry != nil {
+			m.GtdExpiryNs = req.GTDExpiry.UnixNano()
+		}
+		// Phase-3 Task 2 wire-up: the trailing triplet + activation price
+		// turn a StopMarket wire order into the engine's TRAILING_STOP;
+		// discretionary_offset_pips arms the §6.11 hidden band.
+		m.TrailingOffsetUnit = trailUnitByte(req.TrailingOffsetUnit)
+		m.TrailingOffset = trailingOffsetWire(req.TrailingOffset, req.TrailingOffsetUnit)
+		if req.ActivationPrice != nil {
+			m.ActivationPrice = decimal.Scaled(*req.ActivationPrice)
+		}
+		if req.DiscretionaryOffsetPips != nil {
+			m.DiscretionaryOffsetPips = req.DiscretionaryOffsetPips.IntPart()
+		}
 	}
 	return m
 }
@@ -609,7 +722,16 @@ func (c *Consumer) handle(payload []byte) {
 		}
 		oc := &wire.OrderCancel{}
 		oc.Init(t.Bytes, t.Pos)
-		_ = c.store.ApplyCancel(context.Background(), int64(oc.OrderId()))
+		// Spec §27 R8: an engine expiry (GTD/DAY or the 90-day GTC cap)
+		// must surface as EXPIRED in the read model, not CANCELLED.
+		if rs, ok := c.store.(interface {
+			ApplyCancelReason(context.Context, int64, uint8) error
+		}); ok {
+			_ = rs.ApplyCancelReason(context.Background(),
+				int64(oc.OrderId()), oc.Reason())
+		} else {
+			_ = c.store.ApplyCancel(context.Background(), int64(oc.OrderId()))
+		}
 		if oc.Reason() == CancelReasonOcoLink {
 			// Phase-14 Task 14.3.1 — OCO sibling cancellation: audit the
 			// engine-driven reason so the order's history distinguishes it
@@ -636,6 +758,44 @@ func (c *Consumer) handle(payload []byte) {
 		_ = c.store.ApplyFill(context.Background(), int64(tf.SellOrderId()), px, qty)
 		c.fireFill(int64(tf.BuyOrderId()), px, qty)
 		c.fireFill(int64(tf.SellOrderId()), px, qty)
+	case wire.EventTypeBasketResult:
+		// Phase-3 Task 4 — terminal cross-shard basket outcome; project the
+		// OptResult onto the migration-283 ledger row when the store
+		// implements it. Stores without the ledger keep the leg fills.
+		var t flatbuffers.Table
+		if !ev.Type(&t) {
+			return
+		}
+		br := &wire.BasketResult{}
+		br.Init(t.Bytes, t.Pos)
+		if bs, ok := c.store.(basketStore); ok {
+			_ = bs.UpdateBasketResult(context.Background(),
+				br.OpIdHi(), br.OpIdLo(),
+				basketStatusName(br.Status()), int(br.Code()),
+				int(br.LegsFilled()), int(br.LegsUnwound()),
+				br.Slippage())
+		}
+	}
+}
+
+// basketStatusName maps the engine's OptStatus ordinals to the ledger's
+// text values. Only terminal states are published (2/4/5/6).
+func basketStatusName(s uint8) string {
+	switch s {
+	case 1:
+		return "MATCHING"
+	case 2:
+		return "COMMITTED"
+	case 3:
+		return "UNWINDING"
+	case 4:
+		return "COMPENSATED"
+	case 5:
+		return "FAILED"
+	case 6:
+		return "REJECTED"
+	default:
+		return "UNKNOWN"
 	}
 }
 

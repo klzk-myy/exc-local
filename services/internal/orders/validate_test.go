@@ -240,32 +240,32 @@ func TestValidateModifyRules(t *testing.T) {
 	o := openOrder()
 	o.Status = "FILLED"
 	mr := &ModifyRequest{Price: d("1.06"), OrderSeq: u64p(5)}
-	if got := codeOf(t, ValidateModify(mr, o, inst)); got != "ORDER_NOT_FOUND" {
+	if got := codeOf(t, ValidateModify(mr, o, inst, time.Now())); got != "ORDER_NOT_FOUND" {
 		t.Fatalf("terminal amend: got %s", got)
 	}
 	// IOC order.
 	o = openOrder()
 	o.TimeInForce = TIFIOC
-	if got := codeOf(t, ValidateModify(mr, o, inst)); got != "ORDER_AMEND_REJECTED" {
+	if got := codeOf(t, ValidateModify(mr, o, inst, time.Now())); got != "ORDER_AMEND_REJECTED" {
 		t.Fatalf("IOC amend: got %s", got)
 	}
 	// Amend TIF to IOC.
 	o = openOrder()
 	mr = &ModifyRequest{TimeInForce: TIFIOC, OrderSeq: u64p(5)}
-	if got := codeOf(t, ValidateModify(mr, o, inst)); got != "ORDER_AMEND_REJECTED" {
+	if got := codeOf(t, ValidateModify(mr, o, inst, time.Now())); got != "ORDER_AMEND_REJECTED" {
 		t.Fatalf("to-IOC amend: got %s", got)
 	}
 	// Quantity not above filled.
 	o = openOrder()
 	o.FilledQty = decimal.MustFromString("500")
 	mr = &ModifyRequest{Quantity: d("400"), OrderSeq: u64p(5)}
-	if got := codeOf(t, ValidateModify(mr, o, inst)); got != "ORDER_AMEND_REJECTED" {
+	if got := codeOf(t, ValidateModify(mr, o, inst, time.Now())); got != "ORDER_AMEND_REJECTED" {
 		t.Fatalf("qty <= filled: got %s", got)
 	}
 	// No fields.
 	o = openOrder()
 	mr = &ModifyRequest{OrderSeq: u64p(5)}
-	if got := codeOf(t, ValidateModify(mr, o, inst)); got != "INVALID_REQUEST" {
+	if got := codeOf(t, ValidateModify(mr, o, inst, time.Now())); got != "INVALID_REQUEST" {
 		t.Fatalf("empty amend: got %s", got)
 	}
 	// Price amend on MARKET order rejected.
@@ -273,13 +273,13 @@ func TestValidateModifyRules(t *testing.T) {
 	o.OrderType = TypeMarket
 	o.Price = nil
 	mr = &ModifyRequest{Price: d("1.06"), OrderSeq: u64p(5)}
-	if got := codeOf(t, ValidateModify(mr, o, inst)); got != "ORDER_AMEND_REJECTED" {
+	if got := codeOf(t, ValidateModify(mr, o, inst, time.Now())); got != "ORDER_AMEND_REJECTED" {
 		t.Fatalf("market price amend: got %s", got)
 	}
 	// Valid.
 	o = openOrder()
 	mr = &ModifyRequest{Price: d("1.06"), OrderSeq: u64p(5)}
-	if err := ValidateModify(mr, o, inst); err != nil {
+	if err := ValidateModify(mr, o, inst, time.Now()); err != nil {
 		t.Fatalf("valid amend rejected: %v", err)
 	}
 }
@@ -397,5 +397,159 @@ func TestParseModifySeqAcceptedAsStringOrNumber(t *testing.T) {
 	}
 	if _, err := ParseModify([]byte(`{"order_seq":1.5}`)); err == nil {
 		t.Fatal("fractional seq accepted")
+	}
+}
+
+// --- spec §27 R8: 90-day GTC cap ----------------------------------------
+
+func TestValidateSubmitGTCConvertsToGTDAtCap(t *testing.T) {
+	ref := decimal.MustFromString("1.05")
+	now := time.Now()
+	req := submitReq() // TIFGTC, no expiry
+	if err := ValidateSubmit(req, testInst(), testAcct(), &ref, now); err != nil {
+		t.Fatalf("valid submit rejected: %v", err)
+	}
+	if req.TimeInForce != TIFGTD {
+		t.Fatalf("GTC not converted to GTD: %s", req.TimeInForce)
+	}
+	want := now.AddDate(0, 0, gtcMaxLifetimeDays)
+	if req.GTDExpiry == nil || !req.GTDExpiry.Equal(want) {
+		t.Fatalf("cap expiry = %v, want %v", req.GTDExpiry, want)
+	}
+}
+
+func TestValidateSubmitEmptyTIFCapped(t *testing.T) {
+	ref := decimal.MustFromString("1.05")
+	now := time.Now()
+	req := submitReq()
+	req.TimeInForce = "" // defaults to GTC → cap applies
+	if err := ValidateSubmit(req, testInst(), testAcct(), &ref, now); err != nil {
+		t.Fatalf("valid submit rejected: %v", err)
+	}
+	if req.TimeInForce != TIFGTD || req.GTDExpiry == nil {
+		t.Fatalf("empty TIF not capped: tif=%s expiry=%v",
+			req.TimeInForce, req.GTDExpiry)
+	}
+}
+
+func TestValidateSubmitGTCWithEarlierExpiryHonoured(t *testing.T) {
+	ref := decimal.MustFromString("1.05")
+	now := time.Now()
+	earlier := now.AddDate(0, 0, 30)
+	req := submitReq()
+	req.GTDExpiry = &earlier // GTC + explicit expiry sooner than cap
+	if err := ValidateSubmit(req, testInst(), testAcct(), &ref, now); err != nil {
+		t.Fatalf("valid submit rejected: %v", err)
+	}
+	if req.TimeInForce != TIFGTD || !req.GTDExpiry.Equal(earlier) {
+		t.Fatalf("earlier expiry not honoured: tif=%s expiry=%v",
+			req.TimeInForce, req.GTDExpiry)
+	}
+}
+
+func TestValidateSubmitGTCWithLaterExpiryClamped(t *testing.T) {
+	ref := decimal.MustFromString("1.05")
+	now := time.Now()
+	later := now.AddDate(0, 0, 200)
+	req := submitReq()
+	req.GTDExpiry = &later
+	if err := ValidateSubmit(req, testInst(), testAcct(), &ref, now); err != nil {
+		t.Fatalf("valid submit rejected: %v", err)
+	}
+	want := now.AddDate(0, 0, gtcMaxLifetimeDays)
+	if !req.GTDExpiry.Equal(want) {
+		t.Fatalf("over-cap expiry not clamped: %v want %v", req.GTDExpiry, want)
+	}
+}
+
+func TestValidateSubmitGTDWithinCapUnchanged(t *testing.T) {
+	ref := decimal.MustFromString("1.05")
+	now := time.Now()
+	exp := now.AddDate(0, 0, 89) // boundary-inside
+	req := submitReq()
+	req.TimeInForce = TIFGTD
+	req.GTDExpiry = &exp
+	if err := ValidateSubmit(req, testInst(), testAcct(), &ref, now); err != nil {
+		t.Fatalf("valid GTD rejected: %v", err)
+	}
+	if req.TimeInForce != TIFGTD || !req.GTDExpiry.Equal(exp) {
+		t.Fatalf("in-cap GTD mutated: tif=%s expiry=%v",
+			req.TimeInForce, req.GTDExpiry)
+	}
+}
+
+func TestValidateSubmitGTDBeyondCapClamped(t *testing.T) {
+	ref := decimal.MustFromString("1.05")
+	now := time.Now()
+	exp := now.AddDate(0, 0, 120)
+	req := submitReq()
+	req.TimeInForce = TIFGTD
+	req.GTDExpiry = &exp
+	if err := ValidateSubmit(req, testInst(), testAcct(), &ref, now); err != nil {
+		t.Fatalf("valid GTD rejected: %v", err)
+	}
+	want := now.AddDate(0, 0, gtcMaxLifetimeDays)
+	if !req.GTDExpiry.Equal(want) {
+		t.Fatalf("GTD beyond cap not clamped: %v want %v", req.GTDExpiry, want)
+	}
+}
+
+func TestValidateSubmitIOCUnaffectedByCap(t *testing.T) {
+	ref := decimal.MustFromString("1.05")
+	now := time.Now()
+	req := submitReq()
+	req.TimeInForce = TIFIOC // never rests — no cap applies
+	if err := ValidateSubmit(req, testInst(), testAcct(), &ref, now); err != nil {
+		t.Fatalf("valid IOC rejected: %v", err)
+	}
+	if req.TimeInForce != TIFIOC || req.GTDExpiry != nil {
+		t.Fatalf("IOC mutated by cap: tif=%s expiry=%v",
+			req.TimeInForce, req.GTDExpiry)
+	}
+}
+
+func TestValidateModifyAmendToGTCResolvesCap(t *testing.T) {
+	o := &Order{ID: 1, Status: "ACTIVE", TimeInForce: TIFGTD,
+		Quantity: *d("1000"), OrderSeq: 5}
+	mr := &ModifyRequest{OrderSeq: u64p(5), TimeInForce: TIFGTC}
+	now := time.Now()
+	if err := ValidateModify(mr, o, testInst(), now); err != nil {
+		t.Fatalf("GTC amend rejected: %v", err)
+	}
+	if mr.TimeInForce != TIFGTD {
+		t.Fatalf("GTC amend not resolved to GTD: %s", mr.TimeInForce)
+	}
+	want := now.AddDate(0, 0, gtcMaxLifetimeDays)
+	if mr.GTDExpiry == nil || !mr.GTDExpiry.Equal(want) {
+		t.Fatalf("amend expiry = %v, want cap %v", mr.GTDExpiry, want)
+	}
+}
+
+func TestValidateModifyAmendToGTCPreservesEarlierExpiry(t *testing.T) {
+	stored := time.Now().AddDate(0, 0, 10) // stored deadline sooner than cap
+	o := &Order{ID: 1, Status: "ACTIVE", TimeInForce: TIFGTD,
+		Quantity: *d("1000"), OrderSeq: 5, GTDExpiry: &stored}
+	mr := &ModifyRequest{OrderSeq: u64p(5), TimeInForce: TIFGTC}
+	if err := ValidateModify(mr, o, testInst(), time.Now()); err != nil {
+		t.Fatalf("GTC amend rejected: %v", err)
+	}
+	if !mr.GTDExpiry.Equal(stored) {
+		t.Fatalf("stored expiry not preserved: %v want %v",
+			mr.GTDExpiry, stored)
+	}
+}
+
+func TestValidateModifyGTDExpiryBeyondCapClamps(t *testing.T) {
+	o := &Order{ID: 1, Status: "ACTIVE", TimeInForce: TIFGTD,
+		Quantity: *d("1000"), OrderSeq: 5}
+	far := time.Now().AddDate(0, 0, 365)
+	mr := &ModifyRequest{OrderSeq: u64p(5), GTDExpiry: &far}
+	now := time.Now()
+	if err := ValidateModify(mr, o, testInst(), now); err != nil {
+		t.Fatalf("expiry amend rejected: %v", err)
+	}
+	want := now.AddDate(0, 0, gtcMaxLifetimeDays)
+	if !mr.GTDExpiry.Equal(want) {
+		t.Fatalf("amended expiry not clamped: %v want %v", mr.GTDExpiry, want)
 	}
 }
