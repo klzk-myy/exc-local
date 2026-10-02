@@ -151,14 +151,18 @@ func SeedRoutes() []Route {
 			"Revoke all sessions except current", authUser),
 
 		// ---- Task 5.3.11 sub-accounts ----
-		v1(http.MethodGet, "/api/v1/account/sub-accounts", TierBasic, "Phase-05 Task 5.3.11",
+		v1live(http.MethodGet, "/api/v1/account/sub-accounts", TierBasic, "Phase-05 Task 5.3.11",
 			"List sub-accounts with balances/permissions", authRead),
-		v1(http.MethodPost, "/api/v1/account/sub-accounts", TierBasic, "Phase-05 Task 5.3.11",
+		v1live(http.MethodGet, "/api/v1/account/sub-accounts/aggregate", TierBasic, "Phase-05 Task 5.3.11",
+			"Master's rolled-up family view (balances + positions)", authRead),
+		v1live(http.MethodPost, "/api/v1/account/sub-accounts", TierBasic, "Phase-05 Task 5.3.11",
 			"Create sub-account (enforces tiered max_sub_accounts)", authUser),
-		v1(http.MethodPut, "/api/v1/admin/accounts/{id}/sub-account-limit", TierBasic, "Phase-05 Task 5.3.11",
+		v1live(http.MethodPut, "/api/v1/admin/accounts/{id}/sub-account-limit", TierBasic, "Phase-05 Task 5.3.11",
 			"Adjust sub-account ceiling (up to 1,000 institutional)", adminAuth(RoleRiskManager)),
-		v1(http.MethodPost, "/api/v1/account/sub-accounts/{id}/api-keys", TierBasic, "Phase-05 Task 5.3.11",
+		v1live(http.MethodPost, "/api/v1/account/sub-accounts/{id}/api-keys", TierBasic, "Phase-05 Task 5.3.11",
 			"Provision scoped sub-account API key (read/trade)", authUser),
+		v1live(http.MethodDelete, "/api/v1/account/sub-accounts/{id}/api-keys/{keyId}", TierBasic, "Phase-05 Task 5.3.11",
+			"Revoke a sub-account API key", authUser),
 
 		// ---- Task 5.3.12 FROZEN legal hold (dual control) ----
 		{Method: http.MethodPost, Path: "/api/v1/admin/accounts/{id}/freeze", Version: "v1",

@@ -5169,6 +5169,30 @@ func run() error {
 		collateralH = collateralSvc
 	}
 
+	// Task 5.3.11 — sub-accounts family surface (list/aggregate/create +
+	// per-sub-account API keys + admin limit). The handler package owns
+	// the handlers; the wiring layer adapts auth.Claims into its
+	// Identity seam so the package stays auth-import-free.
+	subAccountSvc := accounts.NewSubAccountService(pool)
+	accountCluster := &accounts.Handler{
+		Subs:   subAccountSvc,
+		Keys:   accounts.NewAPIKeyService(pool, subAccountSvc, secretBox),
+		Freeze: freezeSvc,
+		ResolveIdentity: func(r *http.Request) *accounts.Identity {
+			c := auth.ClaimsFrom(r.Context())
+			if c == nil {
+				return nil
+			}
+			uid, _ := strconv.ParseInt(c.Subject, 10, 64)
+			return &accounts.Identity{
+				AccountID:     c.AccountID,
+				UserID:        uid,
+				Scopes:        c.Scopes,
+				TwoFactorDone: c.TwoFactorVerified(),
+			}
+		},
+	}
+
 	live := map[string]http.Handler{
 		"GET /api/v1/account/rate-limits": http.HandlerFunc(
 			api.AccountRateLimits(limiter, tierResolver)),
@@ -5187,6 +5211,19 @@ func run() error {
 		"DELETE /api/v1/admin/ip-allowlist/{ip}": http.HandlerFunc(alDel),
 		// --- Phase-05 Wave-2 Cluster B live handlers ---
 		"GET /api/v1/account/balances":    http.HandlerFunc(api.AccountBalances(fundStore)),
+		// Task 5.3.11 sub-accounts family surface.
+		"GET /api/v1/account/sub-accounts": http.HandlerFunc(
+			accountCluster.ListSubAccounts),
+		"GET /api/v1/account/sub-accounts/aggregate": http.HandlerFunc(
+			accountCluster.AggregateSubAccounts),
+		"POST /api/v1/account/sub-accounts": http.HandlerFunc(
+			accountCluster.CreateSubAccount),
+		"POST /api/v1/account/sub-accounts/{id}/api-keys": http.HandlerFunc(
+			accountCluster.CreateSubAccountAPIKey),
+		"DELETE /api/v1/account/sub-accounts/{id}/api-keys/{keyId}": http.HandlerFunc(
+			accountCluster.RevokeSubAccountAPIKey),
+		"PUT /api/v1/admin/accounts/{id}/sub-account-limit": http.HandlerFunc(
+			accountCluster.SetSubAccountLimit),
 		"GET /api/v1/positions":           http.HandlerFunc(api.AccountPositions(fundStore)),
 		"GET /api/v1/account/risk-limits": http.HandlerFunc(api.AccountRiskLimits(riskLimits, fundStore)),
 		// --- Phase-19 multi-asset margin surface (Tasks 19.3.1/.15–.17/.23) ---
