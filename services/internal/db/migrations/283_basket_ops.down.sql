@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS basket_legs;
+DROP TABLE IF EXISTS baskets;
