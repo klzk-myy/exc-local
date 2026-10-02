@@ -1222,7 +1222,7 @@ var CriterionBindings = map[int][]Binding{
 	},
 	320: { // cross-shard margin 2PC timeout releases + NBP deficit restore
 		{Kind: BindGTest, Binary: "test_cross_shard",
-			Filter: "CrossShard2PC.ReserveTimeoutFullCompensation|CrossShard2PC.NackCompensatesAll|CrossShard2PC.ThreeShardAllOrNothingCommit|CrossShard2PC.ReaperCadenceIsTwoSeconds|CrossShard2PC.CommitLosingTtlRaceCompensatesCommittedLeg"},
+			Filter: "CrossShard2PC.ReserveTimeoutFullCompensation:CrossShard2PC.NackCompensatesAll:CrossShard2PC.ThreeShardAllOrNothingCommit:CrossShard2PC.ReaperCadenceIsTwoSeconds:CrossShard2PC.CommitLosingTtlRaceCompensatesCommittedLeg"},
 		{Kind: BindGoTest, Pkg: "./internal/risk",
 			Run: "TestNBPConstruction|TestNBPRetail|TestNBPSweep|TestNBPEvents|TestNBPStoreReadFailure"},
 	},

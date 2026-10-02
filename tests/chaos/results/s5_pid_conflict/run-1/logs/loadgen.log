@@ -1,1 +1,1 @@
-stopped (signal:terminated): sent=6041 fills=1142 cancels=88 dup_trade_ids=0 report=/www/wwwroot/exc.local/tests/chaos/results/s5_pid_conflict/run-1/loadgen-1.json
+stopped (signal:terminated): sent=6035 fills=1141 cancels=87 dup_trade_ids=0 report=/www/wwwroot/exc.local/tests/chaos/results/s5_pid_conflict/run-1/loadgen-1.json

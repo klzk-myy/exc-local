@@ -1,14 +1,14 @@
-[14:45:26] engine start pid=3732180 ipc=chaos-s2r2x5 args=
-[14:45:26] check[1] boot_ready = PASS (ready)
-[14:45:26] loadgen start pid=3732216 rate=3000 dur=20 obase=201000000000001 report=/www/wwwroot/exc.local/tests/chaos/results/s2_timeout_requeue/run-2/loadgen-1.json
-[14:45:29] engine SIGKILLed while loadgen still streaming
-[14:45:30] check[2] client_timeout_detection = PASS (loadgen exited after engine death)
-[14:45:30] check[3] stop_reason = PASS (stop_reason=engine_dead)
-[14:45:30] check[4] client_dup_fills = PASS (0)
-[14:45:30] engine start pid=3732611 ipc=chaos-s2r2x5 args=
-[14:45:30] check[5] recovery_lt_10s = PASS (728ms)
-[14:45:30] check[6] wal_clean = PASS (dups=0 gaps=0)
-[14:45:30] check[7] acked_orders_journaled = PASS (trades_journaled=2619 >= fills_observed=2619)
-[14:45:33] check[8] probe_ack_accounting = PASS (sent=40 acked=40 unacked=0 dup_fills=0)
-[14:45:33] engine stopped
-[14:45:33] check[9] final_scan_clean = PASS (ok)
+[20:54:23] engine start pid=184415 ipc=chaos-s2r2x5 args=
+[20:54:23] check[1] boot_ready = PASS (ready)
+[20:54:23] loadgen start pid=184432 rate=3000 dur=20 obase=201000000000001 report=/www/wwwroot/exc.local/tests/chaos/results/s2_timeout_requeue/run-2/loadgen-1.json
+[20:54:26] engine SIGKILLed while loadgen still streaming
+[20:54:27] check[2] client_timeout_detection = PASS (loadgen exited after engine death)
+[20:54:27] check[3] stop_reason = PASS (stop_reason=engine_dead)
+[20:54:27] check[4] client_dup_fills = PASS (0)
+[20:54:27] engine start pid=184565 ipc=chaos-s2r2x5 args=
+[20:54:27] check[5] recovery_lt_10s = PASS (638ms)
+[20:54:27] check[6] wal_clean = PASS (dups=0 gaps=0)
+[20:54:27] check[7] acked_orders_journaled = PASS (trades_journaled=2618 >= fills_observed=2618)
+[20:54:31] check[8] probe_ack_accounting = PASS (sent=40 acked=40 unacked=0 dup_fills=0)
+[20:54:31] engine stopped
+[20:54:31] check[9] final_scan_clean = PASS (ok)

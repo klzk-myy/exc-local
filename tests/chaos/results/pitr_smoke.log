@@ -1,4 +1,4 @@
-==> initdb scratch primary (/tmp/pitr_smoke.yLzGUt)
+==> initdb scratch primary (/tmp/pitr_smoke.Of1Zko)
 ==> start primary
 ==> base backup
 waiting for checkpoint
@@ -9,9 +9,9 @@ waiting for checkpoint
  0/3000528
 (1 row)
 
-    archived 4 WAL segment(s); target=2026-09-28 14:46:54.617525+00
-==> stage PITR replica at 2026-09-28 14:46:54.617525+00
+    archived 4 WAL segment(s); target=2026-10-02 20:56:06.327066+00
+==> stage PITR replica at 2026-10-02 20:56:06.327066+00
 ==> start replica (archive recovery)
     replica rows: batch1=10 batch2=0 (want 10 / 0)
-    log: 2026-09-28 14:46:57.940 GMT [3738783] LOG:  recovery stopping before commit of transaction 754, time 2026-09-28 14:46:57.622086+00
-PASS: archive + PITR replay verified (target=2026-09-28 14:46:54.617525+00)
+    log: 2026-10-02 20:56:09.632 UTC [191465] LOG:  recovery stopping before commit of transaction 754, time 2026-10-02 20:56:09.330818+00
+PASS: archive + PITR replay verified (target=2026-10-02 20:56:06.327066+00)

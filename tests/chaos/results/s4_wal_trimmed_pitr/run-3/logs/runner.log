@@ -1,12 +1,12 @@
-[14:46:07] engine start pid=3736001 ipc=chaos-s4r3x12 args=
-[14:46:07] loadgen start pid=3736014 rate=2000 dur=4 obase=301000000000001 report=/www/wwwroot/exc.local/tests/chaos/results/s4_wal_trimmed_pitr/run-3/loadgen-seed.json
-[14:46:12] engine stopped
-[14:46:12] check[1] fixture_state = PASS (wal_tail=14296 snapshot_seq=14296)
-[14:46:12] fixture: real WAL 0..14296 + marker at 14796; archive empty
-[14:46:12] check[2] gap_detected = PASS (scan_rc=3 lost_ranges=1)
-[14:46:12] check[3] ladder_fail_closed = PASS (exit=3 WAL_RECOVERY_HALT row emitted)
-[14:46:12] check[4] decision_lt_10s = PASS (15ms)
-[14:46:12] check[5] engine_boot_fail_closed = PASS (exit=1)
-[14:46:12] check[6] archive_empty = PASS (trimmed segments never archived — PITR selected)
-[14:46:12] check[7] pitr_staged = PASS (recovery.signal + restore_command + recovery_target_time written)
-[14:46:12] check[8] pg_report_persisted = PASS (inserted=1 pg_halt_rows=13)
+[20:55:15] engine start pid=188063 ipc=chaos-s4r3x12 args=
+[20:55:15] loadgen start pid=188077 rate=2000 dur=4 obase=301000000000001 report=/www/wwwroot/exc.local/tests/chaos/results/s4_wal_trimmed_pitr/run-3/loadgen-seed.json
+[20:55:20] engine stopped
+[20:55:20] check[1] fixture_state = PASS (wal_tail=14635 snapshot_seq=14635)
+[20:55:21] fixture: real WAL 0..14635 + marker at 15135; archive empty
+[20:55:21] check[2] gap_detected = PASS (scan_rc=3 lost_ranges=1)
+[20:55:21] check[3] ladder_fail_closed = PASS (exit=3 WAL_RECOVERY_HALT row emitted)
+[20:55:21] check[4] decision_lt_10s = PASS (21ms)
+[20:55:21] check[5] engine_boot_fail_closed = PASS (exit=1)
+[20:55:21] check[6] archive_empty = PASS (trimmed segments never archived — PITR selected)
+[20:55:21] check[7] pitr_staged = PASS (recovery.signal + restore_command + recovery_target_time written)
+[20:55:21] check[8] pg_report_persisted = PASS (inserted=1 pg_halt_rows=3)

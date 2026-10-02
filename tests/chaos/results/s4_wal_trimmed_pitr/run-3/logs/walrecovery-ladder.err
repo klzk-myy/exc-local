@@ -1,2 +1,2 @@
-ALERT_P1 WAL_RECOVERY_HALT shard=0 wal_tail=14797 runbook=docs/runbooks/wal-recovery-halt.md (exchange:replay-from-archive)
+ALERT_P1 WAL_RECOVERY_HALT shard=0 wal_tail=15136 runbook=docs/runbooks/wal-recovery-halt.md (exchange:replay-from-archive)
 wal-recovery: uncovered seq loss — WAL and snapshot cannot prove the lost range

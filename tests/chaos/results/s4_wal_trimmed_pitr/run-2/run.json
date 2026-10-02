@@ -1,4 +1,4 @@
 {"scenario":"s4_wal_trimmed_pitr","run":2,"pass":true,
- "recovery_ms":18,"dup_trade_ids":0,"missing_trades":0,
- "wal_tail":14572,"gap_seq":15072,"snapshot_seq":14572,
+ "recovery_ms":21,"dup_trade_ids":0,"missing_trades":0,
+ "wal_tail":14618,"gap_seq":15118,"snapshot_seq":14618,
  "detail":"uncovered gap -> WAL_RECOVERY_HALT -> PITR staged + report row in PG"}

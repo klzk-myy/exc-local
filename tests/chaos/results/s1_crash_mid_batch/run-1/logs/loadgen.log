@@ -1,10 +1,2 @@
-SLOWFILL oid=101000000000995 d=109ms sendNs=333770651 nowNs=442935980 tid=136
-SLOWFILL oid=101000000000997 d=127ms sendNs=334429543 nowNs=462160855 tid=137
-SLOWFILL oid=101000000000999 d=146ms sendNs=335106449 nowNs=481979690 tid=138
-SLOWFILL oid=101000000001003 d=170ms sendNs=336436935 nowNs=507361427 tid=139
-SLOWFILL oid=101000000001009 d=205ms sendNs=338430325 nowNs=544370563 tid=140
-SLOWFILL oid=101000000001039 d=196ms sendNs=348430052 nowNs=544663769 tid=141
-SLOWFILL oid=101000000001046 d=193ms sendNs=350761630 nowNs=544728695 tid=142
-SLOWFILL oid=101000000001060 d=189ms sendNs=355428655 nowNs=544865421 tid=144
-stopped (signal:terminated): sent=10413 fills=3851 cancels=293 dup_trade_ids=0 report=/www/wwwroot/exc.local/tests/chaos/results/s1_crash_mid_batch/run-1/loadgen-1.json
-stopped (duration): sent=11999 fills=5365 cancels=403 dup_trade_ids=0 report=/www/wwwroot/exc.local/tests/chaos/results/s1_crash_mid_batch/run-1/loadgen-2.json
+stopped (signal:terminated): sent=10522 fills=3949 cancels=302 dup_trade_ids=0 report=/www/wwwroot/exc.local/tests/chaos/results/s1_crash_mid_batch/run-1/loadgen-1.json
+stopped (duration): sent=11998 fills=5344 cancels=405 dup_trade_ids=0 report=/www/wwwroot/exc.local/tests/chaos/results/s1_crash_mid_batch/run-1/loadgen-2.json

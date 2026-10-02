@@ -1,24 +1,24 @@
-[14:45:51] engine start pid=3734863 ipc=chaos-s3r3x9 args=
-[14:45:52] loadgen start pid=3734896 rate=1500 dur=4 obase=301000000000001 report=/www/wwwroot/exc.local/tests/chaos/results/s3_stale_snapshot/run-3/loadgen-seed.json
-[14:45:56] engine stopped
-[14:45:56] check[1] snapshot_present = PASS (/www/wwwroot/exc.local/tests/chaos/results/s3_stale_snapshot/run-3/snap/0/i7/snap_00000000000000011366.bin)
-[14:45:56] state built: snapshot_seq=11366 wal_tail=11366
-[14:45:56] corrupted 16 payload bytes of /www/wwwroot/exc.local/tests/chaos/results/s3_stale_snapshot/run-3/snap/0/i7/snap_00000000000000011366.bin
-[14:45:56] engine start pid=3735081 ipc=chaos-s3r3x9 args=
-[14:45:56] check[2] A_recovery_lt_10s = PASS (109ms)
-[14:45:56] check[3] A_guard_fires_rebase = PASS (NOTICE SNAPSHOT_REBASED)
-[14:45:57] engine stopped
-[14:45:57] check[4] A_book_parity = PASS (payload identical modulo book_seq)
-[14:45:57] WAL trimmed to a stub (tail=6) — snapshot cursor (11367) ahead of the log
-[14:45:57] engine start pid=3735160 ipc=chaos-s3r3x9 args=
-[14:45:57] check[5] B_recovery_lt_10s = PASS (110ms)
-[14:45:57] check[6] B_rebase_outcome = PASS (SNAPSHOT_REBASED)
-[14:45:57] check[7] B_rebase_marker = PASS (/www/wwwroot/exc.local/tests/chaos/results/s3_stale_snapshot/run-3/wal/0/11367.wal)
-[14:45:57] check[8] B_seq_domain_resumed = PASS (wal_tail=11368 >= snap=11367)
-[14:45:57] engine stopped
-[14:45:57] check[9] dup_trade_ids = PASS (0)
-[14:45:57] engine start pid=3735218 ipc=chaos-s3r3x9 args=
-[14:45:57] empty-WAL boot rcv=109ms outcome=NOTICE SNAPSHOT_REBASED
-[14:45:57] engine stopped
-[14:45:57] check[10] C_emptywal_failclosed = PASS (rebased (tail=11368))
-[14:45:57] check[11] B_book_parity = PASS (payload identical modulo replay stamps)
+[20:54:55] engine start pid=186539 ipc=chaos-s3r3x9 args=
+[20:54:55] loadgen start pid=186553 rate=1500 dur=4 obase=301000000000001 report=/www/wwwroot/exc.local/tests/chaos/results/s3_stale_snapshot/run-3/loadgen-seed.json
+[20:55:00] engine stopped
+[20:55:00] check[1] snapshot_present = PASS (/www/wwwroot/exc.local/tests/chaos/results/s3_stale_snapshot/run-3/snap/0/i7/snap_00000000000000011692.bin)
+[20:55:00] state built: snapshot_seq=11692 wal_tail=11692
+[20:55:00] corrupted 16 payload bytes of /www/wwwroot/exc.local/tests/chaos/results/s3_stale_snapshot/run-3/snap/0/i7/snap_00000000000000011692.bin
+[20:55:00] engine start pid=186780 ipc=chaos-s3r3x9 args=
+[20:55:00] check[2] A_recovery_lt_10s = PASS (109ms)
+[20:55:00] check[3] A_guard_fires_rebase = PASS (NOTICE SNAPSHOT_REBASED)
+[20:55:01] engine stopped
+[20:55:01] check[4] A_book_parity = PASS (payload identical modulo book_seq)
+[20:55:02] WAL trimmed to a stub (tail=6) — snapshot cursor (11713) ahead of the log
+[20:55:02] engine start pid=186889 ipc=chaos-s3r3x9 args=
+[20:55:02] check[5] B_recovery_lt_10s = PASS (108ms)
+[20:55:02] check[6] B_rebase_outcome = PASS (SNAPSHOT_REBASED)
+[20:55:02] check[7] B_rebase_marker = PASS (/www/wwwroot/exc.local/tests/chaos/results/s3_stale_snapshot/run-3/wal/0/11713.wal)
+[20:55:02] check[8] B_seq_domain_resumed = PASS (wal_tail=11714 >= snap=11713)
+[20:55:02] engine stopped
+[20:55:02] check[9] dup_trade_ids = PASS (0)
+[20:55:02] engine start pid=186988 ipc=chaos-s3r3x9 args=
+[20:55:02] empty-WAL boot rcv=108ms outcome=NOTICE SNAPSHOT_REBASED
+[20:55:03] engine stopped
+[20:55:03] check[10] C_emptywal_failclosed = PASS (rebased (tail=11714))
+[20:55:03] check[11] B_book_parity = PASS (payload identical modulo replay stamps)
