@@ -468,7 +468,14 @@
         "Phase 17-L3-Order-Level-Data §AC rows 1, 2"
       ],
       "stable_test_id": "T17-001",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/marketdata",
+          "run": "TestL3SnapshotReader_RebuildsRestingBook|TestL3SnapshotReader_SnapshotPlusTailReplay|TestL3AccountHash_MatchesEngineConvention|TestL3Mirror_ApplyAndSuspect"
+        }
+      ]
     },
     {
       "criterion_id": 19,
@@ -485,7 +492,14 @@
         "Phase 03-Risk-Settlement §AC row 10"
       ],
       "stable_test_id": "T24-001",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/settlement",
+          "run": "TestSettlementT1PlainWeekday|TestSettlementT1WeekendShift|TestSettlementT2InterimHoliday|TestGenerateInstructionsT1MondayToTuesday|TestGenerateInstructionsT2|TestGenerateInstructionsMissingNostroFailsClosed|TestGenerateInstructionsQueuedPastCutoff"
+        }
+      ]
     },
     {
       "criterion_id": 20,
@@ -502,7 +516,20 @@
         "Phase 03-Risk-Settlement §AC row 14"
       ],
       "stable_test_id": "T24-002",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/funding",
+          "run": "TestDispatchSufficientNostro|TestDispatchInsufficientNostroQueues|TestDispatchNonConfirmedSkips|TestNostroCoverageDeficit"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/funding",
+          "run": "TestITNostroDispatch",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 21,
@@ -519,7 +546,14 @@
         "Phase 24-Backoffice-Settlement §AC row 25"
       ],
       "stable_test_id": "T24-003",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/reconciliation",
+          "run": "TestBalancesChecker|TestBalancesCheckerNilSource|TestGeneralLedgerClean|TestGeneralLedgerImbalance|TestEngineMismatchAlertsAndHalts|TestReconciliationFullCycle|TestReconTestScopedExclusion|TestTabletopReconMismatch|TestSettlementChecker|TestFundingChecker|TestFundingStatementLeg|TestTradesCheckerDiff"
+        }
+      ]
     },
     {
       "criterion_id": 22,
@@ -536,7 +570,14 @@
         "Phase 11-Funding-Suspension §AC rows 8, 9"
       ],
       "stable_test_id": "T11-001",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/funding",
+          "run": "TestFlowConfirmRequiresTOTP|TestFlowConfirmSessionElevationSkipsToken|TestFlowConfirmWithoutTOTPProviderFailsClosed|TestRequestWithdrawal_TwoPhase|TestWithdrawalIdempotency"
+        }
+      ]
     },
     {
       "criterion_id": 23,
@@ -553,7 +594,14 @@
         "Phase 11-Funding-Suspension §AC row 11"
       ],
       "stable_test_id": "T11-002",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/funding",
+          "run": "TestFlowCreateCooldownReject|TestGateWhitelistOnlyRejectsUnverified|TestGateWhitelistOnlyAdmitsVerifiedUnlocked"
+        }
+      ]
     },
     {
       "criterion_id": 24,
@@ -570,7 +618,20 @@
         "Phase 11-Funding-Suspension §AC row 10"
       ],
       "stable_test_id": "T11-003",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/funding",
+          "run": "TestWithdrawalNilScreenerStandardTierReviews|TestWithdrawalNilScreenerAutoTierConfirms|TestFlowAdminReviewFourEyes|TestSweepReviewSLAEscalates"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/funding",
+          "run": "TestITWithdrawalCaps",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 25,
@@ -587,7 +648,14 @@
         "Phase 11-Funding-Suspension §AC row 16"
       ],
       "stable_test_id": "T11-004",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/funding",
+          "run": "TestDepositPendingReviewTierAndAdmin|TestDepositGuardResolverUnwiredFailsClosed"
+        }
+      ]
     },
     {
       "criterion_id": 26,
@@ -633,7 +701,20 @@
         "Phase 14-Extended-Features §AC row 27"
       ],
       "stable_test_id": "T14-001",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/compliance",
+          "run": "TestTierRank|TestSubmitSelfCertTierGate|TestApprove_TierAssignedAndNotified"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/funding",
+          "run": "TestITWithdrawalCaps",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 28,
@@ -650,7 +731,14 @@
         "Phase 21-Compliance-AML §AC row 38"
       ],
       "stable_test_id": "T21-001",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/compliance",
+          "run": "TestListScreenerFailClosedContract|TestSubmitScannerFailClosed|TestProviderGateFailClosed|TestQueueReplayerFailClosed|TestVendorClients_FailClosed"
+        }
+      ]
     },
     {
       "criterion_id": 29,
@@ -667,7 +755,25 @@
         "Phase 21-Compliance-AML §AC row 39"
       ],
       "stable_test_id": "T21-002",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/funding",
+          "run": "TestWithdrawalSanctionsScreensBeneficiaryName|TestWithdrawalCleanScreenConfirms"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/compliance",
+          "run": "TestScreenOnboardingSanctionsHit"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/compliance",
+          "run": "TestITSanctionsDepositBlocks|TestITSanctionsWithdrawalBlocks|TestITSanctionsCleanCounterpartyPasses|TestIntegrationHoldSanctionsSLAAndStack",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 30,
@@ -684,7 +790,19 @@
         "Phase 24-Backoffice-Settlement §AC row 16"
       ],
       "stable_test_id": "T21-003",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/backoffice",
+          "run": "TestReport_MiFID2"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/compliance",
+          "run": "TestMiFIDReporter|TestRecordExecution_Spot_MiFIDOnly|TestRecordExecution_Idempotent"
+        }
+      ]
     },
     {
       "criterion_id": 31,
@@ -701,7 +819,19 @@
         "Phase 21-Compliance-AML §AC row 17"
       ],
       "stable_test_id": "T21-004",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/backoffice",
+          "run": "TestReport_EMIR"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/compliance",
+          "run": "TestEMIRReporter|TestEMIRReporter_EnrichNEWT|TestDoddFrankReporter|TestRecordExecution_Derivative_RegimeFanout|TestRecordExecution_NoEnricherQuarantinesDerivative"
+        }
+      ]
     },
     {
       "criterion_id": 32,
@@ -718,7 +848,20 @@
         "Phase 19-Multi-Asset-Margin §AC row 11"
       ],
       "stable_test_id": "T19-001",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestCheckAccountReplenishAvertsLiquidation|TestCheckAccountInsufficientReplenishStillLiquidates|TestMarginCallServiceNilDeps|TestMarginCallThresholdsResolution|TestMarginCallEvaluateNoLevel|TestMarginCallAdminReleaseRequiresActor"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestPgMarginCallLifecycleEndToEnd|TestPgMarginCallStoreEpisodeLifecycle|TestPgMarginCallStoreExpiredScan",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 33,
@@ -735,7 +878,21 @@
         "Phase 19-Multi-Asset-Margin §AC row 14"
       ],
       "stable_test_id": "T19-002",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestDedupKeyScoping|TestNewLiquidationQueueNilRedis|TestIsParkable"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestPgLiquidationStore(AuctionLifecycle|ActiveAuctions)",
+          "note": "live-stack CALL→FORCE_CASH phase e2e remains a gap — needs mark-price oracle manipulation on the full stack",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 34,
@@ -752,7 +909,20 @@
         "Phase 19-Multi-Asset-Margin §AC row 29"
       ],
       "stable_test_id": "T19-003",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestFloorFor|TestDecayFloor"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestPgLiquidationStoreAuctionLifecycle",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 35,
@@ -769,7 +939,14 @@
         "Phase 19-Multi-Asset-Margin §AC row 16"
       ],
       "stable_test_id": "T19-004",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestForceCashCap|TestPenaltyAndDeficiency"
+        }
+      ]
     },
     {
       "criterion_id": 36,
@@ -786,7 +963,20 @@
         "Phase 19-Multi-Asset-Margin §AC row 17"
       ],
       "stable_test_id": "T19-005",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestInsuranceFundCanonicalDefaults|TestInsuranceFundJournalDebits|TestFundMovementDirection"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestPgInsuranceFundMovements",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 37,
@@ -803,7 +993,20 @@
         "Phase 19-Multi-Asset-Margin §AC row 12"
       ],
       "stable_test_id": "T19-006",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestNewLiquidationQueueNilRedis"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestPgLiquidationStoreAccountsForScan|TestPgLiquidationStoreOpenPositions|TestPgLiquidationStoreIsolatedBreaches",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 38,
@@ -820,7 +1023,31 @@
         "Phase 13-Production-Hardening §AC row 1"
       ],
       "stable_test_id": "T13-001",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestValidBreakerScope|TestMarketWideTrip"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestRedisBreakerIntegration",
+          "needs": "redis"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestPgBreakerEventStoreIntegration",
+          "needs": "pg"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestAutoHaltLatencySpikeTrips|TestAutoHaltErrorRateSpikeTrips|TestAutoHaltClientRejectionsDoNotTrip|TestAutoHaltResumeAfterClear|TestAutoHaltManualTripNotAttributed"
+        }
+      ]
     },
     {
       "criterion_id": 39,
@@ -926,7 +1153,14 @@
         "Phase 01-Project-Foundation §AC rows 11, 13"
       ],
       "stable_test_id": "T13-002",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/audit",
+          "run": "TestGenesisPrevHashIsSHA256Empty|TestPayloadHashKnownVector|TestChainHashVector|TestCanonicalRecordID|TestGenesisRowUsesGenesisPrevHash|TestVerifyCleanChain|TestVerifyDetects"
+        }
+      ]
     },
     {
       "criterion_id": 43,
@@ -978,8 +1212,7 @@
         {
           "kind": "compose",
           "run": "dr-failover",
-          "note": "needs multi-region compose topology — no docker socket on this host",
-          "needs": "docker"
+          "note": "dr_drill_runner.sh --drills D1 — parent region-failover row SKIP→BLOCKED until a live secondary exists"
         }
       ]
     },
@@ -998,7 +1231,20 @@
         "Phase 19.5-Price-Oracle-Mark-Price §AC rows 2, 9"
       ],
       "stable_test_id": "T195-001",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/oracle",
+          "run": "TestServiceRequiresTwoFeeds|TestMedianOfTwoFeeds|TestIndexVolumeWeighted|TestStalenessGate|TestAllStaleUnavailable|TestDivergenceExclusion|TestNonPositiveQuoteRejected|TestPerSymbolFreshness|TestFeedErrorCounted"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/oracle",
+          "run": "TestRedisProviderReadAndGate|TestRedisPublishMarkKeys|TestRedisFallbackPublication",
+          "needs": "redis"
+        }
+      ]
     },
     {
       "criterion_id": 46,
@@ -1015,7 +1261,25 @@
         "Phase 11-Funding-Suspension §AC rows 18, 19"
       ],
       "stable_test_id": "T11-011",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/orders",
+          "run": "TestKillSwitch_(SubmitRejectedWhenSuspended|SubmitFailsClosed|CancelSurvivesHalt)"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/admin",
+          "run": "TestKillSwitchResolve_(Precedence|FailClosed|OrderHaltDetail)"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/admin",
+          "run": "TestKillSwitchServiceIntegration",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 47,
@@ -1032,7 +1296,19 @@
         "Phase 16-Advanced-Order-Types §AC row 18"
       ],
       "stable_test_id": "T16-001",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gtest",
+          "binary": "test_oco",
+          "filter": "OcoEngine.*"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/orders",
+          "run": "TestSubmitOCO_(LinkBeforeLegs|ReplayIsIdempotent|RaceReplayReturns409|CollisionRollsBackPair|CrossInstrumentRejected|DispatchFailureRejectsBoth)|TestConsumer_OcoReasonAudit|TestParseSubmitOco"
+        }
+      ]
     },
     {
       "criterion_id": 48,
@@ -1049,7 +1325,14 @@
         "Phase 16-Advanced-Order-Types §AC row 12"
       ],
       "stable_test_id": "T16-002",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/algo",
+          "run": "TestTWAP(Validation|PlanEqualSlicesAndConservation|EndToEndFills)|TestPerturbSizesNeverNegative"
+        }
+      ]
     },
     {
       "criterion_id": 49,
@@ -1066,7 +1349,14 @@
         "Phase 16-Advanced-Order-Types §AC row 4"
       ],
       "stable_test_id": "T16-003",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/algo",
+          "run": "TestVWAPProfileWeighting|TestVP(Validation|NoVolumeSourceFailsClosed)"
+        }
+      ]
     },
     {
       "criterion_id": 50,
@@ -1083,7 +1373,19 @@
         "Phase 16-Advanced-Order-Types §AC row 6"
       ],
       "stable_test_id": "T16-004",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gtest",
+          "binary": "test_phase16",
+          "filter": "Phase16Trailing.*"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/orders",
+          "run": "TestSubmitTrailingStopEndToEnd|TestTrailingStop(FirstClassFields|LegalityMatrix|AlgoParamsFold|AlgoParamsFoldRejects)|TestOrderNewMsgTrailing(WireFields|UnitsWire)"
+        }
+      ]
     },
     {
       "criterion_id": 51,
@@ -1100,7 +1402,15 @@
         "Phase 16-Advanced-Order-Types §AC row 16"
       ],
       "stable_test_id": "T16-005",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/orders",
+          "run": "TestITBracketFillCascade",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 52,
@@ -1117,7 +1427,14 @@
         "Phase 16-Advanced-Order-Types §AC row 20"
       ],
       "stable_test_id": "T16-006",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/algo",
+          "run": "TestSpread(MarketMismatchRejects|BothLegsFill|LegAFailureStopsLegB|RollbackOnPartial)"
+        }
+      ]
     },
     {
       "criterion_id": 53,
@@ -1134,7 +1451,14 @@
         "Phase 16-Advanced-Order-Types §AC row 24"
       ],
       "stable_test_id": "T16-007",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/algo",
+          "run": "TestScaled(WeightsAndLevels|Validation)"
+        }
+      ]
     },
     {
       "criterion_id": 54,
@@ -1151,7 +1475,26 @@
         "Phase 18-FIX-Protocol-Gateway §AC row 23"
       ],
       "stable_test_id": "T18-001",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/fix",
+          "run": "TestFromAdmin_ValidLogon|TestFromAdmin_UnknownSessionRejected|TestHeartbeatAbnormal|TestPlanResend|TestSessionStateMapping|TestRecordInbound|TestRecordOutbound"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/fix",
+          "run": "TestResumeOnLogon|TestClaimSessionFencing",
+          "needs": "redis"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/fix",
+          "run": "TestPGStore_SessionLifecycleAndSeq|TestPGStore_MessageArchive",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 55,
@@ -1168,7 +1511,14 @@
         "Phase 18-FIX-Protocol-Gateway §AC row 22"
       ],
       "stable_test_id": "T18-002",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/fix",
+          "run": "TestSP2|TestApplVerStamp|TestOptionContract|TestNDFRequiresFixingDate|TestSwapLegDates|TestSettlementDateStandardTag|TestForwardMapping"
+        }
+      ]
     },
     {
       "criterion_id": 56,
@@ -1185,7 +1535,14 @@
         "Phase 18-FIX-Protocol-Gateway §AC row 19"
       ],
       "stable_test_id": "T18-003",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/fix",
+          "run": "TestSettlementDateStandardTag|TestSetFXParties|TestSetParties|TestPartyGroupParse|TestForwardMapping"
+        }
+      ]
     },
     {
       "criterion_id": 57,
@@ -1338,7 +1695,14 @@
         "Phase 20-Analytics-Reporting §AC row 18"
       ],
       "stable_test_id": "T20-001",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/analytics",
+          "run": "TestCHIngestThroughput"
+        }
+      ]
     },
     {
       "criterion_id": 66,
@@ -1380,7 +1744,14 @@
         "Phase 13-Production-Hardening §AC row 33"
       ],
       "stable_test_id": "T20-003",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/analytics",
+          "run": "TestPnLUpsertBatchesRows|TestPnLUpsertVersionMonotonicAcrossCalls|TestPnLUpsertEmptyAndNilConn|TestPnLUpsertSendErrorPropagates|TestPnLReportAggregationQuery|TestPnLReportErrors"
+        }
+      ]
     },
     {
       "criterion_id": 68,
@@ -1397,7 +1768,14 @@
         "Phase 20-Analytics-Reporting §AC row 19"
       ],
       "stable_test_id": "T20-004",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/analytics",
+          "run": "TestCanonicalPositionsJSON|TestSnapshotHashDeterministic|TestSyncOrdersCountWritesDayDelta|TestTradesPerTierFoldsAccountsIntoCategories|TestPnLReportAggregationQuery"
+        }
+      ]
     },
     {
       "criterion_id": 69,
@@ -1642,7 +2020,14 @@
         "Phase 24-Backoffice-Settlement §AC row 11"
       ],
       "stable_test_id": "T24-004",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/funding",
+          "run": "TestDispatchSufficientNostro|TestDispatchInsufficientNostroQueues|TestNostroCoverageDeficit"
+        }
+      ]
     },
     {
       "criterion_id": 79,
@@ -1659,7 +2044,15 @@
         "Phase 11-Funding-Suspension §AC row 13"
       ],
       "stable_test_id": "T11-006",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/funding",
+          "run": "TestITWithdrawalCaps",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 80,
@@ -1676,7 +2069,15 @@
         "Phase 11-Funding-Suspension §AC row 12"
       ],
       "stable_test_id": "T11-007",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/funding",
+          "run": "TestGateBeneficiaryTimelock|TestITBankAccountsLifecycle",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 81,
@@ -1799,8 +2200,7 @@
         {
           "kind": "compose",
           "run": "pg-pitr",
-          "note": "needs WAL-archive/S3 drill environment",
-          "needs": "docker"
+          "note": "deploy/postgres/pitr_smoke.sh — host-native scratch cluster; exit 77 (pg binaries absent) → BLOCKED"
         }
       ]
     },
@@ -2050,7 +2450,14 @@
         "Phase 19-Multi-Asset-Margin §AC row 33"
       ],
       "stable_test_id": "T19-007",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestPortfolioMarginCorrelationOffset|TestPortfolioMarginNoOffsetInCross|TestPortfolioMarginRegulatoryFloor|TestPortfolioMarginRealMatrixBinding"
+        }
+      ]
     },
     {
       "criterion_id": 97,
@@ -2067,7 +2474,14 @@
         "Phase 19-Multi-Asset-Margin §AC row 18"
       ],
       "stable_test_id": "T19-008",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestADLEngineValidatesRequest|TestADLEngineExecutesTopCounterparties|TestADLEngineNoCounterpartyFailsLoud|TestADLEngineShortfallAndDispatchFailure|TestADLEngineInsertFailureFailsClosed|TestADLReconcileValidation|TestADLReconcileStoreErrorAlerts"
+        }
+      ]
     },
     {
       "criterion_id": 98,
@@ -2084,7 +2498,14 @@
         "Phase 19-Multi-Asset-Margin §AC row 26"
       ],
       "stable_test_id": "T24-005",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/settlement",
+          "run": "TestGrossNet.*|Test.*GrossNet.*"
+        }
+      ]
     },
     {
       "criterion_id": 99,
@@ -2135,7 +2556,14 @@
         "Phase 14-Extended-Features §AC row 15"
       ],
       "stable_test_id": "T14-002",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/compliance",
+          "run": "TestComputeReverifyDue|TestSweepReverify_DowngradesAlertsNotifies|TestSweepReverify_FeedErrorFailsClosed|TestSweepReverify_IdempotentSkip|TestSweepReverify_RowFailureContinues|TestLegalDocs_ExpirySweep"
+        }
+      ]
     },
     {
       "criterion_id": 102,
@@ -2152,7 +2580,20 @@
         "Phase 12-User-Self-Service §AC row 24"
       ],
       "stable_test_id": "T14-003",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/compliance",
+          "run": "TestInsertSelfCertSealFailureFailsClosed"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/compliance",
+          "run": "TestPgStoreNilBoxFailsClosed|TestITSelfCertSealedAtRest",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 103,
@@ -2169,7 +2610,20 @@
         "Phase 21-Compliance-AML §AC row 40"
       ],
       "stable_test_id": "T14-004",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/compliance",
+          "run": "TestConsentPurposeValidation"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/compliance",
+          "run": "TestGDPRExportAndErasure|TestGDPRConsentLifecycle",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 104,
@@ -2186,7 +2640,14 @@
         "Phase 21-Compliance-AML §AC row 29"
       ],
       "stable_test_id": "T21-005",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/compliance",
+          "run": "TestGeoGateNilResolverPasses|TestGeoGateResolverErrorFailsClosed|TestGeoGateBlockAndAllow|TestGeoGateRetailBlockMatrix|TestGeoGateRetailBlockAuthedWithoutCategoryFailsClosed|TestCIDRResolverLongestPrefix"
+        }
+      ]
     },
     {
       "criterion_id": 105,
@@ -2203,7 +2664,20 @@
         "Phase 21-Compliance-AML §AC row 23"
       ],
       "stable_test_id": "T21-006",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/backoffice",
+          "run": "TestReport_FinCEN_CTR_DateFilter"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/compliance",
+          "run": "TestIntegrationAMLScanCTRAndStructuring",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 106,
@@ -2220,7 +2694,14 @@
         "Phase 21-Compliance-AML §AC row 15"
       ],
       "stable_test_id": "T21-007",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/analytics",
+          "run": "TestRTS28Job_PersistsRollupAndArchives|TestRenderRTS28PDF_VenueSection|TestMemReportStore_PeriodAggregation"
+        }
+      ]
     },
     {
       "criterion_id": 107,
@@ -2237,7 +2718,20 @@
         "Phase 21-Compliance-AML §AC row 6"
       ],
       "stable_test_id": "T21-008",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/compliance",
+          "run": "TestTravelRuleInScope|TestTravelRuleMissingFields|TestTravelRuleMergePartyStoredWins"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/compliance",
+          "run": "TestIntegrationTravelRuleOutbound|TestIntegrationTravelRuleBelowThreshold|TestIntegrationTravelRuleInbound",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 108,
@@ -2254,7 +2748,20 @@
         "Phase 21-Compliance-AML §AC row 41"
       ],
       "stable_test_id": "T21-009",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/compliance",
+          "run": "TestSARDraftValidation"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/compliance",
+          "run": "TestIntegrationSARLifecycle|TestIntegrationSARFromOpenSignals|TestIntegrationHoldEscalateDraftsSAR|TestIntegrationHoldEscalateSAR",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 109,
@@ -2288,7 +2795,14 @@
         "Phase 13.5-Security-Compliance-Audit §AC row 8"
       ],
       "stable_test_id": "T135-002",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/compliance",
+          "run": "TestMaskIP|TestScrubJSONPII"
+        }
+      ]
     },
     {
       "criterion_id": 111,
@@ -2305,7 +2819,19 @@
         "Phase 13.5-Security-Compliance-Audit §AC rows 20, 22"
       ],
       "stable_test_id": "T135-003",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/security",
+          "run": "TestDefaultRegistryCoversInventory|TestRegistryMaxAgeCeiling"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/security",
+          "run": "TestDrillKeyRotationRaceUnderLoad|TestDrillKeyRotationRaceThroughMiddleware|TestDrillExpiredCredentialReplay"
+        }
+      ]
     },
     {
       "criterion_id": 112,
@@ -2448,7 +2974,25 @@
         "Phase 15-Market-Admin-Lifecycle §AC row 7"
       ],
       "stable_test_id": "T15-001",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gtest",
+          "binary": "test_lifecycle_auction",
+          "filter": "Lifecycle.StatusMatrixNewOrders:Lifecycle.RestrictedIsLimitOnly:Lifecycle.DelistedReduceOnlyWindow:Lifecycle.CancelsStayOpenAmendsGated"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/admin",
+          "run": "TestLifecycleTransitionMatrix|TestLifecycleRoleMatrix"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/admin",
+          "run": "TestInstrumentLifecycle(PGTransitions|SuspendSweepPG|UpdatePG)",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 120,
@@ -2465,7 +3009,14 @@
         "Phase 19.5-Price-Oracle-Mark-Price §AC row 9"
       ],
       "stable_test_id": "T195-002",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/oracle",
+          "run": "TestFixingMarkSource_StaleMarkRefused|TestFixingMarkSource_AbsentMarkRefused|TestFixingMarkSource_NonPositiveMarkRefused|TestFixingMarkSource_UnwiredIsFailClosed|TestFallbackTrackerStaleReference|TestAllStaleUnavailable"
+        }
+      ]
     },
     {
       "criterion_id": 121,
@@ -2556,7 +3107,20 @@
         "Phase 16-Advanced-Order-Types §AC row 28"
       ],
       "stable_test_id": "T16-008",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/algo",
+          "run": "TestFixingWindowClosedWhen(NoEnabledWindow|RowDisabled)|TestSchedulerOrderBenchmarkRoundTrip|TestFixingVocabRejectsSupersededStrings"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/algo",
+          "run": "TestITFixing(LPResidualCleared|ResidualWithoutLPHonest)",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 125,
@@ -2573,7 +3137,14 @@
         "Phase 24-Backoffice-Settlement §AC row 28"
       ],
       "stable_test_id": "T19-009",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/orders",
+          "run": "TestPBGateReserveOnSubmit|TestPBGateBreachRejectsRow|TestPBGateReleaseOnCancel|TestPBGateAdjustOnQtyAmend"
+        }
+      ]
     },
     {
       "criterion_id": 126,
@@ -2590,7 +3161,14 @@
         "Phase 24-Backoffice-Settlement §AC row 27"
       ],
       "stable_test_id": "T24-006",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/settlement",
+          "run": "TestClsSubmitDispatchMatched|TestClsNilMemberFailsClosed|TestClsMissingRefDataFailsClosed|TestClsIneligibleWaterfall|TestClsControlledGrossBreachAlerts|TestClsFinalityRequiresAuthentication|TestClsMemberStatusUnmatchedOpensBreak|TestNettingClsExclusion"
+        }
+      ]
     },
     {
       "criterion_id": 127,
@@ -2624,7 +3202,20 @@
         "Phase 18-FIX-Protocol-Gateway §AC row 27"
       ],
       "stable_test_id": "T18-004",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/fix",
+          "run": "MassQuote|TestQuoteCancel|TestQuoteService|TestQuoteSetLifecycle|TestAskLegFailureUnwindsBid|TestEncodeLPQuoteEvent"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/fix",
+          "run": "TestIntegrationLPQuoteFeed|TestJetStreamQuoteSinkSaturation",
+          "needs": "nats"
+        }
+      ]
     },
     {
       "criterion_id": 129,
@@ -2641,7 +3232,20 @@
         "Phase 02-Matching-Engine §AC row 47"
       ],
       "stable_test_id": "T16-009",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gtest",
+          "binary": "test_pretrade",
+          "filter": "PreTrade.PostOnlyMarketable"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/orders",
+          "run": "TestValidateSubmitTypeVocab",
+          "note": "Go-side vocabulary leg (post_only on MARKET/auction types)"
+        }
+      ]
     },
     {
       "criterion_id": 130,
@@ -2658,7 +3262,19 @@
         "Phase 02-Matching-Engine §AC row 48"
       ],
       "stable_test_id": "T16-010",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gtest",
+          "binary": "test_pretrade",
+          "filter": "PreTrade.ReduceOnlyNeedsOppositePosition"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/orders",
+          "run": "TestProductGate_(ReduceOnlyBypasses|ModifyConsultsOrderFlag)|TestValidateSubmitInstrumentStates"
+        }
+      ]
     },
     {
       "criterion_id": 131,
@@ -2692,7 +3308,20 @@
         "Phase 14-Extended-Features §AC row 28"
       ],
       "stable_test_id": "T14-005",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/compliance",
+          "run": "TestAppropriateness.*|TestSetCategory_.*|TestSubmitAssessment_OutcomeAndExpiry"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/compliance",
+          "run": "TestITCategorization_RoundTrip",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 133,
@@ -2709,7 +3338,26 @@
         "Phase 19-Multi-Asset-Margin §AC row 37"
       ],
       "stable_test_id": "T19-010",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestNBPConstruction|TestNBPRetail|TestNBPProfessional|TestNBPHouse|TestNBPNoFundRow|TestNBPLockedDeficit|TestNBPMultiCurrency|TestNBPPositiveEquity|TestNBPNoDeficit|TestNBPPositionalDeficit|TestNBPFundDebit|TestNBPStoreReadFailure|TestNBPRecurring|TestNBPSingleHit|TestNBPAncientHit|TestNBPSweep|TestNBPEvents"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestPgNBPStoreIntegration",
+          "needs": "pg"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestRedisNBPReviewFlag",
+          "needs": "redis"
+        }
+      ]
     },
     {
       "criterion_id": 134,
@@ -2726,7 +3374,14 @@
         "Phase 19.5-Price-Oracle-Mark-Price §AC row 16"
       ],
       "stable_test_id": "T195-003",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/derivatives",
+          "run": "TestForwardRateDCCBoundaryGBPUSD|TestForwardRateParityIdentity|TestForwardRateRoundTripConsistency|TestForwardRateUSDJPYBoth360|TestDayCountBoundary|TestForwardRateRejectsNonPositiveInputs|TestPricerMissingCurveFailsClosed"
+        }
+      ]
     },
     {
       "criterion_id": 135,
@@ -2743,7 +3398,20 @@
         "Phase 18-FIX-Protocol-Gateway §AC row 29"
       ],
       "stable_test_id": "T18-005",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/fix",
+          "run": "TestEntitlementDenied|TestFromApp_UntitledInstrumentRejected|TestMassQuoteRejectsUnentitled"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/fix",
+          "run": "TestPGStore_EntitlementUpdateTx",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 136,
@@ -2760,7 +3428,14 @@
         "Phase 18-FIX-Protocol-Gateway §AC row 30"
       ],
       "stable_test_id": "T18-006",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/fix",
+          "run": "TestCoD|TestOnLogout_|TestDropSessionPurgesSubscriptions"
+        }
+      ]
     },
     {
       "criterion_id": 137,
@@ -2777,7 +3452,14 @@
         "Phase 18-FIX-Protocol-Gateway §AC row 31"
       ],
       "stable_test_id": "T18-007",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/fix",
+          "run": "TestThrottle_|TestFromApp_ThrottledNeverSilentlyDropped"
+        }
+      ]
     },
     {
       "criterion_id": 138,
@@ -2794,7 +3476,20 @@
         "Phase 15-Market-Admin-Lifecycle §AC row 18"
       ],
       "stable_test_id": "T15-002",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/admin",
+          "run": "TestBustJournal(Balanced|ZeroFees|DeliveryIntent|FeeExceedsProceeds)|TestAdjustJournalDelta|TestBustRoleGate|TestBustApproverDistinct|TestBustRequestValidation|TestBustServiceFailsClosedOnNilDeps"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/admin",
+          "run": "Test(BustExecute|BustOfBusted|BustWindowExpired|BustSettledRejects|BustPendingApprove|PartialFillBust|BustAfterHedge|PriceAdjust|BustInsideBandRejects|BustExpirePending)PG",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 139,
@@ -2811,7 +3506,14 @@
         "Phase 18-FIX-Protocol-Gateway §AC row 32"
       ],
       "stable_test_id": "T18-008",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/fix",
+          "run": "MMP|TestMassQuoteLP|TestFromApp_MassQuoteLPSuspended"
+        }
+      ]
     },
     {
       "criterion_id": 140,
@@ -2828,7 +3530,26 @@
         "Phase 13-Production-Hardening §AC row 35"
       ],
       "stable_test_id": "T13-005",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/orders",
+          "run": "TestOtr_(SubmitRejectedWhenBreached|CancelSurvivesBreach|UnsetGateSkips)"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestOtr(KeyLayout|BreachRejectsNewOrders|FillClearsBreach|SweepClearsDecayedBreach|AdmissionFailsClosedOnRedisError|CountFailureIsBestEffortButCounted|MarketMakerScopedRatio)"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestOtrMonitorRedisIntegration",
+          "note": "live-Redis sliding-window leg — self-skips without EXC_REDIS_TEST",
+          "needs": "redis"
+        }
+      ]
     },
     {
       "criterion_id": 141,
@@ -2845,7 +3566,14 @@
         "Phase 11-Funding-Suspension §AC row 26"
       ],
       "stable_test_id": "T11-009",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/funding",
+          "run": "TestBeneficiaryRegister_KYCGate|TestBeneficiaryVerify_DualControl|TestBeneficiaryAssertWithdrawable|TestBeneficiaryRejectAndDelete|TestBankAccountService_NilResolverFailsClosed"
+        }
+      ]
     },
     {
       "criterion_id": 142,
@@ -2862,7 +3590,24 @@
         "Phase 15-Market-Admin-Lifecycle §AC row 20"
       ],
       "stable_test_id": "T15-003",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gtest",
+          "binary": "test_lifecycle_auction",
+          "filter": "Auction.*"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/admin",
+          "run": "TestReopeningAuctionRule"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/orders",
+          "run": "TestInjectorReopeningCallMOOOnly|TestAuctionSubmitQueuesLocally|TestInjectorQueueFilteredDispatch"
+        }
+      ]
     },
     {
       "criterion_id": 143,
@@ -2879,7 +3624,20 @@
         "Phase 20-Analytics-Reporting §AC row 20"
       ],
       "stable_test_id": "T20-006",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/reporting",
+          "run": "TestOnFill_GeneratesAndDispatchesInstitutional|TestOnFill_RetailWaitsForT1|TestOnFill_GenerationErrorPropagates|TestOnFill_SLAViolationCounted|TestOnTradeAmended_DispatchesImmediately|TestDelivery_DeliverAllChannels|TestDelivery_MT515SkippedForRetail|TestScheduler_T1SweepAndDeadLetter|TestRenderConfirmationHTML_Jurisdictions|TestMT515Doc_DeterministicAndComplete|TestDispatchDue|TestNextBusinessDay_SkipsWeekend"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/reporting",
+          "run": "TestPgConfirmationTracker_RoundTrip|TestPgLookups",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 144,
@@ -2925,7 +3683,20 @@
         "Phase 19-Multi-Asset-Margin §AC row 35"
       ],
       "stable_test_id": "T19-011",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestCollateralValuateHaircut|TestCollateralConcentrationCapsExcess|TestCollateralFullConcentrationSingleCurrency|TestCollateralIneligibleAndAbsentContributeZero|TestCollateralStaleRateContributesZero|TestCollateralDebitBalanceFaceValue"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestPgCollateralScheduleStore",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 146,
@@ -3016,7 +3787,14 @@
         "Phase 21-Compliance-AML §AC row 44"
       ],
       "stable_test_id": "T21-010",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/compliance",
+          "run": "TestPEPKindSeparation|TestScreenOnboardingPEPHitRoutesToReview|TestAdverseMediaSeverityRouting|TestMonitoringServiceEvaluateAndDormantSweep"
+        }
+      ]
     },
     {
       "criterion_id": 150,
@@ -3033,7 +3811,15 @@
         "Phase 21-Compliance-AML §AC row 46"
       ],
       "stable_test_id": "T21-011",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/compliance",
+          "run": "TestPGRTS6CertGate|TestPGRTS6DEA",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 151,
@@ -3050,7 +3836,14 @@
         "Phase 21-Compliance-AML §AC row 48"
       ],
       "stable_test_id": "T21-012",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/backoffice",
+          "run": "TestReport_Basel3"
+        }
+      ]
     },
     {
       "criterion_id": 152,
@@ -3067,7 +3860,26 @@
         "Phase 11-Funding-Suspension §AC row 29"
       ],
       "stable_test_id": "T13-006",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/admin",
+          "run": "TestKillSwitch(Resolve_(Precedence|FailClosed|OrderHaltDetail|RailAndLP)|ScopeVocabulary|Roles_FailClosed)|TestNormalizeScope"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/orders",
+          "run": "TestKillSwitch_SubmitRejectedWhenSuspended",
+          "note": "carries an ACCOUNT-scope suspension leg"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/admin",
+          "run": "TestKillSwitchServiceIntegration",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 153,
@@ -3131,7 +3943,14 @@
         "Phase 24-Backoffice-Settlement §AC row 29"
       ],
       "stable_test_id": "T24-007",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/settlement",
+          "run": "TestNettingRunAggregates|TestNettingClsExclusion|TestNettingAgreementRequired|TestNettingDispatchCutoffGate|TestNettingBustReopens|TestSsi.*"
+        }
+      ]
     },
     {
       "criterion_id": 156,
@@ -3328,7 +4147,19 @@
         "Phase 11-Funding-Suspension §AC row 28"
       ],
       "stable_test_id": "T11-010",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/funding",
+          "run": "TestAssertRailOperational|TestRailCutoffSameDay|TestRailCutoffWeekendRoll|TestRailMatrixComplete|TestRailSelectionByCurrency|TestRailSelectionPreferredAndUnavailable|TestRailSelectionEligibility"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/settlement",
+          "run": "TestRailCutoffTimezoneAware|TestRailCutoffEnforceSameDay|TestRailCutoffUnscheduledFailsClosed"
+        }
+      ]
     },
     {
       "criterion_id": 165,
@@ -3345,7 +4176,14 @@
         "Phase 19-Multi-Asset-Margin §AC row 39"
       ],
       "stable_test_id": "T19-012",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestScreenLiquidity|TestCreditTicks"
+        }
+      ]
     },
     {
       "criterion_id": 166,
@@ -3386,7 +4224,14 @@
         "Phase 18-FIX-Protocol-Gateway §AC row 34"
       ],
       "stable_test_id": "T18-009",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/fix",
+          "run": "TestCertificateMatrix|TestServerTLSConfigProfile|TestFromAdmin_BadCredentialRejected|TestFromAdmin_CredentialAccountMismatch"
+        }
+      ]
     },
     {
       "criterion_id": 168,
@@ -3403,7 +4248,14 @@
         "Phase 24-Backoffice-Settlement §AC row 27"
       ],
       "stable_test_id": "T24-008",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/settlement",
+          "run": "TestCls.*"
+        }
+      ]
     },
     {
       "criterion_id": 169,
@@ -3420,7 +4272,20 @@
         "Phase 21-Compliance-AML §AC row 49"
       ],
       "stable_test_id": "T21-013",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/compliance/reporting",
+          "run": "TestRecordExecution_Spot_MiFIDOnly|TestRecordExecution_Derivative_RegimeFanout|TestRecordExecution_EnrichErrorFailsClosed|TestRecordExecution_NoEnricherQuarantinesDerivative|TestRecordExecution_Idempotent|TestRecordExecution_UTICollision|TestUTIFor_DeterministicAndValid"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/compliance/reporting",
+          "run": "TestPgStore_Lifecycle_EndToEnd",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 170,
@@ -3437,7 +4302,19 @@
         "Phase 21-Compliance-AML §AC row 50"
       ],
       "stable_test_id": "T21-014",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/compliance/reporting",
+          "run": "TestUSIFor_Format|TestRecordExecution_UTICollision"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/compliance",
+          "run": "TestDoddFrankReporter"
+        }
+      ]
     },
     {
       "criterion_id": 171,
@@ -3471,7 +4348,14 @@
         "Phase 24-Backoffice-Settlement §AC row 32"
       ],
       "stable_test_id": "T24-009",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/fix",
+          "run": "TestAllocationNew_ManualAccepted|TestAllocationNew_OverAllocationRejected|TestAllocationNew_UnderAllocationRejected|TestAllocationNew_DeclaredQtyMismatch|TestAllocationNew_UnknownAccount|TestAllocationNew_UnknownExecRef|TestAllocationNew_NoRefs|TestParseAllocationInstruction.*"
+        }
+      ]
     },
     {
       "criterion_id": 173,
@@ -3488,7 +4372,14 @@
         "Phase 24-Backoffice-Settlement §AC row 34"
       ],
       "stable_test_id": "T24-010",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/backoffice",
+          "run": "TestEvaluateSegregation_RealtimeShortfall|TestDailyReconciliation_BalancedAndSignedOff|TestDailyReconciliation_ExternalLeg|TestClassifyAccount_StructuralGLCrossCheck"
+        }
+      ]
     },
     {
       "criterion_id": 174,
@@ -3505,7 +4396,14 @@
         "Phase 21-Compliance-AML §AC row 52"
       ],
       "stable_test_id": "T21-015",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/compliance/venue",
+          "run": "TestMemberInputValidate|TestAdmissionGate_NilServiceFailsClosed|TestCaseTransitions_LifecycleShape"
+        }
+      ]
     },
     {
       "criterion_id": 175,
@@ -3522,7 +4420,19 @@
         "Phase 24-Backoffice-Settlement §AC row 37"
       ],
       "stable_test_id": "T24-011",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/backoffice",
+          "run": "TestMT940Parse|TestMT940MissingMandatoryTagFailsClosed|TestMT942Parse|TestCamt053Parse|TestCamt053RejectsWrongNamespace|TestCamt053MalformedFailsClosed"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/settlement",
+          "run": "TestStatementUnmatchedCreditRoutesSuspense|TestStatementMissingPaymentBreak"
+        }
+      ]
     },
     {
       "criterion_id": 176,
@@ -3539,7 +4449,24 @@
         "Phase 19-Multi-Asset-Margin §AC row 42"
       ],
       "stable_test_id": "T19-013",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestPortfolioMarginCorrelationOffset|TestPortfolioMarginNoOffsetInCross|TestPortfolioMarginRealMatrixBinding"
+        },
+        {
+          "kind": "gtest",
+          "binary": "test_margin_coordinator",
+          "filter": "MarginCoordinator.*"
+        },
+        {
+          "kind": "gtest",
+          "binary": "test_cross_shard",
+          "filter": "CrossShard2PC.*"
+        }
+      ]
     },
     {
       "criterion_id": 177,
@@ -3573,7 +4500,19 @@
         "Phase 21-Compliance-AML §AC row 55"
       ],
       "stable_test_id": "T21-016",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/compliance",
+          "run": "TestAPAClient_Submit|TestARMClient_SubmitXML|TestDispatcher_ACK|TestDispatcher_NACKOpensRepair|TestDispatcher_TransportError_Backoff|TestDispatcher_UnconfiguredEndpoint_FailClosed|TestDispatcher_AsyncPending"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/compliance/reporting",
+          "run": "TestPayloadForDest_APAVariant"
+        }
+      ]
     },
     {
       "criterion_id": 179,
@@ -3692,7 +4631,20 @@
         "Phase 21-Compliance-AML §AC row 57"
       ],
       "stable_test_id": "T21-018",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/compliance",
+          "run": "TestResidencyResolveCountry|TestResidencyResolveFailClosedWithoutROW|TestResidencyReplicationLegality|TestResidencyVerifyPlacement"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/compliance",
+          "run": "TestResidencyAuthorizeAccess",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 185,
@@ -3735,7 +4687,24 @@
         "Phase 13-Production-Hardening §AC row 37"
       ],
       "stable_test_id": "T13-007",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/audit",
+          "run": "TestMerkleEmptyDay|TestMerkleSingleLeaf"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/reconciliation",
+          "run": "TestMerkleKnownVector|TestMerkleCanonicalOrder|TestMerkleProofVerify|TestMerkleTamper|TestMerkleProofBound|TestMerkleZeroBalance|TestMerkleTreeMillionLeaves"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/api",
+          "run": "TestSolvencyLatestPublic|TestSolvencyLatestNonePublished|TestSolvencyProofAuth|TestAccountSolvencyProof"
+        }
+      ]
     },
     {
       "criterion_id": 187,
@@ -3800,7 +4769,22 @@
         "Phase 18-FIX-Protocol-Gateway §AC row 37"
       ],
       "stable_test_id": "T18-010",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/fix",
+          "run": "TestFailoverE2E|TestFailoverResumeLatencyDistribution",
+          "note": "real Redis lease/claim + PG fix_sessions archive; resume + total wall bands",
+          "needs": "pg+redis"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/fix",
+          "run": "TestFailoverStoreFallsBack|TestRedisSeqStoreIntegration",
+          "needs": "redis"
+        }
+      ]
     },
     {
       "criterion_id": 190,
@@ -3817,7 +4801,20 @@
         "Phase 19-Multi-Asset-Margin §AC row 43"
       ],
       "stable_test_id": "T19-014",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/settlement",
+          "run": "TestTransferHappyPathFullPosition|TestTransferPartialQuantityProRata|TestTransferRejectsInsufficientSource|TestTransferRejectsCrossEntity|TestTransferHierarchyAllowsDifferentUsers|TestTransferAbortsOnInsufficientDestMargin|TestTransferNettingDestAbsorbsOpposing|TestTransferMissingMarkFailsClosed|TestTransferIdempotentReplay|TestTransferValidationRejectsBadRequests|TestTransferDestLockedClampWhenFreeing"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/settlement",
+          "run": "TestIntegrationPositionTransferPgxStore",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 191,
@@ -3874,7 +4871,14 @@
         "Phase 18-FIX-Protocol-Gateway §AC row 41"
       ],
       "stable_test_id": "T18-011",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/sor",
+          "run": "TestLocalWhenLiquid|TestTimeoutWalksToNextVenue|TestAllVenuesDeadSORTimeout|TestVenueRejectFailsClosed|TestLoadVenueConfig"
+        }
+      ]
     },
     {
       "criterion_id": 194,
@@ -3891,7 +4895,14 @@
         "Phase 18-FIX-Protocol-Gateway §AC row 42"
       ],
       "stable_test_id": "T18-012",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/sor",
+          "run": "TestRouteFillLifecycle|TestPartialFillState|TestFillDedup|TestReleaseForLocal"
+        }
+      ]
     },
     {
       "criterion_id": 195,
@@ -3908,7 +4919,14 @@
         "Phase 14-Extended-Features §AC row 32"
       ],
       "stable_test_id": "T14-008",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/pamm",
+          "run": "Test.*"
+        }
+      ]
     },
     {
       "criterion_id": 196,
@@ -3925,7 +4943,14 @@
         "Phase 14-Extended-Features §AC row 33"
       ],
       "stable_test_id": "T14-009",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/copy",
+          "run": "Test.*"
+        }
+      ]
     },
     {
       "criterion_id": 197,
@@ -3942,7 +4967,19 @@
         "Phase 16-Advanced-Order-Types §AC row 34"
       ],
       "stable_test_id": "T16-018",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gtest",
+          "binary": "test_phase16",
+          "filter": "Phase16Hidden.L2OmissionButRests"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/marketdata",
+          "run": "TestL3Mirror_HiddenExcluded|TestL3EventPayload_HiddenRedacted|TestL3SnapshotReader_HiddenFlagFromWal"
+        }
+      ]
     },
     {
       "criterion_id": 198,
@@ -3959,7 +4996,14 @@
         "Phase 16-Advanced-Order-Types §AC row 29"
       ],
       "stable_test_id": "T16-011",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gtest",
+          "binary": "test_phase16",
+          "filter": "Phase16Hidden.MidpointFill:Phase16Hidden.NoVisibleMidFailsClosed"
+        }
+      ]
     },
     {
       "criterion_id": 199,
@@ -4027,7 +5071,19 @@
         "Phase 21-Compliance-AML §AC row 58"
       ],
       "stable_test_id": "T21-020",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/analytics",
+          "run": "TestRTS28Job_PersistsRollupAndArchives|TestRenderRTS28PDF_VenueSection"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/marketdata",
+          "run": "TestVenuePerformanceReport|TestVenuePerformanceWeeklyRollup|TestVenuePerformanceDivergenceHoldsLastGood|TestVenuePerformanceDivergenceWithoutLastGood"
+        }
+      ]
     },
     {
       "criterion_id": 203,
@@ -4044,7 +5100,20 @@
         "Phase 21-Compliance-AML §AC row 61"
       ],
       "stable_test_id": "T21-021",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/compliance",
+          "run": "TestCommsChainHashDeterministicAndLinked|TestCommsRetentionFloor"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/compliance",
+          "run": "TestCommsRecordingLifecycle",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 204,
@@ -4061,7 +5130,21 @@
         "Phase 14-Extended-Features §AC row 34"
       ],
       "stable_test_id": "T14-010",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/accounts",
+          "run": "TestIntegrationClosureClientPath|TestIntegrationClosureBlocked|TestIntegrationClosureSweep|TestIntegrationClosureForced|TestIntegrationClosureGuards",
+          "needs": "pg"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/compliance",
+          "run": "TestIntegrationHoldEscalateToClosure",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 205,
@@ -4078,7 +5161,20 @@
         "Phase 20-Analytics-Reporting §AC row 23"
       ],
       "stable_test_id": "T20-007",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/backoffice",
+          "run": "TestClassifyAccount_StructuralGLCrossCheck|TestDailyReconciliation_BalancedAndSignedOff|TestDailyReconciliation_ExternalLeg"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/analytics",
+          "run": "TestPgTrialBalanceEmptyDay|TestPgReconcileToStatement",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 206,
@@ -4095,7 +5191,14 @@
         "Phase 19-Multi-Asset-Margin §AC row 44"
       ],
       "stable_test_id": "T19-015",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestBacktestCoverageStamped|TestBacktestCoverageRejectsPathologicalModel|TestRunStressSuitePersistsAndAlerts|TestStressSchedulerRunDue|TestStressEngineConstructionFailClosed"
+        }
+      ]
     },
     {
       "criterion_id": 207,
@@ -4112,7 +5215,20 @@
         "Phase 21-Compliance-AML §AC row 63"
       ],
       "stable_test_id": "T21-022",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/compliance/venue",
+          "run": "TestCaseTransitions_LifecycleShape"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/compliance",
+          "run": "TestPGCaseLifecycle|TestPGCaseMonitoringSink|TestPGEnforcementWarnDismiss|TestPGEnforcementGuards",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 208,
@@ -4203,7 +5319,14 @@
         "Phase 09-Deployment-Operations §AC row 40"
       ],
       "stable_test_id": "T09-021",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "bin",
+          "binary": "dr-drill-runner",
+          "note": "scripts/ops/dr_drill_runner.sh runs the D1-D7 catalog; per-drill SKIP→BLOCKED via results.jsonl — never PASS-laundered"
+        }
+      ]
     },
     {
       "criterion_id": 212,
@@ -4237,7 +5360,19 @@
         "Phase 13.5-Security-Compliance-Audit §AC row 27"
       ],
       "stable_test_id": "T135-004",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/security",
+          "run": "TestVaultSourceRead|TestVaultSourceReadMiss|TestVaultSourceRejectsCleartextAndBadConfig|TestVaultSourceTokenFile|TestVaultSourceDynamicCreds|TestLoadSecretsHappyPath|TestLoadSecretsRequiredMissFailsClosed|TestLoadSecretsOptionalMissToleratedInDev|TestLoadSecretsDevAdapterRefusedWhenRequired|TestSecretsRequiredSemantics"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/security",
+          "run": "TestDrillVaultPartitionFailClosed|TestDrillVaultPartitionMidLease|TestDrillNoDevFallbackWhenRequired"
+        }
+      ]
     },
     {
       "criterion_id": 214,
@@ -4303,7 +5438,24 @@
         "Phase 09-Deployment-Operations §AC row 42"
       ],
       "stable_test_id": "T09-023",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/middleware",
+          "run": "TestRunStepsOrderAndBounds|TestRunStepTimeout|TestDrainFlag|TestReadyGate|TestRejectWhenDraining"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/fix",
+          "run": "TestDrain(SendsNewsThenLogoutAndWaits|RefusesNewLogons|ForceClosesStraggler|ContextAbort|NilRegistryIsNoop)"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/ws",
+          "run": "TestDrain(AdvisoryOrderingAndDeadline|ReturnsWhenClientsLeave|TwiceFails|AdvisoryMergesFailoverEndpoints)|TestFeedFailoverAdvisory"
+        }
+      ]
     },
     {
       "criterion_id": 217,
@@ -4320,7 +5472,25 @@
         "Phase 15-Market-Admin-Lifecycle §AC row 21"
       ],
       "stable_test_id": "T15-004",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gtest",
+          "binary": "test_lifecycle_auction",
+          "filter": "Lifecycle.MarketEntryWeek:Lifecycle.MarketHoursGate:Lifecycle.ParseMarketHours"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/admin",
+          "run": "TestSessionStateAt|TestSessionEventName|TestNewSessionServiceFailClosed|TestNextSessionClose"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/admin",
+          "run": "TestSessionLifecycleWeeklyFlow",
+          "needs": "redis"
+        }
+      ]
     },
     {
       "criterion_id": 218,
@@ -4337,7 +5507,20 @@
         "Phase 19-Multi-Asset-Margin §AC row 46"
       ],
       "stable_test_id": "T19-016",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestInsuranceFundNewFailClosed|TestInsuranceFundJournalLiquidationPenalty|TestInsuranceFundJournalHouseFunding|TestInsuranceFundJournalDebits|TestInsuranceFundMovementValidation|TestInsuranceFundCanonicalDefaults"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestPgInsuranceFundMovements|TestPgInsuranceFundDepleted|TestPgInsuranceFundIdempotentReplay|TestPgRedisInsuranceFundWalletDebit",
+          "needs": "pg+redis"
+        }
+      ]
     },
     {
       "criterion_id": 219,
@@ -4354,7 +5537,15 @@
         "Phase 14-Extended-Features §AC row 35"
       ],
       "stable_test_id": "T14-011",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/compliance",
+          "run": "TestIntegrationHoldEscalateDraftsSAR|TestIntegrationHoldEscalateSAR|TestIntegrationHoldRoleGate",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 220,
@@ -4469,7 +5660,14 @@
         "Phase 11-Funding-Suspension §AC row 31"
       ],
       "stable_test_id": "T11-012",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/funding",
+          "run": "TestFeeSchedule|TestFeeQuote|TestConversionQuote"
+        }
+      ]
     },
     {
       "criterion_id": 225,
@@ -4561,7 +5759,20 @@
         "Phase 19-Multi-Asset-Margin §AC row 48"
       ],
       "stable_test_id": "T19-017",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestNBPConstruction|TestNBPRetail|TestNBPProfessional|TestNBPHouse|TestNBPNoFundRow|TestNBPLockedDeficit|TestNBPMultiCurrency|TestNBPPositiveEquity|TestNBPNoDeficit|TestNBPPositionalDeficit|TestNBPFundDebit|TestNBPStoreReadFailure|TestNBPRecurring|TestNBPSingleHit|TestNBPAncientHit|TestNBPSweep|TestNBPEvents"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestPgNBPStoreIntegration",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 229,
@@ -4578,7 +5789,20 @@
         "Phase 19-Multi-Asset-Margin §AC row 49"
       ],
       "stable_test_id": "T19-018",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestPositionModeReads|TestPositionModeSetModeGuards|TestPositionModeStoreErrors"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestPgPositionModeStore|TestPgPositionModeServiceGuards",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 230,
@@ -4595,7 +5819,20 @@
         "Phase 19-Multi-Asset-Margin §AC row 51"
       ],
       "stable_test_id": "T19-019",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestMarginLevelHeapOrdering|TestMarginLevelHeapChurn|TestMarginLevelThresholdHelpers|TestMarginLevelViewService|TestMarginLevelWatcherPublishesOnlyOnChange|TestMarginLevelReaderNilClient|TestMarginCoordinatorSetAccountMarginPush"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestRedisMarginLevelReaderRoundTrip",
+          "needs": "redis"
+        }
+      ]
     },
     {
       "criterion_id": 231,
@@ -4612,7 +5849,20 @@
         "Phase 19-Multi-Asset-Margin §AC row 53"
       ],
       "stable_test_id": "T19-020",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestLeverageTierAt|TestLeverageBandMargin|TestLeverageTierEnums|TestLeverageResolveTierBandStepsDown"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestPgTierStore",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 232,
@@ -4629,7 +5879,20 @@
         "Phase 19-Multi-Asset-Margin §AC row 54"
       ],
       "stable_test_id": "T19-021",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestCorrelationMatrixRefreshAndOffset|TestCorrelationGroups|TestCorrelationFactorClampAndDefault|TestCorrelationAuditPerEpoch|TestCorrelationStalenessGate"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestRedisCorrelationMatrix",
+          "needs": "redis"
+        }
+      ]
     },
     {
       "criterion_id": 233,
@@ -4663,7 +5926,20 @@
         "Phase 15-Market-Admin-Lifecycle §AC row 22"
       ],
       "stable_test_id": "T15-005",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/admin",
+          "run": "TestMaintenanceRoleGate|TestParamValidation|TestDefaultNextSessionStart|TestSensitiveOpRegistered|TestPairSymbolValidation"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/admin",
+          "run": "Test(CreateMakerCheckerChain|ParamChangeScheduled|EmergencyParamChange)PG|TestInstrumentLifecycleDualControlPG",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 235,
@@ -4680,7 +5956,14 @@
         "Phase 20-Analytics-Reporting §AC row 25"
       ],
       "stable_test_id": "T20-008",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/reporting",
+          "run": "TestDelivery_DeliverAllChannels|TestDelivery_MT515SkippedForRetail|TestDelivery_EmailFailureLeavesGenerated|TestDelivery_NoRecipientSkipsEmail|TestMT515Doc_DeterministicAndComplete|TestRenderConfirmationHTML_Jurisdictions"
+        }
+      ]
     },
     {
       "criterion_id": 236,
@@ -4697,7 +5980,25 @@
         "Phase 23-Market-Data-Products §AC row 15"
       ],
       "stable_test_id": "T23-004",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/analytics",
+          "run": "TestTickStore(Insert|InsertEmptyIsNoop|Query|QueryCursor)|TestTickRowValuesExactScaling"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/marketdata",
+          "run": "TestHistory(AccessForRateTier|DelayFor|FormatFor)|TestRateTierHistoryResolver|TestResolveHistoryWindow|TestWriteTicks(CSV|FIXDropCopy)"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/analytics",
+          "run": "TestCHTickStore",
+          "note": "live-CH leg — self-skips without EXC_CH_TEST; its gate keeps the criterion at EXECUTABLE-partial until ClickHouse is present"
+        }
+      ]
     },
     {
       "criterion_id": 237,
@@ -4714,7 +6015,20 @@
         "Phase 24-Backoffice-Settlement §AC row 41"
       ],
       "stable_test_id": "T24-015",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/fix",
+          "run": "TestAllocationNew.*|TestParseAllocationInstruction.*"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/backoffice",
+          "run": "TestPgAllocations_Integration",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 238,
@@ -4772,7 +6086,19 @@
         "Phase 24-Backoffice-Settlement §AC row 42"
       ],
       "stable_test_id": "T24-016",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/backoffice",
+          "run": "TestShortfall_Tier1CoversFully|TestShortfall_Tier2PendingAndDualControl|TestShortfall_ExceedsTier2_RaisesTier3Notice|TestShortfall_BlocksMovements_503|TestSweepDeadlines_EscalationAndTier4"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/settlement",
+          "run": "TestClsControlledGrossBreachAlerts"
+        }
+      ]
     },
     {
       "criterion_id": 241,
@@ -4789,7 +6115,14 @@
         "Phase 19-Multi-Asset-Margin §AC row 56"
       ],
       "stable_test_id": "T19-022",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestCloseTranchesNilADVUnsliced|TestCloseTranchesBelowTriggerUnsliced|TestCloseTranchesMissingADVFallsBack|TestCloseTranchesSlicedAtTenPercentADV|TestCloseTranchesADVErrorFallsBack"
+        }
+      ]
     },
     {
       "criterion_id": 242,
@@ -4806,7 +6139,14 @@
         "Phase 18-FIX-Protocol-Gateway §AC row 43"
       ],
       "stable_test_id": "T18-014",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/sor",
+          "run": "TestRouteFillLifecycle|TestPartialFillState|TestConcurrentRouteGuard|TestTimeoutWalksToNextVenue"
+        }
+      ]
     },
     {
       "criterion_id": 243,
@@ -4823,7 +6163,14 @@
         "Phase 18-FIX-Protocol-Gateway §AC row 44"
       ],
       "stable_test_id": "T18-015",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/fix",
+          "run": "TestBroadcast|TestSubscribeThenBroadcast|TestRapidStateFlap|TestInstrumentStatusMapping|TestUnmappedStatesDoNotBroadcast|TestSymbolScopedSubscription|TestUnsubscribeStopsBroadcasts|TestSnapshotStateUnavailableHonestReject"
+        }
+      ]
     },
     {
       "criterion_id": 244,
@@ -4840,7 +6187,14 @@
         "Phase 17-L3-Order-Level-Data §AC row 16"
       ],
       "stable_test_id": "T17-006",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/marketdata",
+          "run": "TestL3SnapshotReader_CursorPagination|TestL3SnapshotReader_StalenessGate|TestL3SnapshotReader_TooLargeCeiling|TestL3SnapshotReader_FailClosed"
+        }
+      ]
     },
     {
       "criterion_id": 245,
@@ -4882,7 +6236,14 @@
         "Phase 20-Analytics-Reporting §AC row 26"
       ],
       "stable_test_id": "T20-009",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/analytics",
+          "run": "TestTCA_ArrivalSlippageBuy|TestTCA_ArrivalSlippageSellSign|TestTCA_VWAPSlippage|TestTCA_ECBFixSlippage|TestTCA_MissingFixRecordedNotFabricated|TestTCA_PriceImprovementFromPreventionEvent|TestTCA_PriceImprovementFromLimitFallback|TestTCA_AbsentSourcesYieldNullRow|TestTCA_SinkFailurePropagates|TestMemReportStore_PeriodAggregation|TestClassifyPair|TestSessionWindow_Boundary|TestRTS28Job_PersistsRollupAndArchives|TestRenderRTS28PDF_VenueSection"
+        }
+      ]
     },
     {
       "criterion_id": 247,
@@ -4933,7 +6294,20 @@
         "Phase 21-Compliance-AML §AC row 65"
       ],
       "stable_test_id": "T21-023",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/compliance",
+          "run": "TestTaxXMLCRSGolden|TestTaxXMLFATCAGolden|TestTaxReportLifecycle",
+          "needs": "pg"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/tax",
+          "run": "TestComputeFIFO|TestComputeShortRoundTrip|TestReportValidation|TestServiceReport|TestRenderCSV|TestRenderPDF"
+        }
+      ]
     },
     {
       "criterion_id": 250,
@@ -4967,7 +6341,19 @@
         "Phase 10-Trader-UI §AC row 22"
       ],
       "stable_test_id": "T10-007",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "vitest",
+          "pkg": "src/features/advanced-orders",
+          "needs": "frontend"
+        },
+        {
+          "kind": "vitest",
+          "pkg": "src/features/order-entry",
+          "needs": "frontend"
+        }
+      ]
     },
     {
       "criterion_id": 252,
@@ -4984,7 +6370,19 @@
         "Phase 16-Advanced-Order-Types §AC row 38"
       ],
       "stable_test_id": "T16-016",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gtest",
+          "binary": "test_phase16",
+          "filter": "Phase16Gslo.*"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/algo",
+          "run": "TestGSLO(PremiumFormula|GapLiability)|TestReservationOfParsesAlgoParams"
+        }
+      ]
     },
     {
       "criterion_id": 253,
@@ -5050,7 +6448,19 @@
         "Phase 16-Advanced-Order-Types §AC row 39"
       ],
       "stable_test_id": "T16-017",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gtest",
+          "binary": "test_phase16",
+          "filter": "Phase16Triggers.*:Phase16Pump.StopMarketPlusTrailUnitDecodesTrailing"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/algo",
+          "run": "TestTriggerGuardStaleMarkFailsClosed"
+        }
+      ]
     },
     {
       "criterion_id": 256,
@@ -5334,7 +6744,14 @@
         "Phase 10-Trader-UI §AC row 23"
       ],
       "stable_test_id": "TBN-267",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "vitest",
+          "pkg": "src/features/calculator",
+          "needs": "frontend"
+        }
+      ]
     },
     {
       "criterion_id": 268,
@@ -5351,7 +6768,29 @@
         "Phase 10-Trader-UI §AC row 24"
       ],
       "stable_test_id": "TBN-268",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "vitest",
+          "pkg": "src/features/workspace",
+          "needs": "frontend"
+        },
+        {
+          "kind": "vitest",
+          "pkg": "src/features/depth-chart",
+          "needs": "frontend"
+        },
+        {
+          "kind": "vitest",
+          "pkg": "src/features/advanced-orders/sizing.test.ts",
+          "needs": "frontend"
+        },
+        {
+          "kind": "vitest",
+          "pkg": "src/lib/input-helpers/confirm.test.tsx",
+          "needs": "frontend"
+        }
+      ]
     },
     {
       "criterion_id": 269,
@@ -5371,7 +6810,20 @@
         "Phase 10-Trader-UI §AC row 25"
       ],
       "stable_test_id": "TBN-269",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestADLScorerNilLeverage|TestADLScorerFormula|TestADLScorerQuintileBucketing|TestADLScorerExactBuckets|TestADLScorerMarkFallbackChain|TestADLScorerLeverageFailureFailsClosed"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestRedisADLPublisherTick",
+          "needs": "redis"
+        }
+      ]
     },
     {
       "criterion_id": 270,
@@ -5422,7 +6874,19 @@
         "Phase 13-Production-Hardening §AC row 38"
       ],
       "stable_test_id": "TBN-272",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/auth",
+          "run": "TestSessionIdleAndAbsoluteTimeouts|TestSessionAccountCapEvictsOldest|TestSessionIPCapEvictsOldest|TestSessionRefreshRotationAndReuseDetection|TestSessionRevokeAllAndList"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/api",
+          "run": "TestAdminAPIKeyExtendExpiry"
+        }
+      ]
     },
     {
       "criterion_id": 273,
@@ -5439,7 +6903,20 @@
         "Phase 14-Extended-Features §AC row 37"
       ],
       "stable_test_id": "TBN-273",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/orders",
+          "run": "TestCoolingOffRejectsLeveragedEntry|TestCoolingOffGateErrorFailsClosed|TestCoolingOffGateScope|TestCoolingOffBatchEntry|TestCoolingOffModifyEntry|TestCoolingOffPlainErrorFailsClosed"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/accounts",
+          "run": "TestIntegrationCoolingOffActivateAndGate|TestIntegrationCoolingOffDeriskSaga|TestIntegrationCoolingOffPartialFailure",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 274,
@@ -5485,7 +6962,20 @@
         "Phase 16-Advanced-Order-Types §AC row 40"
       ],
       "stable_test_id": "TBN-275",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/algo",
+          "run": "TestVP(Validation|NoVolumeSourceFailsClosed)|TestAntiGamingNonDeterministic|TestPerturbSizesNeverNegative|TestPauseResumeCancel|TestIdempotentParentReplay|TestDelayedDispatchStaysPending"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/algo",
+          "run": "TestIT(ParentLifecyclePersisted|ChildRowsAndIdempotentCID)",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 276,
@@ -5505,7 +6995,24 @@
         "Phase 23-Market-Data-Products §AC row 17"
       ],
       "stable_test_id": "TBN-276",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/tax",
+          "run": "TestComputeFIFO|TestComputeLIFO|TestComputeHIFO|TestComputeAvgCost|TestComputePreYearLotBasis|TestComputeFees|TestComputeShortRoundTrip|TestParseMethod|TestReportValidation|TestServiceReport|TestRenderCSV|TestRenderPDF|TestReportRangeWindow|TestReportFlowsSurface|TestRenderKoinlyCSV|TestDailyLimiterInterface"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/analytics",
+          "run": "TestMarketingReport_CohortFloor"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/api",
+          "run": "TestLongShortRatioCohortFloor422"
+        }
+      ]
     },
     {
       "criterion_id": 277,
@@ -5767,7 +7274,21 @@
         "Phase 16-Advanced-Order-Types §AC row 41"
       ],
       "stable_test_id": "TBN-287",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/orders",
+          "run": "TestNetPendingQty"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/orders",
+          "run": "TestITOrderListActivation",
+          "note": "OPOCO activation: locked EXECUTING list stamps pending legs via shared dedup/OCO path, flips ALL_DONE with proceeds bookkeeping",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 288,
@@ -5835,7 +7356,24 @@
         "Phase 15-Market-Admin-Lifecycle §AC row 23"
       ],
       "stable_test_id": "TBN-290",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gtest",
+          "binary": "test_lifecycle_auction",
+          "filter": "Lifecycle.CancelsStayOpenAmendsGated"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/orders",
+          "run": "TestValidateSubmitInstrumentStates"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/admin",
+          "run": "TestLifecycleTransitionMatrix"
+        }
+      ]
     },
     {
       "criterion_id": 291,
@@ -5879,7 +7417,19 @@
         "Phase 10-Trader-UI §AC rows 26–27"
       ],
       "stable_test_id": "TBN-292",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "vitest",
+          "pkg": "src/features/workspace",
+          "needs": "frontend"
+        },
+        {
+          "kind": "vitest",
+          "pkg": "src/features/advanced-orders/TradingChart.test.tsx",
+          "needs": "frontend"
+        }
+      ]
     },
     {
       "criterion_id": 293,
@@ -5896,7 +7446,24 @@
         "Phase 10-Trader-UI §AC row 28"
       ],
       "stable_test_id": "TBN-293",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "vitest",
+          "pkg": "src/lib/indicators",
+          "needs": "frontend"
+        },
+        {
+          "kind": "vitest",
+          "pkg": "src/lib/backtest",
+          "needs": "frontend"
+        },
+        {
+          "kind": "vitest",
+          "pkg": "src/features/backtesting",
+          "needs": "frontend"
+        }
+      ]
     },
     {
       "criterion_id": 294,
@@ -5913,7 +7480,19 @@
         "Phase 10-Trader-UI §AC row 29"
       ],
       "stable_test_id": "TBN-294",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "vitest",
+          "pkg": "src/features/discovery",
+          "needs": "frontend"
+        },
+        {
+          "kind": "vitest",
+          "pkg": "src/lib/alerts",
+          "needs": "frontend"
+        }
+      ]
     },
     {
       "criterion_id": 295,
@@ -5933,7 +7512,19 @@
         "Phase 20-Analytics-Reporting §AC row 11"
       ],
       "stable_test_id": "TBN-295",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "vitest",
+          "pkg": "src/features/performance",
+          "needs": "frontend"
+        },
+        {
+          "kind": "vitest",
+          "pkg": "src/features/reports",
+          "needs": "frontend"
+        }
+      ]
     },
     {
       "criterion_id": 296,
@@ -5950,7 +7541,14 @@
         "Phase 16-Advanced-Order-Types §AC row 42"
       ],
       "stable_test_id": "TBN-296",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/orders",
+          "run": "TestSubmitBasket(EndToEnd|LegCountBounds|UnknownSymbolFailsClosed|SendFailureCompensates)|TestBasketStatusRoundTrip|TestBasketResultConsumerProjection"
+        }
+      ]
     },
     {
       "criterion_id": 297,
@@ -6257,7 +7855,14 @@
         "Phase 09-Deployment-Operations §AC row 46"
       ],
       "stable_test_id": "ERR-309",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "bin",
+          "binary": "bluegreen-gate",
+          "note": "deploy/scripts/tests/bluegreen_gate_test.sh — probe-fail abort/rollback legs vs mock gateway + stub kubectl"
+        }
+      ]
     },
     {
       "criterion_id": 310,
@@ -6274,7 +7879,14 @@
         "Phase 10-Trader-UI §AC row 31"
       ],
       "stable_test_id": "ERR-310",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "vitest",
+          "pkg": "src/lib/ws",
+          "needs": "frontend"
+        }
+      ]
     },
     {
       "criterion_id": 311,
@@ -6291,7 +7903,14 @@
         "Phase 11-Funding-Suspension §AC row 34"
       ],
       "stable_test_id": "ERR-311",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/funding",
+          "run": "TestSwiftReturnMT199|TestSwiftMT103Envelope|TestSwiftMT202BankToBank|TestDepositGuardResolverUnwiredFailsClosed|TestDepositPendingReviewTierAndAdmin"
+        }
+      ]
     },
     {
       "criterion_id": 312,
@@ -6325,7 +7944,14 @@
         "Phase 13-Production-Hardening §AC row 39"
       ],
       "stable_test_id": "ERR-313",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestAutoHaltResumeAfterClear|TestAutoHaltPersistsReTripsDuringProbe|TestAutoHaltLatencyMeanUnderThresholdNoTrip|TestAutoHaltStoreErrorFailsClosed|TestAutoHaltNilCBFailsConstruction"
+        }
+      ]
     },
     {
       "criterion_id": 314,
@@ -6342,7 +7968,19 @@
         "Phase 13.5-Security-Compliance-Audit §AC row 28"
       ],
       "stable_test_id": "ERR-314",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "bin",
+          "binary": "pentest",
+          "needs": "pg+redis+nats"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/security",
+          "run": "TestDrillExpiredCredentialReplay|TestDrillNoDevFallbackWhenRequired|TestDrillVaultPartitionFailClosed"
+        }
+      ]
     },
     {
       "criterion_id": 315,
@@ -6359,7 +7997,14 @@
         "Phase 14-Extended-Features §AC row 38"
       ],
       "stable_test_id": "ERR-315",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/orders",
+          "run": "TestCoolingOffRejectsLeveragedEntry|TestCoolingOffGateErrorFailsClosed|TestCoolingOffBatchEntry|TestCoolingOffModifyEntry"
+        }
+      ]
     },
     {
       "criterion_id": 316,
@@ -6376,7 +8021,14 @@
         "Phase 15-Market-Admin-Lifecycle §AC row 24"
       ],
       "stable_test_id": "ERR-316",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gtest",
+          "binary": "test_lifecycle_auction",
+          "filter": "Auction.StrikeFailAwaitsExtensionThenClears:Auction.ExtendMovesDeadline:Auction.WithdrawnKeyQuarantinesCrossedBook:Auction.ReArmClearsQuarantineByUncrossing"
+        }
+      ]
     },
     {
       "criterion_id": 317,
@@ -6393,7 +8045,24 @@
         "Phase 16-Advanced-Order-Types §AC row 43"
       ],
       "stable_test_id": "ERR-317",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gtest",
+          "binary": "test_oco",
+          "filter": "OcoEngine.DoomedLegRejectsWithOcoSiblingCancelRace:OcoEngine.LinkConflictAndIdempotentResend:OcoEngine.WalJournalsLinkAndSiblingCancel:OcoEngine.RecoveryReplaysLinkAndSiblingCancel"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/orders",
+          "run": "TestSubmitOCO_(RaceReplayReturns409|CollisionRollsBackPair|ReplayIsIdempotent)|TestModifyStaleAndCAS"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/algo",
+          "run": "TestDelayedDispatchStaysPending|TestTriggerGuardStaleMarkFailsClosed"
+        }
+      ]
     },
     {
       "criterion_id": 318,
@@ -6410,7 +8079,14 @@
         "Phase 17-L3-Order-Level-Data §AC row 17"
       ],
       "stable_test_id": "ERR-318",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/marketdata",
+          "run": "TestL3Hub_ReplayGapTooLarge|TestL3Hub_FeedGapMarksMirrorSuspect|TestL3Hub_ReplayWithinHorizon|TestL3Hub_NoConflationEveryEventForwarded"
+        }
+      ]
     },
     {
       "criterion_id": 319,
@@ -6427,7 +8103,14 @@
         "Phase 18-FIX-Protocol-Gateway §AC row 47"
       ],
       "stable_test_id": "ERR-319",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/fix",
+          "run": "TestPlanResend|TestCoDPurges|TestCoDGracefulLogoutPreserves|TestDropSessionPurgesSubscriptions"
+        }
+      ]
     },
     {
       "criterion_id": 320,
@@ -6444,7 +8127,19 @@
         "Phase 19-Multi-Asset-Margin §AC row 58"
       ],
       "stable_test_id": "ERR-320",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gtest",
+          "binary": "test_cross_shard",
+          "filter": "CrossShard2PC.ReserveTimeoutFullCompensation|CrossShard2PC.NackCompensatesAll|CrossShard2PC.ThreeShardAllOrNothingCommit|CrossShard2PC.ReaperCadenceIsTwoSeconds|CrossShard2PC.CommitLosingTtlRaceCompensatesCommittedLeg"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestNBPConstruction|TestNBPRetail|TestNBPSweep|TestNBPEvents|TestNBPStoreReadFailure"
+        }
+      ]
     },
     {
       "criterion_id": 321,
@@ -6461,7 +8156,14 @@
         "Phase 19.5-Price-Oracle-Mark-Price §AC row 21"
       ],
       "stable_test_id": "ERR-321",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/oracle",
+          "run": "TestStalenessGate|TestAllStaleUnavailable|TestDivergenceExclusion|TestServiceRequiresTwoFeeds|TestFeedErrorCounted"
+        }
+      ]
     },
     {
       "criterion_id": 322,
@@ -6478,7 +8180,14 @@
         "Phase 20-Analytics-Reporting §AC row 28"
       ],
       "stable_test_id": "ERR-322",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/analytics",
+          "run": "TestInsertWithSpoolDiverts"
+        }
+      ]
     },
     {
       "criterion_id": 323,
@@ -6495,7 +8204,20 @@
         "Phase 21-Compliance-AML §AC row 66"
       ],
       "stable_test_id": "ERR-323",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/compliance",
+          "run": "TestListScreenerFailClosedContract|TestProviderGateFailClosed|TestQueueReplayerFailClosed|TestVendorClients_FailClosed"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/compliance",
+          "run": "TestIntegrationHoldSanctionsSLAAndStack|TestITSanctionsDepositBlocks|TestITSanctionsWithdrawalBlocks",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 324,
@@ -6546,7 +8268,19 @@
         "Phase 24-Backoffice-Settlement §AC row 43"
       ],
       "stable_test_id": "ERR-326",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/settlement",
+          "run": "TestClsMemberStatusUnmatchedOpensBreak|TestClsControlledGrossBreachAlerts"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/backoffice",
+          "run": "TestEvaluateSegregation_RealtimeShortfall|TestShortfall_ExceedsTier2_RaisesTier3Notice|TestShortfall_BlocksMovements_503"
+        }
+      ]
     },
     {
       "criterion_id": 327,
@@ -6563,7 +8297,15 @@
         "Phase 21-Compliance-AML §AC row 67"
       ],
       "stable_test_id": "GOV-327",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/compliance",
+          "run": "TestPGEmployeeDealingGate|TestPGRestrictedWindowGate",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 328,
@@ -6580,7 +8322,20 @@
         "Phase 21-Compliance-AML §AC row 68"
       ],
       "stable_test_id": "GOV-328",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/compliance",
+          "run": "TestRegChangeConstants"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/compliance",
+          "run": "TestPGRegChangeLifecycle",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 329,
@@ -6597,7 +8352,19 @@
         "Phase 24-Backoffice-Settlement §AC row 44"
       ],
       "stable_test_id": "GOV-329",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/backoffice",
+          "run": "TestOwnFunds_LedgerAndReconciliation|TestCommitments_WaterfallAndBackstop|TestInsurancePolicy_ExpiryAlert|TestLiquidityBreach_FreezesOutflowsAndLP|TestAdmissionGate_FundedOnly|TestTreasury_RoleEnforcement"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/api",
+          "run": "TestContingentCapitalCreate_DecimalWire"
+        }
+      ]
     },
     {
       "criterion_id": 330,
@@ -6614,7 +8381,14 @@
         "Phase 24-Backoffice-Settlement §AC row 45"
       ],
       "stable_test_id": "GOV-330",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/backoffice",
+          "run": "TestAudit_RegisterLifecycleAndLogs|TestEvidencePack_SystemAssembledAndHashed|TestCertification_DualControlAndReleaseGate|TestExternalAuditor_TimeBoundedDualControlledAudited|TestAssurance_NilDepsFailClosed"
+        }
+      ]
     },
     {
       "criterion_id": 331,
@@ -6665,7 +8439,19 @@
         "Phase 21-Compliance-AML §AC row 69"
       ],
       "stable_test_id": "GOV-333",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/compliance",
+          "run": "TestPromotionLifecycle|TestPromoChecklistAllMandatory"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/support",
+          "run": "TestComplaintRouting|TestComplaintAckSLA_StatutoryBoundWinsOnWeekend|TestComplaintAckSLA_InternalClockWinsMidweek"
+        }
+      ]
     },
     {
       "criterion_id": 334,
@@ -6867,7 +8653,19 @@
         "Phase 13.5-Security-Compliance-Audit §AC row 30"
       ],
       "stable_test_id": "MAT-342",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "bin",
+          "binary": "pentest",
+          "needs": "pg+redis+nats"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/compliance",
+          "run": "TestGDPRExportAndErasure|TestGDPRConsentLifecycle"
+        }
+      ]
     },
     {
       "criterion_id": 343,
@@ -6884,7 +8682,20 @@
         "Phase 15-Market-Admin-Lifecycle §AC row 25"
       ],
       "stable_test_id": "MAT-343",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/instruments",
+          "run": "TestNextOccurrence(DST|Tokyo)|TestWeeklyOpenDST|TestSessionStates|TestTradeDayAndCutoff|TestCalendarEntryValidate"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/instruments",
+          "run": "TestListingLifecycleIntegration",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 344,
@@ -6901,7 +8712,14 @@
         "Phase 19-Multi-Asset-Margin §AC row 59"
       ],
       "stable_test_id": "MAT-344",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestMarginEvaluate.*|TestExposureCheckValidation|TestRunStressSuitePersistsAndAlerts"
+        }
+      ]
     },
     {
       "criterion_id": 345,
@@ -6918,7 +8736,20 @@
         "Phase 21-Compliance-AML §AC row 70"
       ],
       "stable_test_id": "MAT-345",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/compliance/reporting",
+          "run": "TestUTIFor_DeterministicAndValid|TestUSIFor_Format|TestPayloadForDest_APAVariant"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/compliance",
+          "run": "TestPGTuningLifecycle|TestPGReportingValues",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 346,
@@ -6952,7 +8783,25 @@
         "Phase 24-Backoffice-Settlement §AC row 46"
       ],
       "stable_test_id": "MAT-347",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/backoffice",
+          "run": "TestException_DetectFailureFlagsLegAndOpensException|TestException_DetectOnSettledLegConflicts|TestException_InvestigateAssigns|TestException_ResolveRetryReArmsLeg|TestException_ResolveReversalReturnsFunds|TestException_ResolveTerminalConflicts|TestException_RequestResolutionRequiresDualQueue|TestException_RequestResolutionSubmitsFinanceOpsDual|TestException_RequestResolutionRejectsTerminalAndWriteOff|TestException_NilStoreFailsClosed|TestSweepDeadlines_EscalationAndTier4"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/settlement",
+          "run": "TestSuspenseNilGuardFailsClosed|TestSuspenseRouteUnmatchedCredit|TestSuspenseResolvePassthrough"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/funding",
+          "run": "TestITSuspenseAndRailPayments",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 348,
@@ -7039,7 +8888,19 @@
         "Phase 10-Trader-UI §AC row 32"
       ],
       "stable_test_id": "MAT-351",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "vitest",
+          "pkg": "src/lib/env",
+          "needs": "frontend"
+        },
+        {
+          "kind": "vitest",
+          "pkg": "src/features/ops",
+          "needs": "frontend"
+        }
+      ]
     },
     {
       "criterion_id": 352,
@@ -7056,7 +8917,21 @@
         "Phase 15-Market-Admin-Lifecycle §AC row 26"
       ],
       "stable_test_id": "MAT-352",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/instruments",
+          "run": "TestDelistLadderIntegration|TestListingLifecycleIntegration",
+          "needs": "pg"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/admin",
+          "run": "Test(DelistWorkflow|CreateMakerCheckerChain)PG",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 353,
@@ -7228,7 +9103,20 @@
         "Phase 19-Multi-Asset-Margin §AC row 60"
       ],
       "stable_test_id": "MAT-360",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/api",
+          "run": "TestAccountLiquidations_OK|TestAccountLiquidations_ForeignAccount403"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestPgLiquidationStore.*",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 361,
@@ -7245,7 +9133,20 @@
         "Phase 20-Analytics-Reporting §AC row 29"
       ],
       "stable_test_id": "MAT-361",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/api",
+          "run": "TestAccountIncomeRows|TestAccountIncomeFailClosedCHDown|TestAccountIncomeEmptyProjection503|TestAccountIncomeValidation"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/analytics",
+          "run": "TestMapIncomeType|TestPollIncomeOnceProjectsSignedRows|TestCHIncomeProjectionShape|TestClassifyIncomeTable|TestValidIncomeType|TestIncomeStoreInsertBatches|TestIncomeStoreQueryPredicateShape|TestIncomeStoreFailClosed|TestIncomeWatermarkEmpty|TestCHIncomeRoundTrip|TestPgIncomeSyncRowsClassification",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 362,
@@ -7262,7 +9163,20 @@
         "Phase 20-Analytics-Reporting §AC row 30"
       ],
       "stable_test_id": "MAT-362",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/analytics",
+          "run": "TestSnapshotHashDeterministic|TestCanonicalPositionsJSON"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/analytics",
+          "run": "TestPgSnapshotBuildVerifyChain|TestPgSnapshotHistory",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 363,
@@ -7326,7 +9240,20 @@
         "Phase 16-Advanced-Order-Types §AC row 44"
       ],
       "stable_test_id": "MAT-365",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/algo",
+          "run": "TestListAndCancelAll"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/algo",
+          "run": "TestIT(ReadSeams|ChildRowsAndIdempotentCID)",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 366,
@@ -7343,7 +9270,20 @@
         "Phase 19-Multi-Asset-Margin §AC row 61"
       ],
       "stable_test_id": "MAT-366",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestLeverageSetLeverage.*|TestLeverageResolve.*|TestLeverageInvalidate"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestPgLeverageStoreResolve|TestPgLeverageSetLeverage",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 367,
@@ -7360,7 +9300,21 @@
         "Phase 16-Advanced-Order-Types §AC row 45"
       ],
       "stable_test_id": "MAT-367",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/orders",
+          "run": "TestBasketStatusRoundTrip|TestBasketResultConsumerProjection"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/orders",
+          "run": "TestITOrderListActivation",
+          "note": "asserts open-vs-history paging partitions on the state set",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 368,
@@ -7401,7 +9355,14 @@
         "Phase 14-Extended-Features §AC row 39"
       ],
       "stable_test_id": "MAT-369",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/ledger",
+          "run": "TestProfileSwitchZeroBalanceGuard|Test.*Subunit.*|Test.*Denomination.*"
+        }
+      ]
     },
     {
       "criterion_id": 370,
@@ -7442,7 +9403,14 @@
         "Phase 19-Multi-Asset-Margin §AC row 62"
       ],
       "stable_test_id": "MAT-371",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestLeverageResolveMostRestrictive|TestLeverageResolveRegulatoryCaps|TestLeverageResolveEntityPolicyFallbackStrictest|TestLeverageResolveInstrumentCeilingAndNonMarginable|TestLeverageResolveProfessionalNoStatutoryCap|TestLeverageResolveFailClosed|TestLeverageClassifyInstrumentGroup|TestLeverageRegulatoryRegime"
+        }
+      ]
     },
     {
       "criterion_id": 372,
@@ -7459,7 +9427,19 @@
         "Phase 14-Extended-Features §AC row 40"
       ],
       "stable_test_id": "MAT-372",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/copy",
+          "run": "Test.*"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/pamm",
+          "run": "Test.*"
+        }
+      ]
     },
     {
       "criterion_id": 373,
@@ -7476,7 +9456,14 @@
         "Phase 14-Extended-Features §AC row 41"
       ],
       "stable_test_id": "MAT-373",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/ledger",
+          "run": "TestSwapAccrualSwapFree"
+        }
+      ]
     },
     {
       "criterion_id": 374,
@@ -7493,7 +9480,14 @@
         "Phase 20-Analytics-Reporting §AC row 31"
       ],
       "stable_test_id": "MAT-374",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/analytics",
+          "run": "TestCostPreview_SpreadMarkupModel|TestCostPreview_RawSpreadCommission|TestCostPreview_FinancingLeg|TestCostAnnual_ReconcilesLedgerRows"
+        }
+      ]
     },
     {
       "criterion_id": 375,
@@ -7510,7 +9504,14 @@
         "Phase 20-Analytics-Reporting §AC row 32"
       ],
       "stable_test_id": "MAT-375",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/analytics",
+          "run": "TestDepreciation_CrossingNotifiesOnce|TestDepreciation_ShortSide|TestDepreciation_FlatWithoutCrossingClosesEpisode"
+        }
+      ]
     },
     {
       "criterion_id": 376,
@@ -7544,7 +9545,15 @@
         "Phase 21-Compliance-AML §AC row 71"
       ],
       "stable_test_id": "MAT-377",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/compliance",
+          "run": "TestPGExecutionPolicyLifecycle",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 378,
@@ -7628,7 +9637,25 @@
         "Phase 20-Analytics-Reporting §AC row 33"
       ],
       "stable_test_id": "MAT-381",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/analytics",
+          "run": "TestMarketingReport_CohortFloor"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/api",
+          "run": "TestAdminPromotionsReportOK|TestAdminPromotionsReportSourceDown"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/promos",
+          "run": "TestIntegrationPromoLifecycle|TestIntegrationClearExpired",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 382,
@@ -7645,7 +9672,19 @@
         "Phase 10-Trader-UI §AC row 33"
       ],
       "stable_test_id": "MAT-382",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "vitest",
+          "pkg": "src/features/auth",
+          "needs": "frontend"
+        },
+        {
+          "kind": "vitest",
+          "pkg": "src/app/manifest.test.tsx",
+          "needs": "frontend"
+        }
+      ]
     },
     {
       "criterion_id": 383,
@@ -7662,7 +9701,19 @@
         "Phase 10-Trader-UI §AC row 34"
       ],
       "stable_test_id": "MAT-383",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "vitest",
+          "pkg": "src/features/settings",
+          "needs": "frontend"
+        },
+        {
+          "kind": "vitest",
+          "pkg": "src/lib/auth",
+          "needs": "frontend"
+        }
+      ]
     },
     {
       "criterion_id": 384,
@@ -7679,7 +9730,14 @@
         "Phase 10-Trader-UI §AC row 35"
       ],
       "stable_test_id": "MAT-384",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "vitest",
+          "pkg": "src/features/funding",
+          "needs": "frontend"
+        }
+      ]
     },
     {
       "criterion_id": 385,
@@ -7696,7 +9754,14 @@
         "Phase 10-Trader-UI §AC row 36"
       ],
       "stable_test_id": "MAT-385",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "vitest",
+          "pkg": "src/features/kyc",
+          "needs": "frontend"
+        }
+      ]
     },
     {
       "criterion_id": 386,
@@ -7713,7 +9778,14 @@
         "Phase 10-Trader-UI §AC row 37"
       ],
       "stable_test_id": "MAT-386",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "vitest",
+          "pkg": "src/features/support",
+          "needs": "frontend"
+        }
+      ]
     },
     {
       "criterion_id": 387,
@@ -7730,7 +9802,14 @@
         "Phase 10-Trader-UI §AC row 38"
       ],
       "stable_test_id": "MAT-387",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "vitest",
+          "pkg": "src/features/copy-grid",
+          "needs": "frontend"
+        }
+      ]
     },
     {
       "criterion_id": 388,
@@ -7747,7 +9826,19 @@
         "Phase 10-Trader-UI §AC row 39"
       ],
       "stable_test_id": "MAT-388",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "vitest",
+          "pkg": "src/features/history",
+          "needs": "frontend"
+        },
+        {
+          "kind": "vitest",
+          "pkg": "src/features/advanced-orders/components.test.tsx",
+          "needs": "frontend"
+        }
+      ]
     },
     {
       "criterion_id": 389,
@@ -7764,7 +9855,14 @@
         "Phase 10-Trader-UI §AC row 40"
       ],
       "stable_test_id": "MAT-389",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "vitest",
+          "pkg": "src/features/reports",
+          "needs": "frontend"
+        }
+      ]
     },
     {
       "criterion_id": 390,
@@ -7781,7 +9879,14 @@
         "Phase 10-Trader-UI §AC row 41"
       ],
       "stable_test_id": "MAT-390",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "vitest",
+          "pkg": "src/lib/input-helpers",
+          "needs": "frontend"
+        }
+      ]
     },
     {
       "criterion_id": 391,
@@ -7798,7 +9903,20 @@
         "Phase 11-Funding-Suspension §AC row 33"
       ],
       "stable_test_id": "T11-013",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/funding",
+          "run": "TestGateWhitelistOnlyRejectsUnverified|TestGateWhitelistOnlyAdmitsVerifiedUnlocked|TestGateBeneficiaryTimelock|TestWhitelistEnableDisableLatch|TestWhitelistDisableIdempotent"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/funding",
+          "run": "TestITWhitelistLifecycle|TestITWithdrawalFlowWhitelistGate",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 392,
@@ -7815,7 +9933,14 @@
         "Phase 21-Compliance-AML §AC row 72"
       ],
       "stable_test_id": "T21-024",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/surveillance",
+          "run": "TestWatchLagFiresThenResolves|TestWatchLagBelowThresholdSilent|TestDetectionLatencyAccounting"
+        }
+      ]
     },
     {
       "criterion_id": 393,
@@ -7878,7 +10003,14 @@
         "Phase 16-Advanced-Order-Types §AC row 31"
       ],
       "stable_test_id": "MAT-395",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gtest",
+          "binary": "test_phase16",
+          "filter": "Phase16Peg.*:Phase16Pump.PegFieldsDecodeToAux"
+        }
+      ]
     },
     {
       "criterion_id": 396,
@@ -7912,7 +10044,19 @@
         "Phase 19.5-Price-Oracle-Mark-Price §AC row 18"
       ],
       "stable_test_id": "MAT-397",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/oracle",
+          "run": "TestFallbackTrackerStaleReference|TestFlashCrashFreeze|TestFlashCrashNotArmedOnSlowMove"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestStaleFallbackTiersMirror|TestCollateralStaleRateContributesZero|TestCollateralScheduleStaleCacheFallback"
+        }
+      ]
     },
     {
       "criterion_id": 398,
@@ -7929,7 +10073,20 @@
         "Phase 19-Multi-Asset-Margin §AC row 63"
       ],
       "stable_test_id": "MAT-398",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/margin",
+          "run": "TestDetectVerticalSpread_MaxLossBound|TestDetectVerticalSpread_PutAndPartialQty|TestDetectCalendar_ShortNearLongFar|TestDetectCalendar_ReverseNotRecognized|TestSpreadParams_CustomOffset"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/margin",
+          "run": "TestPgSpreadOffsets_PortfolioModeGateAndPersist|TestPgSpreadOffsets_NonPortfolioGetsNoOffsets|TestPgSpreadOffsets_MakerCheckerParams|TestPgSpreadOffsets_DownMigration",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 399,
@@ -7946,7 +10103,19 @@
         "Phase 16-Advanced-Order-Types §AC row 46"
       ],
       "stable_test_id": "MAT-399",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gtest",
+          "binary": "test_phase16",
+          "filter": "Phase16Moo.*"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/orders",
+          "run": "TestInjectorReopeningCallMOOOnly|TestAuctionSubmitValidation|TestAuctionCancelPreFreeze|TestAuctionFreezeRejectsMutation|TestAuctionAmendPreFreeze|TestAuctionLifecycleNotifications"
+        }
+      ]
     },
     {
       "criterion_id": 400,
@@ -7987,7 +10156,20 @@
         "Phase 15-Market-Admin-Lifecycle §AC row 27"
       ],
       "stable_test_id": "MAT-401",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/instruments",
+          "run": "TestParseRecurrence|TestNextOccurrence(DST|Tokyo)|TestCalendarEntryValidate"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/instruments",
+          "run": "TestCalendarReplaceIntegration",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 402,
@@ -8178,7 +10360,14 @@
         "Phase 11-Funding-Suspension §AC row 35"
       ],
       "stable_test_id": "MAT-409",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/funding",
+          "run": "TestRailSelectionGateSingleHaltFallsThrough|TestRailSelectionEligibility"
+        }
+      ]
     },
     {
       "criterion_id": 410,
@@ -8195,7 +10384,14 @@
         "Phase 19-Multi-Asset-Margin §AC row 64"
       ],
       "stable_test_id": "MAT-410",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestCollateralMonitorTriggerRecomputesAndCalls|TestCollateralMonitorBelowTriggerStaysQuiet|TestCollateralMonitorNormalStatusSkipsCallSeam|TestCollateralMonitorCooldownBoundsFanout|TestCollateralMonitorDayRolloverReanchors|TestCollateralMonitorUnwatchedSymbolIgnored|TestCollateralMonitorEvalErrorStreakPages"
+        }
+      ]
     },
     {
       "criterion_id": 411,
@@ -8212,7 +10408,20 @@
         "Phase 19-Multi-Asset-Margin §AC row 65"
       ],
       "stable_test_id": "MAT-411",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestIsolatedLevelPct|TestIsolatedTopUpUSD|TestIsolatedBoundaryMark"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestPgIsolatedMarginStoreLifecycle",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 412,
@@ -8229,7 +10438,14 @@
         "Phase 19-Multi-Asset-Margin §AC row 66"
       ],
       "stable_test_id": "MAT-412",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/risk",
+          "run": "TestCollateralMonitor.*|TestCollateralUpdateScheduleAuditAndPropagate|TestCollateralUpdateScheduleValidation|TestCollateralScheduleColdFailureFailsClosed|TestCollateralScheduleStaleCacheFallback"
+        }
+      ]
     },
     {
       "criterion_id": 413,
@@ -8246,7 +10462,14 @@
         "Phase 24-Backoffice-Settlement §AC row 47"
       ],
       "stable_test_id": "MAT-413",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/settlement",
+          "run": "TestRailCutoffWeekendRoll|TestRailCutoffEnforceSameDay|TestGrossNetDispatchCutoffRollsSameDayLeg|TestGenerateInstructionsQueuedPastCutoff|TestNextWeekdayCutoff_WeekendSkip|TestRollValueDateAndDaysBetween"
+        }
+      ]
     },
     {
       "criterion_id": 414,
@@ -8263,7 +10486,20 @@
         "Phase 24-Backoffice-Settlement §AC row 48"
       ],
       "stable_test_id": "MAT-414",
-      "status": "PLANNED"
+      "status": "EXECUTABLE",
+      "bindings": [
+        {
+          "kind": "gotest",
+          "pkg": "./internal/settlement",
+          "run": "TestStatementUnmatchedCreditRoutesSuspense|TestSuspenseRouteUnmatchedCredit|TestSuspenseResolvePassthrough|TestSuspenseNilGuardFailsClosed"
+        },
+        {
+          "kind": "gotest",
+          "pkg": "./internal/funding",
+          "run": "TestITSuspenseAndRailPayments",
+          "needs": "pg"
+        }
+      ]
     },
     {
       "criterion_id": 415,

@@ -96,6 +96,30 @@ func (e *Env) RunGTest(ctx context.Context, binary, filter string) Outcome {
 	return Outcome{OK: true, Output: fmt.Sprintf("%s %s: %s", binary, filter, lastLine(s))}
 }
 
+// RunVitest runs one frontend spec file via `npx vitest run <file>`
+// inside frontend/. The file path is a filter, not a -t name regex —
+// every assertion in the spec executes. A zero-match or all-skipped
+// run is a defect, not a pass.
+func (e *Env) RunVitest(ctx context.Context, specFile string) Outcome {
+	if _, err := os.Stat(filepath.Join(e.FrontendDir, specFile)); err != nil {
+		return Outcome{Skipped: true, Output: "frontend spec absent: " + specFile}
+	}
+	if _, err := os.Stat(filepath.Join(e.FrontendDir, "node_modules", ".bin", "vitest")); err != nil {
+		return Outcome{Skipped: true, Output: "frontend deps absent — npm ci in frontend/ first"}
+	}
+	c := exec.CommandContext(ctx, "npx", "vitest", "run", specFile, "--color=false")
+	c.Dir = e.FrontendDir
+	out, err := c.CombinedOutput()
+	s := string(out)
+	switch {
+	case err != nil:
+		return Outcome{Output: fmt.Sprintf("vitest %s failed: %v\n%s", specFile, err, tail(s, 40))}
+	case strings.Contains(s, "No test files found") || strings.Contains(s, "0 failed, 0 passed"):
+		return Outcome{Output: fmt.Sprintf("vitest %s matched no tests (check spec path)", specFile)}
+	}
+	return Outcome{OK: true, Output: fmt.Sprintf("vitest %s: %s", specFile, lastLine(s))}
+}
+
 // RunBin runs an arbitrary binary with args, returning combined output.
 func (e *Env) RunBin(ctx context.Context, dir, name string, args ...string) (string, error) {
 	return e.RunBinEnv(ctx, dir, nil, name, args...)

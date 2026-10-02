@@ -126,8 +126,25 @@ func TestBindingReferences(t *testing.T) {
 					if _, err := os.Stat(filepath.Join(env.CoreBuild, "snapbench")); err != nil {
 						t.Errorf("criterion %d: snapbench absent", id)
 					}
+				case "dr-drill-runner":
+					if _, err := os.Stat(filepath.Join(env.Root, "scripts", "ops", "dr_drill_runner.sh")); err != nil {
+						t.Errorf("criterion %d: dr_drill_runner.sh absent", id)
+					}
+				case "bluegreen-gate":
+					if _, err := os.Stat(filepath.Join(env.Root, "deploy", "scripts", "tests", "bluegreen_gate_test.sh")); err != nil {
+						t.Errorf("criterion %d: bluegreen_gate_test.sh absent", id)
+					}
+				case "pentest":
+					if _, err := os.Stat(filepath.Join(env.Root, "tests", "pentest", "run.sh")); err != nil {
+						t.Errorf("criterion %d: pentest run.sh absent", id)
+					}
 				default:
 					t.Errorf("criterion %d: unhandled bin binding %q", id, b.Binary)
+				}
+			case itest.BindVitest:
+				p := filepath.Join(env.FrontendDir, filepath.Clean(b.Pkg))
+				if _, err := os.Stat(p); err != nil {
+					t.Errorf("criterion %d: vitest spec %s absent", id, b.Pkg)
 				}
 			case itest.BindCTest, itest.BindCompose:
 				// ctest resolves at run time; compose legs are env-gated.

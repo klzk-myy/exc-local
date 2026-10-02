@@ -26,6 +26,7 @@ const (
 	BindE2E     BindingKind = "e2e"     // named leg inside this suite's live stack
 	BindBin     BindingKind = "bin"     // run a repo binary/CLI against live deps
 	BindCompose BindingKind = "compose" // requires docker-compose topology (Task spec reference env)
+	BindVitest  BindingKind = "vitest"  // `npx vitest run <pkg>` inside frontend/
 )
 
 // Binding is one executable leg bound to a criterion.
@@ -39,7 +40,7 @@ type Binding struct {
 	Note   string      `json:"note,omitempty"`
 	// Legs that need infra this host may lack carry a gate tag; the
 	// runner records BLOCKED (with reason) when unsatisfied.
-	Needs string `json:"needs,omitempty"` // "", "pg", "redis", "nats", "engine", "docker", "sentinel"
+	Needs string `json:"needs,omitempty"` // "", "pg", "redis", "nats", "engine", "docker", "sentinel", "aeron"; "+"-joined = all required
 }
 
 // Contract is one contracts.json row.

@@ -83,6 +83,7 @@ type Env struct {
 	CoreBin     string // matching_engine binary
 	CoreBuild   string // ctest tree
 	ServicesDir string
+	FrontendDir string // vitest legs (BindVitest)
 	DocsDir     string
 	TracePath   string // tests/spec/traceability.json (read-only)
 	ReportPath  string
@@ -110,6 +111,7 @@ func DefaultEnv() *Env {
 		CoreBin:     envOr("EXC_CORE_BIN", filepath.Join(root, "core", "build", "matching_engine")),
 		CoreBuild:   envOr("EXC_CORE_BUILD", filepath.Join(root, "core", "build")),
 		ServicesDir: filepath.Join(root, "services"),
+		FrontendDir: filepath.Join(root, "frontend"),
 		DocsDir:     filepath.Join(root, "docs"),
 		TracePath:   filepath.Join(root, "tests", "spec", "traceability.json"),
 		ReportPath:  envOr("EXC_IT_REPORT", filepath.Join(root, "tests", "integration", "reports", "coverage.json")),
