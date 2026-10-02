@@ -22,12 +22,14 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	stderrors "errors"
 	"net/http"
 	"strconv"
 	"time"
 
+	"exchange/internal/admin"
 	"exchange/internal/auth"
 	"exchange/internal/gateway"
 	"exchange/internal/middleware"
@@ -189,7 +191,13 @@ func AuthResetPassword(svc *auth.AuthnService) http.HandlerFunc {
 // AuthLogin serves POST /api/v1/auth/login — password phase; when the
 // account has TOTP enrolled the first call returns requires_totp +
 // challenge, and the client resubmits with totp_code + challenge.
-func AuthLogin(svc *auth.AuthnService) http.HandlerFunc {
+//
+// rolesFor resolves the caller's §8.2 venue-admin role for the login
+// response's `roles` UX hint (nil-tolerant: test rigs pass nil). The
+// response hint only unlocks client navigation — every admin API call is
+// re-authorized server-side against live bindings, so a lookup failure
+// omits the hint rather than failing login.
+func AuthLogin(svc *auth.AuthnService, rolesFor admin.AdminRoleResolver) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			Email     string `json:"email"`
@@ -227,8 +235,23 @@ func AuthLogin(svc *auth.AuthnService) http.HandlerFunc {
 			"account_id": res.Issued.Session.AccountID,
 			"kyc_tier":   res.KYCTier,
 			"two_factor": res.User.TOTPEnabled(),
+			"roles":      activeAdminRoles(r.Context(), rolesFor, res.User.ID),
 		}))
 	}
+}
+
+// activeAdminRoles returns the caller's live §8.2 roles for the login
+// response hint. Always non-nil (empty = trader). Resolver errors omit
+// the hint — login itself must not fail on an RBAC lookup.
+func activeAdminRoles(ctx context.Context, rolesFor admin.AdminRoleResolver, userID int64) []string {
+	roles := []string{}
+	if rolesFor == nil {
+		return roles
+	}
+	if role, err := rolesFor(ctx, userID); err == nil && role != "" {
+		roles = append(roles, role)
+	}
+	return roles
 }
 
 // AuthRefresh rotates the opaque refresh token —

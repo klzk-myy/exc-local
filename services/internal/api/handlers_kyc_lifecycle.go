@@ -128,6 +128,38 @@ func KYCRejectHandler(svc *compliance.LifecycleService, trustProxy bool) http.Ha
 	}
 }
 
+// KYCPendingHandler is GET /api/v1/admin/kyc/pending — the officer
+// review queue (PENDING_REVIEW + UNDER_REVIEW, oldest SLA first). Role
+// gate: service-side, same as the decision endpoints.
+func KYCPendingHandler(svc *compliance.LifecycleService, trustProxy bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if svc == nil {
+			WriteError(w, "SERVICE_DEGRADED", "kyc lifecycle service unavailable",
+				gateway.RequestIDFrom(r.Context()), nil)
+			return
+		}
+		actor, ok := kycAdminActor(w, r, trustProxy)
+		if !ok {
+			return
+		}
+		limit := 200
+		if q := r.URL.Query().Get("limit"); q != "" {
+			if n, err := strconv.Atoi(q); err == nil && n > 0 && n <= 500 {
+				limit = n
+			}
+		}
+		subs, err := svc.PendingQueue(r.Context(), actor, limit)
+		if err != nil {
+			writeServiceErr(w, r, err)
+			return
+		}
+		if subs == nil {
+			subs = []compliance.Submission{}
+		}
+		WriteJSON(w, http.StatusOK, map[string]any{"submissions": subs})
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Task 14.3.7 — appropriateness + client categorization
 // ---------------------------------------------------------------------------

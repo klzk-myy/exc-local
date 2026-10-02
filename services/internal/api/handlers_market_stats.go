@@ -303,6 +303,28 @@ func AnalyticsOpenInterest(d *MarketStatsDeps) http.HandlerFunc {
 }
 
 // ---------------------------------------------------------------------------
+// GET /api/v1/market/open-interest?symbol= — Phase-06 spec-path spelling
+// ---------------------------------------------------------------------------
+
+// MarketOpenInterest is the ?symbol=-query spelling of
+// AnalyticsOpenInterest: the Phase-06 open-interest snapshot surface
+// (registry route GET /api/v1/market/open-interest) normalizes the query
+// parameter onto the analytics handler's {symbol} path contract.
+func MarketOpenInterest(d *MarketStatsDeps) http.HandlerFunc {
+	inner := AnalyticsOpenInterest(d)
+	return func(w http.ResponseWriter, r *http.Request) {
+		symbol := r.URL.Query().Get("symbol")
+		if symbol == "" {
+			WriteError(w, "INVALID_REQUEST", "symbol required",
+				gateway.RequestIDFrom(r.Context()), nil)
+			return
+		}
+		r.SetPathValue("symbol", symbol)
+		inner(w, r)
+	}
+}
+
+// ---------------------------------------------------------------------------
 // GET /api/v1/analytics/long-short-ratio/{symbol}?period=&limit=
 // ---------------------------------------------------------------------------
 

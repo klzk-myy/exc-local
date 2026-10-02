@@ -18,8 +18,10 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -45,6 +47,7 @@ import (
 	"exchange/internal/delegation"
 	"exchange/internal/demo"
 	"exchange/internal/deprecation"
+	"exchange/internal/derivatives"
 	"exchange/internal/errs"
 	"exchange/internal/fix"
 	"exchange/internal/flags"
@@ -62,6 +65,7 @@ import (
 	"exchange/internal/notifications"
 	"exchange/internal/objectstore"
 	"exchange/internal/observability"
+	"exchange/internal/operations/dora"
 	"exchange/internal/ops"
 	"exchange/internal/oracle"
 	"exchange/internal/oracle/rates"
@@ -71,11 +75,13 @@ import (
 	"exchange/internal/promos"
 	"exchange/internal/ratelimit"
 	"exchange/internal/reconciliation"
+	"exchange/internal/recovery"
 	"exchange/internal/redis"
 	"exchange/internal/reporting"
 	"exchange/internal/risk"
 	"exchange/internal/security"
 	"exchange/internal/settlement"
+	"exchange/internal/sor"
 	"exchange/internal/strategies"
 	"exchange/internal/support"
 	"exchange/internal/tax"
@@ -1242,6 +1248,14 @@ func run() error {
 		BatchRL:    orders.NewRedisBatchLimiter(rdb.Client, 0),
 		Products:   venueGate, // Tasks 14.3.13/14.3.16 + 21.3.28 + 21.3.15 — venue member admission wraps the product/consent chain
 		Product:    catSvc,    // Task 14.3.7 — MiFID II appropriateness gate
+		// §5.4 DAY orders expire at the weekly session close (Fri 22:00
+		// UTC, §6.7); spec §27 R8 caps every resting order at 90d.
+		DayExpiry: func(now time.Time) *time.Time {
+			if t := admin.NextSessionClose(now); !t.IsZero() {
+				return &t
+			}
+			return nil
+		},
 	})
 	if err != nil {
 		return fmt.Errorf("order service: %w", err)
@@ -1284,6 +1298,43 @@ func run() error {
 	// seam once migrations 075/225 apply.
 	orderSvc.WithComposite(orderStore)
 
+	// ---- Phase-3 Task 4 — SOR (Task 18.3.14, spec §9.8) ----
+	// The book-view cache rides the orders consumer's frame tap (the
+	// ring's sole reader — no second SPSC endpoint). Venue connectors are
+	// env-blocked: EXC_SOR_VENUES names enabled venues — today only the
+	// "loopback:<name>" dev adapter exists; production FIX-initiator
+	// connectors land behind the same VenueConnector seam when a real LP
+	// session is provisioned. No venues → WithSOR never binds → every
+	// order submits locally, matching the documented zero-venue
+	// behaviour.
+	sorBookCache := sor.NewBookViewCache()
+	sorResolver := loadInstrumentResolver(context.Background(), pool, log)
+	go refreshInstrumentResolver(sweepCtx, pool, sorResolver, 60*time.Second, log)
+	if router := buildSORRouter(pool, natsClient, log); router != nil {
+		orderSvc.WithSOR(router, sorBookCache)
+		router.Start(context.Background())
+		defer router.Stop()
+		log.Info("sor router armed", "venues", len(router.Venues))
+	}
+	// FILL_BRIDGE projection: external fills land on the parent order's
+	// read-model row. Durable consumer on settlements.*.sorfill —
+	// at-least-once, sor_fill_dedup already won upstream.
+	if natsClient != nil {
+		if cons, cerr := natsClient.EnsureConsumer(context.Background(), "settlements",
+			"sor_fill_bridge",
+			nats.WithFilterSubject("settlements.*."+sor.FillBridgeSubjectToken)); cerr != nil {
+			log.Warn("sor fill-bridge consumer unavailable", "err", cerr)
+		} else {
+			go func() {
+				if cerr := sor.NewFillBridgeConsumer(orderStore).Consume(sweepCtx, cons); cerr != nil &&
+					!errors.Is(cerr, context.Canceled) {
+					log.Error("sor fill-bridge consumer stopped", "err", cerr)
+				}
+			}()
+			log.Info("sor fill-bridge consuming", "stream", "settlements")
+		}
+	}
+
 	// ---- Phase-12 Task 12.3.5 — notification service ----
 	//
 	// PgStore carries §24 #100 delivery tracking (migration 028
@@ -1309,6 +1360,50 @@ func run() error {
 	// the fallback inside the service. The publisher binds wsSrv
 	// lazily (hub constructed below; fills can land first).
 	pnlStore := risk.NewPnlPgStore(pool)
+
+	// ---- Phase-3 Task 5 — PB credit gate (Task 19.3.10, spec §13.8) ----
+	// NOP/DSL headroom reserves at submit, consumes on fill, releases on
+	// cancel/expiry, re-sizes on amend. Converter shares the last-trade
+	// rate source used by P&L; OnAlert fans into the shared ops alerter.
+	pbCreditSvc := risk.NewPBCreditService(risk.NewPgPBCreditStore(pool),
+		position.NewConverter(
+			risk.LastTradeRates{Instruments: pnlStore, Marks: orderStore}, ""),
+		rdb)
+	pbCreditSvc.OnAlert = func(ctx context.Context, a risk.PBAlert) {
+		if opsAlerter == nil {
+			return
+		}
+		_ = opsAlerter.Raise(ctx, settlement.OpsAlert{
+			Severity: "P1", Code: "PB_CREDIT_UTILIZATION",
+			Summary: fmt.Sprintf("pb %s %s at %s%% utilization",
+				a.Limit.Scope(), a.Bound, a.Pct.String())})
+	}
+	orderSvc.WithPB(pbCreditSvc)
+	runDailyUTC(sweepCtx, log, "pb-dsl-reset", 0, // 00:00 UTC — DSL day boundary
+		func(ctx context.Context) {
+			if n, err := pbCreditSvc.ResetDailySettled(ctx); err != nil {
+				log.Warn("pb DSL reset", "err", err)
+			} else if n > 0 {
+				log.Info("pb DSL counters reset", "clients", n)
+			}
+		})
+	go func() { // orphan-reservation sweep cadence
+		t := time.NewTicker(60 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-sweepCtx.Done():
+				return
+			case <-t.C:
+				if n, err := pbCreditSvc.SweepOrphans(sweepCtx); err != nil &&
+					sweepCtx.Err() == nil {
+					log.Warn("pb reservation sweep", "err", err)
+				} else if n > 0 {
+					log.Info("pb orphan reservations released", "count", n)
+				}
+			}
+		}
+	}()
 	pnlSvc, err := risk.NewPnlService(risk.PnlOptions{
 		Store: pnlStore,
 		Marks: orderStore, // last-trade reference price — PriceOracle placeholder
@@ -2279,6 +2374,22 @@ func run() error {
 	// resolution then Notify, best-effort, panic-guarded by the consumer.
 	go orders.NewConsumer(orderSubmitter, orderStore, orderSvc.Pending()).
 		WithFrameTap(func(sh uint16, p []byte) {
+			// Phase-3 Task 4 — feed the SOR book view from the same sole
+			// reader (decode is allocation-cheap and infallible here:
+			// unresolvable/non-snapshot frames return false).
+			if sorBookCache != nil {
+				if d, ok := marketdata.DecodeBookDeltaFrame(p, sorResolver); ok {
+					bids := make([]sor.Level, len(d.Bids))
+					for i, lv := range d.Bids {
+						bids[i] = sor.Level{Price: lv.Price, Qty: lv.Qty, Count: lv.Count}
+					}
+					asks := make([]sor.Level, len(d.Asks))
+					for i, lv := range d.Asks {
+						asks[i] = sor.Level{Price: lv.Price, Qty: lv.Qty, Count: lv.Count}
+					}
+					sorBookCache.Observe(d.Symbol, bids, asks)
+				}
+			}
 			// Copy: the drain buffer is reused by the consumer loop.
 			// Blocking send is the backpressure contract — a settlement
 			// queue >16K frames deep means settlement has halted and the
@@ -2378,6 +2489,33 @@ func run() error {
 						if err := liqSvc.RecordFill(ctx, f); err != nil {
 							log.Error("liquidation fill reconcile failed — ops reconcile required",
 								"order_id", orderID, "client_order_id", o.ClientOrderID, "err", err)
+						} else if natsClient != nil {
+							// Phase-3 Task 5 — produce the margin-events
+							// record the liquidations@/auctions@ feeds
+							// consume (subject margin-events.{shard}.{SYM-BOL},
+							// JSON type=liquidation; is_auction selects the
+							// auctions@ projection downstream).
+							if linst, lerr := orderStore.InstrumentByID(ctx,
+								o.InstrumentID); lerr == nil && linst != nil {
+								ev, _ := json.Marshal(struct {
+									Type      string `json:"type"`
+									Side      string `json:"side"`
+									OrderType string `json:"order_type"`
+									Price     string `json:"price"`
+									Qty       string `json:"qty"`
+									IsAuction bool   `json:"is_auction"`
+									TsMs      int64  `json:"ts_ms"`
+								}{"liquidation", o.Side, "MARKET",
+									px.String(), qty.String(),
+									isAuction || isFC, time.Now().UnixMilli()})
+								if _, perr := natsClient.Publish(ctx,
+									"margin-events", uint32(liqShard(o)),
+									strings.ReplaceAll(linst.Symbol, "/", "-"),
+									ev); perr != nil {
+									log.Warn("margin-events publish",
+										"order_id", orderID, "err", perr)
+								}
+							}
 						}
 					}
 				}
@@ -2444,6 +2582,12 @@ func run() error {
 				"price":         px.String(),
 				"quantity":      qty.String(),
 			})
+			// Phase-3 Task 5: fill converts the PB reservation into
+			// realized utilization (pro-rata per fill).
+			if err := pbCreditSvc.OnFill(context.Background(),
+				orderID); err != nil {
+				log.Warn("pb credit consume", "order_id", orderID, "err", err)
+			}
 		}).WithGSLOHook(func(orderID int64, px, qty decimal.Decimal) {
 		// Task 16.3.16: GSLO gap absorption — a fill worse than the
 		// guaranteed stop compensates the client from the insurance
@@ -2451,11 +2595,21 @@ func run() error {
 		if err := gsloSvc.OnFill(context.Background(), orderID, px, qty); err != nil {
 			log.Warn("gslo gap hook failed", "order_id", orderID, "err", err)
 		}
-	}).WithCancelHook(func(orderID int64, _ uint8) {
+	}).WithCancelHook(func(orderID int64, reason uint8) {
 		// Phase-16 composite/auction lifecycle: bracket parent cancels
 		// cascade to children; list leg cancels advance the list;
-		// engine-cancelled MOO/MOC emit order.cancelled.
-		orderSvc.OnCancel(context.Background(), orderID)
+		// engine-cancelled MOO/MOC emit order.cancelled; an engine
+		// expiry (GTD/DAY or the R8 90-day cap) emits order.expired /
+		// GTD_EXPIRED.
+		orderSvc.OnCancel(context.Background(), orderID, reason)
+		// Phase-3 Task 5: engine-initiated cancel/expiry returns the
+		// order's PB reservation (idempotent — no row means no-op).
+		if pbCreditSvc != nil {
+			if err := pbCreditSvc.ReleaseHeadroom(context.Background(),
+				orderID); err != nil {
+				log.Warn("pb credit release", "order_id", orderID, "err", err)
+			}
+		}
 		// Task 19.3.10: cancel/reject releases the order's bilateral
 		// credit reservation (idempotent — no row means no-op).
 		if bilatSvc != nil {
@@ -2816,12 +2970,22 @@ func run() error {
 	ticketSvc := support.NewService(pool, support.RoleResolver(adminRoleResolver), supportAlerter{nc: natsClient})
 	supportViewSvc := admin.NewSupportViewService(pool)
 
-	// Phase-07 Task 7.3.9 — LP management. MetricsSource/AlertSink stay
-	// nil until the Phase-06/17 lp_performance pipeline + ops.alerts
-	// bridge land: scorecards then serve the last persisted snapshot
-	// marked stale (never fabricated), and threshold alerts persist to
-	// lp_performance_alerts undispatched.
-	lpSvc := admin.NewLPService(pool, admin.AdminRoleResolver(adminRoleResolver), nil, nil)
+	// Phase-07 Task 7.3.9 — LP management. Phase-3 Task 5 binds the live
+	// seams: PgLPMetricsSource derives the scorecard from LP-bound order
+	// flow (fill ratio, latency, minute-bucket availability/presence —
+	// Source "pg-orders"); alerts dispatch through the shared ops
+	// alerter. A nil metrics source would only ever serve the persisted
+	// stale snapshot.
+	lpSvc := admin.NewLPService(pool, admin.AdminRoleResolver(adminRoleResolver),
+		&admin.PgLPMetricsSource{Pool: pool},
+		admin.LPOpsAlertSink{Raise: func(ctx context.Context,
+			sev, code, summary string) error {
+			if opsAlerter == nil {
+				return nil
+			}
+			return opsAlerter.Raise(ctx, settlement.OpsAlert{
+				Severity: sev, Code: code, Summary: summary})
+		}})
 
 	// Phase-07 Tasks 7.3.13/7.3.14 — governance packs. OpsSource stays
 	// nil until a ModeManager/SLO reader is wired; the ops section then
@@ -3854,6 +4018,35 @@ func run() error {
 
 	restrictedSvc := admin.NewRestrictedListService(pool,
 		adminRoleResolver)
+	// Phase-09 Task 9.3.15 item 4 — DORA Art. 28 ICT provider register
+	// (migration 285). The daily sweep below pages overdue reviews /
+	// approaching renewals / stale exit-plan tests.
+	ictSvc, err := dora.NewVendorService(dora.NewPgxStore(pool))
+	if err != nil {
+		return fmt.Errorf("dora vendor service: %w", err)
+	}
+	// Daily 06:00 UTC register sweep — pages P2 for overdue annual
+	// reviews, renewals inside the notice runway, and stale HIGH/MEDIUM
+	// exit-plan substitution tests (docs/ops/dora-third-party-register.md §3).
+	runDailyUTC(sweepCtx, log, "dora-ict-register", 360, func(ctx context.Context) {
+		alerts, err := ictSvc.Sweep(ctx)
+		if err != nil {
+			log.Warn("ict register sweep", "err", err)
+			return
+		}
+		for _, a := range alerts {
+			if opsAlerter != nil {
+				_ = opsAlerter.Raise(ctx, settlement.OpsAlert{
+					Severity: "P2", Code: a.Code, Summary: a.Summary,
+					Details: map[string]string{
+						"provider_id": strconv.FormatInt(a.ProviderID, 10),
+						"provider":    a.Name,
+					}})
+			}
+			log.Warn("ict register due", "code", a.Code,
+				"provider", a.Name, "due", a.DueAt)
+		}
+	})
 	tuningSvc := compliance.NewTuningService(pool,
 		compliance.HoldRoleResolver(adminRoleResolver))
 	reportingVals := compliance.NewReportingValues(pool,
@@ -4632,6 +4825,32 @@ func run() error {
 		log.Warn("phase19 insurance fund service unavailable", "err", ferr)
 	} else {
 		fundSvc = f
+		// Phase-3 Task 5 — daily replenishment sweep (Task 19.3.14):
+		// target recompute → fee-revenue sweep → contingent-facility
+		// draw → dual-control capital-call request. 00:10 UTC, after the
+		// day boundary so today's fee base is measured.
+		if fr, frerr := risk.NewFundReplenisher(pool, f, opsAlerter); frerr != nil {
+			log.Warn("fund replenisher unavailable", "err", frerr)
+		} else {
+			runDailyUTC(sweepCtx, log, "fund-replenishment", 10,
+				func(ctx context.Context) {
+					reps, err := fr.SweepOnce(ctx)
+					for _, rep := range reps {
+						if rep.FeeSwept.IsPositive() ||
+							rep.FacilityDrawn.IsPositive() ||
+							rep.ApprovalQueued {
+							log.Info("fund replenishment",
+								"ccy", rep.Currency,
+								"swept", rep.FeeSwept.String(),
+								"drawn", rep.FacilityDrawn.String(),
+								"gap", rep.ResidualGap.String())
+						}
+					}
+					if err != nil {
+						log.Warn("fund replenishment sweep", "err", err)
+					}
+				})
+		}
 	}
 	// Task 19.3.9 — retail NBP service. Fund + GL poster are mandatory
 	// (restitution must debit the fund or fail); a nil fund degrades
@@ -4954,17 +5173,43 @@ func run() error {
 				log.Warn("phase19 volatility scaler unavailable", "err", verr)
 				volScaler = nil
 			}
-			// Correlation matrix: Redis-persisted warm start; Refresh
-			// needs a ReturnSeriesSource (ClickHouse daily closes —
-			// Phase-19.5 binding) so the engine serves the persisted
-			// matrix and skips refresh until then.
+			// Correlation matrix: Redis-persisted warm start + a
+			// ClickHouse daily-close ReturnSeriesSource (Phase-3 Task 5)
+			// driving a daily Refresh over active instruments. MaxAge
+			// refuses stale matrices — a ρ older than the gate never
+			// fabricates a hedge credit.
+			var corrSrc risk.ReturnSeriesSource
+			if chConn != nil {
+				corrSrc = chReturnSeries{store: analytics.NewOHLCVStore(chConn)}
+			}
+			corrMaxAge := 48 * time.Hour
+			if h, herr := strconv.Atoi(
+				envOrLocal("EXC_CORR_MATRIX_MAX_AGE_H", "48")); herr == nil && h > 0 {
+				corrMaxAge = time.Duration(h) * time.Hour
+			}
 			corrMx := risk.NewCorrelationMatrix(risk.CorrelationMatrixDeps{
-				Redis: rdb.Client,
-				Audit: risk.NewRedisCorrelationAudit(rdb.Client),
-				Logf:  func(f string, a ...any) { log.Warn(fmt.Sprintf(f, a...)) },
+				Source: corrSrc,
+				Redis:  rdb.Client,
+				Audit:  risk.NewRedisCorrelationAudit(rdb.Client),
+				MaxAge: corrMaxAge,
+				Logf:   func(f string, a ...any) { log.Warn(fmt.Sprintf(f, a...)) },
 			})
 			if err := corrMx.LoadPersisted(sweepCtx); err != nil && sweepCtx.Err() == nil {
 				log.Warn("phase19 correlation matrix warm load", "err", err)
+			}
+			if corrSrc != nil {
+				runDailyUTC(sweepCtx, log, "correlation-refresh",
+					30, // 00:30 UTC — after the daily candle close
+					func(ctx context.Context) {
+						syms, err := activeSymbols(ctx, pool)
+						if err != nil || len(syms) == 0 {
+							log.Warn("correlation refresh: symbols", "err", err)
+							return
+						}
+						if err := corrMx.Refresh(ctx, syms); err != nil {
+							log.Warn("correlation matrix refresh", "err", err)
+						}
+					})
 			}
 			obs := []risk.MarkObserver{markProv, tickRing}
 			var vol risk.IMMultiplierSource
@@ -5066,9 +5311,12 @@ func run() error {
 	} else {
 		var cw risk.CreditCellWriter
 		var cr risk.CreditCellReader
+		// Default must equal the C++ ABI name (BilateralCreditMatrix::
+		// kDefaultShmName == ipc.CreditMatrixName) — the engine attaches
+		// the same object.
 		cmName := os.Getenv("EXC_CREDIT_MATRIX_SHM")
 		if cmName == "" {
-			cmName = "credit_matrix"
+			cmName = ipc.CreditMatrixName
 		}
 		if cm, cerr := ipc.OpenCreditMatrix(cmName, true); cerr != nil {
 			log.Warn("phase19 credit matrix shm unavailable — publishing disabled", "err", cerr)
@@ -5087,6 +5335,7 @@ func run() error {
 			log.Warn("phase19 bilateral credit service unavailable", "err", berr2)
 		} else {
 			bilatSvc = bs
+			orderSvc.WithBilateral(bs)
 			if cw != nil {
 				if n, perr := bs.PublishSnapshot(sweepCtx); perr != nil {
 					log.Warn("bilateral credit snapshot publish", "err", perr)
@@ -5139,16 +5388,22 @@ func run() error {
 		func(e error) { log.Warn("margin level watcher", "err", e) })
 	// Task 19.3.13 — margin-model validation drivers. The weekly stress
 	// suite and the daily predicted-vs-realized backtest both persist
-	// margin_model_runs rows (migration 064); FlashCrashProvider is the
-	// Phase-20 tick-replay seam and stays nil here (the engine treats a
-	// nil provider as "skip flash-crash scenarios").
+	// margin_model_runs rows (migration 064). Phase-3 Task 5 binds
+	// FlashCrashProvider to ClickHouse daily candles — each instrument's
+	// worst historical day replays as a FLASH_CRASH_* scenario.
+	var flashCrashProv risk.FlashCrashProvider
+	if chConn != nil {
+		flashCrashProv = chFlashCrash{
+			store:    analytics.NewOHLCVStore(chConn),
+			resolver: sorResolver, lookback: 365}
+	}
 	if runStore, rerr := risk.NewPgModelRunStore(pool); rerr != nil {
 		log.Warn("phase19 model-run store unavailable", "err", rerr)
 	} else {
 		if pSrc, perr := risk.NewPgStressPortfolioSource(pool); perr != nil {
 			log.Warn("phase19 stress source unavailable", "err", perr)
 		} else if eng, eerr := risk.NewStressEngine(pSrc, runStore,
-			risk.NewPgFundBalanceSource(pool), nil, opsAlerter,
+			risk.NewPgFundBalanceSource(pool), flashCrashProv, opsAlerter,
 			risk.StressEngineConfig{}, nil,
 			func(f string, a ...any) { log.Warn(fmt.Sprintf(f, a...)) }); eerr != nil {
 			log.Warn("phase19 stress engine unavailable", "err", eerr)
@@ -5234,6 +5489,14 @@ func run() error {
 		Subs:   subAccountSvc,
 		Keys:   accounts.NewAPIKeyService(pool, subAccountSvc, secretBox),
 		Freeze: freezeSvc,
+		// Task-7 shadowed-route mounts: the dead-man sweeper and the
+		// 2FA-gated close-all service share the orders dispatcher built
+		// above; a nil dep fails closed at request time (never bypassed).
+		DeadMan: deadman,
+		CloseAll: accounts.NewCloseAllService(freezeSvc,
+			accounts.NewPgxPositionReader(pool),
+			accounts.NewPgxTOTPSecrets(pool, secretBox),
+			auth.VerifyTOTP, orderDisp),
 		ResolveIdentity: func(r *http.Request) *accounts.Identity {
 			c := auth.ClaimsFrom(r.Context())
 			if c == nil {
@@ -5247,6 +5510,53 @@ func run() error {
 				TwoFactorDone: c.TwoFactorVerified(),
 			}
 		},
+	}
+
+	// Task-7 shadowed-route backends — every dependency fails closed: a
+	// construction failure leaves the route's live-map entry unset, and
+	// MountSeedLive mounts the 503 SERVICE_DEGRADED shim (never 501, never
+	// a fabricated payload, spec §2.7).
+
+	// Task 3.3.12 pip-value calculator: oracle mark provides the
+	// quote→account conversion rate; stale/absent marks fail closed.
+	pipCalc, perr := settlement.NewPipCalculator(
+		settlement.PGInstrumentProvider{Q: pool},
+		oracleMidProvider{p: oracleProv},
+		settlement.NewRedisPipCache(rdb.Client))
+	if perr != nil {
+		log.Warn("pip calculator unwired — pip-value route serves 503", "err", perr)
+	}
+
+	// Task 4.3.2 WAL archive status: object index reads ride the S3 bucket
+	// contract; an unset bucket leaves the service nil → 503.
+	var archiveSvc *recovery.ArchiveService
+	if bucket := os.Getenv("EXC_S3_WAL_BUCKET"); bucket != "" {
+		acfg := objectstore.ConfigFromEnv(bucket, os.Getenv)
+		var wobj objectstore.Client
+		var aerr error
+		if cfg.Environment != "production" && acfg.Endpoint != "" {
+			wobj, aerr = objectstore.NewDev(context.Background(), acfg)
+		} else {
+			wobj, aerr = objectstore.NewAWS(context.Background(), acfg)
+		}
+		if aerr != nil {
+			log.Warn("WAL archive store init failed — archive/status fails closed", "err", aerr)
+		} else {
+			archiveSvc = recovery.NewArchiveService(wobj)
+		}
+	}
+
+	// Phase-22 contract roll: CIP pricing reads the rate-curve and
+	// mark-oracle seams; the holiday calendar supplies tenor/spot-date
+	// math. All three fail closed — a missing dep leaves rollSvc nil.
+	var rollSvc *derivatives.RollService
+	if rollCal, cerr := settlement.LoadCalendar(context.Background(), pool); cerr != nil {
+		log.Warn("holiday calendar unavailable — orders/roll fails closed", "err", cerr)
+	} else {
+		rollSvc = derivatives.NewRollService(
+			derivatives.NewPgxRollStore(pool),
+			derivatives.NewDates(rollCal),
+			derivatives.NewPricer(rates.NewStore(rdb.Client), oracleProv))
 	}
 
 	live := map[string]http.Handler{
@@ -5504,8 +5814,14 @@ func run() error {
 		"GET /api/v1/account/solvency-proof": http.HandlerFunc(
 			api.AccountSolvencyProof(solvStore)),
 		// --- Phase-14 Tasks 14.3.8/14.3.14 — PAMM + copy trading ---
+		"GET /api/v1/pamm/pools": http.HandlerFunc(
+			api.PammPoolList(pammSvc)),
 		"POST /api/v1/pamm/pools": http.HandlerFunc(
 			api.PammPoolCreate(pammSvc)),
+		"GET /api/v1/pamm/pools/{id}": http.HandlerFunc(
+			api.PammPoolDetail(pammSvc)),
+		"GET /api/v1/pamm/pools/{id}/statement": http.HandlerFunc(
+			api.PammStatement(pammSvc)),
 		"POST /api/v1/pamm/pools/{id}/invest": http.HandlerFunc(
 			api.PammInvest(pammSvc)),
 		"POST /api/v1/pamm/pools/{id}/redeem": http.HandlerFunc(
@@ -5516,6 +5832,8 @@ func run() error {
 			api.CopyStrategyCreate(copySvc)),
 		"POST /api/v1/copy/strategies/{id}/list": http.HandlerFunc(
 			api.CopyStrategyList(copySvc)),
+		"GET /api/v1/copy/follows": http.HandlerFunc(
+			api.CopyMyFollows(copySvc)),
 		"POST /api/v1/copy/follows": http.HandlerFunc(
 			api.CopyFollow(copySvc)),
 		"DELETE /api/v1/copy/follows/{id}": http.HandlerFunc(
@@ -5555,9 +5873,15 @@ func run() error {
 		"GET /api/v1/ticker/{symbol}": http.HandlerFunc(api.MarketTicker(marketDeps)),
 		"GET /api/v1/klines/{symbol}": http.HandlerFunc(api.MarketKlines(marketDeps)),
 		"GET /api/v1/instruments":     http.HandlerFunc(api.Instruments(marketDeps)),
+		// Task-7 mounts — query/path spellings of the same read seams
+		// (Task 6.3.5 depth resync, Task 3.3.11 swap rates).
+		"GET /api/v1/market/depth": http.HandlerFunc(api.MarketDepth(marketDeps)),
+		"GET /api/v1/instruments/{symbol}/swap-rates": http.HandlerFunc(
+			api.InstrumentSwapRates(swapRateDeps)),
 		// Wave-2 cluster C — venue surface (Tasks 5.3.43/5.3.44).
 		"GET /api/v1/time":          http.HandlerFunc(api.ServerTime(timesync.KernelSource, nil)),
 		"GET /api/v1/exchange-info": http.HandlerFunc(api.ExchangeInfo(venueDeps)),
+		"GET /api/v1/venue/info":    http.HandlerFunc(api.ExchangeInfo(venueDeps)),
 		// Wave-2 cluster C — announcements & maintenance (Task 5.3.14).
 		"GET /api/v1/announcements":                     http.HandlerFunc(api.Announcements(announceDeps)),
 		"GET /api/v1/announcements/{id}":                http.HandlerFunc(api.AnnouncementByID(announceDeps)),
@@ -5601,7 +5925,7 @@ func run() error {
 		// ---- Phase-12 Task 12.3.1 — registration & password auth ----
 		"POST /api/v1/auth/register":        http.HandlerFunc(api.AuthRegister(authnSvc)),
 		"POST /api/v1/auth/verify-email":    http.HandlerFunc(api.AuthVerifyEmail(authnSvc)),
-		"POST /api/v1/auth/login":           http.HandlerFunc(api.AuthLogin(authnSvc)),
+		"POST /api/v1/auth/login":           http.HandlerFunc(api.AuthLogin(authnSvc, admin.AdminRoleResolver(adminRoleResolver))),
 		"POST /api/v1/auth/refresh":         http.HandlerFunc(api.AuthRefresh(authnSvc)),
 		"POST /api/v1/auth/logout":          http.HandlerFunc(api.AuthLogout(authnSvc)),
 		"POST /api/v1/auth/forgot-password": http.HandlerFunc(api.AuthForgotPassword(authnSvc)),
@@ -5710,14 +6034,16 @@ func run() error {
 		// (23.3.2/.4), block tape (23.3.7), swap-rate series (23.3.9),
 		// stats surfaces (23.3.6/.10/.11). Same fail-closed convention:
 		// unwired sources answer SERVICE_DEGRADED.
-		"GET /api/v1/history/trades/{symbol}":             http.HandlerFunc(api.HistoryTrades(histDeps)),
-		"GET /api/v1/history/trades/{symbol}/export":      http.HandlerFunc(api.HistoryTradesExport(exportDeps)),
-		"GET /api/v1/export-jobs":                         http.HandlerFunc(api.ExportJobList(exportDeps)),
-		"GET /api/v1/export-jobs/{id}":                    http.HandlerFunc(api.ExportJobStatus(exportDeps)),
-		"GET /api/v1/export-jobs/{id}/download":           http.HandlerFunc(api.ExportJobDownload(exportDeps)),
-		"GET /api/v1/history/block-trades/{symbol}":       http.HandlerFunc(api.HistoryBlockTrades(blockTapeDeps)),
-		"GET /api/v1/history/swap-rates":                  http.HandlerFunc(api.HistorySwapRates(swapRateDeps)),
-		"GET /api/v1/analytics/open-interest/{symbol}":    http.HandlerFunc(api.AnalyticsOpenInterest(statsDeps)),
+		"GET /api/v1/history/trades/{symbol}":          http.HandlerFunc(api.HistoryTrades(histDeps)),
+		"GET /api/v1/history/trades/{symbol}/export":   http.HandlerFunc(api.HistoryTradesExport(exportDeps)),
+		"GET /api/v1/export-jobs":                      http.HandlerFunc(api.ExportJobList(exportDeps)),
+		"GET /api/v1/export-jobs/{id}":                 http.HandlerFunc(api.ExportJobStatus(exportDeps)),
+		"GET /api/v1/export-jobs/{id}/download":        http.HandlerFunc(api.ExportJobDownload(exportDeps)),
+		"GET /api/v1/history/block-trades/{symbol}":    http.HandlerFunc(api.HistoryBlockTrades(blockTapeDeps)),
+		"GET /api/v1/history/swap-rates":               http.HandlerFunc(api.HistorySwapRates(swapRateDeps)),
+		"GET /api/v1/analytics/open-interest/{symbol}": http.HandlerFunc(api.AnalyticsOpenInterest(statsDeps)),
+		// Task-7 mount — Phase-06 spec-path spelling of open interest.
+		"GET /api/v1/market/open-interest":                http.HandlerFunc(api.MarketOpenInterest(statsDeps)),
 		"GET /api/v1/analytics/long-short-ratio/{symbol}": http.HandlerFunc(api.AnalyticsLongShortRatio(statsDeps)),
 		"GET /api/v1/analytics/taker-flow/{symbol}":       http.HandlerFunc(api.AnalyticsTakerFlow(statsDeps)),
 		"GET /api/v1/market/taker-volume":                 http.HandlerFunc(api.MarketTakerVolume(statsDeps)),
@@ -5747,6 +6073,7 @@ func run() error {
 		"GET /api/v1/kyc/self-certification":  http.HandlerFunc(api.KYCSelfCertList(kycSvc)),
 		// Phase-14 Task 14.3.4 — KYC lifecycle: Compliance-Officer
 		// approve/reject (tier assign, reverify horizon, audit, notify).
+		"GET /api/v1/admin/kyc/pending":       http.HandlerFunc(api.KYCPendingHandler(lifecycleSvc, true)),
 		"POST /api/v1/admin/kyc/{id}/approve": http.HandlerFunc(api.KYCApproveHandler(lifecycleSvc, true)),
 		"POST /api/v1/admin/kyc/{id}/reject":  http.HandlerFunc(api.KYCRejectHandler(lifecycleSvc, true)),
 		// Phase-14 Task 14.3.7 — MiFID II categorization: client
@@ -5831,6 +6158,12 @@ func run() error {
 		"POST /api/v1/admin/instruments/{id}/halt":        api.AdminInstrumentTransition(instrumentSvc, admin.LcOpHalt, true),
 		"POST /api/v1/admin/instruments/{id}/resume":      api.AdminInstrumentResume(dualSvc),
 		"POST /api/v1/admin/instruments/{id}/delist":      api.AdminInstrumentDelist(dualSvc),
+		// Task 15.3.10 — quarantine release rides the dual-controlled
+		// resume path with the reopening CALL pinned on (auction:true).
+		"POST /api/v1/admin/instruments/{id}/uncross-override": api.AdminInstrumentUncrossOverride(dualSvc),
+		// Task 4.3.2 — WAL archive status (Read-Only Auditor).
+		"GET /api/v1/admin/archive/status": http.HandlerFunc(
+			api.AdminArchiveStatus(&api.ArchiveStatusDeps{Svc: archiveSvc})),
 		// --- Phase-15 Tasks 15.3.12/15.3.13: listing proposals, ops
 		// board, auction calendar. APPROVE reviews and the calendar PUT
 		// file four-eyes requests (202 PENDING); reads stay live.
@@ -5902,9 +6235,24 @@ func run() error {
 		// --- Phase-05 Wave-2 Cluster E live handlers ---
 		// Tasks 5.3.26/5.3.31: unified WS endpoint.
 		"WS /ws/v1": wsSrv,
+		// Task-7 legacy WS aliases — spec §8.6/§10.5 consolidated every
+		// stream onto the unified /ws/v1 socket; the legacy paths answer
+		// 410 ENDPOINT_GONE naming the successor (spec: "legacy WS aliases
+		// remain registered stubs returning ENDPOINT_GONE-style
+		// responses"), not a bare 501 shim.
+		"WS /ws/v1/marketdata": wsAliasGone(),
+		"WS /ws/v1/orders":     wsAliasGone(),
+		"WS /ws/market":        wsAliasGone(),
+		"WS /ws/trade":         wsAliasGone(),
+		"WS /ws/stream":        wsAliasGone(),
 		// Phase-17 Task 17.3.2 — dedicated premium L3 order-level stream
 		// + WAL-reconstructed point-in-time snapshot.
 		"WS /ws/v1/l3/{symbol}": l3Srv,
+		// Task-7 mount — WS gap-recovery full-book snapshot (L2 depth or
+		// L3 order-level via ?level=, symbol from ?symbol=).
+		"GET /api/v1/market-data/snapshot": http.HandlerFunc(
+			api.MarketDataSnapshot(&api.MarketDataSnapshotDeps{
+				Book: marketStore, L3: l3SnapDeps})),
 		// Registry declares auth.required + scope=read (authRead) — the
 		// handler does not consult claims, so the scope gate wraps the
 		// mount (F-L3-AUTH-1: premium L3 book was served anonymously).
@@ -5944,8 +6292,27 @@ func run() error {
 		// Task 5.3.32 batch ops.
 		"POST /api/v1/orders/batch":   http.HandlerFunc(api.OrderBatchSubmit(orderDeps)),
 		"DELETE /api/v1/orders/batch": http.HandlerFunc(api.OrderBatchCancel(orderDeps)),
+		// Task-7 mounts — dead-man switch (5.3.33 + 18.3.9 CoD alias) and
+		// 2FA-gated close-all (5.3.36). Both handlers live on
+		// accountCluster; cancel-all-after shares the countdown contract
+		// (countdown_ms + renew — expiry purges resting orders, spec §8.9).
+		"POST /api/v1/orders/countdown-cancel-all": http.HandlerFunc(
+			accountCluster.CountdownCancelAll),
+		"POST /api/v1/orders/cancel-all-after": http.HandlerFunc(
+			accountCluster.CountdownCancelAll),
+		"POST /api/v1/positions/close-all": http.HandlerFunc(
+			accountCluster.CloseAllPositions),
+		// Task 5.3.12 FROZEN legal hold (internal dual control —
+		// approver_id must differ from the caller).
+		"POST /api/v1/admin/accounts/{id}/freeze": http.HandlerFunc(
+			accountCluster.FreezeAccount),
+		"POST /api/v1/admin/accounts/{id}/unfreeze": http.HandlerFunc(
+			accountCluster.UnfreezeAccount),
 		// Phase-14 Task 14.3.1 — OCO pair (spec §6.2/§6.5).
 		"POST /api/v1/orders/oco": http.HandlerFunc(api.OrderSubmitOCO(orderDeps)),
+		// IMP-PLAN Phase-3 Task 4 — cross-shard basket (spec §2.2a).
+		"POST /api/v1/orders/basket":  http.HandlerFunc(api.BasketSubmit(orderDeps)),
+		"GET /api/v1/baskets/{op_id}": http.HandlerFunc(api.BasketGet(orderDeps)),
 		// Phase-16 Tasks 16.3.14/.20/.24 — bracket/OTO submit +
 		// OPO/OPOCO composite order lists.
 		"POST /api/v1/orders/bracket":     http.HandlerFunc(api.OrderBracketSubmit(orderDeps)),
@@ -6169,6 +6536,20 @@ func run() error {
 			api.AdminRestrictedListCreate(restrictedSvc, true)),
 		"DELETE /api/v1/admin/restricted-lists": http.HandlerFunc(
 			api.AdminRestrictedListRetire(restrictedSvc, true)),
+		"GET /api/v1/admin/ict-providers": http.HandlerFunc(
+			api.AdminICTList(ictSvc)),
+		"POST /api/v1/admin/ict-providers": http.HandlerFunc(
+			api.AdminICTCreate(ictSvc)),
+		"PUT /api/v1/admin/ict-providers/{id}": http.HandlerFunc(
+			api.AdminICTUpdate(ictSvc)),
+		"DELETE /api/v1/admin/ict-providers/{id}": http.HandlerFunc(
+			api.AdminICTRetire(ictSvc, true)),
+		"GET /api/v1/admin/ict-providers/due": http.HandlerFunc(
+			api.AdminICTDue(ictSvc)),
+		"GET /api/v1/admin/ict-providers/{id}/reviews": http.HandlerFunc(
+			api.AdminICTReviews(ictSvc)),
+		"POST /api/v1/admin/ict-providers/{id}/reviews": http.HandlerFunc(
+			api.AdminICTReview(ictSvc, true)),
 		"POST /api/v1/admin/pre-clearance": http.HandlerFunc(
 			api.AdminPreClearance(dealingSvc, true)),
 		"GET /api/v1/admin/pre-clearance": http.HandlerFunc(
@@ -6332,6 +6713,17 @@ func run() error {
 			api.AdminCommsRetrieve(commsSvc))
 		live["POST /api/v1/admin/comms-recordings/verify-day"] = http.HandlerFunc(
 			api.AdminCommsVerifyDay(commsSvc))
+	}
+	// Task-7 conditional mounts — a nil backend leaves the key unset so
+	// MountSeedLive mounts the fail-closed 503 shim (not a panic on a nil
+	// receiver, not a fabricated answer).
+	if pipCalc != nil {
+		live["GET /api/v1/instruments/{symbol}/pip-value"] = http.HandlerFunc(
+			pipCalc.PipValueHandler)
+	}
+	if rollSvc != nil {
+		live["POST /api/v1/orders/roll"] = http.HandlerFunc(
+			derivatives.RollHandler(rollSvc))
 	}
 	if taxReportSvc != nil {
 		live["GET /api/v1/admin/tax-reporting/runs"] = http.HandlerFunc(
@@ -6995,4 +7387,290 @@ func runDailyUTC(ctx context.Context, log *slog.Logger, name string,
 				"elapsed", time.Since(start).Round(time.Millisecond))
 		}
 	}()
+}
+
+// ---- Phase-3 Task 4 — SOR wiring helpers ---------------------------------
+
+// atomicResolver is a hot-swappable marketdata.MapResolver — the frame
+// tap resolves instrument ids on the read-model drain goroutine while
+// the refresher swaps snapshots.
+type atomicResolver struct{ v atomic.Value } // stores marketdata.MapResolver
+
+func (a *atomicResolver) Symbol(id uint32) (string, bool) {
+	if m, ok := a.v.Load().(marketdata.MapResolver); ok {
+		return m.Symbol(id)
+	}
+	return "", false
+}
+
+func (a *atomicResolver) swap(m marketdata.MapResolver) { a.v.Store(m) }
+
+// mapNow exposes the current id→symbol map for enumerating consumers
+// (e.g. the flash-crash scenario provider) that need more than a
+// single-id lookup — InstrumentResolver.Symbol cannot enumerate.
+func (a *atomicResolver) mapNow() marketdata.MapResolver {
+	m, _ := a.v.Load().(marketdata.MapResolver)
+	return m
+}
+
+// loadInstrumentResolver builds the wire instrument_id → canonical
+// symbol map from the instruments table — same projection
+// EXC_MARKETDATA_INSTRUMENTS supplies to cmd/marketdata, sourced from
+// PG so the two services can never disagree.
+func loadInstrumentResolver(ctx context.Context, pool *pgxpool.Pool,
+	log *slog.Logger) *atomicResolver {
+	r := &atomicResolver{}
+	refreshInstrumentResolverOnce(ctx, pool, r, log)
+	return r
+}
+
+func refreshInstrumentResolver(ctx context.Context, pool *pgxpool.Pool,
+	r *atomicResolver, every time.Duration, log *slog.Logger) {
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			refreshInstrumentResolverOnce(ctx, pool, r, log)
+		}
+	}
+}
+
+func refreshInstrumentResolverOnce(ctx context.Context, pool *pgxpool.Pool,
+	r *atomicResolver, log *slog.Logger) {
+	rows, err := pool.Query(ctx, `SELECT id, symbol FROM instruments`)
+	if err != nil {
+		log.Warn("sor: instrument resolver refresh failed", "err", err)
+		return
+	}
+	defer rows.Close()
+	m := marketdata.MapResolver{}
+	for rows.Next() {
+		var (
+			id  int64
+			sym string
+		)
+		if err := rows.Scan(&id, &sym); err != nil {
+			log.Warn("sor: instrument row scan failed", "err", err)
+			return
+		}
+		m[uint32(id)] = sym
+	}
+	if err := rows.Err(); err != nil || len(m) == 0 {
+		log.Warn("sor: instrument resolver refresh empty", "err", err)
+		return // keep the last good map — never age to empty
+	}
+	r.swap(m)
+}
+
+// buildSORRouter constructs the router from env:
+//
+//	EXC_SOR_VENUES          comma list; "loopback:<name>" wires the dev
+//	                        adapter. Unset/empty → nil (router never
+//	                        consults, all orders submit locally).
+//	EXC_SOR_MIN_DEPTH       decimal — required contra-side depth.
+//	EXC_SOR_MAX_SPREAD_BPS  decimal — max quoted spread before external.
+//
+// Fill publishing goes to settlements.*.sorfill (FillBridgeSubjectToken);
+// without a NATS client the publisher is nil and events are counted
+// (Router's documented nil-publisher semantics).
+func buildSORRouter(pool *pgxpool.Pool, nc *nats.Client,
+	log *slog.Logger) *sor.Router {
+	venueSpec := strings.TrimSpace(os.Getenv("EXC_SOR_VENUES"))
+	if venueSpec == "" {
+		return nil
+	}
+	var venues []sor.VenueConnector
+	for _, tok := range strings.Split(venueSpec, ",") {
+		tok = strings.TrimSpace(tok)
+		if tok == "" {
+			continue
+		}
+		kind, name, _ := strings.Cut(tok, ":")
+		switch kind {
+		case "loopback":
+			venues = append(venues,
+				sor.NewLoopbackConnector(name, "EXC", name))
+		default:
+			log.Warn("sor: unknown venue connector kind — skipped",
+				"spec", tok)
+		}
+	}
+	if len(venues) == 0 {
+		return nil
+	}
+	th := sor.Thresholds{
+		MinDepth:     decimal.RequireFromString(envOrLocal("EXC_SOR_MIN_DEPTH", "500000")),
+		MaxSpreadBps: decimal.RequireFromString(envOrLocal("EXC_SOR_MAX_SPREAD_BPS", "15")),
+	}
+	var pub sor.FillPublisher
+	if nc != nil {
+		pub = func(ctx context.Context, ev *sor.FillBridgeEvent) error {
+			payload, err := json.Marshal(ev)
+			if err != nil {
+				return err
+			}
+			_, err = nc.Publish(ctx, "settlements", 0,
+				sor.FillBridgeSubjectToken, payload)
+			return err
+		}
+	}
+	return sor.NewRouter(sor.NewPgShadowStore(sor.PgxExecer{Pool: pool}),
+		venues, pub, th)
+}
+
+func envOrLocal(key, def string) string {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		return v
+	}
+	return def
+}
+
+// liqShard returns the order's engine shard for the margin-events
+// subject (nil ShardID → 0 — pre-shard rows route to the default token).
+func liqShard(o *orders.Order) int {
+	if o != nil && o.ShardID != nil {
+		return *o.ShardID
+	}
+	return 0
+}
+
+// ---- Phase-3 Task 5 — ClickHouse-backed risk sources ---------------------
+
+// chReturnSeries adapts the daily OHLCV projection to
+// risk.ReturnSeriesSource: close-to-close fractional returns,
+// oldest→newest. ClickHouse down ⇒ error (Refresh fails, persisted
+// matrix keeps serving inside its TTL).
+type chReturnSeries struct{ store *analytics.OHLCVStore }
+
+func (s chReturnSeries) DailyReturns(ctx context.Context, symbol string,
+	days int) ([]float64, error) {
+	rows, err := s.store.Query(ctx, analytics.OHLCVQuery{
+		Symbol:   symbol,
+		Interval: "1D",
+		From:     time.Now().UTC().AddDate(0, 0, -(days + 4)),
+		Limit:    days + 4,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) < 2 {
+		return nil, nil
+	}
+	out := make([]float64, 0, len(rows)-1)
+	for i := 1; i < len(rows); i++ {
+		prev := rows[i-1].Close
+		if !prev.IsPositive() {
+			continue
+		}
+		out = append(out, rows[i].Close.Div(prev).InexactFloat64()-1)
+	}
+	return out, nil
+}
+
+// chFlashCrash replays historical worst-days as FLASH_CRASH_* scenarios
+// (risk.FlashCrashProvider): each instrument's worst 1-day
+// close-to-close drawdown and rally over the lookback become two
+// replayable symbol-scoped scenarios.
+type chFlashCrash struct {
+	store    *analytics.OHLCVStore
+	resolver marketdata.InstrumentResolver
+	lookback int // days
+}
+
+func (p chFlashCrash) Scenarios(ctx context.Context) ([]risk.StressScenario, error) {
+	// Enumeration needs the whole id→symbol map; the live resolver is the
+	// hot-swappable *atomicResolver wrapper, so a bare MapResolver
+	// assertion would always fail and silently yield zero scenarios.
+	var mr marketdata.MapResolver
+	switch r := p.resolver.(type) {
+	case marketdata.MapResolver:
+		mr = r
+	case *atomicResolver:
+		mr = r.mapNow()
+	}
+	if len(mr) == 0 {
+		return nil, nil
+	}
+	lb := p.lookback
+	if lb <= 0 {
+		lb = 365
+	}
+	syms := make([]string, 0, len(mr))
+	for _, s := range mr {
+		syms = append(syms, s)
+	}
+	sort.Strings(syms)
+	var out []risk.StressScenario
+	for _, sym := range syms {
+		rows, err := p.store.Query(ctx, analytics.OHLCVQuery{
+			Symbol:   sym,
+			Interval: "1D",
+			From:     time.Now().UTC().AddDate(0, 0, -lb),
+			Limit:    lb,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("flash-crash replay %s: %w", sym, err)
+		}
+		var worst, best decimal.Decimal
+		var worstDay, bestDay time.Time
+		for i := 1; i < len(rows); i++ {
+			prev := rows[i-1].Close
+			if !prev.IsPositive() {
+				continue
+			}
+			ret := rows[i].Close.Div(prev).Sub(decimal.One)
+			if ret.LessThan(worst) {
+				worst, worstDay = ret, rows[i].OpenTime
+			}
+			if ret.GreaterThan(best) {
+				best, bestDay = ret, rows[i].OpenTime
+			}
+		}
+		tok := strings.NewReplacer("/", "", " ", "").Replace(sym)
+		if !worst.IsZero() {
+			out = append(out, risk.StressScenario{
+				Name:         fmt.Sprintf("FLASH_CRASH_%s_%s", tok, worstDay.Format("20060102")),
+				Kind:         risk.ScenarioKindFlashCrash,
+				SymbolShifts: map[string]decimal.Decimal{sym: worst},
+				Description: fmt.Sprintf("replay of %s worst daily drawdown %s%% (%s)",
+					sym, worst.Mul(decimal.NewFromInt(100)).String(),
+					worstDay.Format("2006-01-02")),
+			})
+		}
+		if !best.IsZero() {
+			out = append(out, risk.StressScenario{
+				Name:         fmt.Sprintf("FLASH_SPIKE_%s_%s", tok, bestDay.Format("20060102")),
+				Kind:         risk.ScenarioKindFlashCrash,
+				SymbolShifts: map[string]decimal.Decimal{sym: best},
+				Description: fmt.Sprintf("replay of %s largest daily rally +%s%% (%s)",
+					sym, best.Mul(decimal.NewFromInt(100)).String(),
+					bestDay.Format("2006-01-02")),
+			})
+		}
+	}
+	return out, nil
+}
+
+// activeSymbols returns the symbol universe for the correlation refresh
+// — active instruments only; a halted instrument's stale closes poison
+// the window.
+func activeSymbols(ctx context.Context, pool *pgxpool.Pool) ([]string, error) {
+	rows, err := pool.Query(ctx,
+		`SELECT symbol FROM instruments WHERE status='ACTIVE' ORDER BY symbol`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var s string
+		if err := rows.Scan(&s); err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
 }

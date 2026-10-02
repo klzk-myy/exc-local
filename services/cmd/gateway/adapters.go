@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"sort"
 	"strconv"
 	"time"
@@ -25,9 +26,11 @@ import (
 	"exchange/internal/compliance"
 	"exchange/internal/config"
 	"exchange/internal/funding"
+	"exchange/internal/gateway"
 	"exchange/internal/instruments"
 	"exchange/internal/marketapi"
 	"exchange/internal/nats"
+	"exchange/internal/oracle"
 	"exchange/internal/orders"
 	"exchange/internal/reconciliation"
 	excredis "exchange/internal/redis"
@@ -1171,4 +1174,46 @@ func (a boCutoffEvaluator) Evaluate(rail, currency string,
 		ValueDate:          d.ValueDate,
 		QueuedForNextCycle: d.QueuedForNextCycle,
 	}, nil
+}
+
+// oracleMidProvider adapts the Redis mark oracle onto
+// settlement.PriceProvider for the Task 3.3.12 pip calculator. Fail-
+// closed: absent mark → PRICE_ORACLE_UNAVAILABLE, stale → MARK_PRICE_STALE
+// — a pip value priced off an unverifiable rate is worse than none.
+type oracleMidProvider struct {
+	p *oracle.Provider
+}
+
+// MidPrice implements settlement.PriceProvider.
+func (a oracleMidProvider) MidPrice(ctx context.Context, symbol string) (decimal.Decimal, error) {
+	v, err := a.p.Mark(ctx, symbol)
+	if err != nil {
+		return decimal.Zero, err
+	}
+	if !v.Found {
+		return decimal.Zero, excerrors.New("PRICE_ORACLE_UNAVAILABLE",
+			"no oracle mark for "+symbol)
+	}
+	if v.Stale {
+		return decimal.Zero, excerrors.New("MARK_PRICE_STALE",
+			"oracle mark for "+symbol+" is stale")
+	}
+	return v.Price, nil
+}
+
+// wsAliasGone answers the legacy pre-unification WebSocket paths
+// (Task 5.3.26 consolidated every stream onto the unified /ws/v1 socket —
+// spec §8.6/§10.5). Spec line "Legacy WS aliases remain registered stubs
+// returning ENDPOINT_GONE-style responses" fixes the contract: a
+// deterministic 410 ENDPOINT_GONE problem body naming the successor —
+// not a 501 stub, not a redirect (WS clients do not follow HTTP
+// redirects during the upgrade handshake). The Link header points at
+// the successor version per the Task 5.3.20 deprecation policy.
+func wsAliasGone() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Link", `</ws/v1>; rel="successor-version"`)
+		api.WriteError(w, "ENDPOINT_GONE",
+			"legacy WebSocket path retired; connect to /ws/v1",
+			gateway.RequestIDFrom(r.Context()), nil)
+	})
 }

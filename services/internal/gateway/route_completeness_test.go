@@ -190,3 +190,50 @@ func TestRouteRegistryCoversDeclaredPaths(t *testing.T) {
 			len(missing), strings.Join(missing, "\n  "))
 	}
 }
+
+// Task-7 (Phase-3 remediation) — registry-vs-live-map parity.
+//
+// MountSeedLive mounts a fail-closed 503 shim for a StatusLive row whose
+// key is absent from cmd/gateway's live map — correct fail-closed
+// behavior, but a silent wiring hole. This test scans the live map's
+// source for `"METHOD /path"` keys (map-literal entries AND conditional
+// live["..."] assignments) and asserts every StatusLive seed route has
+// one — a live row without a gateway handler is a defect, not a shim.
+
+var liveMapKey = regexp.MustCompile(`"(GET|POST|PUT|PATCH|DELETE|WS)\s+(/[^"]+)"\s*[:\]]`)
+
+// gatewayServedMeta are StatusLive rows whose handlers MountSeedLive
+// installs internally rather than reading the live map.
+var gatewayServedMeta = map[string]bool{
+	"GET /api/v1/routes":       true,
+	"GET /api/v1/errors":       true,
+	"GET /api/v1/openapi.json": true,
+}
+
+func TestLiveRoutesHaveGatewayHandlers(t *testing.T) {
+	mainSrc, err := os.ReadFile(filepath.Join("..", "..", "cmd", "gateway", "main.go"))
+	if err != nil {
+		t.Fatalf("cmd/gateway/main.go unreadable: %v", err)
+	}
+	mounted := map[string]bool{}
+	for _, m := range liveMapKey.FindAllStringSubmatch(string(mainSrc), -1) {
+		mounted[strings.ToUpper(m[1])+" "+m[2]] = true
+	}
+	var unwired []string
+	for _, r := range SeedRoutes() {
+		if r.Status != StatusLive {
+			continue
+		}
+		key := r.Method + " " + r.Path
+		if gatewayServedMeta[key] {
+			continue
+		}
+		if !mounted[key] {
+			unwired = append(unwired, key+" ("+r.Owner+")")
+		}
+	}
+	if len(unwired) > 0 {
+		t.Fatalf("%d StatusLive routes lack a live-map handler in cmd/gateway:\n  %s",
+			len(unwired), strings.Join(unwired, "\n  "))
+	}
+}

@@ -181,7 +181,7 @@ func TestAuthnIntegration(t *testing.T) {
 	}
 
 	// login (no 2FA enrolled yet → tokens directly)
-	rec = post(t, AuthLogin(rig.authn), map[string]any{
+	rec = post(t, AuthLogin(rig.authn, nil), map[string]any{
 		"email": email, "password": "sup3r-passphrase-1",
 	}, nil)
 	if rec.Code != http.StatusOK {
@@ -303,7 +303,7 @@ func TestAuthnIntegration(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("change-password: %d %s", rec.Code, rec.Body.String())
 	}
-	rec = post(t, AuthLogin(rig.authn), map[string]any{
+	rec = post(t, AuthLogin(rig.authn, nil), map[string]any{
 		"email": email, "password": "br4nd-new-passphrase",
 	}, nil)
 	if rec.Code != http.StatusOK {

@@ -27,6 +27,7 @@ type copyService interface {
 	Suspend(ctx context.Context, strategyID, adminUserID int64, ip, reason string) (*copy.Strategy, error)
 	Follow(ctx context.Context, in copy.FollowInput) (*copy.Follow, error)
 	Unfollow(ctx context.Context, followID, actorAccountID int64) (*copy.UnfollowResult, error)
+	MyFollows(ctx context.Context, accountID int64) ([]copy.FollowView, error)
 }
 
 // CopyStrategies serves GET /api/v1/copy/strategies — LISTED strategies
@@ -140,6 +141,23 @@ func CopyFollow(svc copyService) http.HandlerFunc {
 			"follow":     f,
 			"disclosure": copy.FollowDisclosure,
 		})
+	}
+}
+
+// CopyMyFollows serves GET /api/v1/copy/follows — the caller's own
+// follow list (all statuses) with strategy display fields joined.
+func CopyMyFollows(svc copyService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		accountID, _, ok := claimsAccount(w, r)
+		if !ok {
+			return
+		}
+		follows, err := svc.MyFollows(r.Context(), accountID)
+		if err != nil {
+			writeSvcErr(w, r, err)
+			return
+		}
+		WriteJSON(w, http.StatusOK, map[string]any{"follows": follows})
 	}
 }
 

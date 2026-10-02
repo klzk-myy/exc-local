@@ -213,3 +213,28 @@ func HistorySwapRates(d *SwapRateHistoryDeps) http.HandlerFunc {
 		writeHistoryBody(w, format, body, false)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// GET /api/v1/instruments/{symbol}/swap-rates — per-instrument spelling
+// (Task 3.3.11 registry surface)
+// ---------------------------------------------------------------------------
+
+// InstrumentSwapRates is the path-spelled sibling of HistorySwapRates:
+// /instruments/{symbol}/swap-rates normalizes the path parameter onto the
+// history handler's ?symbol= contract. Same tiering, timeout and cache
+// guards — the handler is the single owner of the read model.
+func InstrumentSwapRates(d *SwapRateHistoryDeps) http.HandlerFunc {
+	inner := HistorySwapRates(d)
+	return func(w http.ResponseWriter, r *http.Request) {
+		symbol := r.PathValue("symbol")
+		if symbol == "" {
+			WriteError(w, "INVALID_REQUEST", "symbol path parameter required",
+				gateway.RequestIDFrom(r.Context()), nil)
+			return
+		}
+		q := r.URL.Query()
+		q.Set("symbol", symbol)
+		r.URL.RawQuery = q.Encode()
+		inner(w, r)
+	}
+}

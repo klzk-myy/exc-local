@@ -38,6 +38,9 @@ func streamsForEvent(et wire.EventType) []string {
 		return []string{"analytics"}
 	case ipc.EventTypeL3OrderEvent:
 		return []string{"l3"}
+	case wire.EventTypeBasketResult:
+		// Phase-3 Task 4 — terminal basket outcome; op-scoped analytics.
+		return []string{"analytics"}
 	default:
 		return nil
 	}
@@ -198,6 +201,15 @@ func (b *Bridge) route(ev *wire.Event) []string {
 		} else {
 			symbol, resolved = UnknownSymbol, false
 		}
+	case wire.EventTypeBasketResult:
+		// Phase-3 Task 4 — basket ops carry no instrument_id; order the
+		// subject domain by op id (one token per op).
+		if !ev.Type(&t) {
+			return nil
+		}
+		br := &wire.BasketResult{}
+		br.Init(t.Bytes, t.Pos)
+		symbol = fmt.Sprintf("op-%x", br.OpIdLo())
 	default:
 		return nil
 	}

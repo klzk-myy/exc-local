@@ -41,25 +41,25 @@ func TestSeedMountsAndDumps(t *testing.T) {
 	}
 }
 
-func TestStubServes501Envelope(t *testing.T) {
+func TestUnwiredLiveServes503Shim(t *testing.T) {
 	r := newTestRouter(t)
 	rec := httptest.NewRecorder()
-	// /orders/countdown-cancel-all remains a stub (Task 5.3.33 lands the
-	// dead-man REST surface); /orders itself is now live.
+	// Task-7 remediation: every registry route is StatusLive — a route
+	// whose handler key is absent from the live map mounts the fail-
+	// closed 503 SERVICE_DEGRADED shim (never 501, spec §2.7). The
+	// test router mounts MountSeed(nil), so countdown-cancel-all takes
+	// the shim.
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/orders/countdown-cancel-all", strings.NewReader(`{}`))
 	r.Mux().ServeHTTP(rec, req)
-	if rec.Code != http.StatusNotImplemented {
-		t.Fatalf("stub status %d, want 501", rec.Code)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("unwired live status %d, want 503", rec.Code)
 	}
 	var env Envelope
 	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
 		t.Fatalf("envelope unmarshal: %v", err)
 	}
-	if env.Error != errs.CodeNotImplemented || env.Type != "error" {
-		t.Fatalf("stub envelope wrong: %+v", env)
-	}
-	if env.Details["owner"] == "" {
-		t.Fatal("stub envelope must carry owner detail")
+	if env.Error != "SERVICE_DEGRADED" || env.Type != "error" {
+		t.Fatalf("unwired envelope wrong: %+v", env)
 	}
 }
 

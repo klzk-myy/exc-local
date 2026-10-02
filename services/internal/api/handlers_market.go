@@ -17,6 +17,7 @@ package api
 import (
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"exchange/internal/gateway"
@@ -132,6 +133,107 @@ func MarketBook(d *MarketDeps) http.HandlerFunc {
 			return
 		}
 		WriteJSON(w, http.StatusOK, snap)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/v1/market/depth?symbol=&limit= — REST resync surface (Task 6.3.5)
+// ---------------------------------------------------------------------------
+
+// MarketDepth is the ?symbol=-query spelling of MarketBook: the WS gap-
+// recovery / REST resync contract takes ?symbol=&limit=&last_update_id
+// (spec §10.5) while the path-spelled sibling takes /book/{symbol}?depth=.
+// The adapter normalizes onto BookSource.Snapshot and returns the same
+// BookSnapshot document (bids/asks levels + last_update_id).
+func MarketDepth(d *MarketDeps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		symbol := r.URL.Query().Get("symbol")
+		depth, ok := intParam(r.URL.Query().Get("limit"), 20, 1, 100)
+		if symbol == "" || !ok {
+			WriteError(w, "INVALID_REQUEST",
+				"symbol required; limit must be an integer in [1,100]",
+				gateway.RequestIDFrom(r.Context()), nil)
+			return
+		}
+		snap, err := cached(d.cache(), "book:"+symbol+":"+strconv.Itoa(depth),
+			bookCacheTTL, func() (*marketapi.BookSnapshot, error) {
+				return d.Book.Snapshot(r.Context(), symbol, depth)
+			})
+		if err != nil {
+			WriteError(w, "SERVICE_DEGRADED",
+				"market data store unavailable",
+				gateway.RequestIDFrom(r.Context()), nil)
+			return
+		}
+		if snap == nil {
+			WriteError(w, "NOT_FOUND",
+				"unknown symbol", gateway.RequestIDFrom(r.Context()), nil)
+			return
+		}
+		WriteJSON(w, http.StatusOK, snap)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/v1/market-data/snapshot?symbol=&level=L2|L3 — WS gap recovery
+// ---------------------------------------------------------------------------
+
+// MarketDataSnapshotDeps wires the WS gap-recovery snapshot surface: L2
+// rides BookSource, L3 rides the WAL-reconstruction reader (Task 17.3.2).
+type MarketDataSnapshotDeps struct {
+	Book marketapi.BookSource
+	L3   *L3SnapshotDeps
+}
+
+// MarketDataSnapshot serves the full-book snapshot for WS gap recovery —
+// ?symbol= is required, ?level=L2 (default, depth ≤100) or L3
+// (cursor-paginated order-level, same contract as /market-data/l3-snapshot).
+func MarketDataSnapshot(d *MarketDataSnapshotDeps) http.HandlerFunc {
+	l3 := MarketDataL3Snapshot(d.L3)
+	return func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		symbol := q.Get("symbol")
+		if symbol == "" {
+			WriteError(w, "INVALID_REQUEST", "symbol required",
+				gateway.RequestIDFrom(r.Context()), nil)
+			return
+		}
+		switch level := strings.ToUpper(q.Get("level")); level {
+		case "", "L2":
+			depth, ok := intParam(q.Get("limit"), 100, 1, 100)
+			if !ok {
+				WriteError(w, "INVALID_REQUEST",
+					"limit must be an integer in [1,100]",
+					gateway.RequestIDFrom(r.Context()), nil)
+				return
+			}
+			if d == nil || d.Book == nil {
+				WriteError(w, "SERVICE_DEGRADED",
+					"market data store unavailable",
+					gateway.RequestIDFrom(r.Context()), nil)
+				return
+			}
+			snap, err := d.Book.Snapshot(r.Context(), symbol, depth)
+			if err != nil {
+				WriteError(w, "SERVICE_DEGRADED",
+					"market data store unavailable",
+					gateway.RequestIDFrom(r.Context()), nil)
+				return
+			}
+			if snap == nil {
+				WriteError(w, "NOT_FOUND", "unknown symbol",
+					gateway.RequestIDFrom(r.Context()), nil)
+				return
+			}
+			WriteJSON(w, http.StatusOK, snap)
+		case "L3":
+			r.SetPathValue("symbol", symbol)
+			l3(w, r)
+		default:
+			WriteError(w, "INVALID_REQUEST",
+				"level must be L2 or L3", gateway.RequestIDFrom(r.Context()),
+				map[string]any{"levels": []string{"L2", "L3"}})
+		}
 	}
 }
 

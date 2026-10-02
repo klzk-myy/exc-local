@@ -17,6 +17,9 @@ import (
 
 	"exchange/internal/auth"
 	"exchange/internal/marketapi"
+	"exchange/internal/marketdata"
+
+	"github.com/shopspring/decimal"
 )
 
 // ---------------------------------------------------------------------------
@@ -704,3 +707,76 @@ func TestMaintenanceScheduleCRUD(t *testing.T) {
 }
 
 func itoa64(n int64) string { return strconv.FormatInt(n, 10) }
+
+// ---------------------------------------------------------------------------
+// Task-7 shadowed-route adapters — market/depth, market-data/snapshot,
+// market/open-interest, instruments/{symbol}/swap-rates
+// ---------------------------------------------------------------------------
+
+func TestMarketDepthQuerySpelling(t *testing.T) {
+	d := marketDeps()
+	// ?symbol= + ?limit= map onto the Book.Snapshot seam.
+	rec := doReq(MarketDepth(d), "GET", "/api/v1/market/depth", nil,
+		"?symbol=EUR/USD&limit=20")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	m := decode(t, rec)
+	if m["seq"].(float64) != 42 {
+		t.Fatalf("book=%v", m)
+	}
+	// missing symbol → 400, out-of-range limit → 400, unknown symbol → 404.
+	if rec := doReq(MarketDepth(d), "GET", "/api/v1/market/depth", nil, ""); rec.Code != http.StatusBadRequest {
+		t.Fatalf("no symbol: status=%d", rec.Code)
+	}
+	if rec := doReq(MarketDepth(d), "GET", "/api/v1/market/depth", nil,
+		"?symbol=EUR/USD&limit=0"); rec.Code != http.StatusBadRequest {
+		t.Fatalf("limit 0: status=%d", rec.Code)
+	}
+	d.Book = &fakeMarketStore{}
+	if rec := doReq(MarketDepth(d), "GET", "/api/v1/market/depth", nil,
+		"?symbol=ZZZ/AAA"); rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown symbol: status=%d", rec.Code)
+	}
+}
+
+func TestMarketOpenInterestQuerySpelling(t *testing.T) {
+	deps := &MarketStatsDeps{
+		Instruments: &fakeMarketStore{instruments: []marketapi.Instrument{{Symbol: "EUR/USD"}}},
+		OI: &fakeOIAnalytics{
+			found: true,
+			sample: marketdata.OISample{
+				Symbol: "EUR/USD", OpenInterest: decimal.NewFromInt(4200),
+				Notional: decimal.NewFromInt(4557), Positions: 9, AsOf: time.Now(),
+			},
+		},
+		ResolveTier: pubTier,
+	}
+	rec := doReq(MarketOpenInterest(deps), "GET", "/api/v1/market/open-interest", nil,
+		"?symbol=EUR/USD")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if rec := doReq(MarketOpenInterest(deps), "GET", "/api/v1/market/open-interest", nil, ""); rec.Code != http.StatusBadRequest {
+		t.Fatalf("no symbol: status=%d", rec.Code)
+	}
+}
+
+func TestInstrumentSwapRatesPathSpelling(t *testing.T) {
+	// Path-param spelling feeds the history handler's ?symbol= contract —
+	// assert the source sees the path-derived symbol.
+	src := &fakeSwapSource{rows: swapJournalFixture()}
+	d := swapDeps(src)
+	rec := doReq(InstrumentSwapRates(d), "GET", "/api/v1/instruments/EUR/USD/swap-rates",
+		map[string]string{"symbol": "EUR/USD"}, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if src.got.Symbol != "EUR/USD" {
+		t.Fatalf("path symbol not forwarded: got %q", src.got.Symbol)
+	}
+	if rec := doReq(InstrumentSwapRates(d), "GET", "/api/v1/instruments//swap-rates",
+		map[string]string{"symbol": ""}, ""); rec.Code != http.StatusBadRequest {
+		t.Fatalf("empty symbol: status=%d", rec.Code)
+	}
+}

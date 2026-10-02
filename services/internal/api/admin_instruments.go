@@ -253,6 +253,54 @@ func AdminInstrumentResume(dual *admin.DualControlService) http.Handler {
 	})
 }
 
+// AdminInstrumentUncrossOverride — POST .../uncross-override. Task 15.3.10
+// quarantine release: the crossed-book quarantine resolves through the
+// dual-controlled resume path with the reopening CALL re-armed — the
+// re-armed CALL uncrosses the forensic residue at a single clearing price
+// and clears quarantine only on a clean uncross (a residual crossing
+// re-quarantines). This surface pins auction:true so the caller cannot
+// accidentally resume straight into continuous trading with a crossed
+// book.
+func AdminInstrumentUncrossOverride(dual *admin.DualControlService) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		actor, err := adminActorFrom(r, true)
+		if err != nil {
+			writeSvcErr(w, r, err)
+			return
+		}
+		id, err := lpPathID(r)
+		if err != nil {
+			writeSvcErr(w, r, err)
+			return
+		}
+		var body admin.TransitionInput
+		if !decodeOptionalJSONBody(w, r, &body) {
+			return
+		}
+		req, err := dual.Submit(r.Context(), admin.SubmitInput{
+			Operation:    admin.OpInstrumentResume,
+			TargetType:   "instrument",
+			TargetID:     strconv.FormatInt(id, 10),
+			RequiredRole: admin.RoleRiskManager,
+			RequestedBy:  actor.UserID,
+			Reason:       body.Reason,
+			ClientIP:     actor.ClientIP,
+			Payload: map[string]any{
+				"instrument_id": id,
+				"reason":        body.Reason,
+				"skip_auction":  false,
+				"auction":       true, // pinned — quarantine release must uncross
+				"client_ip":     actor.ClientIP,
+			},
+		})
+		if err != nil {
+			writeSvcErr(w, r, err)
+			return
+		}
+		writePendingDual(w, req, map[string]any{"instrument_id": id})
+	})
+}
+
 // AdminInstrumentDelist — POST .../delist. §7.2 four-eyes (Super Admin).
 func AdminInstrumentDelist(dual *admin.DualControlService) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
