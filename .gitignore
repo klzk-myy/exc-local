@@ -126,6 +126,7 @@ Testing/
 .mimocode-project-id
 
 # Other per-device agent/tool caches — same class as .claude/.gitnexus/.mimocode
+.reasonix/
 .cursor/
 .codeium/
 .windsurf/

@@ -32,12 +32,8 @@
       "url": "https://mcp.context7.com/mcp"
     },
     "github": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-github@2025.4.8"],
-      "env": {
-        "GITHUB_PERSONAL_ACCESS_TOKEN": "${env:GITHUB_TOKEN}"
-      },
-      "disabled": true
+      "command": "sh",
+      "args": ["-c", "GITHUB_PERSONAL_ACCESS_TOKEN=\"$(awk '/oauth_token/ {print $2; exit}' \"$HOME/.config/gh/hosts.yml\")\" exec $HOME/.local/bin/github-mcp-server stdio"]
     },
     "postgres": {
       "command": "npx",
@@ -54,12 +50,12 @@
       "command": "npx",
       "args": ["-y", "@arvoretech/clickhouse-mcp@1.0.0"],
       "env": {
-        "CLICKHOUSE_URL": "${env:CLICKHOUSE_URL}",
-        "CLICKHOUSE_USER": "${env:CLICKHOUSE_USER}",
-        "CLICKHOUSE_PASSWORD": "${env:CLICKHOUSE_PASSWORD}",
-        "CLICKHOUSE_DATABASE": "${env:CLICKHOUSE_DATABASE}"
-      },
-      "disabled": true
+        "CLICKHOUSE_URL": "http://127.0.0.1:8123",
+        "CLICKHOUSE_USER": "exchange",
+        "CLICKHOUSE_PASSWORD": "exchange_dev",
+        "CLICKHOUSE_DATABASE": "exchange_analytics",
+        "CLICKHOUSE_REQUEST_TIMEOUT": "30000"
+      }
     },
     "playwright": {
       "command": "npx",
