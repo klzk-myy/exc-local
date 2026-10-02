@@ -17,6 +17,8 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"sync/atomic"
+	"time"
 
 	"exchange/internal/config"
 	"exchange/internal/db"
@@ -24,6 +26,7 @@ import (
 	"exchange/internal/marketdata"
 	excnats "exchange/internal/nats"
 	"exchange/internal/observability"
+	"exchange/internal/settlement"
 	"exchange/internal/surveillance"
 	"exchange/internal/utils"
 	"exchange/pkg/logging"
@@ -51,7 +54,7 @@ func run() error {
 	defer stop()
 
 	reg := observability.New()
-	observability.NewMetrics(reg, "compliance")
+	metrics := observability.NewMetrics(reg, "compliance")
 	go func() {
 		if err := observability.ServeMetrics(ctx, cfg.Compliance.Addr(), reg, "compliance"); err != nil {
 			log.Error("compliance: metrics listener died", "err", err)
@@ -62,7 +65,7 @@ func run() error {
 	// The pump needs Postgres (signal persistence + instrument map) and
 	// NATS (the l3 stream). Either absent → idle pump, loud log; the
 	// metrics/health surface stays up regardless.
-	go startSurveillance(ctx, cfg, log)
+	go startSurveillance(ctx, cfg, reg, metrics, log)
 
 	log.Info("compliance started", "addr", cfg.Compliance.Addr(), "env", cfg.Environment)
 	<-ctx.Done()
@@ -74,7 +77,9 @@ func run() error {
 // failures log and the pump exits — the service-level contract is
 // emit-only (a restarted pod resumes the durable consumer where it
 // left off; dedup keys make re-delivery idempotent).
-func startSurveillance(ctx context.Context, cfg *config.Config, log *slog.Logger) {
+func startSurveillance(ctx context.Context, cfg *config.Config,
+	reg *observability.Registry, metrics *observability.Metrics,
+	log *slog.Logger) {
 	if strings.EqualFold(os.Getenv("EXC_SURVEILLANCE_DISABLE"), "1") {
 		log.Warn("compliance: surveillance signal pump disabled (EXC_SURVEILLANCE_DISABLE)")
 		return
@@ -124,6 +129,50 @@ func startSurveillance(ctx context.Context, cfg *config.Config, log *slog.Logger
 		log.Error("compliance: surveillance engine build failed", "err", err)
 		return
 	}
+
+	var lastLag atomic.Uint64
+
+	// §14.9/§24 #392 — SURVEILLANCE_LAG_WARNING: poll the durable
+	// consumer's lag; >10,000 sustained raises a P2 ops alert and fires
+	// the analysis-worker auto-scale hook (ops.autoscale subject). The
+	// degraded-detection policy under backlog is "detect late, never
+	// drop": the durable consumer replays the backlog rather than losing
+	// coverage; the detection-latency gauge is the SLA surface.
+	reg.GaugeFunc("exchange_surveillance_l3_consumer_lag",
+		"JetStream l3/compliance-l3 consumer lag (pending + in-flight).",
+		func() float64 { return float64(lastLag.Load()) })
+	reg.GaugeFunc("exchange_surveillance_detection_latency_seconds",
+		"Latest L3 event-time → detection latency (§24 #392 SLA).",
+		func() float64 { return eng.DetectionLatency().Seconds() })
+	reg.CounterFunc("exchange_surveillance_events_total",
+		"L3 events folded into the detectors.",
+		func() float64 { return float64(eng.AppliedCount()) })
+
+	natsPub := settlement.NatsPublisher{JS: nc.JetStream()}
+	eval := observability.NewEvaluator(
+		observability.FanoutSink{
+			observability.PublisherSink{Pub: natsPub},
+			observability.LogSink{Log: log},
+		}, log, observability.WithAlertMetrics(metrics))
+	lagProbe := func(pctx context.Context) (uint64, error) {
+		st, err := nc.JetStream().Stream(pctx, "l3")
+		if err != nil {
+			return lastLag.Load(), err
+		}
+		cons, err := st.Consumer(pctx, "compliance-l3")
+		if err != nil {
+			return lastLag.Load(), err
+		}
+		ci, err := cons.Info(pctx)
+		if err != nil || ci == nil {
+			return lastLag.Load(), err
+		}
+		lag := ci.NumPending + uint64(max(ci.NumAckPending, 0))
+		lastLag.Store(lag)
+		return lag, nil
+	}
+	go surveillance.WatchLag(ctx, lagProbe, eval, natsPub, 15*time.Second)
+
 	log.Info("compliance: surveillance pump consuming l3 stream")
 	if err := eng.Run(ctx, src); err != nil && !errors.Is(err, context.Canceled) {
 		log.Error("compliance: surveillance pump exited", "err", err)

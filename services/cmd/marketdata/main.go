@@ -46,6 +46,7 @@ import (
 	excnats "exchange/internal/nats"
 	"exchange/internal/observability"
 	excredis "exchange/internal/redis"
+	"exchange/internal/sbe"
 	"exchange/internal/utils"
 	"exchange/internal/ws"
 	"exchange/pkg/logging"
@@ -172,8 +173,33 @@ func run() error {
 	// _out ring is SPSC — a second consumer cannot attach — so the tap is
 	// a TeeDeltaSource mirror installed here (see producers.go).
 	bboTap := make(chan marketdata.BookDelta, 8192)
+
+	// ===== Phase-3 Task 4 / Task 6.3.6: SBE institutional multicast =====
+	// Opt-in via EXC_SBE_MD_ENABLED — when armed, the feed taps the SAME
+	// tee as BBO (SPSC ring keeps one reader), diffs BookDelta state into
+	// incremental sbe.BookUpdate packets, and serves TCP replay/snapshot
+	// recovery off the journal.
+	sbeFeed, sbeFeedErr := buildSBEFeed(ctx, log)
+	if sbeFeedErr != nil {
+		log.Error("marketdata: sbe multicast feed failed to arm", "err", sbeFeedErr)
+		sbeFeed = nil
+	}
+	var sbeTap chan<- marketdata.BookDelta
+	if sbeFeed != nil {
+		sbeTap = sbeFeed.Tap()
+	}
 	if src != nil {
-		src = marketdata.TeeDeltaSource(src, bboTap)
+		if sbeTap != nil {
+			src = marketdata.TeeDeltaSource(src, bboTap, sbeTap)
+		} else {
+			src = marketdata.TeeDeltaSource(src, bboTap)
+		}
+	}
+	// Even with no live source (src nil), Run still publishes heartbeats
+	// and serves replay/snapshot — the channel must answer recovery
+	// requests under the right session id while the delta feed is down.
+	if sbeFeed != nil {
+		go sbeFeed.Run(ctx, sbeHeartbeatInterval())
 	}
 	// ===== END WAVE-2 ADDITIVE BLOCK =====
 
@@ -457,4 +483,115 @@ func envOr(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// ---- SBE institutional multicast (Phase-3 Task 4 / Task 6.3.6) -----------
+//
+// Env contract (all under EXC_SBE_MD_*):
+//
+//	EXC_SBE_MD_ENABLED       "1"/"true" — master switch; unset → no feeds
+//	                         are joined and no TCP recovery ports bind.
+//	EXC_SBE_MD_FEED_A/_B     multicast "group:port" — BOTH required.
+//	EXC_SBE_MD_CHANNEL_ID    u16 channel id stamped on packets (default 1).
+//	EXC_SBE_MD_JOURNAL_PKTS  retained datagrams for replay (default 65536).
+//	EXC_SBE_MD_REPLAY_ADDR   TCP replay bind (default 127.0.0.1:0 — off
+//	                         unless a real addr is given).
+//	EXC_SBE_MD_SNAPSHOT_ADDR TCP snapshot bind (same default).
+//	EXC_SBE_MD_HEARTBEAT_MS  heartbeat cadence (default 1000ms).
+//
+// Instrument ids come from the SAME EXC_MARKETDATA_INSTRUMENTS map the
+// delta decoder uses — inverted to symbol→id so the feed never invents
+// an instrument id.
+func buildSBEFeed(ctx context.Context, log *slog.Logger) (*marketdata.SBEFeed, error) {
+	switch strings.ToLower(envOr("EXC_SBE_MD_ENABLED", "")) {
+	case "1", "true", "yes":
+	default:
+		return nil, nil
+	}
+	fa, fb := os.Getenv("EXC_SBE_MD_FEED_A"), os.Getenv("EXC_SBE_MD_FEED_B")
+	if fa == "" || fb == "" {
+		return nil, errors.New("EXC_SBE_MD_FEED_A and EXC_SBE_MD_FEED_B are required when enabled")
+	}
+	feedA, err := sbe.NewUDPSender(fa)
+	if err != nil {
+		return nil, fmt.Errorf("feed A: %w", err)
+	}
+	feedB, err := sbe.NewUDPSender(fb)
+	if err != nil {
+		return nil, fmt.Errorf("feed B: %w", err)
+	}
+	channelID, err := strconv.ParseUint(envOr("EXC_SBE_MD_CHANNEL_ID", "1"), 10, 16)
+	if err != nil {
+		return nil, fmt.Errorf("EXC_SBE_MD_CHANNEL_ID: %w", err)
+	}
+	journalPkts, err := strconv.Atoi(envOr("EXC_SBE_MD_JOURNAL_PKTS", "65536"))
+	if err != nil || journalPkts <= 0 {
+		return nil, fmt.Errorf("EXC_SBE_MD_JOURNAL_PKTS %q: %w",
+			os.Getenv("EXC_SBE_MD_JOURNAL_PKTS"), err)
+	}
+	journal := sbe.NewJournal(journalPkts)
+	pub, err := sbe.NewPublisher(sbe.PublisherConfig{
+		ChannelID: uint16(channelID),
+		FeedA:     feedA, FeedB: feedB,
+		Journal: journal, Logger: log,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	ids := map[string]uint32{}
+	if mr, ok := instrumentResolver().(marketdata.MapResolver); ok {
+		for id, sym := range mr {
+			ids[sym] = id
+		}
+	}
+	if len(ids) == 0 {
+		log.Warn("sbe: EXC_MARKETDATA_INSTRUMENTS empty — feed armed but " +
+			"every delta will drop on the unknown-id gate")
+	}
+
+	// TCP recovery surfaces — replay serves the same journal the publisher
+	// writes; snapshot folds it through the BookKeeper so the two are
+	// consistent by construction.
+	if addr := os.Getenv("EXC_SBE_MD_REPLAY_ADDR"); addr != "" {
+		rs := &sbe.ReplayServer{
+			Sources: map[uint16]*sbe.Journal{uint16(channelID): journal},
+			Logger:  log,
+		}
+		go func() {
+			if err := rs.ListenAndServe(ctx, addr); err != nil {
+				log.Error("sbe: replay server died", "err", err)
+			}
+		}()
+		log.Info("sbe: replay server bound", "addr", addr)
+	}
+	if addr := os.Getenv("EXC_SBE_MD_SNAPSHOT_ADDR"); addr != "" {
+		ss := &sbe.SnapshotServer{
+			Sources: map[uint16]sbe.SnapshotSource{
+				uint16(channelID): sbe.JournalSnapshotter{
+					J: journal, SessionID: pub.SessionID(),
+				},
+			},
+			Logger: log,
+		}
+		go func() {
+			if err := ss.ListenAndServe(ctx, addr); err != nil {
+				log.Error("sbe: snapshot server died", "err", err)
+			}
+		}()
+		log.Info("sbe: snapshot server bound", "addr", addr)
+	}
+
+	log.Info("sbe multicast feed armed",
+		"channel", channelID, "session", pub.SessionID(),
+		"feed_a", fa, "feed_b", fb, "instruments", len(ids))
+	return marketdata.NewSBEFeed(pub, ids, log), nil
+}
+
+func sbeHeartbeatInterval() time.Duration {
+	ms, err := strconv.Atoi(envOr("EXC_SBE_MD_HEARTBEAT_MS", "1000"))
+	if err != nil || ms <= 0 {
+		return time.Second
+	}
+	return time.Duration(ms) * time.Millisecond
 }

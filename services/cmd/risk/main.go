@@ -213,6 +213,19 @@ func run() error {
 	// Expiry sweeper — RELEASE frames for reservations past TTL.
 	go coord.RunSweeper(ctx, emitter)
 
+	// Engine account-state projector (Phase-3 Task 3.3.1): publishes the
+	// PG accounts/balances/positions/instruments corpus into the
+	// `account:state` hash at 1s cadence. The C++ AccountStateRefresher
+	// polls it for the engine's IAccountState/IPositionState binding —
+	// heartbeat TTL (default 30s) fails admission closed if this loop
+	// stalls. Single instance: this process is already the deployment's
+	// singleton coordinator.
+	projector, err := risk.NewAccountStateProjector(pool, rdb.Client, log)
+	if err != nil {
+		return fmt.Errorf("risk: account state projector: %w", err)
+	}
+	go projector.Run(ctx)
+
 	// R9 health surface (Task 7.3.6) — the K8s pod probes /health/live +
 	// /health/ready on EXC_RISK_HEALTH_ADDR (deploy/k8s/risk-coordinator).
 	// Empty addr leaves the listener off (bare-metal/supervisord default).
