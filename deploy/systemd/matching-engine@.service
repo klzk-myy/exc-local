@@ -35,16 +35,30 @@ FinalKillSignal=SIGKILL
 User=exchange
 Group=exchange
 
+# Per-shard deployment data (Phase-3 Task 3.3.1): the EnvironmentFile
+# carries EXC_REDIS_ADDR (coordination Redis host:port), EXC_SYMBOL
+# (e.g. EUR/USD) and EXC_INSTRUMENT_ID for the served book. Without it
+# the engine boots detached — risk checks 1-14 have no bound account
+# store and run() fails closed on ACCOUNT_INACTIVE; with it the
+# suspension lattice, sanctions flags, instrument feed, oracle feed and
+# the account:state snapshot all bind (absent-but-bound = fail closed).
+EnvironmentFile=-/etc/exchange/matching-engine-%i.env
+
 # NUMA pin — isolated cores + node-0 memory (Task 9.3.1 layout:
 # matching thread on core 5 of the 2-7 isolated set on node 0).
-ExecStart=/usr/bin/numactl --cpunodebind=0 --membind=0 --physcpubind=5 \
+# sh -c expands the env-driven flags only when set — an empty EXC_SYMBOL
+# must not leave a dangling '-symbol' token consuming the next flag.
+ExecStart=/bin/sh -c 'exec /usr/bin/numactl --cpunodebind=0 --membind=0 --physcpubind=5 \
     /opt/exchange/bin/matching-engine \
         -shard %i \
         -ipc-base exc \
         -wal-dir /var/lib/exchange/wal \
         -snap-dir /var/lib/exchange/snapshots \
         -poison-log /var/log/exchange/poison-pill-%i.log \
-        -report-log /var/log/exchange/recovery-reports-%i.jsonl
+        -report-log /var/log/exchange/recovery-reports-%i.jsonl \
+        ${EXC_REDIS_ADDR:+-redis "$EXC_REDIS_ADDR"} \
+        ${EXC_SYMBOL:+-symbol "$EXC_SYMBOL"} \
+        ${EXC_INSTRUMENT_ID:+-instrument-id "$EXC_INSTRUMENT_ID"}'
 
 # Resource limits (hardened per §19.13.3 — core dumps retained for triage)
 # LimitMEMLOCK=infinity: mlock + hugepage pinning for WAL mmap.

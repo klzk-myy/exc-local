@@ -106,7 +106,13 @@ SanctionsRefresher::SanctionsRefresher(RespClient* client) noexcept
 bool SanctionsRefresher::refresh(SanctionsCache* cache) noexcept {
     if (cache == nullptr) return false;
     auto snap = std::make_shared<SanctionsCache::Snapshot>();
-    snap->applied_ns = steady_ns();
+    // Wall-domain stamp: verdict_for() compares this against ctx.now_ns,
+    // which is the engine's TIME_TICK logical clock — fed by EngineLoop's
+    // wall now_ns() (CLOCK_REALTIME), NOT steady_ns(). Stamping the
+    // monotonic clock here made every live snapshot read ~55 years stale
+    // and would have rejected all orders the moment -redis was enabled.
+    // (Tests drive both sides in the steady domain, so they still pass.)
+    snap->applied_ns = now_ns();
     if (client_ == nullptr) {
         cache->mark_unverifiable();
         return false;
