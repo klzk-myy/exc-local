@@ -2,11 +2,10 @@
  * Algo-order management (Task 10.3.27 item 2) — TWAP/VWAP/VP/grid
  * strategy list with pause/resume/cancel.
  *
- * All algo-management routes are registered stubs (Phase-16 Task
- * 16.3.21): the panel renders the list when the endpoint turns live
- * and UnavailablePanel meanwhile. Per-row controls call the registered
- * pause/resume/cancel paths and surface 501 inline rather than
- * pretending success.
+ * All algo-management routes are live (Phase-16 Task 16.3.21 —
+ * supersedes the earlier registered-stub note). The panel renders the
+ * list from the endpoint; per-row controls call the pause/resume/cancel
+ * paths and surface errors inline rather than pretending success.
  */
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';

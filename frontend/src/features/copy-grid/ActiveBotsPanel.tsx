@@ -163,7 +163,8 @@ export function ActiveBotsPanel({ onCount }: { onCount?: (n: number) => void }) 
         <div className="mt-1">
           {isNotImplemented(controlErr) ? (
             <p className="text-xs text-amber-400">
-              Bot pause/resume is registered but not yet live (501). Nothing changed.
+              Bot pause/resume returned 501 (route expected live — regression signal). Nothing
+              changed.
             </p>
           ) : (
             <ErrorBox error={controlErr} />
@@ -208,7 +209,8 @@ export function ActiveBotsPanel({ onCount }: { onCount?: (n: number) => void }) 
           <div className="mt-2">
             {isNotImplemented(serverErr) ? (
               <p className="text-xs text-amber-400">
-                Bot stop is registered but not yet live (501). Nothing was stopped.
+                Bot stop returned 501 (route is expected live — treat as regression). Nothing was
+                stopped.
               </p>
             ) : (
               <ErrorBox error={serverErr} />

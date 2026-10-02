@@ -4,9 +4,8 @@
  * The compliance risk disclosure must be acknowledged before the
  * follow request is enabled (mandatory per task text).
  *
- * Unfollow: no route is registered yet (Phase-14 owns the lifecycle) —
- * the unfollow control renders the honest "not registered" state rather
- * than calling a path that would 404.
+ * Unfollow is live (DELETE /api/v1/copy/follows/{id}) — see
+ * MyFollowsPanel for the investor-side management surface.
  */
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
@@ -23,7 +22,7 @@ import {
 } from '@/lib/input-helpers';
 import type { FieldRule } from '@/lib/input-helpers/validation';
 
-import { followStrategy, unfollowRegistered, type CopyStrategy } from './api';
+import { followStrategy, type CopyStrategy } from './api';
 
 const positiveDecimal: FieldRule = {
   name: 'amount',
@@ -183,8 +182,8 @@ export function FollowModal({
           <div className="mt-2">
             {stubbed ? (
               <p className="text-xs text-amber-400">
-                The follow endpoint is registered but not yet live (501 NOT_IMPLEMENTED — Phase-14
-                Task 14.3.8). Your request was NOT submitted.
+                The follow endpoint is unavailable on this deployment. Your request was NOT
+                submitted.
               </p>
             ) : serverErr instanceof ApiError ? (
               <ErrorBox error={serverErr} />
@@ -193,16 +192,5 @@ export function FollowModal({
         ) : null}
       </ConfirmModal>
     </>
-  );
-}
-
-/** Unfollow control — honest "not registered" rendering (Phase-14). */
-export function UnfollowNote() {
-  if (unfollowRegistered()) return null;
-  return (
-    <p className="text-xs text-neutral-500">
-      Unfollow lands with Phase-14 Task 14.3.8 — the follow-management endpoint is not yet
-      registered in the route table.
-    </p>
   );
 }

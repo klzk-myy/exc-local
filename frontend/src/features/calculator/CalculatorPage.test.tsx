@@ -161,3 +161,68 @@ describe('CalculatorPage', () => {
     expect(screen.getByText('0.01')).toBeInTheDocument();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Task-8 supplemental calculators — P&L + swap/rollover.
+// ---------------------------------------------------------------------------
+
+describe('computePnL', () => {
+  it('computes signed pips + quote P&L', async () => {
+    const { computePnL } = await import('./calc');
+    // LONG 1000 EUR/USD 1.1000 → 1.1050: +50 pips, +50 USD.
+    const r = computePnL('EUR/USD', 'LONG', dec('1000'), dec('1.1000'), dec('1.1050'));
+    expect(r?.pnlQuote.toDisplay(2)).toBe('5.00');
+    expect(r?.pips.toDisplay(0)).toBe('50'); // 0.0050 ÷ pip 0.0001
+    // SHORT flips the sign.
+    const s = computePnL('EUR/USD', 'SHORT', dec('1000'), dec('1.1000'), dec('1.1050'));
+    expect(s?.pnlQuote.toDisplay(2)).toBe('-5.00');
+  });
+});
+
+describe('computeSwap', () => {
+  it('applies qty × points × days with the markup leg separate', async () => {
+    const { computeSwap } = await import('./calc');
+    // 1000 base units × 0.5 pts × 3 days = 1500 quote; 10bps markup = 1.50.
+    const r = computeSwap('EUR/USD', 'LONG', dec('1000'), dec('0.5'), dec('10'), 3);
+    expect(r?.interbankQuote.toDisplay(2)).toBe('1,500.00');
+    expect(r?.markupQuote.toDisplay(2)).toBe('-1.50');
+    expect(r?.totalQuote.toDisplay(2)).toBe('1,498.50');
+  });
+
+  it('refuses days < 1', async () => {
+    const { computeSwap } = await import('./calc');
+    expect(computeSwap('EUR/USD', 'LONG', dec('1'), dec('0.5'), dec('0'), 0)).toBeUndefined();
+  });
+});
+
+describe('SwapSection', () => {
+  it('renders the published sheet and projects a charge', async () => {
+    installFetchMock({
+      'GET /api/v1/instruments': { body: INSTRUMENTS },
+      'GET /api/v1/instruments/EUR%2FUSD/swap-rates': {
+        body: {
+          data: [
+            {
+              effective_date: '2026-01-02',
+              long_points: '0.5',
+              short_points: '-0.7',
+              long_markup_bps: '10',
+              short_markup_bps: '10',
+              triple: false,
+            },
+          ],
+        },
+      },
+    });
+    const harness = makeWsHarness();
+    try {
+      renderApp(<CalculatorPage client={harness.client} />);
+      expect(await screen.findByText('Overnight financing')).toBeInTheDocument();
+      await screen.findByText(/Sheet 2026-01-02/);
+      // 1000 × 0.5 × 1d = 500 − 0.50 markup = 499.50
+      expect(await screen.findByTestId('swap-result')).toHaveTextContent('499.50');
+    } finally {
+      harness.client.stop();
+    }
+  });
+});

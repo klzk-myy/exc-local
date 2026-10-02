@@ -98,14 +98,14 @@ describe('DeadmanSwitch', () => {
     expect(calls.filter((c) => c.url.includes('countdown-cancel-all'))).toHaveLength(0);
   });
 
-  it('surfaces the honest 501 when the route is a stub', async () => {
+  it('surfaces the honest 501 regression note when the route reports NOT_IMPLEMENTED', async () => {
     installFetchMock({ 'POST /api/v1/orders/countdown-cancel-all': STUB_501 });
     renderSwitch();
     const input = screen.getByLabelText('Countdown (ms)');
     fireEvent.change(input, { target: { value: '60000' } });
     fireEvent.click(screen.getByRole('button', { name: 'Arm' }));
     await waitFor(() => {
-      expect(screen.getByText(/not yet live server-side \(501/)).toBeInTheDocument();
+      expect(screen.getByText(/NOT_IMPLEMENTED \(501\).*regression/i)).toBeInTheDocument();
     });
   });
 

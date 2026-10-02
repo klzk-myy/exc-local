@@ -4,8 +4,8 @@
  * institutional account via PUT /api/v1/admin/accounts/{id}/product-profile
  * (Phase-14 Task 14.3.7).
  *
- * The endpoint is a registered stub at this stage — a 501 NOT_IMPLEMENTED
- * surfaces honestly via ErrorBox rather than pretending success.
+ * The endpoint is live (Phase-03 fee schedule); an error surfaces
+ * honestly via ErrorBox rather than pretending success.
  */
 import { useMutation } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';

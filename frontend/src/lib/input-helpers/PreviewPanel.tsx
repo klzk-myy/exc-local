@@ -101,7 +101,8 @@ export function PreviewPanel({ state }: { state: OrderPreviewState }) {
   if (state.notImplemented) {
     return (
       <div className="rounded border border-dashed border-neutral-700 p-3 text-xs text-neutral-500">
-        Order preview is registered but not yet live on this gateway.
+        Order preview is unavailable on this gateway (501 — route expected live; treat as
+        regression).
       </div>
     );
   }

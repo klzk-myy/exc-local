@@ -7,6 +7,7 @@ import { parseGridBot, parseStrategy } from './api';
 import { StrategyBrowser } from './StrategyBrowser';
 import { GridBotWizard } from './GridBotWizard';
 import { ActiveBotsPanel } from './ActiveBotsPanel';
+import { MyFollowsPanel } from './MyFollowsPanel';
 
 vi.mock('@/app/runtime', () => import('@/test/accountMocks').then((m) => m.runtimeModule()));
 
@@ -61,7 +62,7 @@ describe('StrategyBrowser', () => {
     installFetchMock({ 'GET /api/v1/copy/strategies': STUB_501 });
     renderApp(<StrategyBrowser onFollow={() => undefined} />);
     await waitFor(() => {
-      expect(screen.getByRole('status')).toHaveTextContent(/not yet live|not yet available/i);
+      expect(screen.getByRole('status')).toHaveTextContent(/unavailable/i);
     });
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
   });
@@ -127,9 +128,9 @@ describe('GridBotWizard', () => {
     fireEvent.change(screen.getByLabelText(/to confirm/i), { target: { value: 'START BOT' } });
     expect(confirm).toBeEnabled();
     fireEvent.click(confirm);
-    // POST lands on the (stubbed) route → honest 501 note inside the modal
+    // POST lands on a route reporting 501 → honest regression note inside the modal
     await waitFor(() => {
-      expect(screen.getByText(/not yet live \(501/)).toBeInTheDocument();
+      expect(screen.getByText(/returned 501 NOT_IMPLEMENTED/)).toBeInTheDocument();
     });
   });
 
@@ -196,5 +197,81 @@ describe('ActiveBotsPanel pause/resume', () => {
       expect(screen.getByText('STOPPED')).toBeInTheDocument();
     });
     expect(screen.getByRole('button', { name: 'Pause' })).toBeDisabled();
+  });
+});
+
+describe('MyFollowsPanel', () => {
+  const followsList = {
+    'GET /api/v1/copy/follows': {
+      status: 200,
+      body: {
+        follows: [
+          {
+            follow_id: 7,
+            strategy_id: 11,
+            strategy_name: 'AlphaFX',
+            strategy_status: 'LISTED',
+            allocation_notional: '5000',
+            currency: 'USD',
+            safety_mode: 'FULL',
+            status: 'ACTIVE',
+            created_at: '2026-10-01T00:00:00Z',
+          },
+          {
+            follow_id: 4,
+            strategy_id: 9,
+            strategy_name: 'BetaCarry',
+            strategy_status: 'SUSPENDED',
+            allocation_notional: '1200',
+            currency: 'USD',
+            safety_mode: 'HALF_RISK',
+            status: 'UNFOLLOWED',
+            unfollowed_at: '2026-10-05T00:00:00Z',
+            created_at: '2026-09-01T00:00:00Z',
+          },
+        ],
+      },
+    },
+  };
+
+  it('renders follows with joined strategy fields; unfollow only on ACTIVE', async () => {
+    installFetchMock(followsList);
+    renderApp(<MyFollowsPanel />);
+    await waitFor(() => {
+      expect(screen.getByText('AlphaFX')).toBeInTheDocument();
+    });
+    expect(screen.getByText('BetaCarry')).toBeInTheDocument();
+    expect(screen.getByText('SUSPENDED')).toBeInTheDocument();
+    const btns = screen.getAllByRole('button', { name: 'Unfollow' });
+    expect(btns).toHaveLength(1); // only the ACTIVE follow
+  });
+
+  it('unfollow requires the typed phrase and DELETEs the follow', async () => {
+    const calls = installFetchMock({
+      ...followsList,
+      'DELETE /api/v1/copy/follows/7': { status: 200, body: { disclosure: 'ok' } },
+    });
+    renderApp(<MyFollowsPanel />);
+    await waitFor(() => {
+      expect(screen.getByText('AlphaFX')).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Unfollow' }));
+    // HIGH severity — confirm disabled until the phrase is typed.
+    const dialog = await screen.findByRole('dialog');
+    const modalConfirm = Array.from(dialog.querySelectorAll('button')).find(
+      (b) => b.textContent === 'Unfollow',
+    )!;
+    expect(modalConfirm).toBeDefined();
+    expect(modalConfirm.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText(/to confirm/i), {
+      target: { value: 'UNFOLLOW' },
+    });
+    expect(modalConfirm.disabled).toBe(false);
+    fireEvent.click(modalConfirm);
+    await waitFor(() => {
+      expect(calls.some((c) => c.method === 'DELETE' && c.url.includes('/copy/follows/7'))).toBe(
+        true,
+      );
+    });
   });
 });

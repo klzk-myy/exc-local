@@ -1,8 +1,8 @@
 /**
  * OPO/OCO order lists (Task 10.3.27 item 3) — open lists + history tabs.
- * GET /api/v1/order-lists and /order-lists/history are registered stubs
- * (Phase-16 Task 16.3.20) — the panel renders parent/child rows only
- * when the backend serves them.
+ * GET /api/v1/order-lists and /order-lists/history are live
+ * (Phase-16 Task 16.3.20 — supersedes the earlier registered-stub note);
+ * the panel renders parent/child rows from the backend.
  */
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';

@@ -6,7 +6,7 @@
  * in the cluster keys on that scope so cached data re-scopes atomically.
  *
  * Honesty rules (fail-closed §2.7):
- *   - the endpoint is a Phase-05 stub at docs stage: a 501/error renders
+ *   - the endpoint is live (Phase-05): an error still renders
  *     "unavailable" with the error code, never an empty fake list;
  *   - sub-account order routing has no on-behalf-of primitive yet —
  *     non-master scopes append ?account_id= and surface FORBIDDEN if the

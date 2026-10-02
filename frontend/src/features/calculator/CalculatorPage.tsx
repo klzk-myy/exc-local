@@ -20,6 +20,7 @@ import { useMarketFeed, useMidPrice, useChannelHealth } from '@/lib/trading/mark
 import { useInstrument, useInstruments } from '@/lib/trading/queries';
 
 import { computePositionCalc, effectiveLeverage, parseCalcField, type CalcSide } from './calc';
+import { PnlSection, SwapSection } from './extra-calcs';
 
 function Output({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
@@ -260,6 +261,11 @@ export default function CalculatorPage({ client = wsClient }: { client?: WsClien
             </>
           )}
         </div>
+      </div>
+
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        <PnlSection symbol={symbol} />
+        <SwapSection symbol={symbol} instrument={instrument} />
       </div>
     </div>
   );

@@ -290,8 +290,8 @@ export async function closeAllPositions(
 }
 
 /** Admin fee-tier assignment — PUT /admin/accounts/{id}/product-profile
- * (Phase-14 Task 14.3.7, Compliance Officer role). Registered-but-stubbed
- * endpoints surface 501 NOT_IMPLEMENTED to the caller honestly. */
+ * (Phase-14 Task 14.3.7, Compliance Officer role). The endpoint is live;
+ * any 501 NOT_IMPLEMENTED still surfaces to the caller honestly. */
 export async function assignProductProfile(
   accountId: string,
   body: { category?: string; fee_tier_id?: string; product_profile?: string },

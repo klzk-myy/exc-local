@@ -29,9 +29,9 @@ export interface UnavailablePanelProps {
 }
 
 /**
- * Standard "registered, not yet live" placeholder. Renders only honest
- * information: the feature name, the owning phase, and the registered
- * endpoint status. No mock data, no fake charts.
+ * Standard "endpoint unavailable" placeholder. Renders only honest
+ * information: the feature name, the owning phase, and that no data is
+ * shown. No mock data, no fake charts.
  */
 export function UnavailablePanel({ feature, owner, note }: UnavailablePanelProps) {
   return (
@@ -40,10 +40,10 @@ export function UnavailablePanel({ feature, owner, note }: UnavailablePanelProps
       role="status"
       aria-label={`${feature} is not yet available`}
     >
-      <p className="text-sm font-medium text-neutral-300">{feature} — coming with backend</p>
+      <p className="text-sm font-medium text-neutral-300">{feature} — unavailable</p>
       <p className="mt-1 text-xs text-neutral-500">
-        The API route is registered in the exchange route table but not yet live
-        {owner ? ` (owner: ${owner})` : ''}.
+        The API route reported unavailable
+        {owner ? ` (owner: ${owner})` : ''}; no data is shown.
       </p>
       {note ? <p className="mt-1 text-xs text-neutral-500">{note}</p> : null}
     </div>

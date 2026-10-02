@@ -283,8 +283,8 @@ export function GridBotWizard({
           <div className="mt-2">
             {isNotImplemented(serverErr) ? (
               <p className="text-xs text-amber-400">
-                Grid-bot creation is registered but not yet live (501 NOT_IMPLEMENTED — Phase-16
-                Task 16.3.19). Nothing was created.
+                Grid-bot creation returned 501 NOT_IMPLEMENTED (Phase-16 Task 16.3.19 route is
+                expected live — treat as regression). Nothing was created.
               </p>
             ) : (
               <ErrorBox error={serverErr} />

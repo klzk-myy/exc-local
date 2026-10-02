@@ -3,10 +3,9 @@
  * POST /api/v1/orders/countdown-cancel-all: arm/renew with
  * countdown_ms ∈ [1000, 300000]; 0 disables (routes_v1.go).
  *
- * The route is a registered stub today — the panel stays fully
- * functional-looking but every action reports the honest 501 state
- * inline, and the live countdown only runs while an arm call actually
- * succeeded (never a fake timer).
+ * The route is live (Phase-05/Task-7 mount). Any error still reports
+ * honestly inline, and the live countdown only runs while an arm call
+ * actually succeeded (never a fake timer).
  */
 import { useEffect, useRef, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
@@ -130,9 +129,9 @@ export function DeadmanSwitch() {
 
       {stub ? (
         <p className="mt-3 rounded border border-amber-800 bg-amber-950/40 p-2 text-xs text-amber-300">
-          Dead-man switch is registered but not yet live server-side (501 NOT_IMPLEMENTED — Phase-05
-          Task 5.3.33). The countdown above runs only after a successful arm call; no orders were
-          armed or cancelled.
+          Dead-man switch reported NOT_IMPLEMENTED (501) server-side — treat this as a regression
+          signal (the route is live per Phase-05/Task-7). The countdown above runs only after a
+          successful arm call; no orders were armed or cancelled.
         </p>
       ) : lastErr instanceof ApiError ? (
         <p className="mt-3 text-xs text-red-400">

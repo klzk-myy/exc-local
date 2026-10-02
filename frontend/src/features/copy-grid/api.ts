@@ -1,11 +1,10 @@
 /**
  * Copy-trading & grid-bot adapters (Task 10.3.26).
  *
- * Every route here is registered-but-stubbed in the gateway today
- * (501 NOT_IMPLEMENTED — owners Phase-14 Task 14.3.8 and Phase-16
- * Task 16.3.19). The adapters narrow `unknown` wire payloads honestly;
- * surfaces render `UnavailablePanel` on 501 and never synthesize
- * strategies/bots/fills.
+ * Routes are live in the gateway (Phase-14 Task 14.3.8/14.3.14 and
+ * Phase-16 Task 16.3.19). The adapters narrow `unknown` wire payloads
+ * honestly; surfaces still render `UnavailablePanel` on 5xx degradation
+ * and never synthesize strategies/bots/fills.
  */
 import type { ApiClient } from '@/lib/api';
 
@@ -80,13 +79,31 @@ export function followStrategy(api: ApiClient, req: FollowRequest): Promise<unkn
   return api.post('/copy/follows', req, { idempotent: true });
 }
 
-/** Unfollow — no dedicated route is registered in the route table yet
- * (Phase-14 owns the lifecycle). Callers gate on this contract flag so
- * the UI can say "unfollow lands with Phase-14" instead of calling a
- * path that would 404. */
-export const UNFOLLOW_ROUTE = 'DELETE /api/v1/copy/follows/{id}';
-export function unfollowRegistered(): boolean {
-  return false; // not in the OpenAPI route table — update when Phase-14 lands
+/** One row of GET /api/v1/copy/follows — the caller's follow with the
+ * strategy display fields joined (Task-8 read surface). */
+export interface MyFollow {
+  follow_id: number;
+  strategy_id: number;
+  strategy_name: string;
+  strategy_status: string;
+  allocation_notional: string;
+  currency: string;
+  safety_mode: string;
+  stop_loss_cap?: string;
+  status: string;
+  unfollowed_at?: string;
+  created_at: string;
+}
+
+export async function listMyFollows(api: ApiClient): Promise<MyFollow[]> {
+  const res = await api.get<{ follows?: MyFollow[] }>('/copy/follows');
+  return Array.isArray(res.follows) ? res.follows : [];
+}
+
+/** Unfollow — DELETE /api/v1/copy/follows/{id} (live, Phase-14 Task
+ * 14.3.14). Pending copied orders are cancelled; open positions stay. */
+export function unfollow(api: ApiClient, followId: number): Promise<unknown> {
+  return api.delete(`/copy/follows/${followId}`);
 }
 
 // ---------------------------------------------------------------------------

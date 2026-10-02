@@ -4,9 +4,9 @@
  *   Live   — GET /api/v1/orders (keyset cursor + full filter set),
  *            DELETE /api/v1/orders (bulk cancel by filter is NOT used
  *            here — per-row cancel goes through lib/trading cancelOrder).
- *   Stub   — algo-orders, order-lists (OPO/OCO), countdown-cancel-all.
- *            All registered in the route table, all answering 501
- *            NOT_IMPLEMENTED until their owning phases land.
+ *   Live   — algo-orders, order-lists (OPO/OCO), countdown-cancel-all are
+ *            all `v1live` too (supersedes the earlier "stub → 501" note —
+ *            the registry carries zero StatusStub rows).
  */
 import { apiClient } from '@/app/runtime';
 import type { ApiClient } from '@/lib/api';

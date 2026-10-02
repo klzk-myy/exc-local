@@ -1,8 +1,8 @@
 /**
  * Strategy browser (Task 10.3.26 item 1) — provider leaderboard from
  * GET /api/v1/copy/strategies with card/table toggle, client-side sort
- * and risk-class filter. On 501 NOT_IMPLEMENTED the surface renders
- * UnavailablePanel — zero fabricated leaderboard rows.
+ * and risk-class filter. The route is live; any 501 (regression) still
+ * renders UnavailablePanel — zero fabricated leaderboard rows.
  */
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -78,7 +78,7 @@ export function StrategyBrowser({ onFollow }: { onFollow: (s: CopyStrategy) => v
         <UnavailablePanel
           feature="Copy trading"
           owner="Phase-14 Task 14.3.8"
-          note="The strategy leaderboard endpoint is registered but not yet live. No strategy data is shown because none exists server-side."
+          note="The strategy leaderboard endpoint reported unavailable (expected live — regression signal). No strategy data is shown."
         />
       );
     }

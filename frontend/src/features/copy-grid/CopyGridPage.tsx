@@ -1,13 +1,15 @@
 /**
  * Copy trading & grid bots — Task 10.3.26 page shell.
  * Tabs: Strategy browser · Grid bots (active list + wizard).
- * My-follows management lands with Phase-14 (no list route registered).
+ * My-follows management (list + unfollow) is live — Phase-14 Task
+ * 14.3.14 routes (GET/DELETE /api/v1/copy/follows[{id}]).
  */
 import { useState } from 'react';
 
 import { ActiveBotsPanel } from './ActiveBotsPanel';
-import { FollowModal, UnfollowNote } from './FollowModal';
+import { FollowModal } from './FollowModal';
 import { GridBotWizard } from './GridBotWizard';
+import { MyFollowsPanel } from './MyFollowsPanel';
 import { StrategyBrowser } from './StrategyBrowser';
 import type { CopyStrategy } from './api';
 
@@ -65,7 +67,7 @@ export default function CopyGridPage() {
               setFollowOpen(true);
             }}
           />
-          <UnfollowNote />
+          <MyFollowsPanel />
         </>
       ) : (
         <div className="space-y-4">

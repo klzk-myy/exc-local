@@ -97,3 +97,85 @@ export function effectiveLeverage(
 export function parseCalcField(v: string): Dec | undefined {
   return v.trim() === '' ? undefined : tryDec(v);
 }
+
+// ---------------------------------------------------------------------------
+// Standalone P&L — (exit − entry) × qty, signed by side; quote ccy.
+// ---------------------------------------------------------------------------
+
+export interface PnlResult {
+  pair: Pair;
+  /** exit − entry price delta. */
+  priceMove: Dec;
+  /** priceMove ÷ pipSize — signed pips. */
+  pips: Dec;
+  /** Signed P&L in quote currency. */
+  pnlQuote: Dec;
+  quoteCcy: string;
+}
+
+export function computePnL(
+  symbol: string,
+  side: CalcSide,
+  quantity: Dec | undefined,
+  entry: Dec | undefined,
+  exit: Dec | undefined,
+): PnlResult | undefined {
+  const pair = splitPair(symbol);
+  if (!pair) return undefined;
+  if (!quantity?.isPositive() || !entry?.isPositive() || !exit?.isPositive()) return undefined;
+  const raw = exit.sub(entry);
+  const priceMove = side === 'LONG' ? raw : raw.neg();
+  return {
+    pair,
+    priceMove,
+    pips: priceMove.div(pipSize(symbol)),
+    pnlQuote: priceMove.mul(quantity),
+    quoteCcy: pair.quote,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Overnight financing — Task 3.3.11's contract, verbatim:
+//   charge = qty(base units) × swap_points × days   (quote ccy)
+// Points arrive per-day from GET /instruments/{symbol}/swap-rates;
+// days=3 on the Wednesday roll (the sheet's `triple` flag is the
+// calendar fact). Admin markup is a separate bps leg on the interbank
+// amount — shown as its own output, never folded into the published
+// points.
+// ---------------------------------------------------------------------------
+
+export interface SwapResult {
+  pair: Pair;
+  /** Signed interbank charge — negative = client pays, positive = earns. */
+  interbankQuote: Dec;
+  /** Signed admin markup leg (bps × |interbank| / 10⁴), same sign. */
+  markupQuote: Dec;
+  /** interbank + markup — the projected accrual, quote ccy. */
+  totalQuote: Dec;
+  daysApplied: number;
+  quoteCcy: string;
+}
+
+export function computeSwap(
+  symbol: string,
+  side: CalcSide,
+  quantity: Dec | undefined,
+  pointsPerDay: Dec | undefined,
+  markupBps: Dec | undefined,
+  days: number,
+): SwapResult | undefined {
+  const pair = splitPair(symbol);
+  if (!pair) return undefined;
+  if (!quantity?.isPositive() || pointsPerDay === undefined || days < 1) return undefined;
+  const interbank = quantity.mul(pointsPerDay).mul(Dec.of(days));
+  const bps = markupBps?.isPositive() === true ? markupBps : Dec.of(0);
+  const markup = interbank.abs().mul(bps).div(Dec.of(10_000));
+  return {
+    pair,
+    interbankQuote: interbank,
+    markupQuote: markup.neg(), // markup is always a cost to the client
+    totalQuote: interbank.sub(markup),
+    daysApplied: days,
+    quoteCcy: pair.quote,
+  };
+}

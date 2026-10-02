@@ -11,10 +11,15 @@ describe('useInputHelper', () => {
     expect(result.current.fields.length).toBeGreaterThan(0);
   });
 
-  it('flags stub routes (sub-accounts owe a later phase)', () => {
-    const { result } = renderHook(() => useInputHelper('GET /api/v1/account/sub-accounts'));
-    expect(result.current.isStub).toBe(true);
-    // Phase-14 landed copy trading — the same hook reports live now.
+  it('flags stub routes (none remain after the Phase-3 Task 7 sweep)', () => {
+    // The registry holds zero StatusStub rows — every declared route is
+    // live. An unknown route resolves no contract, never a stub flag.
+    const unknown = renderHook(() => useInputHelper('GET /api/v1/nope'));
+    expect(unknown.result.current.isStub).toBe(false);
+    // Sub-accounts flipped stub → live when the family was mounted.
+    const subs = renderHook(() => useInputHelper('GET /api/v1/account/sub-accounts'));
+    expect(subs.result.current.isStub).toBe(false);
+    // Phase-14 landed copy trading — the same hook reports live.
     const live = renderHook(() => useInputHelper('GET /api/v1/copy/strategies'));
     expect(live.result.current.isStub).toBe(false);
     // Phase-20 landed trade confirmations — live now.
