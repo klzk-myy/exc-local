@@ -2,6 +2,18 @@
 
 **Phase-09 Task 9.3.15 (item 4)** · **Authority:** spec §19.5, §24 #171 · **Owner:** Vendor/Procurement + Compliance · **Review:** onboarding, renewal, and annually; concentration re-assessed on any outage event
 
+**System of record (2026-10):** this register is backed by migration 285
+(`ict_providers` + `ict_provider_reviews`) and served by
+`operations/dora.VendorService` under `GET|POST /api/v1/admin/ict-providers`,
+`PUT|DELETE /api/v1/admin/ict-providers/{id}`,
+`GET|POST …/{id}/reviews`, `GET …/due` (Compliance Officer RBAC). The
+table in §1 is seeded into `ict_providers` and remains the human
+narrative; the DB rows are authoritative for cadence/renewal/test state.
+A daily 06:00 UTC sweep (`dora-ict-register` in cmd/gateway) pages P2 on
+`ICT_REVIEW_OVERDUE` (annual review past `next_review_at`),
+`ICT_RENEWAL_DUE` (renewal inside the termination-notice runway, default
+30d), and `ICT_EXIT_TEST_STALE` (HIGH/MEDIUM exit plan untested >1y).
+
 Register contract per task: provider → service → supported functions → locations/subcontractors → concentration risk → audit/access/termination terms → exit strategy → tested substitution/insourcing plan.
 
 ## 1. Register

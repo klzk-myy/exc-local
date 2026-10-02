@@ -545,6 +545,12 @@
         "owner": "Phase-23 Task 23.3.2"
       },
       {
+        "code": "FAIR_VALUE_DIVERGENCE",
+        "description": "Explicit agreed forward/NDF rate diverges from the CIP fair value beyond the 25 bps band (spec §15.3 formula, §27.1 MTF/Fair-Value row, oracle-divergence convention)",
+        "http_status": 503,
+        "owner": "Phase-22 Task 22.3.1"
+      },
+      {
         "code": "FEE_INVALID_INPUT",
         "description": "Fee-schedule input failed validation (Phase-03 Task 3.3.4 Fee Engine; remediation #44)",
         "http_status": 400,
@@ -566,6 +572,12 @@
         "code": "FIXING_CUTOFF_EXCEEDED",
         "description": "Fixing order submitted after T-15m pre-benchmark cutoff (Phase-16 Task 16.3.9) — registered 2026-09-15",
         "http_status": 409,
+        "owner": "Phase-16 Task 16.3.9"
+      },
+      {
+        "code": "FIXING_WINDOW_CLOSED",
+        "description": "Fixing-order operation targets a benchmark with no enabled upcoming window (disabled/delisted fixing on the instrument's auction calendar) — spec §27.1 MTF/Fair-Value row",
+        "http_status": 400,
         "owner": "Phase-16 Task 16.3.9"
       },
       {
@@ -655,6 +667,12 @@
         "description": "Multi-leg implied matching unavailable — the implied_matching feature flag is disabled/unresolvable for this account or tier, so implied-liquidity admission fails closed (spec §24; §2.7 fail-closed)",
         "http_status": 503,
         "owner": "Phase-22 Task 22.3.12"
+      },
+      {
+        "code": "INCIDENT_CLOSURE_BLOCKED",
+        "description": "Material incident CLOSED transition refused: overdue/pending DORA regulator reports, incomplete P0/P1 post-mortem artifacts, or unresolved/unaccepted remediation items (spec §19.5, §19.8)",
+        "http_status": 409,
+        "owner": "Phase-09 Task 9.3.15"
       },
       {
         "code": "INSTRUMENT_CANCEL_ONLY",
@@ -4220,7 +4238,6 @@
     },
     "/api/v1/account/sub-accounts": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_account_sub_accounts",
         "responses": {
           "200": {
@@ -4263,11 +4280,10 @@
         "x-env": "",
         "x-owner": "Phase-05 Task 5.3.11",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       },
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_account_sub_accounts",
         "responses": {
           "200": {
@@ -4306,13 +4322,60 @@
         "x-env": "",
         "x-owner": "Phase-05 Task 5.3.11",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/account/sub-accounts/aggregate": {
+      "get": {
+        "operationId": "get_api_v1_account_sub_accounts_aggregate",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "read"
+            ]
+          },
+          {
+            "apiKeyAuth": [
+              "read"
+            ]
+          },
+          {
+            "oauth2": [
+              "read"
+            ]
+          }
+        ],
+        "summary": "Master's rolled-up family view (balances + positions)",
+        "tags": [
+          "account"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "",
+          "scopes": [
+            "read"
+          ]
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-05 Task 5.3.11",
+        "x-rate-tier": "basic",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/account/sub-accounts/{id}/api-keys": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_account_sub_accounts_id_api_keys",
         "parameters": [
           {
@@ -4361,7 +4424,69 @@
         "x-env": "",
         "x-owner": "Phase-05 Task 5.3.11",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/account/sub-accounts/{id}/api-keys/{keyId}": {
+      "delete": {
+        "operationId": "delete_api_v1_account_sub_accounts_id_api_keys_keyId",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "keyId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Revoke a sub-account API key",
+        "tags": [
+          "account"
+        ],
+        "x-auth": {
+          "methods": [
+            "jwt",
+            "hmac",
+            "oauth2"
+          ],
+          "required": true,
+          "role": "",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-05 Task 5.3.11",
+        "x-rate-tier": "basic",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -4690,7 +4815,6 @@
     },
     "/api/v1/admin/accounts/{id}/freeze": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_admin_accounts_id_freeze",
         "parameters": [
           {
@@ -4736,7 +4860,7 @@
         "x-owner": "Phase-05 Task 5.3.12",
         "x-rate-tier": "basic",
         "x-rbac-role": "Compliance Officer",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -4893,7 +5017,6 @@
     },
     "/api/v1/admin/accounts/{id}/sub-account-limit": {
       "put": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "put_api_v1_admin_accounts_id_sub_account_limit",
         "parameters": [
           {
@@ -4939,13 +5062,12 @@
         "x-owner": "Phase-05 Task 5.3.11",
         "x-rate-tier": "basic",
         "x-rbac-role": "Risk Manager",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/admin/accounts/{id}/unfreeze": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_admin_accounts_id_unfreeze",
         "parameters": [
           {
@@ -4991,7 +5113,7 @@
         "x-owner": "Phase-05 Task 5.3.12",
         "x-rate-tier": "basic",
         "x-rbac-role": "Compliance Officer",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -6183,7 +6305,6 @@
     },
     "/api/v1/admin/archive/status": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_admin_archive_status",
         "responses": {
           "200": {
@@ -6219,7 +6340,7 @@
         "x-owner": "Phase-04 Task 4.3.2",
         "x-rate-tier": "basic",
         "x-rbac-role": "Read-Only Auditor",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -11651,6 +11772,327 @@
         "x-weight": 1
       }
     },
+    "/api/v1/admin/ict-providers": {
+      "get": {
+        "operationId": "get_api_v1_admin_ict_providers",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "List DORA ICT provider register (?status=)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Compliance Officer",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-09 Task 9.3.15",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Compliance Officer",
+        "x-status": "live",
+        "x-weight": 1
+      },
+      "post": {
+        "operationId": "post_api_v1_admin_ict_providers",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Register an ICT provider/service row",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Compliance Officer",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-09 Task 9.3.15",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Compliance Officer",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/ict-providers/due": {
+      "get": {
+        "operationId": "get_api_v1_admin_ict_providers_due",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Due register obligations (overdue reviews, renewals, stale exit tests)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Compliance Officer",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-09 Task 9.3.15",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Compliance Officer",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/ict-providers/{id}": {
+      "delete": {
+        "operationId": "delete_api_v1_admin_ict_providers_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Retire a register row",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Compliance Officer",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-09 Task 9.3.15",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Compliance Officer",
+        "x-status": "live",
+        "x-weight": 1
+      },
+      "put": {
+        "operationId": "put_api_v1_admin_ict_providers_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Update register row (terms, exit plan, cadence)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Compliance Officer",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-09 Task 9.3.15",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Compliance Officer",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/ict-providers/{id}/reviews": {
+      "get": {
+        "operationId": "get_api_v1_admin_ict_providers_id_reviews",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Provider audit events (reviews, renewals, substitution tests)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Compliance Officer",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-09 Task 9.3.15",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Compliance Officer",
+        "x-status": "live",
+        "x-weight": 1
+      },
+      "post": {
+        "operationId": "post_api_v1_admin_ict_providers_id_reviews",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Record a review/renewal/substitution-test event",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Compliance Officer",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-09 Task 9.3.15",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Compliance Officer",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
     "/api/v1/admin/instruments": {
       "get": {
         "operationId": "get_api_v1_admin_instruments",
@@ -12141,7 +12583,6 @@
     },
     "/api/v1/admin/instruments/{id}/uncross-override": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_admin_instruments_id_uncross_override",
         "parameters": [
           {
@@ -12182,12 +12623,12 @@
           "role": "Risk Manager",
           "scopes": null
         },
-        "x-dual-control": false,
+        "x-dual-control": true,
         "x-env": "",
         "x-owner": "Phase-15 Task 15.3.10",
         "x-rate-tier": "basic",
         "x-rbac-role": "Risk Manager",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -12821,6 +13262,47 @@
         "x-owner": "Phase-11 Task 11.3.8",
         "x-rate-tier": "basic",
         "x-rbac-role": "Risk Manager",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/kyc/pending": {
+      "get": {
+        "operationId": "get_api_v1_admin_kyc_pending",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "KYC review queue — PENDING_REVIEW/UNDER_REVIEW, oldest SLA first",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Compliance Officer",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-14 Task 14.3.4",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Compliance Officer",
         "x-status": "live",
         "x-weight": 1
       }
@@ -17715,6 +18197,137 @@
         "x-owner": "Phase-13.5 Task 13.5.3.8/13.5.3.9",
         "x-rate-tier": "basic",
         "x-rbac-role": "*",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/security/secrets-inventory": {
+      "get": {
+        "operationId": "get_api_v1_admin_security_secrets_inventory",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Secrets inventory register + rotation states (503 SECRET_ROTATION_OVERDUE on SLA breach)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Super Admin",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-09 Task 9.3.29",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Super Admin",
+        "x-status": "live",
+        "x-weight": 1
+      },
+      "put": {
+        "operationId": "put_api_v1_admin_security_secrets_inventory",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Upsert one inventory row (owner/TTL/procedure/last_rotated_at backfill; audited)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Super Admin",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-09 Task 9.3.29",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Super Admin",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/admin/security/secrets-inventory/{name}/mark-rotated": {
+      "post": {
+        "operationId": "post_api_v1_admin_security_secrets_inventory_name_mark_rotated",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Record a completed rotation (emergency + break-glass markers; audited)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Super Admin",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-09 Task 9.3.29",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Super Admin",
         "x-status": "live",
         "x-weight": 1
       }
@@ -23870,6 +24483,64 @@
         "x-weight": 1
       }
     },
+    "/api/v1/baskets/{op_id}": {
+      "get": {
+        "operationId": "get_api_v1_baskets_op_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "op_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "read"
+            ]
+          },
+          {
+            "apiKeyAuth": [
+              "read"
+            ]
+          },
+          {
+            "oauth2": [
+              "read"
+            ]
+          }
+        ],
+        "summary": "Basket op status + leg order projection",
+        "tags": [
+          "baskets"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "",
+          "scopes": [
+            "read"
+          ]
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "IMP-PLAN Phase-3 Task 4",
+        "x-rate-tier": "basic",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
     "/api/v1/book/{symbol}": {
       "get": {
         "operationId": "get_api_v1_book_symbol",
@@ -24117,7 +24788,169 @@
         "x-weight": 1
       }
     },
+    "/api/v1/bots/grid/{id}/pause": {
+      "post": {
+        "operationId": "post_api_v1_bots_grid_id_pause",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "trade"
+            ]
+          },
+          {
+            "apiKeyAuth": [
+              "trade"
+            ]
+          },
+          {
+            "oauth2": [
+              "trade"
+            ]
+          }
+        ],
+        "summary": "Pause grid bot (children keep working; no new legs)",
+        "tags": [
+          "bots"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "",
+          "scopes": [
+            "trade"
+          ]
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-16 Task 16.3.19 / Phase-10 Task 10.3.26",
+        "x-rate-tier": "basic",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/bots/grid/{id}/resume": {
+      "post": {
+        "operationId": "post_api_v1_bots_grid_id_resume",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "trade"
+            ]
+          },
+          {
+            "apiKeyAuth": [
+              "trade"
+            ]
+          },
+          {
+            "oauth2": [
+              "trade"
+            ]
+          }
+        ],
+        "summary": "Resume paused grid bot + re-arm suspended legs",
+        "tags": [
+          "bots"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "",
+          "scopes": [
+            "trade"
+          ]
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-16 Task 16.3.19 / Phase-10 Task 10.3.26",
+        "x-rate-tier": "basic",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
     "/api/v1/copy/follows": {
+      "get": {
+        "operationId": "get_api_v1_copy_follows",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "read"
+            ]
+          },
+          {
+            "apiKeyAuth": [
+              "read"
+            ]
+          },
+          {
+            "oauth2": [
+              "read"
+            ]
+          }
+        ],
+        "summary": "Caller's follow list (all statuses; strategy display fields joined)",
+        "tags": [
+          "copy"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "",
+          "scopes": [
+            "read"
+          ]
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-14 Task 14.3.14",
+        "x-rate-tier": "basic",
+        "x-status": "live",
+        "x-weight": 1
+      },
       "post": {
         "operationId": "post_api_v1_copy_follows",
         "responses": {
@@ -25746,7 +26579,6 @@
     },
     "/api/v1/instruments/{symbol}/pip-value": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_instruments_symbol_pip_value",
         "parameters": [
           {
@@ -25780,13 +26612,12 @@
         "x-env": "",
         "x-owner": "Phase-03 Task 3.3.12",
         "x-rate-tier": "public",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/instruments/{symbol}/swap-rates": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_instruments_symbol_swap_rates",
         "parameters": [
           {
@@ -25820,7 +26651,7 @@
         "x-env": "",
         "x-owner": "Phase-03 Task 3.3.11",
         "x-rate-tier": "public",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -26182,7 +27013,6 @@
     },
     "/api/v1/market-data/snapshot": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_market_data_snapshot",
         "responses": {
           "200": {
@@ -26206,13 +27036,12 @@
         "x-env": "",
         "x-owner": "Phase-06",
         "x-rate-tier": "public",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/market/depth": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_market_depth",
         "responses": {
           "200": {
@@ -26236,13 +27065,12 @@
         "x-env": "",
         "x-owner": "Phase-06 Task 6.3.5",
         "x-rate-tier": "public",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/market/open-interest": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_market_open_interest",
         "responses": {
           "200": {
@@ -26266,7 +27094,7 @@
         "x-env": "",
         "x-owner": "Phase-06",
         "x-rate-tier": "public",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -27110,6 +27938,54 @@
         "x-weight": 1
       }
     },
+    "/api/v1/orders/basket": {
+      "post": {
+        "operationId": "post_api_v1_orders_basket",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "trade"
+            ]
+          },
+          {
+            "apiKeyAuth": [
+              "trade"
+            ]
+          },
+          {
+            "oauth2": [
+              "trade"
+            ]
+          }
+        ],
+        "summary": "Submit cross-shard basket (2..8 legs, optimistic TRY_MATCH)",
+        "tags": [
+          "orders"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "",
+          "scopes": [
+            "trade"
+          ]
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "IMP-PLAN Phase-3 Task 4",
+        "x-rate-tier": "basic",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
     "/api/v1/orders/batch": {
       "delete": {
         "operationId": "delete_api_v1_orders_batch",
@@ -27254,7 +28130,6 @@
     },
     "/api/v1/orders/cancel-all-after": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_orders_cancel_all_after",
         "responses": {
           "200": {
@@ -27297,13 +28172,12 @@
         "x-env": "",
         "x-owner": "Phase-05 Task 5.3.33 / Phase-18 Task 18.3.9",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/api/v1/orders/countdown-cancel-all": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_orders_countdown_cancel_all",
         "responses": {
           "200": {
@@ -27346,7 +28220,7 @@
         "x-env": "",
         "x-owner": "Phase-05 Task 5.3.33",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -27400,7 +28274,6 @@
     },
     "/api/v1/orders/roll": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_orders_roll",
         "responses": {
           "200": {
@@ -27443,7 +28316,7 @@
         "x-env": "",
         "x-owner": "Phase-22",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -28032,6 +28905,52 @@
       }
     },
     "/api/v1/pamm/pools": {
+      "get": {
+        "operationId": "get_api_v1_pamm_pools",
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "read"
+            ]
+          },
+          {
+            "apiKeyAuth": [
+              "read"
+            ]
+          },
+          {
+            "oauth2": [
+              "read"
+            ]
+          }
+        ],
+        "summary": "ACTIVE pool discovery — keyset ?after=<pool_id>",
+        "tags": [
+          "pamm"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "",
+          "scopes": [
+            "read"
+          ]
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-14 Task 14.3.8",
+        "x-rate-tier": "basic",
+        "x-status": "live",
+        "x-weight": 1
+      },
       "post": {
         "operationId": "post_api_v1_pamm_pools",
         "responses": {
@@ -28066,6 +28985,64 @@
           "required": true,
           "role": "",
           "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-14 Task 14.3.8",
+        "x-rate-tier": "basic",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
+    "/api/v1/pamm/pools/{id}": {
+      "get": {
+        "operationId": "get_api_v1_pamm_pools_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "read"
+            ]
+          },
+          {
+            "apiKeyAuth": [
+              "read"
+            ]
+          },
+          {
+            "oauth2": [
+              "read"
+            ]
+          }
+        ],
+        "summary": "Pool detail: row + active investor count/total + caller's allocation",
+        "tags": [
+          "pamm"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "",
+          "scopes": [
+            "read"
+          ]
         },
         "x-dual-control": false,
         "x-env": "",
@@ -28191,6 +29168,64 @@
         "x-weight": 1
       }
     },
+    "/api/v1/pamm/pools/{id}/statement": {
+      "get": {
+        "operationId": "get_api_v1_pamm_pools_id_statement",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "read"
+            ]
+          },
+          {
+            "apiKeyAuth": [
+              "read"
+            ]
+          },
+          {
+            "oauth2": [
+              "read"
+            ]
+          }
+        ],
+        "summary": "Caller's sub-ledger movements (manager sees pool-wide)",
+        "tags": [
+          "pamm"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "",
+          "scopes": [
+            "read"
+          ]
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-14 Task 14.3.8",
+        "x-rate-tier": "basic",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
     "/api/v1/positions": {
       "get": {
         "operationId": "get_api_v1_positions",
@@ -28241,7 +29276,6 @@
     },
     "/api/v1/positions/close-all": {
       "post": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "post_api_v1_positions_close_all",
         "responses": {
           "200": {
@@ -28284,7 +29318,7 @@
         "x-env": "",
         "x-owner": "Phase-05 Task 5.3.36",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -30042,7 +31076,6 @@
     },
     "/api/v1/venue/info": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "get_api_v1_venue_info",
         "responses": {
           "200": {
@@ -30066,7 +31099,7 @@
         "x-env": "",
         "x-owner": "Phase-05 Task 5.3.44",
         "x-rate-tier": "public",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -30608,7 +31641,6 @@
     },
     "/ws/market": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "ws_ws_market",
         "responses": {
           "200": {
@@ -30632,13 +31664,12 @@
         "x-env": "",
         "x-owner": "Phase-06 Task 6.3.1",
         "x-rate-tier": "public",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/ws/stream": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "ws_ws_stream",
         "responses": {
           "200": {
@@ -30662,13 +31693,12 @@
         "x-env": "",
         "x-owner": "Phase-06 Task 6.3.16",
         "x-rate-tier": "public",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/ws/trade": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "ws_ws_trade",
         "responses": {
           "200": {
@@ -30707,7 +31737,7 @@
         "x-env": "",
         "x-owner": "Phase-05 Task 5.3.31",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
@@ -30796,7 +31826,6 @@
     },
     "/ws/v1/marketdata": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "ws_ws_v1_marketdata",
         "responses": {
           "200": {
@@ -30820,13 +31849,12 @@
         "x-env": "",
         "x-owner": "Phase-05 Task 5.3.26 (legacy alias)",
         "x-rate-tier": "public",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     },
     "/ws/v1/orders": {
       "get": {
-        "description": "Registered but not yet implemented by its owning phase — serves 501 NOT_IMPLEMENTED (spec §8.4 registration-completeness invariant).",
         "operationId": "ws_ws_v1_orders",
         "responses": {
           "200": {
@@ -30865,7 +31893,7 @@
         "x-env": "",
         "x-owner": "Phase-05 Task 5.3.26 (legacy alias)",
         "x-rate-tier": "basic",
-        "x-status": "stub",
+        "x-status": "live",
         "x-weight": 1
       }
     }

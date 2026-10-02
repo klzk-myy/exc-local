@@ -1,5 +1,14 @@
 # FOREX Exchange System Suite — Completeness Assessment: Slice 3 (Domains 7, 8, 9)
 
+> **⚠️ SUPERSEDED — historical record (2026-09-27, planning-stage snapshot).**
+> All "Code Impl. 0%" / "Ready for Day 0 implementation" figures below describe the
+> pre-code Day-0 baseline and are **no longer accurate**. The current evidence-based
+> completeness record lives in **`IMP-PLAN.md` — Phase 2 (component assessment) and
+> Phase 3 (remediation tasks 1–11)**: risk, compliance, and settlement surfaces are
+> implemented and 354/419 §24 criteria are `EXECUTABLE` (65 `PLANNED` pending
+> environment-gated evidence). Body preserved unchanged below as the original
+> planning-baseline record.
+
 **Assessment Date:** 2026-09-27  
 **Scope:** Slice 3 — Domain 7 (Risk & Credit), Domain 8 (Compliance & AML), Domain 9 (Trade Lifecycle Ops)  
 **Project State:** Planning-Stage Repository (100% Architecture & Specification / 0% Application Code Implementation)  

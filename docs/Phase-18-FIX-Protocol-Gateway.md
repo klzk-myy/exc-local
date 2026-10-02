@@ -18,6 +18,31 @@ Implement the FIX 4.4 gateway using quickfix-go: session management, order submi
 
 ---
 
+> **Runtime wiring note (2026-10-02, IMP-PLAN Phase-3 Task 3):** the tested
+> library surfaces are now reachable in `cmd/fix`:
+> - `fix.sp2_enabled` + `fix.sp2_acceptor_{host,port}` (default port 9880)
+>   bind a second acceptor running FIXT.1.1 + DefaultApplVerID=9;
+>   `tls_enabled` is mandatory on that surface.
+> - `fix.mtls_required` requires `tls_enabled` + `tls_ca` and arms the
+>   FIXS gate: `tls.go VerifyPeer` runs inside `Acceptor.SetTLSConfig`'s
+>   `VerifyConnection` — certificate fingerprint → `fix_sessions` binding
+>   (`PgBindingLookup`), CN/SAN check, environment match, and the
+>   `fix_cert_revocations` list (migration 282, `PgRevocationList`) — all
+>   before any FIX byte is read. `WrapCertification` additionally gates
+>   Logon for order-entry sessions in production (`certification.Gate`).
+> - 35=J/35=AK dispatch is live: `App.FromApp` routes
+>   `MsgAllocationInstruction` to `AllocationService` (PG-backed
+>   `AllocationStore`, `PgExecResolver` over orders+instruments, Tag-17
+>   ExecIDs resolve through the in-process `ExecRegistry` tap on the
+>   report bus).
+> - Drop copy + PB drop copy: `fix_session_bindings` (migration 282) is
+>   the provisioned account set; `App.OnLogon` binds drop-copy sessions
+>   into `DropCopyRouter`, `PBDropCopy` taps the report bus, and
+>   `AffirmationMonitor` sweeps pending give-ups on the spec'd 60s
+>   window / 5s cadence.
+
+---
+
 ## 18.3 Tasks
 
 ### Task 18.3.1: FIX Session Management

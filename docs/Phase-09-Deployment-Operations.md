@@ -42,6 +42,7 @@ Implement production deployment: bare metal C++ core provisioning, Kubernetes Go
 **SDD Checklist:**
 - [x] Spec checkpoint: bare metal C++ core with NUMA pinning — defined first, validated against spec
 - [x] All spec checkpoints pass after implementation
+- [x] Docker alternative (2026-10-02, prod docker redesign, spec §27 — no new task/AC counts): `deploy/docker/Dockerfile.engine` builds the `matching_engine` target and `Dockerfile.aeron` ships the vendored `aeronmd`; `docker-compose.app.yml` runs both with `ipc: host` + `/dev/shm` + WAL/snapshot volumes, `stop_grace_period: 15s`, compose supervision replacing supervisord; bare metal stays canonical for p99 evidence
 
 ---
 
@@ -67,6 +68,7 @@ Implement production deployment: bare metal C++ core provisioning, Kubernetes Go
 **SDD Checklist:**
 - [x] Spec checkpoint: K8s Go services with HPA — defined first, validated against spec
 - [x] All spec checkpoints pass after implementation
+- [x] Docker alternative (2026-10-02, prod docker redesign, spec §27 — no new task/AC counts): `deploy/docker/Dockerfile.go` ships all `./cmd/...` daemons in `/app/bin` and `Dockerfile.frontend` the Vite UI; `docker-compose.app.yml` (same `exc-dev` project as infra compose) runs the full set — `watchdogd` + `frontend` added 2026-10-02 — with §19.13.2 stage ordering, `restart: unless-stopped` + `/health*` checks replacing supervisord, `EXC_APP_MODE=docker` driven by `deploy/scripts/dev_stack.sh`
 
 ---
 

@@ -29,18 +29,20 @@ daemons live in `deploy/k8s/`; bare-metal in `deploy/systemd/`.
 | `fix-gateway` | `services/cmd/fix` :9800/8082 | `fix-gateway.yaml` | probes + FIX heartbeat monitor + CoD |
 | `marketdata-service` | `services/cmd/marketdata` :8081 | `marketdata-service.yaml` | probes + WS buffer saturation |
 | `aeron-nats-bridge` | `services/cmd/bridge` :9101 | `aeron-nats-bridge.yaml` + PVC | probes + JetStream ack timeout |
-| `risk-coordinator` | `services/cmd/risk` *(planned)* | `risk-coordinator.yaml` | probes + 500µs RPC timer |
-| `liquidation-scanner` | `services/cmd/liquidation_scanner` *(planned)* | `liquidation-scanner.yaml` | probes + 2s scan timer |
-| `settlement-service` | `services/cmd/settlement` :8083 | `settlement-service.yaml` | probes + SQL retry handler |
-| `tomnext-rollover` | `services/cmd/tomnext_rollover` *(planned)* | `cronjobs/tomnext-rollover.yaml` | CronJob completion + Redis lock |
+| `risk-coordinator` | `services/cmd/risk` — real binary (cross-shard margin coordinator, Task 19.3.11; supersedes prior "planned" mark) | `risk-coordinator.yaml` | probes + 500µs RPC timer |
+| `liquidation-scanner` | runs **inside `cmd/gateway`** — `liqSvc.ScanOnce`/`ConsumeOnce`/`adlPub.TickOnce` sweep loops (Phase-19); `services/cmd/liquidation_scanner` does not exist | `liquidation-scanner.yaml` | probes + 2s scan timer |
+| `settlement-service` | `services/cmd/settlement` :8083 | `settlement-service.yaml` | probes + `GrossNetService.DispatchDue` loop (5m; `EXC_SETTLE_DISPATCH_INTERVAL`) — release-queued legs, rail cut-off re-roll, mode-aware GROSS/NET dispatch; fails closed without `EXC_SENDER_BIC` |
+| `tomnext-rollover` | runs **inside `cmd/gateway`** — session-lifecycle `Rollover` seam → `settlement.NewRolloverService` (Task 3.3.7); `services/cmd/tomnext_rollover` does not exist | `cronjobs/tomnext-rollover.yaml` *(placeholder image `:CHANGE_ME`)* | CronJob completion + Redis lock |
 | `compliance-worker` | `services/cmd/compliance` :8084 | `compliance-worker.yaml` | probes + NATS consumer lag |
-| `regulatory-reporter` | `services/cmd/regulatory_reporter` *(planned)* | `regulatory-reporter.yaml` | probes + submission ack tracker |
-| `banking-rails-worker` | `services/cmd/banking_rails` *(planned)* | `banking-rails-worker.yaml` | probes + rail return-code tracker |
-| `analytics-spooler` | `services/cmd/analytics` *(planned)* | `analytics-spooler.yaml` + PVC | probes + 5s insert timeout |
-| `oracle-service` | `services/cmd/oracle` *(planned)* | `oracle-service.yaml` | probes + 5s staleness gate |
-| `proof-of-reserves-builder` | `services/cmd/proof_of_reserves` *(planned)* | `cronjobs/proof-of-reserves-builder.yaml` | CronJob completion + SHA256 check |
-| `status-exporter` | `services/cmd/status_exporter` *(planned)* | `status-exporter.yaml` | probes + Prometheus scrape |
+| `regulatory-reporter` | runs **inside `cmd/gateway`** — dispatch sweep + per-regime reconcile + `trades`/`settlements` JetStream consumers (Phase-21); `services/cmd/regulatory_reporter` does not exist | `regulatory-reporter.yaml` | probes + submission ack tracker |
+| `banking-rails-worker` | runs **inside `cmd/gateway`** — `funding.NewRailService` + dispatch handoff on CONFIRMED rows (Phase-11); `services/cmd/banking_rails` does not exist | `banking-rails-worker.yaml` | probes + rail return-code tracker |
+| `analytics-spooler` | `services/cmd/analytics` — real binary (Phase-20 CH ingest: trades+analytics consumers, spool drain, income poll; supersedes prior "planned" mark) | `analytics-spooler.yaml` + PVC | probes + 5s insert timeout |
+| `oracle-service` | `services/cmd/oracle` — real binary (Phase-19.5 mark/index publisher, 5s staleness gate; supersedes prior "planned" mark) | `oracle-service.yaml` | probes + 5s staleness gate |
+| `proof-of-reserves-builder` | **out-of-process by design** — `services/cmd/exchange solvency-tree` + `deploy/crons/solvency-tree.sh` (22:00 UTC); keeps the signing key out of the gateway env. `services/cmd/proof_of_reserves` does not exist | `cronjobs/proof-of-reserves-builder.yaml` *(placeholder image `:CHANGE_ME`)* | CronJob completion + SHA256 check |
+| `status-exporter` | runs **inside `cmd/gateway`** — `/metrics` + `/health/live|ready` surfaces (Task 9.3.28); `services/cmd/status_exporter` does not exist (`sentinel_exporter` is a separate real binary) | `status-exporter.yaml` | probes + Prometheus scrape |
 | `admin` | `services/cmd/admin` :8085 | `admin.yaml` | probes; ops subnet only |
+| `fixsbe-gateway` | `services/cmd/fixsbe` — :9890 SBE/TLS listener + :8089 metrics (`fixsbe.enabled=false` → metrics-only) | supervisord `fixsbe-gateway` / dev_stack `fixsbe` / compose `fixsbe` (k8s manifest TODO) | restart + mTLS cert gate |
+| `xshardrelay` | `services/cmd/xshardrelay` — cross-shard ctl router for basket 2PC `dst_shard` delivery (spec §2.2a; Aeron IPC is point-to-point per channel alias) | supervisord `xshardrelay` / dev_stack `xshardrelay` / compose `xshardrelay` (k8s manifest TODO) | restart + routed/dropped counters |
 
 ## Ops / batch entrypoints (not supervised daemons)
 
