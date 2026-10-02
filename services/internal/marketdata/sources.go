@@ -109,6 +109,10 @@ func (s *WireDeltaSource) decode(buf []byte) (BookDelta, bool) {
 			}
 		}
 	}()
+	return s.decodeFrame(buf)
+}
+
+func (s *WireDeltaSource) decodeFrame(buf []byte) (BookDelta, bool) {
 	if len(buf) < 8 { // uoffset + minimal table — not a valid Event
 		if s.OnDrop != nil {
 			s.OnDrop("malformed")
@@ -137,11 +141,42 @@ func (s *WireDeltaSource) decode(buf []byte) (BookDelta, bool) {
 		}
 		return BookDelta{}, false
 	}
+	return bookDeltaFromSnapshot(sym, &snap, int64(ev.Ts())), true
+}
 
+// DecodeBookDeltaFrame is the frame-tap entry point for processes that
+// already own an out-ring reader (orders.Consumer's WithFrameTap) and
+// need the same BookDelta projection outside a DeltaSource — Phase-3
+// Task 4 uses it to feed sor.BookViewCache in cmd/gateway. It performs
+// no panic guard and no drop accounting — callers inside a guarded
+// context (the consumer's handle() recovers) rely on that contract.
+func DecodeBookDeltaFrame(buf []byte, res InstrumentResolver) (BookDelta, bool) {
+	if len(buf) < 8 {
+		return BookDelta{}, false
+	}
+	ev := ipc.DecodeEvent(buf)
+	if ev.TypeType() != wire.EventTypeBookSnapshot {
+		return BookDelta{}, false
+	}
+	var tab flatbuffers.Table
+	if !ev.Type(&tab) {
+		return BookDelta{}, false
+	}
+	var snap wire.BookSnapshot
+	snap.Init(tab.Bytes, tab.Pos)
+	sym, ok := res.Symbol(snap.InstrumentId())
+	if !ok {
+		return BookDelta{}, false
+	}
+	return bookDeltaFromSnapshot(sym, &snap, int64(ev.Ts())), true
+}
+
+func bookDeltaFromSnapshot(sym string, snap *wire.BookSnapshot,
+	tsNs int64) BookDelta {
 	d := BookDelta{
 		Symbol:    sym,
 		EngineSeq: snap.Seq(),
-		Ts:        time.Unix(0, int64(ev.Ts())),
+		Ts:        time.Unix(0, tsNs),
 	}
 	var lv wire.PriceLevel
 	for i := 0; i < snap.BidsLength(); i++ {
@@ -158,7 +193,7 @@ func (s *WireDeltaSource) decode(buf []byte) (BookDelta, bool) {
 			})
 		}
 	}
-	return d, true
+	return d
 }
 
 // ---------------------------------------------------------------------------

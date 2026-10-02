@@ -10,13 +10,48 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"exchange/pkg/decimal"
 )
 
-// Execer is the pgx-agnostic query seam used across the codebase.
+// Execer is the pgx-agnostic query seam used across the codebase. Rows
+// go through the Scan-only contract so *sql.Row AND pgx.Row both serve
+// it (PgxExecer adapts the repo's pgxpool).
 type Execer interface {
 	ExecContext(ctx context.Context, q string, args ...any) (sql.Result, error)
-	QueryRowContext(ctx context.Context, q string, args ...any) *sql.Row
+	QueryRowContext(ctx context.Context, q string, args ...any) rowScanner
+}
+
+// PgxExecer adapts *pgxpool.Pool onto Execer — Phase-3 Task 4 wires the
+// gateway's pgx pool into this store.
+type PgxExecer struct{ Pool *pgxpool.Pool }
+
+// ExecContext runs the statement via pgx Exec.
+func (p PgxExecer) ExecContext(ctx context.Context, q string,
+	args ...any) (sql.Result, error) {
+	tag, err := p.Pool.Exec(ctx, q, args...)
+	return cmdTagResult{tag}, err
+}
+
+// QueryRowContext maps pgx.QueryRow onto the Scan-only row contract —
+// pgx.Row already has Scan(dest ...any) error.
+func (p PgxExecer) QueryRowContext(ctx context.Context, q string,
+	args ...any) rowScanner {
+	return p.Pool.QueryRow(ctx, q, args...)
+}
+
+// cmdTagResult is pgconn.CommandTag as sql.Result (LastInsertId is a
+// MySQL-ism; Postgres never populates it).
+type cmdTagResult struct{ pgconn.CommandTag }
+
+func (r cmdTagResult) RowsAffected() (int64, error) {
+	return r.CommandTag.RowsAffected(), nil
+}
+
+func (r cmdTagResult) LastInsertId() (int64, error) {
+	return 0, errors.New("sor: LastInsertId unsupported on Postgres")
 }
 
 // PgShadowStore persists shadow orders and fill dedup via database/sql.
