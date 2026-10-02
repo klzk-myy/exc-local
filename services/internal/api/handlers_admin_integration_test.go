@@ -45,7 +45,14 @@ func TestManualLiquidationIntegration(t *testing.T) {
 		t.Skipf("scratch DB has no instrument: %v", err)
 	}
 
-	// Seed one open position for the account.
+	// Seed one open position for the account. The scratch DB is shared and
+	// persistent — clear a stale row from a prior run so repeat runs stay
+	// idempotent (the liquidation may mutate it either way).
+	if _, err := pool.Exec(ctx,
+		`DELETE FROM positions WHERE account_id=$1 AND instrument_id=$2 AND side='LONG'`,
+		acctID, instID); err != nil {
+		t.Fatalf("clear stale position: %v", err)
+	}
 	var posID int64
 	err = pool.QueryRow(ctx, `
 		INSERT INTO positions (account_id, instrument_id, side, quantity,

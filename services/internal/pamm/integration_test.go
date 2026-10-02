@@ -78,6 +78,13 @@ CREATE TABLE users (
     id    BIGSERIAL PRIMARY KEY,
     email VARCHAR(255) NOT NULL DEFAULT ''
 );
+CREATE TABLE fee_tiers (
+    id         BIGSERIAL PRIMARY KEY,
+    tier_name  VARCHAR(32) NOT NULL UNIQUE,
+    maker_bps  NUMERIC(10,4) NOT NULL DEFAULT 0,
+    taker_bps  NUMERIC(10,4) NOT NULL DEFAULT 0
+);
+INSERT INTO fee_tiers (tier_name, maker_bps, taker_bps) VALUES ('STANDARD', 0, 0);
 CREATE TABLE accounts (
     id                BIGSERIAL PRIMARY KEY,
     user_id           BIGINT NOT NULL REFERENCES users(id),
@@ -85,6 +92,7 @@ CREATE TABLE accounts (
     kyc_tier          VARCHAR(4)   NOT NULL DEFAULT 'T2',
     status            VARCHAR(12)  NOT NULL DEFAULT 'ACTIVE',
     parent_account_id BIGINT REFERENCES accounts(id),
+    fee_tier_id       BIGINT REFERENCES fee_tiers(id),
     created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );

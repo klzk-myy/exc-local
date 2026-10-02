@@ -170,6 +170,21 @@ func chaosRMFill(tradeID uint64, buyer, seller int64) ResolvedTrade {
 	rt.Fill.Qty = dec("100")
 	rt.BuyerFee = dec("0.5")  // EUR — from base received
 	rt.SellerFee = dec("2.5") // USD — from quote proceeds
+	// Fees post as separate FEE journals inside the fill commit —
+	// setting the amount fields alone is not enough (the resolver's
+	// FeeService.Quote+Journal path normally builds them). Valid by
+	// construction, so BuildFeeJournal cannot fail here.
+	for _, q := range []FeeQuote{
+		{AccountID: buyer, Role: RoleTaker, Currency: "EUR",
+			Amount: rt.BuyerFee},
+		{AccountID: seller, Role: RoleMaker, Currency: "USD",
+			Amount: rt.SellerFee},
+	} {
+		j, err := BuildFeeJournal(q, int64(tradeID), "chaos-test")
+		if err == nil {
+			rt.FeeJournals = append(rt.FeeJournals, j)
+		}
+	}
 	return rt
 }
 
@@ -352,9 +367,11 @@ func TestChaosSerializationContentionZeroLoss(t *testing.T) {
 		t.Fatalf("phantom ledger entries: committed=%d → want %d entries, got %d",
 			committedDB, 4*committedDB, entriesDB)
 	}
-	if disp.n.Load() != 4*committedDB {
+	// 4 fill effects + 2 fee effects (buyer EUR, seller USD) per fill —
+	// fee journals emit their own BalanceChanged events in-commit.
+	if disp.n.Load() != 6*committedDB {
 		t.Fatalf("dispatch loss: %d events for %d committed fills (want %d)",
-			disp.n.Load(), committedDB, 4*committedDB)
+			disp.n.Load(), committedDB, 6*committedDB)
 	}
 
 	// --- Zero-phantom balance proof: per-cell total ==

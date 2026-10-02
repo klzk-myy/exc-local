@@ -20,9 +20,15 @@ add_library(exch_flags INTERFACE)
 target_compile_options(exch_flags INTERFACE
     -Wall -Wextra -Wpedantic
     $<$<CONFIG:Release>:-march=native>
-    $<$<CONFIG:Debug>:-O0;-fno-omit-frame-pointer;-fsanitize=address>)
+    $<$<CONFIG:Debug>:-O0;-fno-omit-frame-pointer;-fsanitize=address>
+    # Coverage config: gcov instrumentation, no optimization (line-accurate
+    # counts), no sanitizers (gcov + ASan conflict on some toolchains).
+    #   cmake -S . -B build-cov -DCMAKE_BUILD_TYPE=Coverage && ctest --test-dir build-cov
+    #   gcov/lcov over build-cov/CMakeFiles/**.gcno
+    $<$<CONFIG:Coverage>:-O0;-g;--coverage;-fno-inline;-fno-inline-small-functions;-fno-default-inline>)
 target_link_options(exch_flags INTERFACE
-    $<$<CONFIG:Debug>:-fsanitize=address>)
+    $<$<CONFIG:Debug>:-fsanitize=address>
+    $<$<CONFIG:Coverage>:--coverage>)
 
 find_package(Threads REQUIRED)
 
