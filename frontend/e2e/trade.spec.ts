@@ -52,10 +52,14 @@ async function seedBook(): Promise<void> {
     baseURL: API,
     extraHTTPHeaders: { Authorization: `Bearer ${token}`, ...HARNESS_XFF },
   });
-  // Clear the maker's resting orders, then rest both sides. The engine
-  // book is WAL-persistent — without this, leftover depth from prior
-  // runs makes level assertions non-deterministic.
-  const cancel = await ctx.delete(`/api/v1/orders/all?symbol=${encodeURIComponent(SYMBOL)}`);
+  // Clear the maker's resting orders ON THIS SYMBOL, then rest both sides.
+  // The engine book is WAL-persistent — without this, leftover depth from
+  // prior runs makes level assertions non-deterministic. Must use the
+  // symbol-scoped endpoint (DELETE /orders?symbol=), NOT /orders/all: the
+  // all-instruments variant ignores ?symbol= and would try to cancel stale
+  // orders resting on shards with no running engine in the dev stack,
+  // timing out the whole seed (fail-closed GATEWAY_TIMEOUT_MATCHING_ENGINE).
+  const cancel = await ctx.delete(`/api/v1/orders?symbol=${encodeURIComponent(SYMBOL)}`);
   expect(cancel.ok(), `mass cancel ${cancel.status()}`).toBeTruthy();
   for (const [side, price] of [
     ['BUY', '1.09990'],
