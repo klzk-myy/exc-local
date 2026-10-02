@@ -1227,7 +1227,10 @@ func run() error {
 	// model, ShmSubmitter the engine-bound Aeron ring producer. A
 	// missing engine image fails closed SERVICE_DEGRADED at dispatch.
 	orderStore := orders.NewPgStore(pool)
-	orderSubmitter := orders.NewShmSubmitter("") // ipc.DefaultShmBase rings
+	// EXC_IPC_BASE namespaces the shm rings away from the default
+	// "exchange_ipc" base — test harnesses run a parallel stack without
+	// colliding with a live gateway's segments.
+	orderSubmitter := orders.NewShmSubmitter(os.Getenv("EXC_IPC_BASE"))
 	orderSvc, err := orders.NewService(orders.Options{
 		Store:      orderStore,
 		Submitter:  orderSubmitter,
@@ -5063,7 +5066,11 @@ func run() error {
 	} else {
 		var cw risk.CreditCellWriter
 		var cr risk.CreditCellReader
-		if cm, cerr := ipc.OpenCreditMatrix("credit_matrix", true); cerr != nil {
+		cmName := os.Getenv("EXC_CREDIT_MATRIX_SHM")
+		if cmName == "" {
+			cmName = "credit_matrix"
+		}
+		if cm, cerr := ipc.OpenCreditMatrix(cmName, true); cerr != nil {
 			log.Warn("phase19 credit matrix shm unavailable — publishing disabled", "err", cerr)
 		} else {
 			cw, cr = cm, cm

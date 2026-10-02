@@ -87,6 +87,13 @@ type Env struct {
 	TracePath   string // tests/spec/traceability.json (read-only)
 	ReportPath  string
 	Shards      []int
+	// IPCBase namespaces the suite's /dev/shm ring objects
+	// ({base}_{shard}_{in,out,snap,snap_ack} + the credit matrix). The
+	// per-pid default keeps concurrent/leftover stacks — including a
+	// live dev gateway on "exchange_ipc" — from sharing ring state: a
+	// stale segment on a foreign base can never backpressure or
+	// cross-deliver into this stack.
+	IPCBase string
 }
 
 // DefaultEnv resolves the environment; nothing is probed yet (probes are
@@ -106,6 +113,7 @@ func DefaultEnv() *Env {
 		DocsDir:     filepath.Join(root, "docs"),
 		TracePath:   filepath.Join(root, "tests", "spec", "traceability.json"),
 		ReportPath:  envOr("EXC_IT_REPORT", filepath.Join(root, "tests", "integration", "reports", "coverage.json")),
+		IPCBase:     envOr("EXC_IPC_BASE", fmt.Sprintf("excit%d", os.Getpid())),
 	}
 	shards := envOr("EXC_STACK_SHARDS", "0 1 2 3 4 5 6 7")
 	for _, s := range strings.Fields(shards) {

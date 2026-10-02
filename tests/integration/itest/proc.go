@@ -5,16 +5,19 @@ package itest
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -52,6 +55,7 @@ func StartEngine(ctx context.Context, e *Env, dir string, shard, instrumentID in
 	cmd := exec.Command(e.CoreBin,
 		"-shard", strconv.Itoa(shard),
 		"-instrument-id", strconv.Itoa(instrumentID),
+		"-ipc-base", e.IPCBase,
 		"-dev-all-accounts",
 		"-wal-dir", walDir,
 		"-snap-dir", snapDir,
@@ -170,6 +174,8 @@ func StartGateway(ctx context.Context, e *Env, bin, dir string, port int, jwtKey
 		"EXC_GATEWAY_HOST=127.0.0.1",
 		"EXC_GATEWAY_PORT="+strconv.Itoa(port),
 		"EXC_SHARDING_CONFIG="+filepath.Join(e.Root, "config", "sharding.yaml"),
+		"EXC_IPC_BASE="+e.IPCBase,
+		"EXC_CREDIT_MATRIX_SHM="+e.IPCBase+"_cm",
 		"EXC_JWT_HS256_KEY_B64="+jwtKeyB64,
 		"EXC_SECRETS_DATA_KEY="+dataKeyB64,
 		// Client-facing PDFs (statements/confirmations/invoices) are
@@ -377,4 +383,89 @@ func LogContains(path, needle string) bool {
 		}
 	}
 	return false
+}
+
+// ---------------------------------------------------------------------------
+// shm hygiene — namespace sweep
+// ---------------------------------------------------------------------------
+
+// ShmObjects lists the /dev/shm object names a stack on ipcBase owns:
+// per-shard in/out rings + the snapshot ready/ack pair (engine-side
+// naming per SharedMemChannel/snap_ready_name) and the gateway's
+// credit matrix.
+func ShmObjects(ipcBase string, shards []int) []string {
+	names := make([]string, 0, len(shards)*4+1)
+	for _, s := range shards {
+		for _, suf := range []string{"in", "out", "snap", "snap_ack"} {
+			names = append(names, fmt.Sprintf("%s_%d_%s", ipcBase, s, suf))
+		}
+	}
+	return append(names, ipcBase+"_cm")
+}
+
+// SweepShm prepares the namespace for boot: unheld residue from a
+// crashed run is unlinked; an object still mapped by a live process is
+// a hard error naming the holder — we never unlink under a running
+// engine (it keeps writing to the detached inode while the fresh stack
+// silently diverges). A no-op off Linux (the shm transport is
+// Linux-only).
+func SweepShm(e *Env) error {
+	if runtime.GOOS != "linux" {
+		return nil
+	}
+	var stale []string
+	for _, n := range ShmObjects(e.IPCBase, e.Shards) {
+		if _, err := os.Stat("/dev/shm/" + n); err == nil {
+			stale = append(stale, n)
+		}
+	}
+	if len(stale) == 0 {
+		return nil
+	}
+	// /proc/*/maps carries the backing object for MAP_SHARED segments —
+	// the only reliable holder signal (shm fds close after mmap).
+	holders := map[int][]string{}
+	if ents, err := os.ReadDir("/proc"); err == nil {
+		for _, ent := range ents {
+			pid, perr := strconv.Atoi(ent.Name())
+			if perr != nil || pid == os.Getpid() {
+				continue
+			}
+			maps, merr := os.ReadFile("/proc/" + ent.Name() + "/maps")
+			if merr != nil {
+				continue // process exited mid-scan — fine
+			}
+			for _, n := range stale {
+				if bytes.Contains(maps, []byte("/dev/shm/"+n)) {
+					holders[pid] = append(holders[pid], n)
+				}
+			}
+		}
+	}
+	for pid, mapped := range holders {
+		cl, _ := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+		return fmt.Errorf("shm objects %s still mapped by live pid %d (%s) "+
+			"— refusing to unlink under a running process; kill the holder or set EXC_IPC_BASE",
+			strings.Join(mapped, ","), pid,
+			strings.TrimSpace(strings.ReplaceAll(string(cl), "\x00", " ")))
+	}
+	for _, n := range stale {
+		if err := os.Remove("/dev/shm/" + n); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("unlink stale shm %s: %w", n, err)
+		}
+	}
+	return nil
+}
+
+// UnlinkShm removes the namespace's objects at teardown — best-effort;
+// unlinking under a still-mapped process detaches the name cleanly and
+// residue left by a SIGKILLed test binary is recovered by the next
+// run's SweepShm.
+func UnlinkShm(e *Env) {
+	if runtime.GOOS != "linux" {
+		return
+	}
+	for _, n := range ShmObjects(e.IPCBase, e.Shards) {
+		_ = os.Remove("/dev/shm/" + n)
+	}
 }

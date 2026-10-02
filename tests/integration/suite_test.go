@@ -83,6 +83,13 @@ func bootStack(ctx context.Context) error {
 	}
 	rdb.Close()
 
+	// Same treatment for the shm namespace: crashed runs leave
+	// {ipcBase}_* segments whose ring state reads "full" — a stale
+	// ingress ring 503s every order leg with ENGINE_OVERLOAD.
+	if err := itest.SweepShm(env); err != nil {
+		return fmt.Errorf("scratch shm sweep: %w", err)
+	}
+
 	dir, err := os.MkdirTemp("", "exc-itest-stack-*")
 	if err != nil {
 		return err
@@ -170,7 +177,9 @@ func bootStack(ctx context.Context) error {
 	return nil
 }
 
-// stopStack tears the stack down (SIGTERM engines + gateway).
+// stopStack tears the stack down (SIGTERM engines + gateway), then
+// unlinks the run's shm namespace so a clean teardown leaves no
+// residue for the next boot to sweep.
 func stopStack() {
 	if stk.gw != nil {
 		stk.gw.Stop()
@@ -181,6 +190,7 @@ func stopStack() {
 	for _, p := range stk.engines {
 		p.Stop()
 	}
+	itest.UnlinkShm(env)
 }
 
 // cli returns an HTTP client with a unique per-test X-Forwarded-For
