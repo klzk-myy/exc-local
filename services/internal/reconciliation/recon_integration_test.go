@@ -231,3 +231,85 @@ func TestReconciliationFullCycle(t *testing.T) {
 
 	_ = settlement.OpsAlert{} // import pin — alert shape is the shared seam
 }
+
+// TestReconTestScopedExclusion proves migration-278 semantics at the leg
+// level: a position on a test_scoped account is invisible to the
+// recon scan, while an identical position on a normal account is
+// reported. The seed mirrors the integration-harness pollution pattern
+// (drift deliberately planted, never reconciled).
+func TestReconTestScopedExclusion(t *testing.T) {
+	if os.Getenv("EXC_PG_TEST") != "1" {
+		t.Skip("set EXC_PG_TEST=1 to run PostgreSQL integration tests")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, reconDSN())
+	if err != nil {
+		t.Skipf("postgres unreachable: %v", err)
+	}
+	defer pool.Close()
+	if err := pool.Ping(ctx); err != nil {
+		t.Skipf("postgres unreachable: %v", err)
+	}
+
+	// Scoped account + control account, each with a position row.
+	var uid, scopedAcct, controlAcct int64
+	if err := pool.QueryRow(ctx,
+		`INSERT INTO users (email) VALUES ($1) RETURNING id`,
+		"recon-scoped-test@example.invalid").Scan(&uid); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if err := pool.QueryRow(ctx,
+		`INSERT INTO accounts (user_id, account_type, test_scoped)
+		 VALUES ($1,'SPOT',true) RETURNING id`, uid).Scan(&scopedAcct); err != nil {
+		t.Fatalf("seed scoped account: %v", err)
+	}
+	if err := pool.QueryRow(ctx,
+		`INSERT INTO accounts (user_id, account_type, test_scoped)
+		 VALUES ($1,'SPOT',false) RETURNING id`, uid).Scan(&controlAcct); err != nil {
+		t.Fatalf("seed control account: %v", err)
+	}
+	var scopedPos, controlPos int64
+	for i, acct := range []int64{scopedAcct, controlAcct} {
+		var posID int64
+		if err := pool.QueryRow(ctx, `
+			INSERT INTO positions (account_id, instrument_id, side, quantity,
+				entry_price, realized_pnl, unrealized_pnl)
+			VALUES ($1, 99999002, 'LONG', 5.00000000, 1.00000000, 0, 0)
+			RETURNING id`, acct).Scan(&posID); err != nil {
+			t.Fatalf("seed position %d: %v", i, err)
+		}
+		if i == 0 {
+			scopedPos = posID
+		} else {
+			controlPos = posID
+		}
+	}
+	defer func() {
+		_, _ = pool.Exec(context.Background(),
+			`DELETE FROM positions WHERE id = ANY($1)`, []int64{scopedPos, controlPos})
+		_, _ = pool.Exec(context.Background(),
+			`DELETE FROM accounts WHERE id = ANY($1)`, []int64{scopedAcct, controlAcct})
+		_, _ = pool.Exec(context.Background(),
+			`DELETE FROM users WHERE id = $1`, uid)
+	}()
+
+	positions, err := NewPgLegs(pool).Positions(ctx)
+	if err != nil {
+		t.Fatalf("Positions: %v", err)
+	}
+	var sawScoped, sawControl bool
+	for _, p := range positions {
+		if p.AccountID == scopedAcct {
+			sawScoped = true
+		}
+		if p.AccountID == controlAcct {
+			sawControl = true
+		}
+	}
+	if sawScoped {
+		t.Fatal("test_scoped account position leaked into the recon scan")
+	}
+	if !sawControl {
+		t.Fatal("control position missing — exclusion is over-broad")
+	}
+}
