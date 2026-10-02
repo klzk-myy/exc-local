@@ -172,15 +172,37 @@ type DropCopyRouter struct {
 // NewDropCopyRouter builds an empty router.
 func NewDropCopyRouter() *DropCopyRouter { return &DropCopyRouter{} }
 
-// Bind registers one drop-copy target for its bound account set.
+// Bind registers one drop-copy target for its bound account set. A
+// target ID replaces any prior registration — a session that re-logs
+// on must not accumulate duplicate copies.
 func (r *DropCopyRouter) Bind(t DropCopyTarget) error {
 	if len(t.Accounts) == 0 {
 		return ErrDropCopyNotBound
 	}
 	r.mu.Lock()
+	for i := range r.targets {
+		if r.targets[i].ID == t.ID {
+			r.targets[i] = t
+			r.mu.Unlock()
+			return nil
+		}
+	}
 	r.targets = append(r.targets, t)
 	r.mu.Unlock()
 	return nil
+}
+
+// Unbind drops a target by ID (session logout/disconnect) — no-op when
+// the ID was never bound.
+func (r *DropCopyRouter) Unbind(id string) {
+	r.mu.Lock()
+	for i := range r.targets {
+		if r.targets[i].ID == id {
+			r.targets = append(r.targets[:i], r.targets[i+1:]...)
+			break
+		}
+	}
+	r.mu.Unlock()
 }
 
 // Tap adapts the router to the session-core ReportBus tap signature

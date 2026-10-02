@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
+	"crypto/x509"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -286,4 +287,84 @@ func (s *PgStore) UpdateEntitlement(ctx context.Context, sessionID string,
 		return nil, fmt.Errorf("entitlement update write %q: %w", sessionID, err)
 	}
 	return row, tx.Commit(ctx)
+}
+
+// ---------------------------------------------------------------------------
+// fix_session_bindings (migration 282) — drop-copy account entitlement.
+// PgStore implements DropCopyBindingStore (dropcopy.go).
+// ---------------------------------------------------------------------------
+
+// Bindings returns every account a drop-copy session may copy.
+func (s *PgStore) Bindings(ctx context.Context, sessionID string) ([]int64, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT account_id FROM fix_session_bindings
+		 WHERE session_id = $1 ORDER BY account_id`, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("fix: bindings %q: %w", sessionID, err)
+	}
+	defer rows.Close()
+	var out []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
+// Save upserts the binding set for a session — a full replace inside one
+// transaction so a provisioning write can never leave a half-bound set.
+func (s *PgStore) Save(ctx context.Context, sessionID string, accounts []int64) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("fix: bindings save %q: %w", sessionID, err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM fix_session_bindings WHERE session_id = $1`,
+		sessionID); err != nil {
+		return fmt.Errorf("fix: bindings clear %q: %w", sessionID, err)
+	}
+	for _, a := range accounts {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO fix_session_bindings (session_id, account_id)
+			VALUES ($1, $2) ON CONFLICT DO NOTHING`, sessionID, a); err != nil {
+			return fmt.Errorf("fix: bindings insert %q acct %d: %w", sessionID, a, err)
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+// ---------------------------------------------------------------------------
+// fix_cert_revocations (migration 282) — the RevocationChecker the mTLS
+// VerifyPeer consults when a listener runs fix.mtls_required.
+// ---------------------------------------------------------------------------
+
+// PgRevocationList is the production RevocationChecker over
+// fix_cert_revocations (fingerprint-keyed revocation list).
+type PgRevocationList struct{ pool *pgxpool.Pool }
+
+// NewPgRevocationList builds the production revocation seam.
+func NewPgRevocationList(pool *pgxpool.Pool) *PgRevocationList {
+	return &PgRevocationList{pool: pool}
+}
+
+// Revoked reports whether the presented certificate's fingerprint is on
+// the revocation list. A lookup error fails closed upstream — the caller
+// treats it as MTLS_REVOCATION_UNVERIFIABLE.
+func (l *PgRevocationList) Revoked(ctx context.Context, cert *x509.Certificate,
+	_ *x509.Certificate) (bool, error) {
+	var reason string
+	err := l.pool.QueryRow(ctx, `
+		SELECT reason FROM fix_cert_revocations WHERE fingerprint = $1`,
+		CertFingerprint(cert)).Scan(&reason)
+	if isNoRows(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }

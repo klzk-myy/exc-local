@@ -56,6 +56,17 @@ type Options struct {
 	// LogonGate refuses inbound Logons while a maintenance drain is in
 	// progress (Task 18.3.17/9.3.23). *Drainer satisfies it; nil admits.
 	LogonGate interface{ AdmitLogon() error }
+	// Allocations handles AllocationInstruction(35=J) →
+	// AllocationInstructionAck(35=P)/AllocationReport(35=AK) — nil →
+	// MSGTYPE_UNSUPPORTED. Task 18.3.13's AllocationService binds it.
+	Allocations *AllocationService
+	// DropCopy fans emitted ExecutionReports out to bound drop-copy
+	// sessions (spec §5.20). Bound at OnLogon from DropCopyBindings;
+	// nil → drop copy unwired (sessions still log on, nothing copies).
+	DropCopy *DropCopyRouter
+	// DropCopyBindings loads a drop-copy session's bound account set
+	// (fix_session_bindings, migration 282). Nil → no binding resolves.
+	DropCopyBindings DropCopyBindingStore
 }
 
 // App is the quickfix.Application plus the venue's session policy.
@@ -126,7 +137,10 @@ func (a *App) SetLogonGate(g interface{ AdmitLogon() error }) {
 
 func (a *App) OnCreate(sessionID quickfix.SessionID) {}
 
-// OnLogon marks the session ACTIVE.
+// OnLogon marks the session ACTIVE and, when the row classifies as
+// drop-copy (account_id NULL), binds it into the report router with its
+// provisioned account set (spec §5.20). An unresolvable binding set
+// leaves the session live but copying nothing — fail closed.
 func (a *App) OnLogon(sessionID quickfix.SessionID) {
 	a.mu.Lock()
 	a.sessions[sessionID.String()] = sessionID
@@ -137,6 +151,48 @@ func (a *App) OnLogon(sessionID quickfix.SessionID) {
 		a.log.Error("fix: session status update failed", "session", sessionID, "err", err)
 	}
 	a.log.Info("fix: session logged on", "session", sessionID)
+	a.bindDropCopy(sessionID)
+}
+
+// bindDropCopy resolves a fresh logon's account set and registers it on
+// the drop-copy router. Order-entry sessions (bound account) never land
+// here as copy targets — they trade, they don't subscribe.
+func (a *App) bindDropCopy(sessionID quickfix.SessionID) {
+	if a.opt.DropCopy == nil || a.opt.DropCopyBindings == nil {
+		return
+	}
+	key := sessionID.String()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	row, err := a.opt.Store.SessionByID(ctx, key)
+	if err != nil || row == nil {
+		a.log.Warn("fix: drop-copy session lookup failed", "session", key, "err", err)
+		return
+	}
+	if DropCopySessionKind(row) != KindDropCopy {
+		return
+	}
+	accts, err := a.opt.DropCopyBindings.Bindings(ctx, key)
+	if err != nil {
+		a.log.Warn("fix: drop-copy bindings load failed", "session", key, "err", err)
+		return
+	}
+	if len(accts) == 0 {
+		a.log.Warn("fix: drop-copy session has no bound accounts — "+
+			"copies nothing (fail closed)", "session", key)
+		return
+	}
+	set := make(map[int64]bool, len(accts))
+	for _, id := range accts {
+		set[id] = true
+	}
+	if err := a.opt.DropCopy.Bind(DropCopyTarget{
+		ID: key, SessionID: sessionID, Accounts: set,
+	}); err != nil {
+		a.log.Warn("fix: drop-copy bind rejected", "session", key, "err", err)
+		return
+	}
+	a.log.Info("fix: drop-copy target bound", "session", key, "accounts", len(set))
 }
 
 // OnLogout implements cancel-on-disconnect (spec §9.3, §24 #136/#153):
@@ -151,6 +207,9 @@ func (a *App) OnLogout(sessionID quickfix.SessionID) {
 	delete(a.sessions, key)
 	a.mu.Unlock()
 	a.throt.Drop(key)
+	if a.opt.DropCopy != nil {
+		a.opt.DropCopy.Unbind(key)
+	}
 	if a.opt.TSS != nil {
 		a.opt.TSS.DropSession(sessionID)
 	}
@@ -338,11 +397,56 @@ func (a *App) FromApp(msg *quickfix.Message, sessionID quickfix.SessionID) quick
 		a.onMassQuote(ctx, msg, sessionID, row)
 	case MsgQuoteCancel:
 		a.onQuoteCancel(ctx, msg, sessionID, row)
+	case MsgAllocationInstruction:
+		a.onAllocationInstruction(ctx, msg, sessionID, row)
 	default:
 		a.emit(sessionID, businessReject(mt, "",
 			"MSGTYPE_UNSUPPORTED", BusinessRejectReasonOther))
 	}
 	return nil
+}
+
+// onAllocationInstruction — 35=J → AllocationService → 35=AK report or
+// 35=P ack. Drop-copy sessions carry no bound account and may never
+// instruct allocations (spec §5.20). Coded service failures emit the
+// reject ack; transport-level surprises get the business reject.
+func (a *App) onAllocationInstruction(ctx context.Context, msg *quickfix.Message,
+	sessionID quickfix.SessionID, row *Session) {
+	clOrdID := optionalStr(msg, TagClOrdID)
+	if a.opt.Allocations == nil {
+		a.emit(sessionID, businessReject(MsgAllocationInstruction, clOrdID,
+			"MSGTYPE_UNSUPPORTED", BusinessRejectReasonOther))
+		return
+	}
+	if row.AccountID == nil {
+		a.emit(sessionID, businessReject(MsgAllocationInstruction, clOrdID,
+			"SESSION_NOT_ENTITLED", BusinessRejectReasonNotEntitled))
+		return
+	}
+	outcome, err := a.opt.Allocations.Handle(ctx, sessionID.String(),
+		*row.AccountID, msg)
+	if err != nil {
+		// Malformed frame (parse error) → session Reject(35=3); coded
+		// service errors → 35=P ack via the service's own reject path —
+		// Handle only errors on parse failures, which surface as
+		// BusinessReject per the gateway's reject convention.
+		code := excerrors.CodeOf(err)
+		if code == "" {
+			code = "ALLOCATION_INVALID"
+		}
+		a.emit(sessionID, businessReject(MsgAllocationInstruction, clOrdID,
+			code, BusinessRejectReasonOther))
+		return
+	}
+	if outcome == nil {
+		return
+	}
+	if outcome.Ack != nil {
+		a.emit(sessionID, outcome.Ack)
+	}
+	if outcome.Report != nil {
+		a.emit(sessionID, outcome.Report)
+	}
 }
 
 // clOrdIDOf extracts the best reference id for a reject: ClOrdID for

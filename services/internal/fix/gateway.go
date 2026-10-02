@@ -8,6 +8,7 @@ package fix
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"time"
 
@@ -25,32 +26,81 @@ const DrainWait = 10 * time.Second
 // LogoutDrainText is stamped as Text(58) on the maintenance Logout.
 const LogoutDrainText = "Scheduled maintenance"
 
-// Gateway wires one QuickFIX Acceptor (inbound order-entry/drop-copy)
-// plus zero or more Initiators (outward sessions).
+// Gateway wires the QuickFIX acceptors (FIX.4.4 inbound
+// order-entry/drop-copy + an optional FIXT.1.1/FIX.5.0SP2 listener on
+// its own port) plus zero or more Initiators (outward sessions).
 type Gateway struct {
-	app       *App
-	msgStore  quickfix.MessageStoreFactory
-	log       Log
-	acceptor  *quickfix.Acceptor
-	initiator *quickfix.Initiator
+	app         *App
+	msgStore    quickfix.MessageStoreFactory
+	log         Log
+	acceptor    *quickfix.Acceptor
+	sp2Acceptor *quickfix.Acceptor
+	initiator   *quickfix.Initiator
+}
+
+// GatewayOpts carries the wiring surfaces Phase-3 Task 3 adds — the
+// wire application (certification-wrapped *App under mTLS), the
+// injected tls.Config the mTLS fingerprint gate produces, and the
+// second-protocol listener flags from cfg.Fix.
+type GatewayOpts struct {
+	// WireApp is what the acceptors attach to — *App or its
+	// WrapCertification wrapper. Nil → app itself.
+	WireApp quickfix.Application
+	// TLSConfig overrides the settings-built tls.Config on both
+	// acceptors (Acceceptor.SetTLSConfig). The mTLS fingerprint gate
+	// (tls.go ServerTLSConfig + VerifyConnection) arrives through here;
+	// nil leaves quickfixgo's settings-driven transport.
+	TLSConfig *tls.Config
+	// SP2Enabled binds a FIXT.1.1 + DefaultApplVerID=9 acceptor on
+	// cfg.Fix.SP2AcceptorHost/Port. Requires cfg.Fix.TLSEnabled (the
+	// SP2 settings builder refuses a plaintext SP2 listener).
+	SP2Enabled bool
 }
 
 // NewGateway builds both halves from one fix config; either side may be
 // absent (acceptor nil when cfg.Enabled=false, initiator nil without
 // outward sessions) — the binary refuses to start with neither.
 func NewGateway(app *App, cfg vencfg.FixConfig,
-	storeFac quickfix.MessageStoreFactory, lg Log) (*Gateway, error) {
+	storeFac quickfix.MessageStoreFactory, lg Log, opts GatewayOpts) (*Gateway, error) {
 	g := &Gateway{app: app, msgStore: storeFac, log: lg}
 	logFac := quickfix.NewNullLogFactory()
+	wire := opts.WireApp
+	if wire == nil {
+		wire = app
+	}
 
 	if cfg.Enabled {
 		settings, err := AcceptorSettings(cfg)
 		if err != nil {
 			return nil, err
 		}
-		g.acceptor, err = quickfix.NewAcceptor(app, storeFac, settings, logFac)
+		g.acceptor, err = quickfix.NewAcceptor(wire, storeFac, settings, logFac)
 		if err != nil {
 			return nil, fmt.Errorf("fix: acceptor: %w", err)
+		}
+		if opts.TLSConfig != nil {
+			g.acceptor.SetTLSConfig(opts.TLSConfig)
+		}
+	}
+	if opts.SP2Enabled {
+		// Dedicated port: clone the listener config with the SP2 bind.
+		sp2 := cfg
+		if cfg.SP2AcceptorPort != 0 {
+			sp2.AcceptorPort = cfg.SP2AcceptorPort
+		}
+		if cfg.SP2AcceptorHost != "" {
+			sp2.AcceptorHost = cfg.SP2AcceptorHost
+		}
+		settings, err := AcceptorSettingsSP2(sp2)
+		if err != nil {
+			return nil, err
+		}
+		g.sp2Acceptor, err = quickfix.NewAcceptor(wire, storeFac, settings, logFac)
+		if err != nil {
+			return nil, fmt.Errorf("fix: sp2 acceptor: %w", err)
+		}
+		if opts.TLSConfig != nil {
+			g.sp2Acceptor.SetTLSConfig(opts.TLSConfig)
 		}
 	}
 	if len(cfg.OutwardSessions) > 0 {
@@ -63,7 +113,7 @@ func NewGateway(app *App, cfg vencfg.FixConfig,
 			return nil, fmt.Errorf("fix: initiator: %w", err)
 		}
 	}
-	if g.acceptor == nil && g.initiator == nil {
+	if g.acceptor == nil && g.initiator == nil && g.sp2Acceptor == nil {
 		return nil, fmt.Errorf("fix: neither acceptor nor outward sessions configured")
 	}
 	return g, nil
@@ -74,6 +124,11 @@ func (g *Gateway) Start() error {
 	if g.acceptor != nil {
 		if err := g.acceptor.Start(); err != nil {
 			return fmt.Errorf("fix: acceptor start: %w", err)
+		}
+	}
+	if g.sp2Acceptor != nil {
+		if err := g.sp2Acceptor.Start(); err != nil {
+			return fmt.Errorf("fix: sp2 acceptor start: %w", err)
 		}
 	}
 	if g.initiator != nil {
@@ -87,9 +142,11 @@ func (g *Gateway) Start() error {
 	return nil
 }
 
-// AcceptorStarted reports whether the inbound listener is bound — the
+// AcceptorStarted reports whether an inbound listener is bound — the
 // /healthz surface ANDs this with process liveness.
-func (g *Gateway) AcceptorStarted() bool { return g.acceptor != nil }
+func (g *Gateway) AcceptorStarted() bool {
+	return g.acceptor != nil || g.sp2Acceptor != nil
+}
 
 // Stop performs the Task 9.3.23 graceful drain: Logout(35=5) with
 // Text(58)=Scheduled maintenance to every active session, wait ≤10s
@@ -120,6 +177,9 @@ func (g *Gateway) Stop(ctx context.Context) {
 done:
 	if g.acceptor != nil {
 		g.acceptor.Stop()
+	}
+	if g.sp2Acceptor != nil {
+		g.sp2Acceptor.Stop()
 	}
 	if g.initiator != nil {
 		g.initiator.Stop()

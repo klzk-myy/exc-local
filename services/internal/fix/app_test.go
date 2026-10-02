@@ -532,3 +532,153 @@ func TestDeadMan_UnsupportedRequestType(t *testing.T) {
 		t.Fatalf("resp: %+v", (*captured)[0].Msg)
 	}
 }
+
+// ---- Phase-3 Task 3 wiring: 35=J dispatch + drop-copy binding -----------------
+
+type memDropBindings struct{ rows map[string][]int64 }
+
+func (b memDropBindings) Bindings(_ context.Context, s string) ([]int64, error) {
+	return b.rows[s], nil
+}
+func (b memDropBindings) Save(_ context.Context, s string, a []int64) error {
+	b.rows[s] = a
+	return nil
+}
+
+// 35=J must reach the allocation service — the report it emits (35=AK on
+// accept, 35=P on reject) proves dispatch; MSGTYPE_UNSUPPORTED is the
+// pre-wiring failure mode this test locks out.
+func TestFromApp_AllocationInstructionDispatches(t *testing.T) {
+	st := newMemStore()
+	row := entitledSession()
+	row.AccountID = i64(900) // allocation legs resolve under master 900
+	st.sessions[testSessionID().String()] = row
+	svc, _ := testSvc(newFakeAllocStore())
+	app := NewApp(Options{
+		Store: st, Orders: &memFlow{}, OrderRead: &memRead{},
+		Log: slogNop{}, Allocations: svc,
+	})
+	var captured []ReportEvent
+	app.Report().WithTap(func(ev ReportEvent) { captured = append(captured, ev) })
+
+	m := newAllocMsg("A1", 0, "MANUAL")
+	m.Body.SetString(TagQuantity, "100")
+	addExecGroup(m, "E1")
+	addAllocLegs(m, [2]string{"SUB1", "100"})
+	app.FromApp(m, testSessionID())
+
+	if len(captured) == 0 {
+		t.Fatal("35=J produced no report")
+	}
+	mt, _ := captured[0].Msg.MsgType()
+	if mt == MsgBusinessReject && bodyText(t, captured[0].Msg) == "MSGTYPE_UNSUPPORTED" {
+		t.Fatal("35=J fell through to MSGTYPE_UNSUPPORTED — not wired")
+	}
+	if mt != MsgAllocationReport && mt != MsgAllocationInstructionAck {
+		t.Fatalf("want 35=AK/35=P, got %v", mt)
+	}
+}
+
+// A drop-copy session (account_id NULL) may never instruct allocations.
+func TestFromApp_AllocationDropCopyRejected(t *testing.T) {
+	st := newMemStore()
+	row := entitledSession()
+	row.AccountID = nil
+	st.sessions[testSessionID().String()] = row
+	svc, _ := testSvc(newFakeAllocStore())
+	app := NewApp(Options{
+		Store: st, Orders: &memFlow{}, OrderRead: &memRead{},
+		Log: slogNop{}, Allocations: svc,
+	})
+	var captured []ReportEvent
+	app.Report().WithTap(func(ev ReportEvent) { captured = append(captured, ev) })
+
+	m := newAllocMsg("A1", 0, "MANUAL")
+	addAllocLegs(m, [2]string{"SUB1", "1"})
+	app.FromApp(m, testSessionID())
+
+	if len(captured) != 1 {
+		t.Fatalf("emits: %d", len(captured))
+	}
+	if mt, _ := captured[0].Msg.MsgType(); mt != MsgBusinessReject {
+		t.Fatalf("want 35=j, got %v", mt)
+	}
+	if bodyText(t, captured[0].Msg) != "SESSION_NOT_ENTITLED" {
+		t.Fatalf("text: %q", bodyText(t, captured[0].Msg))
+	}
+}
+
+// Unwired (nil Allocations) sessions still fail closed.
+func TestFromApp_AllocationUnwiredFailsClosed(t *testing.T) {
+	st := newMemStore()
+	st.sessions[testSessionID().String()] = entitledSession()
+	app, captured := newTestApp(st, &memFlow{}, nil)
+	m := newAllocMsg("A1", 0, "MANUAL")
+	addAllocLegs(m, [2]string{"SUB1", "1"})
+	app.FromApp(m, testSessionID())
+	if len(*captured) != 1 || bodyText(t, (*captured)[0].Msg) != "MSGTYPE_UNSUPPORTED" {
+		t.Fatalf("emits: %+v", *captured)
+	}
+}
+
+// A drop-copy logon binds its provisioned account set into the router;
+// a report for a bound account then attempts the fan-out send (which
+// fails over the dead transport in tests — the attempt itself is the
+// wiring proof, observed via OnError).
+func TestOnLogon_BindsDropCopyTarget(t *testing.T) {
+	st := newMemStore()
+	dc := &Session{
+		SessionID:     "FIX.4.4:EXC->COPY",
+		MaxMsgsPerSec: 100,
+		// AccountID nil → KindDropCopy
+	}
+	st.sessions[dc.SessionID] = dc
+	router := NewDropCopyRouter()
+	var sendErrs []error
+	router.OnError = func(e error) { sendErrs = append(sendErrs, e) }
+	router.OrderAccount = func(_ context.Context, orderID int64) (int64, error) {
+		return 11, nil // the report's owner
+	}
+	app := NewApp(Options{
+		Store: st, Orders: &memFlow{}, OrderRead: &memRead{},
+		Log: slogNop{}, DropCopy: router,
+		DropCopyBindings: memDropBindings{rows: map[string][]int64{
+			dc.SessionID: {11},
+		}},
+	})
+	app.Report().WithTap(router.Tap())
+
+	dcSID := quickfix.SessionID{BeginString: "FIX.4.4", SenderCompID: "EXC", TargetCompID: "COPY"}
+	app.OnLogon(dcSID)
+
+	// A report for bound account 11 reaches the bound copy target — the
+	// send attempt errors (no live transport in tests), proving the tap
+	// chain executed rather than silently no-oping.
+	app.Report().Emit(ReportEvent{
+		SessionID: testSessionID(), OrderID: 5, Msg: newReport(),
+	})
+	if len(sendErrs) == 0 {
+		t.Fatal("bound drop-copy target never attempted the copy send")
+	}
+
+	// Unbound accounts copy nothing.
+	sendErrs = nil
+	router.OrderAccount = func(context.Context, int64) (int64, error) { return 77, nil }
+	app.Report().Emit(ReportEvent{
+		SessionID: testSessionID(), OrderID: 6, Msg: newReport(),
+	})
+	if len(sendErrs) != 0 {
+		t.Fatal("account 77 is not bound — must never be copied")
+	}
+
+	// Logout releases the target — subsequent reports send nowhere.
+	app.OnLogout(dcSID)
+	sendErrs = nil
+	router.OrderAccount = func(context.Context, int64) (int64, error) { return 11, nil }
+	app.Report().Emit(ReportEvent{
+		SessionID: testSessionID(), OrderID: 7, Msg: newReport(),
+	})
+	if len(sendErrs) != 0 {
+		t.Fatal("logged-out drop-copy session still bound")
+	}
+}

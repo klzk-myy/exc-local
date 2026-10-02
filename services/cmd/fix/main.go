@@ -13,6 +13,8 @@ package main
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -28,6 +30,7 @@ import (
 	"exchange/internal/config"
 	"exchange/internal/db"
 	"exchange/internal/fix"
+	"exchange/internal/fix/certification"
 	"exchange/internal/ipc"
 	aeronclient "exchange/internal/ipc/aeron"
 	"exchange/internal/marketapi"
@@ -201,6 +204,16 @@ func run() error {
 		Breakers:   breakerSvc,   // §2.6 five-tier breaker — REQUIRED (nil rejects all)
 		Product:    catSvc,       // MiFID II appropriateness — REQUIRED (nil rejects all)
 		Otr:        otrMon,       // RTS 9 OTR gate (optional but required for FIX parity)
+		// §5.4 DAY orders expire at the weekly session close (Fri 22:00
+		// UTC, §6.7); spec §27 R8 caps every resting order at 90d. Same
+		// binding as cmd/gateway — without it FIX-submitted DAY orders
+		// carry no gtd_expiry and the engine rejects ORDER_INVALID.
+		DayExpiry: func(now time.Time) *time.Time {
+			if t := admin.NextSessionClose(now); !t.IsZero() {
+				return &t
+			}
+			return nil
+		},
 		// Products (profile scope), cooling-off, batch RL, commission,
 		// GSLO/auction/composite seams stay nil: profile gates are
 		// pre-095-absent by design, the rest are REST/UX-only surfaces
@@ -337,18 +350,55 @@ func run() error {
 		}()
 	}
 
+	// ---- Task 18.3.13 allocations + §5.20 drop copy (Phase-3 Task 3) ---
+	// The tested library surfaces land on the live App: 35=J dispatch,
+	// Tag-17 exec-id resolution (in-process registry on the report bus),
+	// and the drop-copy router bound per-session at OnLogon.
+	allocStore := fix.NewAllocationStore(pool)
+	execReg := fix.NewExecRegistry()
+	allocSvc := fix.NewAllocationService(allocStore,
+		fix.NewPgExecResolver(pool, execReg), allocStore)
+	dropRouter := fix.NewDropCopyRouter()
+	dropRouter.OrderAccount = func(ctx context.Context, orderID int64) (int64, error) {
+		o, err := orderStore.GetOrder(ctx, orderID)
+		if err != nil || o == nil {
+			return 0, fmt.Errorf("order %d unresolvable: %v", orderID, err)
+		}
+		return o.AccountID, nil
+	}
+	dropRouter.OnError = func(err error) {
+		log.Warn("fix: drop-copy send failed", "err", err)
+	}
+
 	app := fix.NewApp(fix.Options{
-		Store:       fixStore,
-		Orders:      orderSvc,
-		OrderRead:   orderStore,
-		DeadMan:     deadman,
-		SubAccounts: accounts.NewSubAccountService(pool),
-		Log:         log,
-		TSS:         tss,
-		MDS:         mds,
-		QS:          qs,
-		CoD:         cod,
+		Store:            fixStore,
+		Orders:           orderSvc,
+		OrderRead:        orderStore,
+		DeadMan:          deadman,
+		SubAccounts:      accounts.NewSubAccountService(pool),
+		Log:              log,
+		TSS:              tss,
+		MDS:              mds,
+		QS:               qs,
+		CoD:              cod,
+		Allocations:      allocSvc,
+		DropCopy:         dropRouter,
+		DropCopyBindings: fixStore,
 	})
+	// Report fan-out taps: exec-id registry first (so a 35=J arriving
+	// after the fill can resolve it), then the copy routers.
+	app.Report().WithTap(execReg.Tap()).WithTap(dropRouter.Tap())
+
+	// Task 18.3.6 PB drop copy + affirmation monitor: give-up reports
+	// route to the bound prime-broker session; the monitor sweeps
+	// pending give-ups past their affirmation window.
+	pbStore := fix.NewPBStore(pool)
+	pbDC := fix.NewPBDropCopy(pbStore, fix.AppLiveSessions{App: app})
+	allocSvc.AddSink(pbDC)
+	allocSvc.AddSink(dropRouter)
+	app.Report().WithTap(pbDC.Tap())
+	go fix.NewAffirmationMonitor(pbStore, 0, 0,
+		fix.LogAlerter{Log: slogger}).Run(ctx) // spec defaults: 60s window, 5s cadence
 
 	// The drainer exists from boot: AdmitLogon latches the instant Drain
 	// starts so reconnecting clients get a Logon refusal rather than a
@@ -358,10 +408,60 @@ func run() error {
 		fix.DrainConfig{}, log, nil)
 	app.SetLogonGate(drainer)
 
-	// ---- QuickFIX acceptor + initiators ---------------------------------------
+	// ---- QuickFIX acceptors + initiators --------------------------------------
+	// Phase-3 Task 3 wiring:
+	//  • Certification gate (Task 18.3.11): WrapCertification intercepts
+	//    Logon and refuses uncertified client builds on production.
+	//  • FIXS mTLS (fix.mtls_required): the fingerprint→session binding +
+	//    revocation check run inside VerifyConnection — the peer dies in
+	//    the handshake, before any FIX byte (spec §2.7).
+	//  • FIXT.1.1/5.0 SP2 listener (fix.sp2_enabled): second acceptor on
+	//    its own port, TLS 1.3 mandatory.
+	wireApp := fix.WrapCertification(app, fix.CertifiedAppOptions{
+		Gate: certification.NewGate(certification.NewPgStore(pool),
+			cfg.Environment, nil),
+		Environment: cfg.Environment,
+	})
+	var wireTLS *tls.Config
+	if cfg.Fix.MTLSRequired {
+		serverCert, kerr := tls.LoadX509KeyPair(cfg.Fix.TLSCert, cfg.Fix.TLSKey)
+		if kerr != nil {
+			return fmt.Errorf("fix: mtls server certificate: %w", kerr)
+		}
+		caPEM, cerr := os.ReadFile(cfg.Fix.TLSCA)
+		if cerr != nil {
+			return fmt.Errorf("fix: mtls client CA bundle: %w", cerr)
+		}
+		caPool := x509.NewCertPool()
+		if !caPool.AppendCertsFromPEM(caPEM) {
+			return fmt.Errorf("fix: mtls client CA bundle %q carries no certificates",
+				cfg.Fix.TLSCA)
+		}
+		wireTLS, err = fix.ServerTLSConfig(fix.TLSOptions{
+			Certificates:      []tls.Certificate{serverCert},
+			ClientCAs:         caPool,
+			RequireClientCert: true,
+			Environment:       cfg.Environment,
+			Lookup:            fix.NewPgBindingLookup(pool),
+			Revocation:        fix.NewPgRevocationList(pool),
+			Audit: func(ev fix.CertEvent) {
+				log.Warn("fix: mtls admission", "outcome", ev.Outcome,
+					"session", ev.SessionID, "path", ev.Path,
+					"remote", ev.RemoteAddr, "detail", ev.Detail)
+			},
+		})
+		if err != nil {
+			return fmt.Errorf("fix: mtls config: %w", err)
+		}
+		log.Info("fix: mtls fingerprint gate armed", "env", cfg.Environment)
+	}
 
 	gw, err := fix.NewGateway(app, cfg.Fix,
-		fix.NewPgMessageStoreFactory(fixStore), log)
+		fix.NewPgMessageStoreFactory(fixStore), log, fix.GatewayOpts{
+			WireApp:    wireApp,
+			TLSConfig:  wireTLS,
+			SP2Enabled: cfg.Fix.SP2Enabled,
+		})
 	if err != nil {
 		return err
 	}

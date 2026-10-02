@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/quickfixgo/quickfix"
+
+	"exchange/internal/orders"
 )
 
 // frame assembles a raw FIXT.1.1 frame body (fields after the head
@@ -224,5 +226,45 @@ func TestApplVerStamp(t *testing.T) {
 	v, err := m.Header.GetString(TagApplVerID)
 	if err != nil || v != "9" {
 		t.Fatalf("ApplVerID: %q %v", v, err)
+	}
+}
+
+// Phase-3 Task 2 — SP2 wire spellings of the same custom tags.
+
+func TestSP2TrailingStop(t *testing.T) {
+	f := frame("11=ord-1\x0155=EURUSD\x0154=2\x0138=1000000\x0140=3\x01" +
+		"20003=0.0020\x0120004=ABSOLUTE\x0120005=1.0100\x01")
+	req, merr := MapNewOrderSingleSP2(f, "s")
+	if merr != nil {
+		t.Fatalf("map: %v", merr)
+	}
+	if req.OrderType != orders.TypeStop {
+		t.Fatalf("type %q", req.OrderType)
+	}
+	if req.TrailingOffset == nil || req.TrailingOffset.String() != "0.002" {
+		t.Fatalf("offset: %v", req.TrailingOffset)
+	}
+	if req.TrailingOffsetUnit != "ABSOLUTE" {
+		t.Fatalf("unit %q", req.TrailingOffsetUnit)
+	}
+	if req.ActivationPrice == nil || req.ActivationPrice.String() != "1.01" {
+		t.Fatalf("activation: %v", req.ActivationPrice)
+	}
+}
+
+func TestSP2TrailingRejectsNonStop(t *testing.T) {
+	f := frame("11=o\x0155=EURUSD\x0154=1\x0138=1\x0140=2\x0144=1.1\x01" +
+		"20003=5\x0120004=PIPS\x01")
+	mapFails(t, f, "OrdType(40)=3")
+}
+
+func TestSP2DiscretionaryOffset(t *testing.T) {
+	f := frame(baseOrder() + "20006=3\x01")
+	req, merr := MapNewOrderSingleSP2(f, "s")
+	if merr != nil {
+		t.Fatalf("map: %v", merr)
+	}
+	if req.DiscretionaryOffsetPips == nil || req.DiscretionaryOffsetPips.String() != "3" {
+		t.Fatalf("disc: %v", req.DiscretionaryOffsetPips)
 	}
 }

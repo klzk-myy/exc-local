@@ -105,6 +105,18 @@ const (
 	// countdown inside UserRequest 35=BE (Phase-18 Task 18.3.16 —
 	// "custom tag 20001, min 1000, max 60000").
 	TagCountdownMs quickfix.Tag = 20001
+
+	// Trailing-stop / discretionary venue customs (IMP-PLAN Phase-3
+	// Task 2 — no standard FIX tags exist for FX trailing stops; the
+	// engine's kTrailUnit* ordinals carry on 20004):
+	//   20003 trailing distance — decimal, unit-denominated by 20004
+	//   20004 trailing unit — "PIPS" | "PERCENTAGE" | "ABSOLUTE"
+	//   20005 activation price — arms the trail loop on trade-through
+	//   20006 discretionary offset — whole pips (spec §6.11)
+	TagTrailingOffset      quickfix.Tag = 20003
+	TagTrailingOffsetUnit  quickfix.Tag = 20004
+	TagActivationPrice     quickfix.Tag = 20005
+	TagDiscretionaryOffPip quickfix.Tag = 20006
 )
 
 // UserRequestType(924) values: venue custom countdown-cancel-all is 4

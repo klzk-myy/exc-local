@@ -199,6 +199,35 @@ func MapNewOrderSingle(msg *quickfix.Message, sessionID string) (*orders.SubmitR
 		return nil, merr
 	}
 
+	// Venue custom trailing/discretionary block (tags 20003–20006):
+	// a trailing stop is OrdType=3 with the distance pair present; its
+	// initial StopPx may be absent — the engine trails from the anchor.
+	trailOff, merr := optionalDec(msg, TagTrailingOffset)
+	if merr != nil {
+		return nil, merr
+	}
+	trailUnit := ""
+	if msg.Body.Has(TagTrailingOffsetUnit) {
+		u, uerr := msg.Body.GetString(TagTrailingOffsetUnit)
+		if uerr != nil {
+			t := TagTrailingOffsetUnit
+			return nil, &MappingError{Code: "INVALID_REQUEST",
+				Detail:    "TrailingOffsetUnit(20004) must be a string",
+				RefTag:    &t,
+				OrdReject: OrdRejReasonOther}
+		}
+		trailUnit = strings.ToUpper(strings.TrimSpace(u))
+	}
+	actPx, merr := optionalDec(msg, TagActivationPrice)
+	if merr != nil {
+		return nil, merr
+	}
+	discOff, merr := optionalDec(msg, TagDiscretionaryOffPip)
+	if merr != nil {
+		return nil, merr
+	}
+	trailing := trailOff != nil || trailUnit != ""
+
 	switch ordType {
 	case orders.TypeLimit:
 		if price == nil {
@@ -209,10 +238,10 @@ func MapNewOrderSingle(msg *quickfix.Message, sessionID string) (*orders.SubmitR
 				OrdReject: OrdRejReasonOther}
 		}
 	case orders.TypeStop:
-		if stopPx == nil {
+		if stopPx == nil && !trailing {
 			t := TagStopPx
 			return nil, &MappingError{Code: "INVALID_REQUEST",
-				Detail:    "OrdType=Stop requires StopPx(99)",
+				Detail:    "OrdType=Stop requires StopPx(99) (or the 20003/20004 trailing pair)",
 				RefTag:    &t,
 				OrdReject: OrdRejReasonOther}
 		}
@@ -221,6 +250,17 @@ func MapNewOrderSingle(msg *quickfix.Message, sessionID string) (*orders.SubmitR
 			return nil, mapErr("INVALID_REQUEST",
 				"OrdType=StopLimit requires Price(44) and StopPx(99)")
 		}
+	}
+	if trailing && ordType != orders.TypeStop {
+		t := TagOrdType
+		return nil, &MappingError{Code: "INVALID_REQUEST",
+			Detail:    "trailing fields (20003/20004) require OrdType(40)=3 Stop",
+			RefTag:    &t,
+			OrdReject: OrdRejReasonOther}
+	}
+	if discOff != nil && ordType != orders.TypeLimit {
+		return nil, mapErr("INVALID_REQUEST",
+			"DiscretionaryOffsetPips(20006) is only valid on OrdType=Limit")
 	}
 	if display != nil {
 		if ordType != orders.TypeLimit {
@@ -235,18 +275,22 @@ func MapNewOrderSingle(msg *quickfix.Message, sessionID string) (*orders.SubmitR
 	}
 
 	return &orders.SubmitRequest{
-		Symbol:        config.CanonicalSymbol(symbol),
-		Side:          side,
-		OrderType:     ordType,
-		TimeInForce:   tif,
-		ClientOrderID: clOrdID,
-		Quantity:      qty,
-		Price:         price,
-		StopPrice:     stopPx,
-		DisplayQty:    display,
-		GTDExpiry:     gtd,
-		SessionID:     sessionID,
-		CoDExempt:     codExempt(msg),
+		Symbol:                  config.CanonicalSymbol(symbol),
+		Side:                    side,
+		OrderType:               ordType,
+		TimeInForce:             tif,
+		ClientOrderID:           clOrdID,
+		Quantity:                qty,
+		Price:                   price,
+		StopPrice:               stopPx,
+		DisplayQty:              display,
+		GTDExpiry:               gtd,
+		TrailingOffset:          trailOff,
+		TrailingOffsetUnit:      trailUnit,
+		ActivationPrice:         actPx,
+		DiscretionaryOffsetPips: discOff,
+		SessionID:               sessionID,
+		CoDExempt:               codExempt(msg),
 	}, nil
 }
 

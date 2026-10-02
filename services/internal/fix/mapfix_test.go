@@ -230,3 +230,61 @@ func TestSideAndTIFMaps(t *testing.T) {
 		}
 	}
 }
+
+// Phase-3 Task 2 — venue custom tags 20003–20006: trailing stops and
+// whole-pip discretionary offsets over FIX 4.4 (spec §6.11).
+
+func TestMapNewOrderSingle_TrailingStop(t *testing.T) {
+	m := newOrderMsg()
+	m.Body.SetString(TagOrdType, OrdTypeStop)
+	m.Body.Remove(TagPrice)
+	m.Body.SetString(TagTrailingOffset, "5")
+	m.Body.SetString(TagTrailingOffsetUnit, "PIPS")
+	m.Body.SetString(TagActivationPrice, "1.0300")
+	req, merr := MapNewOrderSingle(m, "s")
+	if merr != nil {
+		t.Fatalf("trailing map: %v", merr)
+	}
+	if req.OrderType != orders.TypeStop {
+		t.Fatalf("type %q", req.OrderType)
+	}
+	if req.TrailingOffset == nil || req.TrailingOffset.String() != "5" {
+		t.Fatalf("offset: %v", req.TrailingOffset)
+	}
+	if req.TrailingOffsetUnit != orders.TrailUnitPips {
+		t.Fatalf("unit %q", req.TrailingOffsetUnit)
+	}
+	if req.ActivationPrice == nil || req.ActivationPrice.String() != "1.03" {
+		t.Fatalf("activation: %v", req.ActivationPrice)
+	}
+}
+
+func TestMapNewOrderSingle_TrailingRequiresStopOrdType(t *testing.T) {
+	m := newOrderMsg()
+	m.Body.SetString(TagTrailingOffset, "5")
+	m.Body.SetString(TagTrailingOffsetUnit, "PIPS")
+	if _, merr := MapNewOrderSingle(m, "s"); merr == nil || merr.Code != "INVALID_REQUEST" {
+		t.Fatalf("trailing on LIMIT must reject, got %v", merr)
+	}
+}
+
+func TestMapNewOrderSingle_StopWithoutStopPxStillRejects(t *testing.T) {
+	m := newOrderMsg()
+	m.Body.SetString(TagOrdType, OrdTypeStop)
+	m.Body.Remove(TagPrice)
+	if _, merr := MapNewOrderSingle(m, "s"); merr == nil {
+		t.Fatal("plain STOP without StopPx must reject")
+	}
+}
+
+func TestMapNewOrderSingle_DiscretionaryOffset(t *testing.T) {
+	m := newOrderMsg()
+	m.Body.SetString(TagDiscretionaryOffPip, "3")
+	req, merr := MapNewOrderSingle(m, "s")
+	if merr != nil {
+		t.Fatalf("map: %v", merr)
+	}
+	if req.DiscretionaryOffsetPips == nil || req.DiscretionaryOffsetPips.String() != "3" {
+		t.Fatalf("disc offset: %v", req.DiscretionaryOffsetPips)
+	}
+}

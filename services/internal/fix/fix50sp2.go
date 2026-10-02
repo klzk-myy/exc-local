@@ -358,16 +358,59 @@ func MapNewOrderSingleSP2(raw []byte, sessionID string) (*orders.SubmitRequest, 
 			return nil, mapErr("INVALID_REQUEST", "TimeInForce(59)=%q unsupported", v)
 		}
 	}
+	// Stop trigger + venue custom trailing/discretionary block (tags
+	// 99 and 20003–20006, shared admission contract with the 4.4 path).
+	stopPx, merr := decField(fs, TagStopPx)
+	if merr != nil {
+		return nil, merr
+	}
+	trailOff, merr := decField(fs, TagTrailingOffset)
+	if merr != nil {
+		return nil, merr
+	}
+	trailUnit := ""
+	if v, ok := first(fs, TagTrailingOffsetUnit); ok {
+		trailUnit = strings.ToUpper(strings.TrimSpace(v))
+	}
+	actPx, merr := decField(fs, TagActivationPrice)
+	if merr != nil {
+		return nil, merr
+	}
+	discOff, merr := decField(fs, TagDiscretionaryOffPip)
+	if merr != nil {
+		return nil, merr
+	}
+	trailing := trailOff != nil || trailUnit != ""
+	if ordType == orders.TypeStop && stopPx == nil && !trailing {
+		t := TagStopPx
+		return nil, &MappingError{Code: "INVALID_REQUEST",
+			Detail: "OrdType=Stop requires StopPx(99) (or the 20003/20004 trailing pair)",
+			RefTag: &t, OrdReject: OrdRejReasonOther}
+	}
+	if trailing && ordType != orders.TypeStop {
+		return nil, mapErr("INVALID_REQUEST",
+			"trailing fields (20003/20004) require OrdType(40)=3 Stop")
+	}
+	if discOff != nil && ordType != orders.TypeLimit {
+		return nil, mapErr("INVALID_REQUEST",
+			"DiscretionaryOffsetPips(20006) is only valid on OrdType=Limit")
+	}
+
 	req := &orders.SubmitRequest{
-		Symbol:        config.CanonicalSymbol(symbol),
-		Side:          side,
-		OrderType:     ordType,
-		TimeInForce:   tif,
-		ClientOrderID: clOrdID,
-		Quantity:      qty,
-		Price:         price,
-		GTDExpiry:     gtd,
-		SessionID:     sessionID,
+		Symbol:                  config.CanonicalSymbol(symbol),
+		Side:                    side,
+		OrderType:               ordType,
+		TimeInForce:             tif,
+		ClientOrderID:           clOrdID,
+		Quantity:                qty,
+		Price:                   price,
+		StopPrice:               stopPx,
+		GTDExpiry:               gtd,
+		TrailingOffset:          trailOff,
+		TrailingOffsetUnit:      trailUnit,
+		ActivationPrice:         actPx,
+		DiscretionaryOffsetPips: discOff,
+		SessionID:               sessionID,
 	}
 
 	// Derivative surface — SecurityType(167) presence selects the
