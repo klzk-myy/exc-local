@@ -6,8 +6,8 @@ import (
 	flatbuffers "github.com/google/flatbuffers/go"
 )
 
-// / Inbound: atomic amend/replace (Task 2.3.20). Single-thread total order —
-// / concurrent amends on the same order_seq resolve to exactly one winner.
+/// Inbound: atomic amend/replace (Task 2.3.20). Single-thread total order —
+/// concurrent amends on the same order_seq resolve to exactly one winner.
 type OrderAmend struct {
 	_tab flatbuffers.Table
 }
@@ -100,8 +100,32 @@ func (rcv *OrderAmend) MutateGtdExpiryNs(n int64) bool {
 	return rcv._tab.MutateInt64Slot(14, n)
 }
 
+func (rcv *OrderAmend) DisplayQty() int64 {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(16))
+	if o != 0 {
+		return rcv._tab.GetInt64(o + rcv._tab.Pos)
+	}
+	return 0
+}
+
+func (rcv *OrderAmend) MutateDisplayQty(n int64) bool {
+	return rcv._tab.MutateInt64Slot(16, n)
+}
+
+func (rcv *OrderAmend) TriggerSource() byte {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(18))
+	if o != 0 {
+		return rcv._tab.GetByte(o + rcv._tab.Pos)
+	}
+	return 0
+}
+
+func (rcv *OrderAmend) MutateTriggerSource(n byte) bool {
+	return rcv._tab.MutateByteSlot(18, n)
+}
+
 func OrderAmendStart(builder *flatbuffers.Builder) {
-	builder.StartObject(6)
+	builder.StartObject(8)
 }
 func OrderAmendAddOrderId(builder *flatbuffers.Builder, orderId uint64) {
 	builder.PrependUint64Slot(0, orderId, 0)
@@ -120,6 +144,12 @@ func OrderAmendAddStopPrice(builder *flatbuffers.Builder, stopPrice int64) {
 }
 func OrderAmendAddGtdExpiryNs(builder *flatbuffers.Builder, gtdExpiryNs int64) {
 	builder.PrependInt64Slot(5, gtdExpiryNs, 0)
+}
+func OrderAmendAddDisplayQty(builder *flatbuffers.Builder, displayQty int64) {
+	builder.PrependInt64Slot(6, displayQty, 0)
+}
+func OrderAmendAddTriggerSource(builder *flatbuffers.Builder, triggerSource byte) {
+	builder.PrependByteSlot(7, triggerSource, 0)
 }
 func OrderAmendEnd(builder *flatbuffers.Builder) flatbuffers.UOffsetT {
 	return builder.EndObject()

@@ -86,6 +86,10 @@ table OrderAmend {
     qty: int64;                 // 0 = unchanged
     stop_price: int64;          // 0 = unchanged
     gtd_expiry_ns: int64;       // 0 = unchanged
+    // Phase-3 amend-surface completion (IMP-PLAN Task 2) — appended fields
+    // are wire-safe; engines predating them see the "unchanged" defaults.
+    display_qty: int64;         // iceberg visible slice; 0 = unchanged
+    trigger_source: ubyte;      // 0xFF = unchanged; a switch is rejected in-core (§6.9, Task 16.3.17)
 }
 
 /// Inbound: OCO (one-cancels-other) link command — Phase-14 Task 14.3.1,
@@ -210,11 +214,61 @@ table L3OrderEvent {
     cancel_reason: ubyte;
 }
 
+/// One leg of a cross-shard basket order (Task 2.3.8/2.3.25, spec §2.2a).
+/// `order_id` is the leg's client-visible order id (the gateway allocates it
+/// like any order id); `limit_price` = 0 executes the leg as a pure market
+/// leg under the optimistic path.
+table BasketLeg {
+    shard_id: uint32;         // hosting shard — the gateway resolves this
+                              // from the symbol's shard map
+    instrument_id: uint32;
+    order_id: uint64;
+    side: Side;
+    qty: int64;               // scaled 1e8
+    limit_price: int64;       // scaled 1e8; 0 = market leg
+}
+
+/// Inbound: cross-shard basket submit (IMP-PLAN Phase-3 Task 4). Sent to the
+/// coordinator shard's `_in` ring — the shard with the LOWEST leg shard_id
+/// (Task 2.3.8 election rule; the gateway computes it). Execution goes
+/// through the canonical optimistic path (OptimisticShardCoordinator —
+/// spec §2.2a supersedes the blocking-2PC hot path); the 2PC coordinator
+/// remains the reservation/bookkeeping substrate for its own ctl traffic.
+/// op_id is the 128-bit dedup identity (UUID v4 or gateway-minted pair).
+table BasketSubmit {
+    op_id_hi: uint64;
+    op_id_lo: uint64;
+    account_id: uint64;
+    legs: [BasketLeg];        // 2..8 legs (kMaxLegs)
+}
+
+/// Outbound: terminal basket outcome (OptimisticShardCoordinator result).
+/// Emitted once per op when it reaches a terminal state; the gateway routes
+/// it to the basket status projection.
+///   status: OptStatus ordinal (1=Matching 2=Committed 3=Unwinding
+///           4=Compensated 5=Failed 6=Rejected) — only terminal values
+///           (2/4/5/6) are emitted.
+///   code:   OptCode ordinal (see OptimisticShardCoordinator.hpp).
+table BasketResult {
+    op_id_hi: uint64;
+    op_id_lo: uint64;
+    account_id: uint64;
+    status: ubyte;
+    code: ubyte;
+    leg_count: ubyte;
+    legs_filled: ubyte;
+    legs_unwound: ubyte;
+    slippage: int64;          // scaled 1e8; unwind slippage, >0 = house loss
+    duration_ns: uint64;
+}
+
 // Union members are APPEND-ONLY: discriminants are wire-embedded ordinals —
 // inserting mid-union renumbers TradeFill/BookSnapshot and breaks compat.
 // L3OrderEvent appended for Phase-17 Task 17.3.1 -> EventType_L3OrderEvent=9.
+// BasketSubmit/BasketResult appended for IMP-PLAN Phase-3 Task 4 -> 10/11.
 union EventType { OrderNew, OrderCancel, TradeFill, BookSnapshot, TimeTick,
-                  OrderAmend, OcoLink, AuctionEvent, L3OrderEvent }
+                  OrderAmend, OcoLink, AuctionEvent, L3OrderEvent,
+                  BasketSubmit, BasketResult }
 
 /// Envelope for every IPC message. `type_type` carries the discriminator.
 table Event {

@@ -6,7 +6,7 @@ import (
 	flatbuffers "github.com/google/flatbuffers/go"
 )
 
-// / Outbound: aggregated order-book snapshot for market data fan-out.
+/// Outbound: aggregated order-book snapshot for market data fan-out.
 type BookSnapshot struct {
 	_tab flatbuffers.Table
 }

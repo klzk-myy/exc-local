@@ -6,13 +6,13 @@ import (
 	flatbuffers "github.com/google/flatbuffers/go"
 )
 
-// / Inbound: cancel request.
-// / `reason` is additive (Phase-14 Task 14.3.1): engine-emitted outbound
-// / cancels carry the kWalCancelReason* code (0=user, 1=expired, 2=STP,
-// / 3=FOK_unfilled, 4=IOC_remainder, 5=slippage, 6=exec-rule range,
-// / 7=OCO sibling) so the read model can distinguish a sibling-cancelled
-// / OCO leg for the OCO_SIBLING_CANCEL_RACE (409) API mapping. Inbound
-// / cancel requests leave it 0/unset.
+/// Inbound: cancel request.
+/// `reason` is additive (Phase-14 Task 14.3.1): engine-emitted outbound
+/// cancels carry the kWalCancelReason* code (0=user, 1=expired, 2=STP,
+/// 3=FOK_unfilled, 4=IOC_remainder, 5=slippage, 6=exec-rule range,
+/// 7=OCO sibling) so the read model can distinguish a sibling-cancelled
+/// OCO leg for the OCO_SIBLING_CANCEL_RACE (409) API mapping. Inbound
+/// cancel requests leave it 0/unset.
 type OrderCancel struct {
 	_tab flatbuffers.Table
 }

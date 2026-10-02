@@ -39,6 +39,15 @@ struct AuctionEventBuilder;
 struct L3OrderEvent;
 struct L3OrderEventBuilder;
 
+struct BasketLeg;
+struct BasketLegBuilder;
+
+struct BasketSubmit;
+struct BasketSubmitBuilder;
+
+struct BasketResult;
+struct BasketResultBuilder;
+
 struct Event;
 struct EventBuilder;
 
@@ -180,9 +189,10 @@ inline const char *EnumNameTimeInForce(TimeInForce e) {
 ///   ref_price:    pending conditional trigger price (stop/trailing-arm
 ///                 orders) when carried by the triggering WAL row; else 0.
 ///   seq:          per-instrument monotonic L3 sequence (spec §11.1) —
-///                 assigned at emission and consumed even when transport
-///                 send fails, so consumers detect loss as a gap and
-///                 resync via snapshot.
+///                 1-BASED (0 is the flatbuffers absent-field sentinel and
+///                 is contract-invalid); assigned at emission and consumed
+///                 even when transport send fails, so consumers detect loss
+///                 as a gap and resync via snapshot.
 ///   fill_role:    Fill only: 1 = taker leg, 2 = maker leg, 3 = auction
 ///                 uncross leg; 0 elsewhere.
 ///   flags:        bit0 hidden (not L2-visible: hidden flag or PEG),
@@ -242,11 +252,13 @@ enum EventType {
   EventType_OcoLink = 7,
   EventType_AuctionEvent = 8,
   EventType_L3OrderEvent = 9,
+  EventType_BasketSubmit = 10,
+  EventType_BasketResult = 11,
   EventType_MIN = EventType_NONE,
-  EventType_MAX = EventType_L3OrderEvent
+  EventType_MAX = EventType_BasketResult
 };
 
-inline const EventType (&EnumValuesEventType())[10] {
+inline const EventType (&EnumValuesEventType())[12] {
   static const EventType values[] = {
     EventType_NONE,
     EventType_OrderNew,
@@ -257,13 +269,15 @@ inline const EventType (&EnumValuesEventType())[10] {
     EventType_OrderAmend,
     EventType_OcoLink,
     EventType_AuctionEvent,
-    EventType_L3OrderEvent
+    EventType_L3OrderEvent,
+    EventType_BasketSubmit,
+    EventType_BasketResult
   };
   return values;
 }
 
 inline const char * const *EnumNamesEventType() {
-  static const char * const names[11] = {
+  static const char * const names[13] = {
     "NONE",
     "OrderNew",
     "OrderCancel",
@@ -274,13 +288,15 @@ inline const char * const *EnumNamesEventType() {
     "OcoLink",
     "AuctionEvent",
     "L3OrderEvent",
+    "BasketSubmit",
+    "BasketResult",
     nullptr
   };
   return names;
 }
 
 inline const char *EnumNameEventType(EventType e) {
-  if (flatbuffers::IsOutRange(e, EventType_NONE, EventType_L3OrderEvent)) return "";
+  if (flatbuffers::IsOutRange(e, EventType_NONE, EventType_BasketResult)) return "";
   const size_t index = static_cast<size_t>(e);
   return EnumNamesEventType()[index];
 }
@@ -323,6 +339,14 @@ template<> struct EventTypeTraits<exc::wire::AuctionEvent> {
 
 template<> struct EventTypeTraits<exc::wire::L3OrderEvent> {
   static const EventType enum_value = EventType_L3OrderEvent;
+};
+
+template<> struct EventTypeTraits<exc::wire::BasketSubmit> {
+  static const EventType enum_value = EventType_BasketSubmit;
+};
+
+template<> struct EventTypeTraits<exc::wire::BasketResult> {
+  static const EventType enum_value = EventType_BasketResult;
 };
 
 bool VerifyEventType(flatbuffers::Verifier &verifier, const void *obj, EventType type);
@@ -767,7 +791,9 @@ struct OrderAmend FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
     VT_PRICE = 8,
     VT_QTY = 10,
     VT_STOP_PRICE = 12,
-    VT_GTD_EXPIRY_NS = 14
+    VT_GTD_EXPIRY_NS = 14,
+    VT_DISPLAY_QTY = 16,
+    VT_TRIGGER_SOURCE = 18
   };
   uint64_t order_id() const {
     return GetField<uint64_t>(VT_ORDER_ID, 0);
@@ -787,6 +813,12 @@ struct OrderAmend FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   int64_t gtd_expiry_ns() const {
     return GetField<int64_t>(VT_GTD_EXPIRY_NS, 0);
   }
+  int64_t display_qty() const {
+    return GetField<int64_t>(VT_DISPLAY_QTY, 0);
+  }
+  uint8_t trigger_source() const {
+    return GetField<uint8_t>(VT_TRIGGER_SOURCE, 0);
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<uint64_t>(verifier, VT_ORDER_ID) &&
@@ -795,6 +827,8 @@ struct OrderAmend FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
            VerifyField<int64_t>(verifier, VT_QTY) &&
            VerifyField<int64_t>(verifier, VT_STOP_PRICE) &&
            VerifyField<int64_t>(verifier, VT_GTD_EXPIRY_NS) &&
+           VerifyField<int64_t>(verifier, VT_DISPLAY_QTY) &&
+           VerifyField<uint8_t>(verifier, VT_TRIGGER_SOURCE) &&
            verifier.EndTable();
   }
 };
@@ -821,6 +855,12 @@ struct OrderAmendBuilder {
   void add_gtd_expiry_ns(int64_t gtd_expiry_ns) {
     fbb_.AddElement<int64_t>(OrderAmend::VT_GTD_EXPIRY_NS, gtd_expiry_ns, 0);
   }
+  void add_display_qty(int64_t display_qty) {
+    fbb_.AddElement<int64_t>(OrderAmend::VT_DISPLAY_QTY, display_qty, 0);
+  }
+  void add_trigger_source(uint8_t trigger_source) {
+    fbb_.AddElement<uint8_t>(OrderAmend::VT_TRIGGER_SOURCE, trigger_source, 0);
+  }
   explicit OrderAmendBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -839,14 +879,18 @@ inline flatbuffers::Offset<OrderAmend> CreateOrderAmend(
     int64_t price = 0,
     int64_t qty = 0,
     int64_t stop_price = 0,
-    int64_t gtd_expiry_ns = 0) {
+    int64_t gtd_expiry_ns = 0,
+    int64_t display_qty = 0,
+    uint8_t trigger_source = 0) {
   OrderAmendBuilder builder_(_fbb);
+  builder_.add_display_qty(display_qty);
   builder_.add_gtd_expiry_ns(gtd_expiry_ns);
   builder_.add_stop_price(stop_price);
   builder_.add_qty(qty);
   builder_.add_price(price);
   builder_.add_order_seq(order_seq);
   builder_.add_order_id(order_id);
+  builder_.add_trigger_source(trigger_source);
   return builder_.Finish();
 }
 
@@ -1496,6 +1540,334 @@ inline flatbuffers::Offset<L3OrderEvent> CreateL3OrderEvent(
   return builder_.Finish();
 }
 
+/// One leg of a cross-shard basket order (Task 2.3.8/2.3.25, spec §2.2a).
+/// `order_id` is the leg's client-visible order id (the gateway allocates it
+/// like any order id); `limit_price` = 0 executes the leg as a pure market
+/// leg under the optimistic path.
+struct BasketLeg FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef BasketLegBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_SHARD_ID = 4,
+    VT_INSTRUMENT_ID = 6,
+    VT_ORDER_ID = 8,
+    VT_SIDE = 10,
+    VT_QTY = 12,
+    VT_LIMIT_PRICE = 14
+  };
+  uint32_t shard_id() const {
+    return GetField<uint32_t>(VT_SHARD_ID, 0);
+  }
+  uint32_t instrument_id() const {
+    return GetField<uint32_t>(VT_INSTRUMENT_ID, 0);
+  }
+  uint64_t order_id() const {
+    return GetField<uint64_t>(VT_ORDER_ID, 0);
+  }
+  exc::wire::Side side() const {
+    return static_cast<exc::wire::Side>(GetField<uint8_t>(VT_SIDE, 0));
+  }
+  int64_t qty() const {
+    return GetField<int64_t>(VT_QTY, 0);
+  }
+  int64_t limit_price() const {
+    return GetField<int64_t>(VT_LIMIT_PRICE, 0);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<uint32_t>(verifier, VT_SHARD_ID) &&
+           VerifyField<uint32_t>(verifier, VT_INSTRUMENT_ID) &&
+           VerifyField<uint64_t>(verifier, VT_ORDER_ID) &&
+           VerifyField<uint8_t>(verifier, VT_SIDE) &&
+           VerifyField<int64_t>(verifier, VT_QTY) &&
+           VerifyField<int64_t>(verifier, VT_LIMIT_PRICE) &&
+           verifier.EndTable();
+  }
+};
+
+struct BasketLegBuilder {
+  typedef BasketLeg Table;
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_shard_id(uint32_t shard_id) {
+    fbb_.AddElement<uint32_t>(BasketLeg::VT_SHARD_ID, shard_id, 0);
+  }
+  void add_instrument_id(uint32_t instrument_id) {
+    fbb_.AddElement<uint32_t>(BasketLeg::VT_INSTRUMENT_ID, instrument_id, 0);
+  }
+  void add_order_id(uint64_t order_id) {
+    fbb_.AddElement<uint64_t>(BasketLeg::VT_ORDER_ID, order_id, 0);
+  }
+  void add_side(exc::wire::Side side) {
+    fbb_.AddElement<uint8_t>(BasketLeg::VT_SIDE, static_cast<uint8_t>(side), 0);
+  }
+  void add_qty(int64_t qty) {
+    fbb_.AddElement<int64_t>(BasketLeg::VT_QTY, qty, 0);
+  }
+  void add_limit_price(int64_t limit_price) {
+    fbb_.AddElement<int64_t>(BasketLeg::VT_LIMIT_PRICE, limit_price, 0);
+  }
+  explicit BasketLegBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  flatbuffers::Offset<BasketLeg> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<BasketLeg>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<BasketLeg> CreateBasketLeg(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    uint32_t shard_id = 0,
+    uint32_t instrument_id = 0,
+    uint64_t order_id = 0,
+    exc::wire::Side side = exc::wire::Side_Buy,
+    int64_t qty = 0,
+    int64_t limit_price = 0) {
+  BasketLegBuilder builder_(_fbb);
+  builder_.add_limit_price(limit_price);
+  builder_.add_qty(qty);
+  builder_.add_order_id(order_id);
+  builder_.add_instrument_id(instrument_id);
+  builder_.add_shard_id(shard_id);
+  builder_.add_side(side);
+  return builder_.Finish();
+}
+
+/// Inbound: cross-shard basket submit (IMP-PLAN Phase-3 Task 4). Sent to the
+/// coordinator shard's `_in` ring — the shard with the LOWEST leg shard_id
+/// (Task 2.3.8 election rule; the gateway computes it). Execution goes
+/// through the canonical optimistic path (OptimisticShardCoordinator —
+/// spec §2.2a supersedes the blocking-2PC hot path); the 2PC coordinator
+/// remains the reservation/bookkeeping substrate for its own ctl traffic.
+/// op_id is the 128-bit dedup identity (UUID v4 or gateway-minted pair).
+struct BasketSubmit FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef BasketSubmitBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_OP_ID_HI = 4,
+    VT_OP_ID_LO = 6,
+    VT_ACCOUNT_ID = 8,
+    VT_LEGS = 10
+  };
+  uint64_t op_id_hi() const {
+    return GetField<uint64_t>(VT_OP_ID_HI, 0);
+  }
+  uint64_t op_id_lo() const {
+    return GetField<uint64_t>(VT_OP_ID_LO, 0);
+  }
+  uint64_t account_id() const {
+    return GetField<uint64_t>(VT_ACCOUNT_ID, 0);
+  }
+  const flatbuffers::Vector<flatbuffers::Offset<exc::wire::BasketLeg>> *legs() const {
+    return GetPointer<const flatbuffers::Vector<flatbuffers::Offset<exc::wire::BasketLeg>> *>(VT_LEGS);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<uint64_t>(verifier, VT_OP_ID_HI) &&
+           VerifyField<uint64_t>(verifier, VT_OP_ID_LO) &&
+           VerifyField<uint64_t>(verifier, VT_ACCOUNT_ID) &&
+           VerifyOffset(verifier, VT_LEGS) &&
+           verifier.VerifyVector(legs()) &&
+           verifier.VerifyVectorOfTables(legs()) &&
+           verifier.EndTable();
+  }
+};
+
+struct BasketSubmitBuilder {
+  typedef BasketSubmit Table;
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_op_id_hi(uint64_t op_id_hi) {
+    fbb_.AddElement<uint64_t>(BasketSubmit::VT_OP_ID_HI, op_id_hi, 0);
+  }
+  void add_op_id_lo(uint64_t op_id_lo) {
+    fbb_.AddElement<uint64_t>(BasketSubmit::VT_OP_ID_LO, op_id_lo, 0);
+  }
+  void add_account_id(uint64_t account_id) {
+    fbb_.AddElement<uint64_t>(BasketSubmit::VT_ACCOUNT_ID, account_id, 0);
+  }
+  void add_legs(flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<exc::wire::BasketLeg>>> legs) {
+    fbb_.AddOffset(BasketSubmit::VT_LEGS, legs);
+  }
+  explicit BasketSubmitBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  flatbuffers::Offset<BasketSubmit> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<BasketSubmit>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<BasketSubmit> CreateBasketSubmit(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    uint64_t op_id_hi = 0,
+    uint64_t op_id_lo = 0,
+    uint64_t account_id = 0,
+    flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<exc::wire::BasketLeg>>> legs = 0) {
+  BasketSubmitBuilder builder_(_fbb);
+  builder_.add_account_id(account_id);
+  builder_.add_op_id_lo(op_id_lo);
+  builder_.add_op_id_hi(op_id_hi);
+  builder_.add_legs(legs);
+  return builder_.Finish();
+}
+
+inline flatbuffers::Offset<BasketSubmit> CreateBasketSubmitDirect(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    uint64_t op_id_hi = 0,
+    uint64_t op_id_lo = 0,
+    uint64_t account_id = 0,
+    const std::vector<flatbuffers::Offset<exc::wire::BasketLeg>> *legs = nullptr) {
+  auto legs__ = legs ? _fbb.CreateVector<flatbuffers::Offset<exc::wire::BasketLeg>>(*legs) : 0;
+  return exc::wire::CreateBasketSubmit(
+      _fbb,
+      op_id_hi,
+      op_id_lo,
+      account_id,
+      legs__);
+}
+
+/// Outbound: terminal basket outcome (OptimisticShardCoordinator result).
+/// Emitted once per op when it reaches a terminal state; the gateway routes
+/// it to the basket status projection.
+///   status: OptStatus ordinal (1=Matching 2=Committed 3=Unwinding
+///           4=Compensated 5=Failed 6=Rejected) — only terminal values
+///           (2/4/5/6) are emitted.
+///   code:   OptCode ordinal (see OptimisticShardCoordinator.hpp).
+struct BasketResult FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef BasketResultBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_OP_ID_HI = 4,
+    VT_OP_ID_LO = 6,
+    VT_ACCOUNT_ID = 8,
+    VT_STATUS = 10,
+    VT_CODE = 12,
+    VT_LEG_COUNT = 14,
+    VT_LEGS_FILLED = 16,
+    VT_LEGS_UNWOUND = 18,
+    VT_SLIPPAGE = 20,
+    VT_DURATION_NS = 22
+  };
+  uint64_t op_id_hi() const {
+    return GetField<uint64_t>(VT_OP_ID_HI, 0);
+  }
+  uint64_t op_id_lo() const {
+    return GetField<uint64_t>(VT_OP_ID_LO, 0);
+  }
+  uint64_t account_id() const {
+    return GetField<uint64_t>(VT_ACCOUNT_ID, 0);
+  }
+  uint8_t status() const {
+    return GetField<uint8_t>(VT_STATUS, 0);
+  }
+  uint8_t code() const {
+    return GetField<uint8_t>(VT_CODE, 0);
+  }
+  uint8_t leg_count() const {
+    return GetField<uint8_t>(VT_LEG_COUNT, 0);
+  }
+  uint8_t legs_filled() const {
+    return GetField<uint8_t>(VT_LEGS_FILLED, 0);
+  }
+  uint8_t legs_unwound() const {
+    return GetField<uint8_t>(VT_LEGS_UNWOUND, 0);
+  }
+  int64_t slippage() const {
+    return GetField<int64_t>(VT_SLIPPAGE, 0);
+  }
+  uint64_t duration_ns() const {
+    return GetField<uint64_t>(VT_DURATION_NS, 0);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<uint64_t>(verifier, VT_OP_ID_HI) &&
+           VerifyField<uint64_t>(verifier, VT_OP_ID_LO) &&
+           VerifyField<uint64_t>(verifier, VT_ACCOUNT_ID) &&
+           VerifyField<uint8_t>(verifier, VT_STATUS) &&
+           VerifyField<uint8_t>(verifier, VT_CODE) &&
+           VerifyField<uint8_t>(verifier, VT_LEG_COUNT) &&
+           VerifyField<uint8_t>(verifier, VT_LEGS_FILLED) &&
+           VerifyField<uint8_t>(verifier, VT_LEGS_UNWOUND) &&
+           VerifyField<int64_t>(verifier, VT_SLIPPAGE) &&
+           VerifyField<uint64_t>(verifier, VT_DURATION_NS) &&
+           verifier.EndTable();
+  }
+};
+
+struct BasketResultBuilder {
+  typedef BasketResult Table;
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_op_id_hi(uint64_t op_id_hi) {
+    fbb_.AddElement<uint64_t>(BasketResult::VT_OP_ID_HI, op_id_hi, 0);
+  }
+  void add_op_id_lo(uint64_t op_id_lo) {
+    fbb_.AddElement<uint64_t>(BasketResult::VT_OP_ID_LO, op_id_lo, 0);
+  }
+  void add_account_id(uint64_t account_id) {
+    fbb_.AddElement<uint64_t>(BasketResult::VT_ACCOUNT_ID, account_id, 0);
+  }
+  void add_status(uint8_t status) {
+    fbb_.AddElement<uint8_t>(BasketResult::VT_STATUS, status, 0);
+  }
+  void add_code(uint8_t code) {
+    fbb_.AddElement<uint8_t>(BasketResult::VT_CODE, code, 0);
+  }
+  void add_leg_count(uint8_t leg_count) {
+    fbb_.AddElement<uint8_t>(BasketResult::VT_LEG_COUNT, leg_count, 0);
+  }
+  void add_legs_filled(uint8_t legs_filled) {
+    fbb_.AddElement<uint8_t>(BasketResult::VT_LEGS_FILLED, legs_filled, 0);
+  }
+  void add_legs_unwound(uint8_t legs_unwound) {
+    fbb_.AddElement<uint8_t>(BasketResult::VT_LEGS_UNWOUND, legs_unwound, 0);
+  }
+  void add_slippage(int64_t slippage) {
+    fbb_.AddElement<int64_t>(BasketResult::VT_SLIPPAGE, slippage, 0);
+  }
+  void add_duration_ns(uint64_t duration_ns) {
+    fbb_.AddElement<uint64_t>(BasketResult::VT_DURATION_NS, duration_ns, 0);
+  }
+  explicit BasketResultBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  flatbuffers::Offset<BasketResult> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<BasketResult>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<BasketResult> CreateBasketResult(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    uint64_t op_id_hi = 0,
+    uint64_t op_id_lo = 0,
+    uint64_t account_id = 0,
+    uint8_t status = 0,
+    uint8_t code = 0,
+    uint8_t leg_count = 0,
+    uint8_t legs_filled = 0,
+    uint8_t legs_unwound = 0,
+    int64_t slippage = 0,
+    uint64_t duration_ns = 0) {
+  BasketResultBuilder builder_(_fbb);
+  builder_.add_duration_ns(duration_ns);
+  builder_.add_slippage(slippage);
+  builder_.add_account_id(account_id);
+  builder_.add_op_id_lo(op_id_lo);
+  builder_.add_op_id_hi(op_id_hi);
+  builder_.add_legs_unwound(legs_unwound);
+  builder_.add_legs_filled(legs_filled);
+  builder_.add_leg_count(leg_count);
+  builder_.add_code(code);
+  builder_.add_status(status);
+  return builder_.Finish();
+}
+
 /// Envelope for every IPC message. `type_type` carries the discriminator.
 struct Event FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   typedef EventBuilder Builder;
@@ -1545,6 +1917,12 @@ struct Event FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const exc::wire::L3OrderEvent *type_as_L3OrderEvent() const {
     return type_type() == exc::wire::EventType_L3OrderEvent ? static_cast<const exc::wire::L3OrderEvent *>(type()) : nullptr;
   }
+  const exc::wire::BasketSubmit *type_as_BasketSubmit() const {
+    return type_type() == exc::wire::EventType_BasketSubmit ? static_cast<const exc::wire::BasketSubmit *>(type()) : nullptr;
+  }
+  const exc::wire::BasketResult *type_as_BasketResult() const {
+    return type_type() == exc::wire::EventType_BasketResult ? static_cast<const exc::wire::BasketResult *>(type()) : nullptr;
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<uint64_t>(verifier, VT_SEQ) &&
@@ -1590,6 +1968,14 @@ template<> inline const exc::wire::AuctionEvent *Event::type_as<exc::wire::Aucti
 
 template<> inline const exc::wire::L3OrderEvent *Event::type_as<exc::wire::L3OrderEvent>() const {
   return type_as_L3OrderEvent();
+}
+
+template<> inline const exc::wire::BasketSubmit *Event::type_as<exc::wire::BasketSubmit>() const {
+  return type_as_BasketSubmit();
+}
+
+template<> inline const exc::wire::BasketResult *Event::type_as<exc::wire::BasketResult>() const {
+  return type_as_BasketResult();
 }
 
 struct EventBuilder {
@@ -1672,6 +2058,14 @@ inline bool VerifyEventType(flatbuffers::Verifier &verifier, const void *obj, Ev
     }
     case EventType_L3OrderEvent: {
       auto ptr = reinterpret_cast<const exc::wire::L3OrderEvent *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case EventType_BasketSubmit: {
+      auto ptr = reinterpret_cast<const exc::wire::BasketSubmit *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case EventType_BasketResult: {
+      auto ptr = reinterpret_cast<const exc::wire::BasketResult *>(obj);
       return verifier.VerifyTable(ptr);
     }
     default: return true;
