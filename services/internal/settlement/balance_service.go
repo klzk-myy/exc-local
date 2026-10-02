@@ -109,6 +109,10 @@ type EngineFill struct {
 	Qty         decimal.Decimal
 	EngineSeq   uint64
 	ShardID     int64
+	// Raw is the verbatim inbound Event frame (trace block included) —
+	// retained for post-commit JetStream republication on the
+	// trades/settlements streams, byte-identical to the bridge's relay.
+	Raw []byte
 }
 
 // ResolvedTrade is a fill with its counterparties, instrument currencies,

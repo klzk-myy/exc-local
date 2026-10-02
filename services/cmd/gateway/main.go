@@ -2186,6 +2186,13 @@ func run() error {
 		if ferr != nil {
 			return fmt.Errorf("fill consumer shard %d: %w", sh, ferr)
 		}
+		// Post-commit fill republish: in the shm-only topology there is no
+		// Aeron bridge, so trades/settlements JetStream consumers starve
+		// without this fan-out. Same subject + Nats-Msg-Id contract as the
+		// bridge — coexistence dedups at the stream level.
+		if natsClient != nil {
+			fc.WithRepublisher(jetstreamFillPublisher{js: natsClient.JetStream()})
+		}
 		go func() {
 			// Fail-closed halt + restart-with-backoff: the queue survives
 			// a consumer instance (undelivered frames are re-pumped), so
@@ -6591,6 +6598,19 @@ type categorizerAdapter struct {
 func (a categorizerAdapter) Category(ctx context.Context, accountID int64) (string, error) {
 	c, err := a.svc.Category(ctx, accountID)
 	return string(c), err
+}
+
+// jetstreamFillPublisher adapts the JetStream context to the
+// settlement.TradeRepublisher seam — publishes with Nats-Msg-Id dedup,
+// the bridge.Publisher contract for TradeFill fan-out.
+type jetstreamFillPublisher struct{ js jetstream.JetStream }
+
+func (p jetstreamFillPublisher) PublishEvent(ctx context.Context, subject, msgID string, payload []byte) error {
+	if p.js == nil {
+		return fmt.Errorf("jetstream fill publisher: nil context")
+	}
+	_, err := p.js.Publish(ctx, subject, payload, jetstream.WithMsgID(msgID))
+	return err
 }
 
 // pnlPublisherFunc adapts a closure to risk.PnlPublisher — the ws hub

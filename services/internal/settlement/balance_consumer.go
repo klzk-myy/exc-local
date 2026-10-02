@@ -20,12 +20,14 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strings"
 	"sync/atomic"
 	"time"
 
 	"exchange/internal/ipc"
 	"exchange/internal/ipc/aeron"
 	"exchange/internal/ipc/wire"
+	excnats "exchange/internal/nats"
 	"exchange/internal/tracing"
 	"exchange/pkg/decimal"
 )
@@ -117,6 +119,15 @@ func (s *ShmSource) Pump(limit int, deliver func(payload []byte)) int {
 	return n
 }
 
+// TradeRepublisher publishes a committed fill's raw Event frame to a
+// JetStream subject — the bridge.Publisher contract (Nats-Msg-Id dedup).
+// The gateway uses it to re-emit fills that only ever rode the shm ring:
+// without an Aeron bridge in the loop, `trades.*`/`settlements.*`
+// consumers (analytics, TCA, regulatory reporting) starve.
+type TradeRepublisher interface {
+	PublishEvent(ctx context.Context, subject, msgID string, payload []byte) error
+}
+
 // FillConsumer batches resolved fills into BalanceService commits.
 // Construct with NewFillConsumer; Run until ctx cancellation or a
 // settlement failure (fail-closed — Run returns the error).
@@ -124,6 +135,7 @@ type FillConsumer struct {
 	svc      *BalanceService
 	resolver TradeResolver
 	source   FillSource
+	repub    TradeRepublisher
 	shardID  int64
 	batchMax int
 	flush    time.Duration
@@ -132,6 +144,7 @@ type FillConsumer struct {
 	nonFill   atomic.Uint64 // non-TradeFill events skipped
 	resolved  atomic.Uint64 // fills resolved + queued
 	flushed   atomic.Uint64 // commits completed
+	republished atomic.Uint64 // committed fills re-emitted to JetStream
 }
 
 // NewFillConsumer wires the consumer. batchMax <= 0 defaults to
@@ -153,12 +166,25 @@ func NewFillConsumer(svc *BalanceService, resolver TradeResolver, source FillSou
 	}, nil
 }
 
+// WithRepublisher re-emits each committed fill's raw frame to
+// "{trades,settlements}.{shard}.{symbol}" after the settlement commit —
+// the same contract the Aeron bridge publishes (raw payload verbatim,
+// Nats-Msg-Id "s{shard}-{engine_seq}"), so bridge+gateway coexistence
+// dedups cleanly and a consumer restart re-emits on ring replay.
+// A publish failure aborts the flush loop — Run returns it, the process
+// restarts, and replayed frames republish under the same msg id.
+func (c *FillConsumer) WithRepublisher(r TradeRepublisher) *FillConsumer {
+	c.repub = r
+	return c
+}
+
 // ConsumerMetrics is a snapshot of the consumer counters.
 type ConsumerMetrics struct {
-	Malformed uint64
-	NonFill   uint64
-	Resolved  uint64
-	Flushed   uint64
+	Malformed   uint64
+	NonFill     uint64
+	Resolved    uint64
+	Flushed     uint64
+	Republished uint64
 }
 
 // Metrics snapshots the counters.
@@ -166,6 +192,7 @@ func (c *FillConsumer) Metrics() ConsumerMetrics {
 	return ConsumerMetrics{
 		Malformed: c.malformed.Load(), NonFill: c.nonFill.Load(),
 		Resolved: c.resolved.Load(), Flushed: c.flushed.Load(),
+		Republished: c.republished.Load(),
 	}
 }
 
@@ -182,6 +209,9 @@ func (c *FillConsumer) Run(ctx context.Context) error {
 			return nil
 		}
 		if _, err := c.svc.ProcessFills(ctx, pending); err != nil {
+			return err
+		}
+		if err := c.republish(ctx, pending); err != nil {
 			return err
 		}
 		c.flushed.Add(1)
@@ -286,7 +316,40 @@ func (c *FillConsumer) decodeFragment(payload []byte) (fill EngineFill, ok bool)
 		Qty:         decimal.NewFromScaled(tf.Qty()),
 		EngineSeq:   tf.Seq(),
 		ShardID:     c.shardID,
+		// Aeron payloads alias the log buffer — copy so the frame
+		// survives until the post-commit republish.
+		Raw: append([]byte(nil), payload...),
 	}, true
+}
+
+// republish fans the just-committed fills out to the JetStream trades and
+// settlements streams — the bridge routing table for TradeFill. Symbol
+// comes from the resolved trade (PG instruments.symbol, '/'→'-' for the
+// NATS token); msgID mirrors the bridge's "s{shard}-{seq}" so a concurrent
+// bridge relay of the same frame dedups at the stream level.
+func (c *FillConsumer) republish(ctx context.Context, trades []ResolvedTrade) error {
+	if c.repub == nil {
+		return nil
+	}
+	for i := range trades {
+		rt := &trades[i]
+		if len(rt.Fill.Raw) == 0 {
+			continue // resolved upstream (tests, non-wire sources)
+		}
+		symbol := strings.ReplaceAll(rt.Symbol, "/", "-")
+		msgID := fmt.Sprintf("s%d-%d", c.shardID, rt.Fill.EngineSeq)
+		for _, stream := range []string{"trades", "settlements"} {
+			subj, err := excnats.Subject(stream, uint32(c.shardID), symbol)
+			if err != nil {
+				return fmt.Errorf("fill republish: subject trade %d: %w", rt.Fill.TradeID, err)
+			}
+			if err := c.repub.PublishEvent(ctx, subj, msgID, rt.Fill.Raw); err != nil {
+				return fmt.Errorf("fill republish %s trade %d: %w", subj, rt.Fill.TradeID, err)
+			}
+			c.republished.Add(1)
+		}
+	}
+	return nil
 }
 
 // resolveFills resolves one pump window. A BatchTradeResolver answers the
