@@ -6,7 +6,7 @@ spot FX, forwards, swaps, NDFs, and vanilla/barrier options on a **firm-liquidit
 central limit order book** — fiat currencies only, no cryptocurrency.
 
 **Status:** implementation-complete — all 30 phases landed. Hosted CI fully green;
-spec corpus **542/542 checkpoints bound, 0 pending stubs**. Remaining work is
+spec corpus **543/543 checkpoints bound, 0 pending stubs**. Remaining work is
 environment-gated evidence only (72h soak, staging gate, DR drills, live
 third-party accounts) — see [Current status](#current-status).
 
@@ -37,7 +37,7 @@ clients ──► edge (HAProxy/WAF) ──► api-gateway (Go) ──┐
         └─► React 18 + TS frontend
 ```
 
-Hard invariants: C++ core on bare metal (no containers in hot path) · Aeron/shm for
+Hard invariants: C++ core on bare metal (no containers in hot path — canonical; docker opt-in per spec §27) · Aeron/shm for
 core↔services (never HTTP/gRPC) · custom binary WAL · PostgreSQL `SERIALIZABLE` for
 balance mutations · fail-closed zero-loss pessimism (spec §2.7) · degradation modes
 `Normal | ReadOnly | MarketDataOnly | SpotOnly | Throttled | Maintenance`.
@@ -136,6 +136,44 @@ supervisorctl -c deploy/supervisord.conf status
 
 Gateway lands on `:8080` (REST+WS), marketdata on `:8081`.
 
+### Boot everything from cold
+
+```bash
+# 0. First time only.
+#    docker mode: build the 4 app images (minutes: base pulls + compiles)
+docker build -f deploy/docker/Dockerfile.engine -t exc-matching-engine:local .
+docker build -f deploy/docker/Dockerfile.go -t exc-go-service:local .
+docker build -f deploy/docker/Dockerfile.aeron -t exc-aeronmd:local .
+docker build -f deploy/docker/Dockerfile.frontend -t exc-frontend:local .
+#    host mode: build local binaries instead
+deploy/scripts/dev_stack.sh build
+
+# 1. Service env (first time only; gitignored — never commit real secrets)
+cp deploy/dev.env.example deploy/dev.env   # skip if deploy/dev.env exists
+
+# 2. Boot all: Stage-0 infra, then Stages 1–5 in §19.13.2 order
+EXC_APP_MODE=docker deploy/scripts/dev_stack.sh start all   # all-containers
+# deploy/scripts/dev_stack.sh start all                     # host binaries
+
+# 3. Apply DB migrations (`start all` does not do this; must complete < 60s)
+scripts/ci/apply_migrations.sh
+
+# 4. Verify
+EXC_APP_MODE=docker deploy/scripts/dev_stack.sh status
+```
+
+UI `:3000` (docker mode only — frontend has no host binary) · gateway `:8080`
+· marketdata `:8081`. Stop: `stop all` (full teardown) or `stop app` (keeps
+infra warm for fast restarts; `start app` resumes without touching Stage 0).
+
+Docker alternative (2026-10-02, prod docker redesign, spec §27): docker mode
+runs every daemon from `docker-compose.app.yml` (`ipc: host` + host networking,
+so `127.0.0.1` behaves exactly like host mode; compose supervision replaces
+supervisord per daemon). Only PTP stays on the host. Bare metal stays
+canonical — docker numbers are not p99 evidence. `dev_stack.sh` itself is a
+host orchestrator: inside a container only full-docker mode works (needs bash,
+docker CLI + socket, repo mount); host-mode supervision there is refused.
+
 ### Production
 
 1. **Provision bare-metal matching hosts** (one host per shard) — stage binaries
@@ -210,7 +248,7 @@ Gateway lands on `:8080` (REST+WS), marketdata on `:8081`.
 ## Testing & validation
 
 The spec harness (`tests/spec`) mechanically binds every `Spec checkpoint:` marker in
-the phase docs to an executable check — 542 checkpoints + golden corpus, 4 shards:
+the phase docs to an executable check — 543 checkpoints + golden corpus, 4 shards:
 
 ```bash
 cd tests/spec
@@ -232,8 +270,8 @@ CI: `.github/workflows/ci.yml` (10 jobs) + `security.yml` (5 jobs) — currently
 
 ## Current status
 
-- All 30 phases (24 core + 6 buffer) implemented — 479 tasks, 542 checkpoints.
-- 210 migration pairs · 419 §24 acceptance criteria · 149+ error codes.
+- All 30 phases (24 core + 6 buffer) implemented — 479 tasks, 543 checkpoints.
+- 215 migration pairs · 419 §24 acceptance criteria · 149+ error codes.
 - Open items are **environment-bound evidence gates**, not code gaps:
   - **72h soak @ 50k ord/s** — needs a dedicated benchmark host for the p99≤50µs criterion; engine ceiling ≥90.7k/s measured (supersedes "~15k/s dev-host ceiling" — that figure was the loadgen's ~20µs/order send loop, not engine capacity); all other Phase-02.5 criteria verified incl. crash-restart 614ms–1359ms ≪10s.
   - **75k/s × 4h staging gate** — needs a provisioned staging cluster; artifact contract `staging-report.json` armed (`ckP085StagingGate`).
