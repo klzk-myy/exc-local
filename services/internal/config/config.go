@@ -36,6 +36,7 @@ type Config struct {
 	Gateway     ServiceConfig  `mapstructure:"gateway"`
 	MarketData  ServiceConfig  `mapstructure:"marketdata"`
 	Fix         FixConfig      `mapstructure:"fix"`
+	FixSBE      FixSBEConfig   `mapstructure:"fixsbe"`
 	Settlement  ServiceConfig  `mapstructure:"settlement"`
 	Compliance  ServiceConfig  `mapstructure:"compliance"`
 	Admin       ServiceConfig  `mapstructure:"admin"`
@@ -121,6 +122,20 @@ type FixConfig struct {
 	TLSKey     string `mapstructure:"tls_key"`
 	TLSCA      string `mapstructure:"tls_ca"`
 
+	// SP2 listener (Task 18.3.5 / Phase-3 Task 3): a second acceptor
+	// speaking FIXT.1.1 + DefaultApplVerID=9 on its own port. TLS 1.3 is
+	// mandatory on this surface — sp2_enabled requires tls_enabled.
+	SP2Enabled      bool   `mapstructure:"sp2_enabled"`
+	SP2AcceptorHost string `mapstructure:"sp2_acceptor_host"`
+	SP2AcceptorPort int    `mapstructure:"sp2_acceptor_port"`
+
+	// MTLSRequired (Task 18.3.11 / Phase-3 Task 3): FIXS mutual TLS on
+	// every acceptor — client certificates are verified against the CA
+	// bundle AND resolved through the fix_sessions fingerprint binding +
+	// revocation list before any FIX byte is read. Requires tls_enabled
+	// and tls_ca.
+	MTLSRequired bool `mapstructure:"mtls_required"`
+
 	// AeronDir is the media-driver directory for the orders_in
 	// publication / orders_out subscription (empty = driver default).
 	AeronDir             string `mapstructure:"aeron_dir"`
@@ -144,6 +159,39 @@ type FixOutwardConfig struct {
 	TargetCompID string `mapstructure:"target_comp_id"`
 	ConnectHost  string `mapstructure:"connect_host"`
 	ConnectPort  int    `mapstructure:"connect_port"`
+}
+
+// FixSBEConfig is the SBE order-entry listener (Phase-3 Task 4 / Task
+// 18.3.8+18.3.17, spec §9.5). TLS 1.3 is mandatory — the Ed25519 session
+// handshake binds to the channel's keying material, so a plaintext
+// listener cannot negotiate.
+type FixSBEConfig struct {
+	ServiceConfig `mapstructure:",squash"`
+
+	// Enabled gates the binary listener. Disabled → metrics/health only.
+	Enabled bool `mapstructure:"enabled"`
+
+	// Listen bind for the sniffing mux (SBE frames; tag-value on this
+	// port is refused — tag-value lives on fix.acceptor_*).
+	ListenHost string `mapstructure:"listen_host"`
+	ListenPort int    `mapstructure:"listen_port"`
+
+	// TLS 1.3 is required (the session proof covers keying material).
+	// tls_ca + mtls_required deepen to FIXS mutual TLS.
+	TLSCert      string `mapstructure:"tls_cert"`
+	TLSKey       string `mapstructure:"tls_key"`
+	TLSCA        string `mapstructure:"tls_ca"`
+	MTLSRequired bool   `mapstructure:"mtls_required"`
+
+	// AeronDir/driver timeout for the orders_in publication +
+	// orders_out consumer subscription.
+	AeronDir             string `mapstructure:"aeron_dir"`
+	AeronDriverTimeoutMS int    `mapstructure:"aeron_driver_timeout_ms"`
+}
+
+// ListenAddr is the order-entry listener bind.
+func (f FixSBEConfig) ListenAddr() string {
+	return net.JoinHostPort(f.ListenHost, strconv.Itoa(f.ListenPort))
 }
 
 // PostgresConfig holds the primary OLTP connection settings (pgx).
@@ -244,8 +292,23 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("fix.tls_cert", "")
 	v.SetDefault("fix.tls_key", "")
 	v.SetDefault("fix.tls_ca", "")
+	v.SetDefault("fix.sp2_enabled", false)
+	v.SetDefault("fix.sp2_acceptor_host", "0.0.0.0")
+	v.SetDefault("fix.sp2_acceptor_port", 9880)
+	v.SetDefault("fix.mtls_required", false)
 	v.SetDefault("fix.aeron_dir", "")
 	v.SetDefault("fix.aeron_driver_timeout_ms", 5000)
+	v.SetDefault("fixsbe.enabled", false)
+	v.SetDefault("fixsbe.host", "127.0.0.1")
+	v.SetDefault("fixsbe.port", 8089)
+	v.SetDefault("fixsbe.listen_host", "0.0.0.0")
+	v.SetDefault("fixsbe.listen_port", 9890)
+	v.SetDefault("fixsbe.tls_cert", "")
+	v.SetDefault("fixsbe.tls_key", "")
+	v.SetDefault("fixsbe.tls_ca", "")
+	v.SetDefault("fixsbe.mtls_required", false)
+	v.SetDefault("fixsbe.aeron_dir", "")
+	v.SetDefault("fixsbe.aeron_driver_timeout_ms", 5000)
 	v.SetDefault("settlement.host", "127.0.0.1")
 	v.SetDefault("settlement.port", 8083)
 	v.SetDefault("compliance.host", "127.0.0.1")
@@ -278,6 +341,7 @@ func (c *Config) Validate() error {
 		"gateway":    c.Gateway,
 		"marketdata": c.MarketData,
 		"fix":        c.Fix.ServiceConfig,
+		"fixsbe":     c.FixSBE.ServiceConfig,
 		"settlement": c.Settlement,
 		"compliance": c.Compliance,
 		"admin":      c.Admin,
@@ -317,10 +381,49 @@ func (c *Config) Validate() error {
 			return errors.New("config: fix.tls_enabled requires fix.tls_cert + fix.tls_key")
 		}
 	}
+	if c.Fix.SP2Enabled {
+		if !c.Fix.TLSEnabled {
+			return errors.New("config: fix.sp2_enabled requires fix.tls_enabled " +
+				"(FIX 5.0 SP2 is TLS 1.3-only)")
+		}
+		if c.Fix.SP2AcceptorPort < 1 || c.Fix.SP2AcceptorPort > 65535 {
+			return fmt.Errorf("config: fix.sp2_acceptor_port %d out of range 1-65535",
+				c.Fix.SP2AcceptorPort)
+		}
+		if c.Fix.SP2AcceptorPort == c.Fix.AcceptorPort {
+			return errors.New("config: fix.sp2_acceptor_port must differ from fix.acceptor_port")
+		}
+	}
+	if c.Fix.MTLSRequired {
+		if !c.Fix.TLSEnabled {
+			return errors.New("config: fix.mtls_required requires fix.tls_enabled")
+		}
+		if strings.TrimSpace(c.Fix.TLSCA) == "" {
+			return errors.New("config: fix.mtls_required requires fix.tls_ca " +
+				"(client-certificate trust bundle)")
+		}
+	}
 	for i, o := range c.Fix.OutwardSessions {
 		if o.ConnectPort < 1 || o.ConnectPort > 65535 {
 			return fmt.Errorf("config: fix.outward_sessions[%d].connect_port %d out of range",
 				i, o.ConnectPort)
+		}
+	}
+
+	// SBE order-entry listener: TLS is structural — the Ed25519 session
+	// proof binds the channel's keying material, so there is no
+	// meaningful plaintext mode (unlike fix.* the flag does not exist).
+	if c.FixSBE.Enabled {
+		if c.FixSBE.ListenPort < 1 || c.FixSBE.ListenPort > 65535 {
+			return fmt.Errorf("config: fixsbe.listen_port %d out of range 1-65535",
+				c.FixSBE.ListenPort)
+		}
+		if strings.TrimSpace(c.FixSBE.TLSCert) == "" ||
+			strings.TrimSpace(c.FixSBE.TLSKey) == "" {
+			return errors.New("config: fixsbe.enabled requires fixsbe.tls_cert + fixsbe.tls_key")
+		}
+		if c.FixSBE.MTLSRequired && strings.TrimSpace(c.FixSBE.TLSCA) == "" {
+			return errors.New("config: fixsbe.mtls_required requires fixsbe.tls_ca")
 		}
 	}
 

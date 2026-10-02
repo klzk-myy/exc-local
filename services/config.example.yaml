@@ -28,6 +28,23 @@ marketdata:                # cmd/marketdata — WS fan-out (Phase-06)
 fix:                       # cmd/fix — FIX acceptors (Phase-18)
   host: 0.0.0.0
   port: 8082
+  # enabled: false         # acceptor on acceptor_port (default 9879)
+  # sp2_enabled: false     # FIXT.1.1/FIX 5.0 SP2 acceptor (requires tls_enabled)
+  # sp2_acceptor_port: 9880
+  # mtls_required: false   # FIXS client-cert fingerprint gate (requires tls_ca)
+#fixsbe:                   # cmd/fixsbe — SBE binary order entry (Task 18.3.8 / Phase-3 Task 4)
+#  enabled: false         # listen on listen_port (default 9890); TLS is structural
+#  listen_port: 9890      # Ed25519 session keys bound to TLS keying material
+#  tls_cert: /path/to.crt # required when enabled
+#  tls_key: /path/to.key
+#  tls_ca: /path/to/ca.crt # required with mtls_required
+#  mtls_required: false
+#  aeron_dir: /dev/shm/exchange/aeron
+#marketdata SBE multicast env (cmd/marketdata): EXC_SBE_MD_ENABLED=1 +
+#  EXC_SBE_MD_FEED_A/_B="group:port" — institutional A/B feed; TCP
+#  replay/snapshot via EXC_SBE_MD_REPLAY_ADDR/EXC_SBE_MD_SNAPSHOT_ADDR.
+#sor env (cmd/gateway): EXC_SOR_VENUES="loopback:<name>,..."
+#  EXC_SOR_MIN_DEPTH, EXC_SOR_MAX_SPREAD_BPS — unset ⇒ local-only.
 settlement:                # cmd/settlement (Phase-03)
   host: 127.0.0.1
   port: 8083

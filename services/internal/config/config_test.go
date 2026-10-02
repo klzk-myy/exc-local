@@ -33,3 +33,42 @@ func TestLoadEnvOnlyBindings(t *testing.T) {
 		t.Fatalf("fix.tls_cert: env value not bound (got %q)", cfg.Fix.TLSCert)
 	}
 }
+
+// Phase-3 Task 3 — the new FIX surface flags validate fail-closed.
+func TestFixSurfaceValidation(t *testing.T) {
+	key := base64.StdEncoding.EncodeToString(make([]byte, 32))
+	t.Setenv("EXC_SECRETS_DATA_KEY", key)
+	// SP2 without TLS must refuse.
+	t.Setenv("EXC_FIX_ENABLED", "true")
+	t.Setenv("EXC_FIX_SP2_ENABLED", "true")
+	if _, err := Load(); err == nil {
+		t.Fatal("sp2_enabled without tls_enabled must fail validation")
+	}
+	// mTLS without a CA bundle must refuse.
+	t.Setenv("EXC_FIX_SP2_ENABLED", "false")
+	t.Setenv("EXC_FIX_TLS_ENABLED", "true")
+	t.Setenv("EXC_FIX_TLS_CERT", "/c/t.crt")
+	t.Setenv("EXC_FIX_TLS_KEY", "/c/t.key")
+	t.Setenv("EXC_FIX_MTLS_REQUIRED", "true")
+	if _, err := Load(); err == nil {
+		t.Fatal("mtls_required without tls_ca must fail validation")
+	}
+	// Same-port SP2/4.4 listeners must refuse.
+	t.Setenv("EXC_FIX_MTLS_REQUIRED", "false")
+	t.Setenv("EXC_FIX_SP2_ENABLED", "true")
+	t.Setenv("EXC_FIX_SP2_ACCEPTOR_PORT", "9879")
+	if _, err := Load(); err == nil {
+		t.Fatal("sp2 on the 4.4 port must fail validation")
+	}
+	// A complete SP2+mTLS stanza validates.
+	t.Setenv("EXC_FIX_SP2_ACCEPTOR_PORT", "9880")
+	t.Setenv("EXC_FIX_TLS_CA", "/c/ca.pem")
+	t.Setenv("EXC_FIX_MTLS_REQUIRED", "true")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("valid sp2+mtls stanza rejected: %v", err)
+	}
+	if !cfg.Fix.SP2Enabled || !cfg.Fix.MTLSRequired || cfg.Fix.SP2AcceptorPort != 9880 {
+		t.Fatalf("env bindings dropped: %+v", cfg.Fix)
+	}
+}
