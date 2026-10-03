@@ -75,20 +75,53 @@ beforeEach(() => {
   useAdminEnvStore.setState({ env: 'dev', pendingEnv: null });
 });
 
+const BOARD = {
+  generated_at: '2026-01-02T00:00:00Z',
+  instruments: [
+    {
+      instrument_id: 9,
+      symbol: 'USD/JPY',
+      status: 'SUSPENDED',
+      state_entered_at: '2026-01-02T00:00:00Z',
+      engine_status: 'ACTIVE',
+      status_drift: true,
+      reference_seeded: true,
+    },
+  ],
+  pending_proposals: [{ id: 4, symbol: 'CHF/JPY', status: 'SCHEDULED', overdue: true }],
+  pending_approvals: [{ id: 2, operation: 'SUSPEND', target_id: 'USD/JPY' }],
+  upcoming_auctions: [
+    { entry_id: 1, symbol: 'EUR/USD', auction_type: 'FIXING', next_at: '2026-01-02T16:00:00Z' },
+  ],
+  today_fixings: [{ symbol: 'EUR/USD', benchmark: 'WMR4PM', status: 'PENDING' }],
+  warnings: ['engine status drift on USD/JPY'],
+};
+
 describe('OpsBoardPage', () => {
-  it('aggregates system status and renders honest stub panels', async () => {
+  it('aggregates system status and renders the live market-ops board', async () => {
     signInForTests({ roles: ['Read-Only Auditor'] });
     installFetchMock({
       'GET /api/v1/system/status': { body: STATUS },
       'GET /api/v1/admin/ops/health': {
         body: { mode: 'Normal', components: { gateway: { state: 'up' } }, recent_events: [] },
       },
+      'GET /api/v1/admin/ops-board': { body: BOARD },
     });
     renderApp(<OpsBoardPage />);
     await waitFor(() => expect(screen.getByText('matcher-0')).toBeInTheDocument());
     expect(screen.getByText('lagging')).toBeInTheDocument();
-    // Stub surfaces say so — no fabricated board content.
-    expect(screen.getByText(/Phase-15 Task 15\.3\.12/)).toBeInTheDocument();
+    // Live board rows — warnings, drift badge, pending queues.
+    await waitFor(() =>
+      expect(screen.getByText('engine status drift on USD/JPY')).toBeInTheDocument(),
+    );
+    expect(screen.getAllByText('USD/JPY').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('engine drift ACTIVE')).toBeInTheDocument();
+    expect(screen.getByText(/#4 CHF\/JPY/)).toBeInTheDocument();
+    // Lifecycle actions live on the admin console — linked, not duplicated.
+    expect(screen.getByRole('link', { name: /Admin console instruments panel/ })).toHaveAttribute(
+      'href',
+      '/admin',
+    );
   });
 });
 
