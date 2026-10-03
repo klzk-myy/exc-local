@@ -22,10 +22,12 @@ const KNOWN_PATHS = [
   // assertion contract.
   { label: 'Book', path: '/book/EUR%2FUSD' },
   { label: 'Chart', path: '/chart/EUR%2FUSD' },
+  { label: 'Workspace', path: '/workspace' },
   { label: 'PAMM pools', path: '/pamm' },
   { label: 'Verification', path: '/kyc' },
   { label: 'Funding', path: '/funding' },
   { label: 'Settings', path: '/settings' },
+  { label: 'Webhooks', path: '/webhooks' },
   { label: 'Support', path: '/support' },
   { label: 'Admin', path: '/admin' },
 ];
