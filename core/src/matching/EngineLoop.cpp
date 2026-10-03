@@ -72,6 +72,16 @@ Watchdog::Level Watchdog::check_once(int64_t now_mono_ns) noexcept {
     if (lvl != armed_) {
         armed_ = lvl;
         if (fn_ != nullptr && lvl != Level::Ok) {
+            // WARN reports are edge-triggered AND rate-capped at 1/sec: a
+            // threshold-adjacent flap re-arms on every Ok sample and would
+            // otherwise emit a line per sample (the same class of flood the
+            // CRITICAL_BACKPRESSURE cap bounds — 25.6GB in the 8h soak).
+            // STALL is not capped — it is rare and must not be lost.
+            if (lvl == Level::Warn && last_warn_report_ns_ != 0 &&
+                now_mono_ns - last_warn_report_ns_ < 1'000'000'000) {
+                return lvl;
+            }
+            if (lvl == Level::Warn) last_warn_report_ns_ = now_mono_ns;
             const uint64_t beat = beat_ != nullptr ? beat_->load(std::memory_order_acquire) : 0;
             if (lvl == Level::Stall) ++stall_reports_;
             try {
@@ -191,16 +201,23 @@ uint32_t EngineLoop::spin_once() noexcept {
     last_beat_ns_.store(beat_ns, std::memory_order_release);
 
     if (drained == 0 && cfg_.idle_sleep_ns > 0) {
-        // Deliberate idle park: mark it so the watchdog suppresses WARN —
-        // parked time is loop policy, not a slow cycle, and scheduler
-        // oversleep on a loaded host must not false-alarm (observed: 500µs
-        // warn spam at idle_sleep_ns=1ms). STALL still fires if the park
-        // never returns. Beats stamp the park edges so a hung NEXT cycle
-        // still stretches staleness correctly.
+        // Deliberate idle park: the mark covers the WHOLE idle stretch, not
+        // just the nanosleep — parked time is loop policy, not a slow cycle,
+        // and idle-period housekeeping (cross-shard drain, tick work between
+        // park exit and the next park entry) routinely exceeds warn_ns when
+        // the loop only runs a few times per ms (observed: ~600µs un-parked
+        // windows at idle_sleep_ns=100µs -> ~1.4k ENGINE_WARN/s per engine,
+        // ~16MB/s of json-file log writes across 8 shards). STALL still
+        // fires if a hang stretches staleness past stall_ns — beats stop
+        // stamping entirely, which no parked flag can mask.
         parked_.store(true, std::memory_order_release);
         last_beat_ns_.store(static_cast<int64_t>(steady_ns()), std::memory_order_release);
         sleep_ns(cfg_.idle_sleep_ns);
         last_beat_ns_.store(static_cast<int64_t>(steady_ns()), std::memory_order_release);
+    } else if (drained > 0) {
+        // First cycle with real work ends the idle stretch. WARN coverage is
+        // only lost for this one transition cycle; the next hung dispatch
+        // still reports normally.
         parked_.store(false, std::memory_order_release);
     }
     return drained;
