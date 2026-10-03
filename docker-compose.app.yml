@@ -89,7 +89,7 @@ x-engine-common: &engine-common
       condition: service_healthy
     nats-1:
       condition: service_started
-  stop_grace_period: 15s # systemd TimeoutStopSec=15s (snapshot + WAL fsync)
+  stop_grace_period: 30s # snapshot + WAL fsync on SIGTERM; mid-flush SIGKILL forces a slow recovery replay
   restart: unless-stopped
 
 services:
