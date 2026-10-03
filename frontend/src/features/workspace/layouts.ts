@@ -59,14 +59,17 @@ export interface WorkspaceLayout {
 export const GRID_COLS = 12;
 export const ROW_H = 64;
 
+/** Binance spot-classic three-zone arrangement: book column left,
+ * chart-over-ticket center, trades-over-depth right, blotter strip
+ * along the bottom with balances beside it. */
 export const PRO_DEFAULT: Placements = {
-  order: { x: 0, y: 0, w: 3, h: 12, visible: true },
-  book: { x: 3, y: 0, w: 3, h: 12, visible: true },
-  tape: { x: 6, y: 0, w: 2, h: 12, visible: true },
-  chart: { x: 8, y: 0, w: 4, h: 7, visible: true },
-  depth: { x: 8, y: 7, w: 4, h: 5, visible: true },
-  positions: { x: 0, y: 12, w: 12, h: 5, visible: true },
-  balances: { x: 0, y: 17, w: 12, h: 3, visible: true },
+  book: { x: 0, y: 0, w: 2, h: 20, visible: true },
+  chart: { x: 2, y: 0, w: 7, h: 12, visible: true },
+  order: { x: 2, y: 12, w: 7, h: 8, visible: true },
+  tape: { x: 9, y: 0, w: 3, h: 11, visible: true },
+  depth: { x: 9, y: 11, w: 3, h: 9, visible: true },
+  positions: { x: 0, y: 20, w: 9, h: 8, visible: true },
+  balances: { x: 9, y: 20, w: 3, h: 8, visible: true },
 };
 
 export const LITE_DEFAULT: Placements = {
