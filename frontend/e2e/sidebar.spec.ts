@@ -86,10 +86,7 @@ test.describe('sidebar links', () => {
       await nav.getByRole('link', { name: label, exact: true }).click();
 
       await expect(page).toHaveURL(new RegExp(`${escapeRegex(path)}$`));
-      expect(
-        consoleErrors,
-        `clicking "${label}" produced console errors`,
-      ).toHaveLength(0);
+      expect(consoleErrors, `clicking "${label}" produced console errors`).toHaveLength(0);
     }
   });
 });
