@@ -57,9 +57,10 @@ export function AppShell() {
   // RequireAdmin + server-side authorization stay the real gates — this
   // just keeps non-admins from seeing links that would render denial cards.
   const adminRole = useAdminRole();
-  const visibleSections = adminRole === null
-    ? [...sections.entries()].filter(([section]) => section !== 'Admin')
-    : [...sections.entries()];
+  const visibleSections =
+    adminRole === null
+      ? [...sections.entries()].filter(([section]) => section !== 'Admin')
+      : [...sections.entries()];
 
   // Connect the shared WS client for the shell's lifetime; feature
   // subscriptions attach via client.subscribe().
