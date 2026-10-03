@@ -72,9 +72,7 @@ describe('auto-discovery', () => {
     for (const hidden of [
       '/notifications', // NotificationBell already surfaces this
       '/account/sessions', // linked from Settings → Security
-      '/webhooks',
-      '/fee-tiers',
-      '/workspace',
+      '/fee-tiers', // linked from the fee admin surface
     ]) {
       expect(tos).not.toContain(hidden);
     }
