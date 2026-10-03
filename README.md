@@ -5,10 +5,10 @@ A complete implementation of the exchange system defined in
 spot FX, forwards, swaps, NDFs, and vanilla/barrier options on a **firm-liquidity
 central limit order book** — fiat currencies only, no cryptocurrency.
 
-**Status:** implementation-complete — all 30 phases landed. Hosted CI fully green;
-spec corpus **543/543 checkpoints bound, 0 pending stubs**. Remaining work is
-environment-gated evidence only (72h soak, staging gate, DR drills, live
-third-party accounts) — see [Current status](#current-status).
+**Status:** implementation-complete — all 30 phases landed. Hosted CI fully green
+(10 CI + 5 security jobs). Spec corpus **543/543 checkpoints bound, 0 pending
+stubs**. Remaining work is environment-gated evidence only (72h soak, staging
+gate, DR drills, live third-party accounts) — see [Current status](#current-status).
 
 ## Scope
 
@@ -47,56 +47,103 @@ balance mutations · fail-closed zero-loss pessimism (spec §2.7) · degradation
 | Layer | Tech |
 |---|---|
 | Matching core | C++17/20, CMake, NUMA-pinned shards, pipette fixed-point (10⁸) |
-| Services | Go 1.23+, ~30 `cmd/*` binaries (gateway, fix, risk, oracle, bridge, …) |
+| Services | Go 1.23+, 33 `cmd/*` binaries (gateway, fix, risk, oracle, bridge, compliance, …) |
 | Frontend | React 18 + TypeScript, Vite, Vitest, Playwright e2e |
 | Data | PostgreSQL 16 + pg_partman · Redis 7 (Sentinel HA + cache instance) · ClickHouse · Trino · S3 archives |
 | Messaging | Aeron / shared memory (hot path) · NATS JetStream (event backbone) |
-| Infra | docker-compose dev stack · K8s (deploy/k8s) · bare-metal (deploy/baremetal) · Ansible · PTP · multi-region DR |
+| Infra | docker-compose dev stack · K8s (deploy/k8s, 28 manifests) · bare-metal (deploy/baremetal) · docker (4 images) · systemd · Ansible · PTP · multi-region DR · WAF · Grafana · Prometheus · Trino |
 
 ## Repository layout
 
 ```
-core/            C++ matching engine, WAL, IPC (CMake: build/, build-debug/, build-prof/)
-services/        Go services — cmd/<binary> entrypoints, internal/ packages, config/,
-                 internal/db/migrations/ (210 PostgreSQL migration pairs)
-frontend/        React 18 + TS web UI
-tests/           spec/ (checkpoint harness) · soak/ · load/ · chaos/ · integration/ · pentest/
-deploy/          k8s/, baremetal/, ansible/, grafana/, haproxy/, edge/, dr/, clickhouse/, crons/
-infrastructure/  IaC (multi-region)
+core/            C++ matching engine, WAL, IPC, FlatBuffers proto (CMake: build/, build-debug/, build-prof/)
+services/        Go services — cmd/<binary> entrypoints (33 binaries), internal/ packages,
+                 pkg/, config.example.yaml, internal/db/migrations/ (215 migration pairs, 001–285)
+frontend/        React 18 + TS web UI (Vite, Vitest, Playwright e2e)
+tests/           spec/ (543 checkpoint harness) · soak/ (72h loadgen) · load/ (AC matrix) ·
+                 chaos/ (6 scenarios) · integration/ (63 tests) · pentest/ (17 tests)
+deploy/          k8s/ (28 manifests) · baremetal/ · ansible/ · docker/ (4 Dockerfiles) ·
+                 scripts/ (22 ops scripts) · grafana/ · haproxy/ · prometheus/ · monitoring/
+                 redis/ · nats/ · sentinel/ · postgres/ · clickhouse/ · trino/ · waf/
+                 systemd/ · edge/ · cloudflare/ · dr/ · crons/ · pgbouncer/ · otel/
+                 storage/ · security/
+infrastructure/  IaC (multi-region data tiering)
 ci/              pipeline support scripts
-docs/            master spec + 30 phase plans (Phase-01 … Phase-24 + 6 buffer phases)
-wal/             WAL tooling
+docs/            master spec v7.0 + 30 phase plans + runbooks + ops + compliance + openapi
+wal/             WAL archives (per-shard)
 ```
 
-## Quickstart
+## Quick Start
 
-**Dev infrastructure** (PostgreSQL 5433, Redis 16379+replicas+sentinels, NATS ×3,
-ClickHouse 8123/9000, Trino 18443):
+Two deployment modes. Both share the same Stage 0 infrastructure (Docker) and
+source code — they differ only in how the application daemons run.
+
+### Mode A — Bare-metal (canonical, p99 ≤ 50µs valid)
+
+C++ engine and Go services run as host binaries. NUMA-pinned, no containers in
+the hot path (spec §19.1). This is the production-reference profile.
 
 ```bash
+git clone <repo-url> /www/wwwroot/exc.local && cd /www/wwwroot/exc.local
+
+# 1. Stage 0 infrastructure (PG/Redis/NATS/ClickHouse/Trino)
 docker compose -f docker-compose.dev.yml up -d
+
+# 2. Build everything natively
+cmake -B core/build -S core && cmake --build core/build -j$(nproc)
+cd services && go build -o bin/ ./cmd/...
+cd frontend && npm ci && npm run build
+
+# 3. Boot: engine + Go services as host processes (§19.13.2 tier order)
+cd /www/wwwroot/exc.local
+deploy/scripts/dev_stack.sh start all
 ```
 
-**C++ core:**
+Gateway `:8080` · marketdata `:8081`.
+
+### Mode B — Full Docker (opt-in, latency jitter)
+
+Every daemon containerized via `docker-compose.app.yml`. Adds latency jitter —
+soak/benchmark numbers under this mode are **not** p99 production evidence
+(spec §27). Requires building 4 images first.
 
 ```bash
-cmake -S core -B core/build -DCMAKE_BUILD_TYPE=Release
-cmake --build core/build -j
-ctest --test-dir core/build --output-on-failure
+git clone <repo-url> /www/wwwroot/exc.local && cd /www/wwwroot/exc.local
+
+# 1. Stage 0 infrastructure
+docker compose -f docker-compose.dev.yml up -d
+
+# 2. Build application images (~2 min)
+docker build -f deploy/docker/Dockerfile.aeron   -t exc-aeronmd:local .
+docker build -f deploy/docker/Dockerfile.engine  -t exc-matching-engine:local .
+docker build -f deploy/docker/Dockerfile.go      -t exc-go-service:local .
+docker build -f deploy/docker/Dockerfile.frontend -t exc-frontend:local .
+
+# 3. Boot full stack (infra + app, single command)
+docker compose -f docker-compose.dev.yml -f docker-compose.app.yml up -d
 ```
 
-**Go services** (module `exchange`, services/go.mod):
+Gateway `:8080` · marketdata `:8081` · frontend `:3000`.
+
+### After either mode
 
 ```bash
-cd services && go build ./... && go test ./...
-# populate Redis shard map after dev Redis restart/flush:
-go run ./cmd/exchange cache-shard-map
+# Apply PostgreSQL migrations (must complete < 60s)
+scripts/ci/apply_migrations.sh
+
+# Verify health
+curl http://127.0.0.1:8080/health        # gateway
+curl http://127.0.0.1:8090/health/ready  # oracle
+curl http://127.0.0.1:8091/health/ready  # risk
 ```
 
-**Frontend:**
+### Test
 
 ```bash
-cd frontend && npm ci && npm run dev      # build: npm run build · test: npm run test
+ctest --test-dir core/build -j$(nproc) --output-on-failure          # C++ (38 tests)
+cd services && go test -count=1 -short ./...                         # Go (~3657 tests)
+cd frontend && npx vitest run                                        # frontend (607 tests)
+cd tests/spec && go run . run --report /tmp/report.json              # spec (543 checkpoints)
 ```
 
 ## Deployment
@@ -108,9 +155,10 @@ healthy — that ordering is the fail-closed guarantee.
 
 ### Local dev (single host)
 
-Stage 0 runs in compose; Stages 1–5 run as local binaries under supervisord
-(`deploy/supervisord.conf` maps the §19.13.1 daemon inventory to tier
-priorities 10→60):
+Stage 0 runs in compose; Stages 1–5 run as local binaries supervised by
+`deploy/scripts/dev_stack.sh` (PID files under `$EXC_DEV_RUN_DIR`, default
+`/tmp/exc-dev-stack`), which maps the §19.13.1 daemon inventory to tier order
+in §19.13.2 sequence:
 
 ```bash
 # 1. Stage 0: clustered infra (PG16, Redis 1p+2r+3sentinel, ClickHouse, NATS ×3)
@@ -128,13 +176,24 @@ cp deploy/dev.env.example deploy/dev.env
 set -a; . deploy/dev.env; set +a
 
 # 4. Stages 1–5: Aeron/shm, matching engine, bridge, oracle, services, gateways
-export REPO=/www/wwwroot/exc.local
-sudo mkdir -p /var/log/exchange/dev
-supervisord -c deploy/supervisord.conf
-supervisorctl -c deploy/supervisord.conf status
+deploy/scripts/dev_stack.sh build          # first time only: Go + C++ binaries
+deploy/scripts/dev_stack.sh start all      # Stage-0 infra, then Stages 1–5
+deploy/scripts/dev_stack.sh status         # per-daemon state + health probes
+# fast restart (keeps Stage-0 infra warm): stop app / start app
+# full teardown: deploy/scripts/dev_stack.sh stop all
+# multi-user hosts: export EXC_DEV_RUN_DIR=/tmp/exc-dev-stack-$USER (PID/log
+# dir); status/start must use the same value the daemons were started with.
 ```
 
 Gateway lands on `:8080` (REST+WS), marketdata on `:8081`.
+
+> `deploy/supervisord.conf` is legacy: `supervisord` is not installed on a
+> fresh host, and several `command=` entries name `cmd/` binaries that no
+> longer exist (`aeron_nats_bridge`, `liquidation_scanner`, `banking_rails`,
+> `regulatory_reporter`, `status_exporter`, `tomnext_rollover`,
+> `proof_of_reserves` — now `bridge`, `risk`, `settlement`, `compliance`,
+> `analytics`, `sentinel_exporter`, etc.). Use `dev_stack.sh`; the conf file
+> remains only as the tier-priority reference.
 
 ### Boot everything from cold
 
@@ -247,6 +306,17 @@ docker CLI + socket, repo mount); host-mode supervision there is refused.
 
 ## Testing & validation
 
+### Quick test
+
+```bash
+ctest --test-dir core/build -j$(nproc) --output-on-failure          # C++        38 tests
+cd services && go test -count=1 -short ./...                         # Go      ~3,657 tests (88 packages)
+cd frontend && npx vitest run                                        # frontend   607 tests
+cd tests/spec && go run . run --report /tmp/report.json              # spec       543 checkpoints
+```
+
+### Spec harness
+
 The spec harness (`tests/spec`) mechanically binds every `Spec checkpoint:` marker in
 the phase docs to an executable check — 543 checkpoints + golden corpus, 4 shards:
 
@@ -261,17 +331,28 @@ go run . run --report /tmp/report.json
 Status semantics: `pending` = implemented but waiting on external evidence
 (e.g. soak/staging artifacts); `missing` = no registered implementation (CI fails).
 
-Other suites: `tests/soak/` (72h/50k sustained + artifact gate) · `tests/load/`
-(staging 75k×4h gate, `staging-report.json` contract) · `tests/chaos/` (6×3 drill
-matrix) · `tests/integration/` · `tests/pentest/` · Go unit/integration tests ·
-Vitest + Playwright.
+### Other suites
+
+| Suite | Scope | Count |
+|---|---|---|
+| `core/tests/` | C++ Google Test (matching, WAL, recovery, risk, IPC, implied, L3…) | 38 tests / 38 targets |
+| `services/**/*_test.go` | Go unit + integration (env-gated: `EXC_PG_TEST`, `EXC_REDIS_TEST`) | ~3,657 tests / 88 pkgs |
+| `frontend/src/**/*.test.tsx` | Vitest + Testing Library + axe-core WCAG 2.1 AA | 607 tests / 72 files |
+| `tests/spec/` | Phase checkpoint → implementation binding | 543 checkpoints |
+| `tests/integration/` | Full-stack (gateway↔engine↔PG↔Redis) | 63 tests |
+| `tests/pentest/` | Black-box security (IDOR, RBAC, SQLi, lockout, NATS, WS…) | 17 tests |
+| `tests/chaos/` | 6 crash/recovery scenarios × 3 runs | 18 runs |
+| `tests/soak/` | 72h @ 50k ord/s sustained | loadgen + monitor |
+| `tests/load/` | AC matrix: engine/WS/REST 3-leg | staging gate |
+| `frontend/e2e/` | Playwright smoke | browser-level |
 
 CI: `.github/workflows/ci.yml` (10 jobs) + `security.yml` (5 jobs) — currently green.
 
 ## Current status
 
 - All 30 phases (24 core + 6 buffer) implemented — 479 tasks, 543 checkpoints.
-- 215 migration pairs · 419 §24 acceptance criteria · 149+ error codes.
+- 215 migration pairs · 419 §24 acceptance criteria · 234 error codes emitted (207 in spec §23 registry + matrix-resident).
+- Canonical counts verified by mechanical audit: §24=419, error codes=234, AC rows=1,079, migrations=001–285, spec checkpoints=543.
 - Open items are **environment-bound evidence gates**, not code gaps:
   - **72h soak @ 50k ord/s** — needs a dedicated benchmark host for the p99≤50µs criterion; engine ceiling ≥90.7k/s measured (supersedes "~15k/s dev-host ceiling" — that figure was the loadgen's ~20µs/order send loop, not engine capacity); all other Phase-02.5 criteria verified incl. crash-restart 614ms–1359ms ≪10s.
   - **75k/s × 4h staging gate** — needs a provisioned staging cluster; artifact contract `staging-report.json` armed (`ckP085StagingGate`).
