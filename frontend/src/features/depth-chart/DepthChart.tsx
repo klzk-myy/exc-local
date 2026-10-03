@@ -51,9 +51,11 @@ const timeToPrice = (t: number): Dec => Dec.of(t / PRICE_SCALE);
 export interface DepthChartProps {
   symbol: string;
   client?: WsClient;
+  /** Strip tile chrome + self-title when embedded in a framed panel. */
+  bare?: boolean;
 }
 
-export function DepthChart({ symbol, client = wsClient }: DepthChartProps) {
+export function DepthChart({ symbol, client = wsClient, bare = false }: DepthChartProps) {
   useMarketFeed(symbol, client, { depth: true });
   const wsBook = useDepthBook(symbol);
   const rest = useBookSnapshot(symbol, 50);
@@ -225,11 +227,11 @@ export function DepthChart({ symbol, client = wsClient }: DepthChartProps) {
   return (
     <section
       aria-label={`Cumulative market depth for ${symbol}`}
-      className="rounded-lg border border-neutral-800 bg-neutral-900 p-4"
+      className={bare ? '' : 'rounded-lg border border-neutral-800 bg-neutral-900 p-4'}
     >
       <div className="mb-2 flex items-center justify-between">
         <h2 className="text-sm font-semibold text-neutral-200">
-          Depth — {symbol}
+          {bare ? symbol : `Depth — ${symbol}`}
           {stale && (
             <span
               className="ml-2 rounded bg-amber-500/15 px-1.5 py-0.5 text-xs text-amber-400"

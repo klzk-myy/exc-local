@@ -218,6 +218,8 @@ export interface OrderBookProps {
   onPriceClick?: (price: string, side: 'bid' | 'ask') => void;
   /** Per-side viewport height in px (scrollable window). */
   viewportHeight?: number;
+  /** Strip tile chrome + self-title when embedded in a framed panel. */
+  bare?: boolean;
 }
 
 export function OrderBook(props: OrderBookProps) {
@@ -243,11 +245,15 @@ export function OrderBook(props: OrderBookProps) {
   return (
     <section
       aria-label={`Order book ${props.symbol}`}
-      className="w-full rounded-lg border border-neutral-800 bg-neutral-900"
+      className={
+        props.bare
+          ? 'w-full'
+          : 'w-full rounded-lg border border-neutral-800 bg-neutral-900'
+      }
     >
       <header className="flex items-center justify-between border-b border-neutral-800 px-3 py-2">
         <div className="flex items-center gap-2">
-          <h2 className="text-sm font-semibold">Order Book</h2>
+          {props.bare ? null : <h2 className="text-sm font-semibold">Order Book</h2>}
           <span className="text-xs text-neutral-400">{props.symbol}</span>
           {stale && (
             <span

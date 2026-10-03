@@ -217,10 +217,9 @@ export function AdvancedOrderPanel({
     <form
       onSubmit={onSubmit}
       aria-label="Advanced order entry"
-      className="rounded-lg border border-neutral-800 bg-neutral-900 p-4"
+      className="p-1"
     >
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-neutral-200">Order ticket</h2>
+      <div className="mb-3 flex items-center justify-end">
         <div className="flex items-center gap-2">
           <button
             type="button"

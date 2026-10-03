@@ -29,6 +29,10 @@ export const LWC_BASE_OPTIONS: DeepPartial<ChartOptions> = {
     background: { type: ColorType.Solid, color: '#0a0a0a' },
     textColor: '#a3a3a3',
     fontSize: 11,
+    // The attribution logo injects a <style> element per chart — blocked
+    // by style-src 'self' — and renders an external link inside the
+    // cockpit. Disabled: Apache-2.0 permits it; CSP stays strict.
+    attributionLogo: false,
   },
   grid: {
     vertLines: { color: '#1f1f1f' },
@@ -46,6 +50,7 @@ export const LWC_LIGHT_OPTIONS: DeepPartial<ChartOptions> = {
     background: { type: ColorType.Solid, color: '#ffffff' },
     textColor: '#57534e',
     fontSize: 11,
+    attributionLogo: false,
   },
   grid: {
     vertLines: { color: '#e7e5e4' },
@@ -110,19 +115,32 @@ export function useLwcChart({
       ...base,
       ...options,
     });
+    let alive = true;
     const ro =
       typeof ResizeObserver !== 'undefined'
         ? new ResizeObserver(() => {
-            c.applyOptions({ width: el.clientWidth });
-            resizeCb.current?.();
+            // RO callbacks queued before disconnect can still fire after
+            // c.remove() — lwc throws "Object is disposed" on late calls.
+            if (!alive) return;
+            try {
+              c.applyOptions({ width: el.clientWidth });
+              resizeCb.current?.();
+            } catch {
+              /* chart disposed mid-teardown */
+            }
           })
         : null;
     ro?.observe(el);
     setChart(c);
     return () => {
+      alive = false;
       ro?.disconnect();
       setChart(null);
-      c.remove();
+      // Dispose after this commit's synchronous cleanups: consumer
+      // effects declared after the hook still call chart APIs in their
+      // own cleanup (e.g. unsubscribeVisibleLogicalRangeChange) and lwc
+      // throws "Object is disposed" if removal ran first.
+      queueMicrotask(() => c.remove());
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [theme, ...deps]);

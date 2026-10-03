@@ -115,9 +115,12 @@ function PositionRow({
 export function PositionsPanel({
   client = wsClient,
   api = apiClient,
+  bare = false,
 }: {
   client?: WsClient;
   api?: Api;
+  /** Strip tile chrome when embedded in a framed panel. */
+  bare?: boolean;
 }) {
   const ws = useWsStatus(client);
   const positions = usePositions();
@@ -212,7 +215,7 @@ export function PositionsPanel({
   return (
     <section
       aria-label="Open positions"
-      className="rounded-lg border border-neutral-800 bg-neutral-900 p-4"
+      className={bare ? '' : 'rounded-lg border border-neutral-800 bg-neutral-900 p-4'}
     >
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-sm font-semibold text-neutral-200">Positions — {scopeLabel}</h2>

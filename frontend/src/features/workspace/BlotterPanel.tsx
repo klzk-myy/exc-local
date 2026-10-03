@@ -128,7 +128,7 @@ export function BlotterPanel() {
         id={`blotter-panel-${tab}`}
         aria-labelledby={`blotter-tab-${tab}`}
       >
-        {tab === 'positions' ? <PositionsPanel /> : null}
+        {tab === 'positions' ? <PositionsPanel bare /> : null}
         {tab === 'open' ? (
           <>
             <ErrorBox error={open.query.isError ? open.query.error : null} />

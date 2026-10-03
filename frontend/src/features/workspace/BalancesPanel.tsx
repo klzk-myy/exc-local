@@ -6,16 +6,18 @@
 import { ErrorBox, tableCls, tdCls, thCls } from '@/lib/ui';
 import { useBalances } from '@/lib/trading/queries';
 
-export function BalancesPanel() {
+export function BalancesPanel({ bare = false }: { bare?: boolean }) {
   const balances = useBalances();
   const rows = balances.data ?? [];
 
   return (
     <section
       aria-label="Balances"
-      className="rounded-lg border border-neutral-800 bg-neutral-900 p-4"
+      className={bare ? '' : 'rounded-lg border border-neutral-800 bg-neutral-900 p-4'}
     >
-      <h2 className="mb-3 text-sm font-semibold text-neutral-200">Balances</h2>
+      {bare ? null : (
+        <h2 className="mb-3 text-sm font-semibold text-neutral-200">Balances</h2>
+      )}
       <ErrorBox error={balances.isError ? balances.error : null} />
       <div className="overflow-x-auto">
         <table className={tableCls}>

@@ -88,6 +88,7 @@ function PanelBody({ id, symbol }: { id: PanelId; symbol: string }) {
         <OrderBook
           symbol={symbol}
           viewportHeight={360}
+          bare
           onPriceClick={(price, side) =>
             setDraft({ price, side: side === 'ask' ? 'BUY' : 'SELL', symbol })
           }
@@ -98,11 +99,11 @@ function PanelBody({ id, symbol }: { id: PanelId; symbol: string }) {
     case 'chart':
       return <ChartPanel symbol={symbol} />;
     case 'depth':
-      return <DepthChart symbol={symbol} />;
+      return <DepthChart symbol={symbol} bare />;
     case 'tape':
       return <MarketTrades symbol={symbol} />;
     case 'balances':
-      return <BalancesPanel />;
+      return <BalancesPanel bare />;
   }
 }
 
@@ -202,11 +203,13 @@ function PanelFrame({
         onPointerCancel={endDrag}
         onKeyDown={onKeyDown}
       >
-        <span className="select-none text-xs font-semibold uppercase tracking-wide text-neutral-400">
-          {title}
+        <span className="flex min-w-0 select-none items-center text-xs font-semibold uppercase tracking-wide text-neutral-400">
+          <span className="truncate" title={title}>
+            {title}
+          </span>
           {safetyCritical && (
             <span
-              className="ml-2 text-amber-500"
+              className="ml-2 shrink-0 text-amber-500"
               title="Safety-critical panel — hiding requires confirmation"
             >
               ⚠
@@ -218,7 +221,7 @@ function PanelFrame({
           aria-label={`Hide ${title} panel`}
           onPointerDown={(e) => e.stopPropagation()}
           onClick={() => onHide(id, safetyCritical)}
-          className="rounded px-2 py-1 text-xs text-neutral-500 hover:bg-neutral-800 hover:text-neutral-200 focus-visible:ring-2 focus-visible:ring-sky-500"
+          className="shrink-0 rounded px-2 py-1 text-xs text-neutral-500 hover:bg-neutral-800 hover:text-neutral-200 focus-visible:ring-2 focus-visible:ring-sky-500"
         >
           hide
         </button>
