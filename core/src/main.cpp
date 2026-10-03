@@ -110,7 +110,10 @@ public:
     }
     [[nodiscard]] exch::StpMode default_stp_mode(
         uint64_t /*account_id*/) const noexcept override {
-        return static_cast<exch::StpMode>(exch::kStpModeUnset);
+        // kStpModeUnset (0xFF) is a deliberate out-of-domain sentinel —
+        // resolve_stp_mode() treats it as "no account default".
+        return static_cast<exch::StpMode>(
+            exch::kStpModeUnset);  // NOLINT(clang-analyzer-optin.core.EnumCastOutOfRange)
     }
     [[nodiscard]] exch::ClientCategory client_category(
         uint64_t /*account_id*/) const noexcept override {
@@ -600,18 +603,21 @@ int main(int argc, char** argv) {
 
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "-shard") == 0) {
-            if (++i >= argc || !parse_u32(argv[i], &shard)) {
+            ++i;
+            if (i >= argc || !parse_u32(argv[i], &shard)) {
                 usage(argv[0]);
                 return 2;
             }
         } else if (std::strcmp(argv[i], "-ipc-base") == 0) {
-            if (++i >= argc) {
+            ++i;
+            if (i >= argc) {
                 usage(argv[0]);
                 return 2;
             }
             ipc_base = argv[i];
         } else if (std::strcmp(argv[i], "-wal-dir") == 0) {
-            if (++i >= argc) {
+            ++i;
+            if (i >= argc) {
                 usage(argv[0]);
                 return 2;
             }
@@ -625,13 +631,15 @@ int main(int argc, char** argv) {
             // O_DIRECT.
             wal_direct = true;
         } else if (std::strcmp(argv[i], "-poison-log") == 0) {
-            if (++i >= argc) {
+            ++i;
+            if (i >= argc) {
                 usage(argv[0]);
                 return 2;
             }
             poison_path = argv[i];
         } else if (std::strcmp(argv[i], "-idle-sleep-ns") == 0) {
-            if (++i >= argc || !parse_i64(argv[i], &idle_sleep_ns)) {
+            ++i;
+            if (i >= argc || !parse_i64(argv[i], &idle_sleep_ns)) {
                 usage(argv[0]);
                 return 2;
             }
@@ -642,29 +650,33 @@ int main(int argc, char** argv) {
             // fsync cadence (~1k flushes/s/shard ≈ MB/s of aligned writes
             // per engine). Coarser ticks trade expiry/auction sweep
             // granularity for disk — nothing semantic changes below ~50ms.
-            if (++i >= argc || !parse_i64(argv[i], &tick_interval_ns) ||
-                tick_interval_ns <= 0) {
+            ++i;
+            if (i >= argc || !parse_i64(argv[i], &tick_interval_ns) || tick_interval_ns <= 0) {
                 usage(argv[0]);
                 return 2;
             }
         } else if (std::strcmp(argv[i], "-instrument-id") == 0) {
-            if (++i >= argc || !parse_u32(argv[i], &instrument_id)) {
+            ++i;
+            if (i >= argc || !parse_u32(argv[i], &instrument_id)) {
                 usage(argv[0]);
                 return 2;
             }
         } else if (std::strcmp(argv[i], "-snap-dir") == 0) {
-            if (++i >= argc) {
+            ++i;
+            if (i >= argc) {
                 usage(argv[0]);
                 return 2;
             }
             snap_dir = argv[i];
         } else if (std::strcmp(argv[i], "-snapshot-trades") == 0) {
-            if (++i >= argc || !parse_u32(argv[i], &snapshot_trades)) {
+            ++i;
+            if (i >= argc || !parse_u32(argv[i], &snapshot_trades)) {
                 usage(argv[0]);
                 return 2;
             }
         } else if (std::strcmp(argv[i], "-snapshot-interval-s") == 0) {
-            if (++i >= argc || !parse_u32(argv[i], &snapshot_interval_s)) {
+            ++i;
+            if (i >= argc || !parse_u32(argv[i], &snapshot_interval_s)) {
                 usage(argv[0]);
                 return 2;
             }
@@ -673,43 +685,50 @@ int main(int argc, char** argv) {
         } else if (std::strcmp(argv[i], "-follower") == 0) {
             follower = true;
         } else if (std::strcmp(argv[i], "-report-log") == 0) {
-            if (++i >= argc) {
+            ++i;
+            if (i >= argc) {
                 usage(argv[0]);
                 return 2;
             }
             report_log = argv[i];
         } else if (std::strcmp(argv[i], "-redis") == 0) {
-            if (++i >= argc) {
+            ++i;
+            if (i >= argc) {
                 usage(argv[0]);
                 return 2;
             }
             redis_addr = argv[i];
         } else if (std::strcmp(argv[i], "-halt-poll-ms") == 0) {
-            if (++i >= argc || !parse_u32(argv[i], &halt_poll_ms)) {
+            ++i;
+            if (i >= argc || !parse_u32(argv[i], &halt_poll_ms)) {
                 usage(argv[0]);
                 return 2;
             }
             if (halt_poll_ms == 0) halt_poll_ms = 50;
         } else if (std::strcmp(argv[i], "-accounts-poll-ms") == 0) {
-            if (++i >= argc || !parse_u32(argv[i], &accounts_poll_ms)) {
+            ++i;
+            if (i >= argc || !parse_u32(argv[i], &accounts_poll_ms)) {
                 usage(argv[0]);
                 return 2;
             }
             if (accounts_poll_ms == 0) accounts_poll_ms = 1000;
         } else if (std::strcmp(argv[i], "-symbol") == 0) {
-            if (++i >= argc) {
+            ++i;
+            if (i >= argc) {
                 usage(argv[0]);
                 return 2;
             }
             symbol = argv[i];
         } else if (std::strcmp(argv[i], "-feed-poll-ms") == 0) {
-            if (++i >= argc || !parse_u32(argv[i], &feed_poll_ms)) {
+            ++i;
+            if (i >= argc || !parse_u32(argv[i], &feed_poll_ms)) {
                 usage(argv[0]);
                 return 2;
             }
             if (feed_poll_ms == 0) feed_poll_ms = 250;
         } else if (std::strcmp(argv[i], "-curve") == 0) {
-            if (++i >= argc) {
+            ++i;
+            if (i >= argc) {
                 usage(argv[0]);
                 return 2;
             }
@@ -724,13 +743,15 @@ int main(int argc, char** argv) {
                 curve_ids.push_back(id);
             }
         } else if (std::strcmp(argv[i], "-curve-symbols") == 0) {
-            if (++i >= argc) {
+            ++i;
+            if (i >= argc) {
                 usage(argv[0]);
                 return 2;
             }
             curve_symbols = split_csv(argv[i]);
         } else if (std::strcmp(argv[i], "-implied-link") == 0) {
-            if (++i >= argc) {
+            ++i;
+            if (i >= argc) {
                 usage(argv[0]);
                 return 2;
             }
@@ -740,7 +761,8 @@ int main(int argc, char** argv) {
         } else if (std::strcmp(argv[i], "-margin-ctl") == 0) {
             margin_ctl = true;
         } else if (std::strcmp(argv[i], "-margin-instrument") == 0) {
-            if (++i >= argc || !parse_u32(argv[i], &margin_instrument_id)) {
+            ++i;
+            if (i >= argc || !parse_u32(argv[i], &margin_instrument_id)) {
                 usage(argv[0]);
                 return 2;
             }
