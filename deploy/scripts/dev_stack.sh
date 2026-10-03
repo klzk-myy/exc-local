@@ -565,17 +565,33 @@ app_start() { # group(all|core) [tier(all|host|docker)]
   done
 }
 
+docker_container_running() { # name -> its exc-dev-<svc>-N container is up
+  docker ps --filter "name=exc-dev-$(docker_svc "$1")-" \
+    --filter status=running -q 2>/dev/null | grep -q .
+}
+
+stop_target_alive() { # name tier -> this stop op should touch it
+  # IMPORTANT: for `stop`, a tier means "things actually running under
+  # that runtime", not "things configured for it" — a gateway container
+  # running under GO_MODE=host must still be stopped by `stop docker`.
+  case "$2" in
+    all)    return 0 ;;   # stop_one covers pid + container + mode mismatch
+    host)   pid_alive "$1" ;;
+    docker) docker_container_running "$1" ;;
+    *)      return 0 ;;
+  esac
+}
+
 app_stop() { # [tier(all|host|docker)]
   local tier="${1:-all}" row n i k=0 total=0
   hdr "Stages 1-5 — stop application daemons (reverse order · $tier)"
   for row in "${DAEMONS[@]}"; do
     n="$(echo "$row" | cut -d'|' -f1)"
-    [[ "$tier" != "all" && "$(daemon_run_mode "$n")" != "$tier" ]] && continue
-    total=$((total+1))
+    stop_target_alive "$n" "$tier" && total=$((total+1))
   done
   for (( i=${#DAEMONS[@]}-1; i>=0; i-- )); do
     n="$(echo "${DAEMONS[$i]}" | cut -d'|' -f1)"
-    [[ "$tier" != "all" && "$(daemon_run_mode "$n")" != "$tier" ]] && continue
+    stop_target_alive "$n" "$tier" || continue
     k=$((k+1))
     info "[$k/$total] $n"
     stop_one "$n"
@@ -707,14 +723,13 @@ verify_stopped() { # post-stop audit — did everything actually go down?
   if [[ "$what" != "infra" ]]; then
     for row in "${DAEMONS[@]}"; do
       n="$(echo "$row" | cut -d'|' -f1)"
-      [[ "$tier" != "all" && "$(daemon_run_mode "$n")" != "$tier" ]] && continue
-      if [[ "$(daemon_run_mode "$n")" == "docker" ]]; then
-        if docker ps --filter "name=exc-dev-$(docker_svc "$n")-" \
-            --filter status=running -q 2>/dev/null | grep -q .; then
-          warn "verify: $n container still running"; bad=1
-        fi
-      elif pid_alive "$n"; then
+      # Check BOTH runtimes regardless of configured mode — a container
+      # can run while the daemon resolves host tier (and vice versa).
+      if [[ "$tier" != "docker" ]] && pid_alive "$n"; then
         warn "verify: $n still running (pid $(pid_of "$n"))"; bad=1
+      fi
+      if [[ "$tier" != "host" ]] && docker_container_running "$n"; then
+        warn "verify: $n container still running"; bad=1
       fi
     done
   fi
