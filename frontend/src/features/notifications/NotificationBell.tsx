@@ -23,9 +23,7 @@ export function NotificationBell() {
   // the anonymous connection can't legally join.
   useChannel(
     wsClient,
-    status.state === 'AUTHENTICATED' || status.state === 'STALE'
-      ? 'private:notifications'
-      : null,
+    status.state === 'AUTHENTICATED' || status.state === 'STALE' ? 'private:notifications' : null,
     onMessage,
   );
 
@@ -35,12 +33,7 @@ export function NotificationBell() {
       className="relative rounded px-2 py-1 text-neutral-400 hover:bg-neutral-900 hover:text-neutral-200"
       aria-label={unread > 0 ? `Notifications — ${unread} unread` : 'Notifications'}
     >
-      <svg
-        viewBox="0 0 20 20"
-        fill="currentColor"
-        aria-hidden="true"
-        className="h-4 w-4"
-      >
+      <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true" className="h-4 w-4">
         <path d="M10 2a5 5 0 0 0-5 5v2.5L3.6 12a1 1 0 0 0 .9 1.5h11a1 1 0 0 0 .9-1.5L15 9.5V7a5 5 0 0 0-5-5Zm0 16a2.2 2.2 0 0 0 2.1-1.5H7.9A2.2 2.2 0 0 0 10 18Z" />
       </svg>
       {unread > 0 ? (
