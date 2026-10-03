@@ -135,7 +135,7 @@ CREATE TABLE orders (
     algo_type       VARCHAR(32),
     algo_params     JSONB,
     -- union mirrors migrations 103/284 (cod_exempt arrives via the
-    // applied 229 migration).
+    -- applied 229 migration).
     discretionary_offset_pips DECIMAL(10,4) NOT NULL DEFAULT 0.0,
     gtd_expire_at   TIMESTAMPTZ,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
