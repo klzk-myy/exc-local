@@ -5,6 +5,7 @@
 //
 // argv: matching_engine [-shard <n>] [-ipc-base <name>] [-wal-dir <dir>]
 //                       [-poison-log <path>] [-idle-sleep-ns <ns>]
+//                       [-tick-interval-ns <ns>]
 
 #include <errno.h>
 #include <fcntl.h>
@@ -74,6 +75,7 @@ void usage(const char* argv0) {
                  "usage: %s [-shard <n>] [-ipc-base <name>] [-wal-dir <dir>]\n"
                  "          [-wal-direct-io]\n"
                  "          [-poison-log <path>] [-idle-sleep-ns <ns>]\n"
+                 "          [-tick-interval-ns <ns>]\n"
                  "          [-instrument-id <n>] [-dev-all-accounts]\n"
                  "          [-snap-dir <dir>] [-snapshot-trades <n>]\n"
                  "          [-snapshot-interval-s <s>] [-follower]\n"
@@ -548,6 +550,7 @@ int main(int argc, char** argv) {
     bool wal_direct = false;  // -wal-direct-io: O_DIRECT block flushing
     std::string poison_path = "poison_pill.log";
     int64_t idle_sleep_ns = 0;
+    int64_t tick_interval_ns = 0;  // 0 -> EngineLoopConfig default (1ms)
     bool dev_all_accounts = false;
     std::string snap_dir = "snapshots";
     uint32_t snapshot_trades = 0;      // 0 -> SnapshotPolicy default
@@ -629,6 +632,18 @@ int main(int argc, char** argv) {
             poison_path = argv[i];
         } else if (std::strcmp(argv[i], "-idle-sleep-ns") == 0) {
             if (++i >= argc || !parse_i64(argv[i], &idle_sleep_ns)) {
+                usage(argv[0]);
+                return 2;
+            }
+        } else if (std::strcmp(argv[i], "-tick-interval-ns") == 0) {
+            // Dev-stack knob: the 1ms default stamps a TIME_TICK WAL entry
+            // every tick (durable engine clock for GTD/DAY replay). Each
+            // append outlives the 1ms flush window, so tick cadence IS the
+            // fsync cadence (~1k flushes/s/shard ≈ MB/s of aligned writes
+            // per engine). Coarser ticks trade expiry/auction sweep
+            // granularity for disk — nothing semantic changes below ~50ms.
+            if (++i >= argc || !parse_i64(argv[i], &tick_interval_ns) ||
+                tick_interval_ns <= 0) {
                 usage(argv[0]);
                 return 2;
             }
@@ -1731,6 +1746,7 @@ int main(int argc, char** argv) {
 
     exch::EngineLoopConfig lcfg;
     lcfg.idle_sleep_ns = idle_sleep_ns;
+    if (tick_interval_ns > 0) lcfg.tick_interval_ns = tick_interval_ns;
     exch::EngineLoop loop(&pump, lcfg);
     loop.set_report_sink(stderr_alert, nullptr);
 
