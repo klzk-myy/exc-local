@@ -21,9 +21,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   CandlestickSeries,
-  ColorType,
-  createChart,
-  CrosshairMode,
   HistogramSeries,
   type AutoscaleInfo,
   type CandlestickData,
@@ -44,6 +41,7 @@ import { useChannel, type WsClient } from '@/lib/ws';
 
 import { ChartOverlays, type OverlayBar } from './ChartOverlays';
 import { getBars, liveKlineToBar } from './udf';
+import { useLwcChart } from './useLwcChart';
 
 export interface TradingChartProps {
   symbol: string;
@@ -59,7 +57,6 @@ export default function TradingChart(props: TradingChartProps) {
   const api = props.api ?? apiClient;
   const ws = props.ws ?? wsClient;
   const height = props.height ?? 320;
-  const containerRef = useRef<HTMLDivElement | null>(null);
   // Latest series handles for the WS handler (avoids stale closures over
   // the async history load).
   const candleRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
@@ -74,28 +71,23 @@ export default function TradingChart(props: TradingChartProps) {
   } | null>(null);
   const [, setViewTick] = useState(0);
   const [bars, setBars] = useState<OverlayBar[]>([]);
+  const bump = () => setViewTick((t) => t + 1);
 
-  // Chart lifecycle — recreated per symbol/interval (interval switch
-  // re-keys the canvas AND the kline channel).
+  // Shared chart lifecycle (theme/RO/cleanup) — recreated per
+  // symbol/interval (interval switch re-keys the canvas AND the kline
+  // channel).
+  const { containerRef, chart } = useLwcChart({
+    height,
+    options: {
+      timeScale: { timeVisible: true, secondsVisible: interval === '1s' },
+    },
+    deps: [symbol, interval, height],
+    onResize: bump,
+  });
+
+  // Series + history wiring on the chart handle.
   useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const bump = () => setViewTick((t) => t + 1);
-    const chart: IChartApi = createChart(el, {
-      height,
-      layout: {
-        background: { type: ColorType.Solid, color: '#0a0a0a' },
-        textColor: '#a3a3a3',
-        fontSize: 11,
-      },
-      grid: {
-        vertLines: { color: '#1f1f1f' },
-        horzLines: { color: '#1f1f1f' },
-      },
-      crosshair: { mode: CrosshairMode.Normal },
-      rightPriceScale: { borderColor: '#262626' },
-      timeScale: { borderColor: '#262626', timeVisible: true, secondsVisible: interval === '1s' },
-    });
+    if (chart === null) return;
     const candles = chart.addSeries(CandlestickSeries, {
       upColor: '#10b981',
       downColor: '#ef4444',
@@ -143,24 +135,14 @@ export default function TradingChart(props: TradingChartProps) {
         /* history unavailable — the live channel still feeds the chart */
       });
 
-    const ro =
-      typeof ResizeObserver !== 'undefined'
-        ? new ResizeObserver(() => {
-            chart.applyOptions({ width: el.clientWidth });
-            bump();
-          })
-        : null;
-    ro?.observe(el);
-
     return () => {
       live = false;
-      ro?.disconnect();
+      chart.timeScale().unsubscribeVisibleLogicalRangeChange(bump);
       candleRef.current = null;
       volumeRef.current = null;
       setApis(null);
-      chart.remove();
     };
-  }, [api, ws, symbol, interval, height]);
+  }, [chart, api, ws, symbol, interval]);
 
   // Live kline frames → series.update + the overlay bar index — via the
   // shared useChannel binding (ref-stable handler, auto re-subscribe on

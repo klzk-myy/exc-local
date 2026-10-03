@@ -35,6 +35,13 @@ vi.mock('@/features/charts/TradingChart', () => ({
     <div data-testid="trading-chart" data-symbol={symbol} />
   ),
 }));
+// DepthChart migrated onto lightweight-charts too — same jsdom blind
+// spot, same out-of-scope stub.
+vi.mock('@/features/depth-chart/DepthChart', () => ({
+  DepthChart: ({ symbol }: { symbol: string }) => (
+    <div data-testid="depth-chart" data-symbol={symbol} />
+  ),
+}));
 
 const EMPTY_FETCH = {
   'GET /api/v1/instruments': { body: { data: [] } },

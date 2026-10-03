@@ -1,26 +1,36 @@
 /**
  * Interactive cumulative depth chart (Task 10.3.12) — canonical L2
  * `depth@{symbol}` + REST snapshot fallback, rendered as two cumulative
- * curves meeting at the mid-price line.
+ * area curves meeting at the mid-price line on the shared
+ * lightweight-charts seam (useLwcChart — one chart library everywhere).
+ *
+ * The price axis rides lwc's time scale via the standard trick: each
+ * level's price is encoded as an integer `time` (units × 1e8), and the
+ * tick/crosshair formatters decode it back — the geometry stays linear
+ * in price because lwc spaces points by their numeric time.
  *
  * Contract:
- *   - green bids / red asks, PLUS a hatch pattern on the ask area and
- *     text labels — color is never the sole signal (WCAG 2.1 AA);
- *   - hover crosshair → tooltip with price, cumulative qty and
- *     cumulative notional on each side;
+ *   - green bids / red asks — plus a DASHED ask line and text labels, so
+ *     color is never the sole signal (WCAG 2.1 AA);
+ *   - crosshair → readout with price, cumulative qty and cumulative
+ *     notional on each side (DOM row — keyboard/SR accessible);
  *   - zoom: wheel / ± / reset buttons, centered on mid;
- *   - click a point → writes the order-draft store (chart-to-ticket
- *     seam shared with Task 10.3.15);
+ *   - click → writes the order-draft store (chart-to-ticket seam shared
+ *     with Task 10.3.15);
  *   - stale feed → visible badge; empty book → honest "no depth" state.
  */
+import { useEffect, useMemo, useRef, useState, type WheelEvent as ReactWheelEvent } from 'react';
 import {
-  useMemo,
-  useRef,
-  useState,
-  type PointerEvent as ReactPointerEvent,
-  type WheelEvent as ReactWheelEvent,
-} from 'react';
+  AreaSeries,
+  LineStyle,
+  type AreaData,
+  type IChartApi,
+  type ISeriesApi,
+  type MouseEventParams,
+  type UTCTimestamp,
+} from 'lightweight-charts';
 
+import { useLwcChart } from '@/features/charts/useLwcChart';
 import { wsClient } from '@/app/runtime';
 import { useWsStatus, type WsClient } from '@/lib/ws';
 import { Dec, maxDec, minDec } from '@/lib/decimal/decimal';
@@ -31,21 +41,16 @@ import { useOrderDraft } from '@/lib/trading/orderDraft';
 import { useBookSnapshot, useInstrument } from '@/lib/trading/queries';
 import type { BookSnapshot } from '@/lib/trading/types';
 
-const W = 720;
 const H = 300;
-const PAD_L = 8;
-const PAD_R = 76;
-const PAD_T = 10;
-const PAD_B = 22;
+/** Price → lwc `time` codec: units × 1e8 (covers every venue tick size). */
+const PRICE_SCALE = 1e8;
+const priceToTime = (p: Dec): UTCTimestamp =>
+  Math.round(p.toNumber() * PRICE_SCALE) as UTCTimestamp;
+const timeToPrice = (t: number): Dec => Dec.of(t / PRICE_SCALE);
 
 export interface DepthChartProps {
   symbol: string;
   client?: WsClient;
-}
-
-interface Hover {
-  x: number;
-  price: Dec;
 }
 
 export function DepthChart({ symbol, client = wsClient }: DepthChartProps) {
@@ -61,9 +66,11 @@ export function DepthChart({ symbol, client = wsClient }: DepthChartProps) {
   const stale = health.stale || ws.state === 'STALE';
 
   const [zoom, setZoom] = useState(1); // fraction of book range shown around mid
-  const [hover, setHover] = useState<Hover | null>(null);
-  const svgRef = useRef<SVGSVGElement>(null);
+  const [hover, setHover] = useState<Dec | null>(null);
+  const [midX, setMidX] = useState<number | null>(null);
   const decimals = priceDecimals(symbol, instrument?.tickSize);
+  const decimalsRef = useRef(decimals);
+  decimalsRef.current = decimals;
 
   const geom = useMemo(() => {
     if (!book || (book.bids.length === 0 && book.asks.length === 0)) return null;
@@ -97,57 +104,121 @@ export function DepthChart({ symbol, client = wsClient }: DepthChartProps) {
     const maxCum = maxDec(bidPts.at(-1)?.cumQty ?? Dec.ZERO, askPts.at(-1)?.cumQty ?? Dec.ZERO);
     if (!maxCum.isPositive()) return null;
 
-    const plotW = W - PAD_L - PAD_R;
-    const x = (p: Dec) => PAD_L + p.sub(lo).div(hi.sub(lo)).toNumber() * plotW;
-    const y = (cum: Dec) => PAD_T + (1 - cum.div(maxCum).toNumber()) * (H - PAD_T - PAD_B);
-    const midX = x(mid);
-
-    // Bid area: fills left of mid. Walk levels worst→best so cum descends.
-    const bidPath =
-      bidPts.length > 0
-        ? `M ${midX} ${y(Dec.ZERO)} ` +
-          [...bidPts]
-            .reverse()
-            .map((p) => `L ${x(p.price)} ${y(p.cumQty)}`)
-            .join(' ') +
-          ` L ${x(bidPts[0]?.price ?? lo)} ${y(Dec.ZERO)} Z`
-        : '';
-    const askPath =
-      askPts.length > 0
-        ? `M ${midX} ${y(Dec.ZERO)} ` +
-          askPts.map((p) => `L ${x(p.price)} ${y(p.cumQty)}`).join(' ') +
-          ` L ${x(askPts.at(-1)?.price ?? hi)} ${y(Dec.ZERO)} Z`
-        : '';
-
-    return { mid, lo, hi, midX, bidPath, askPath, bidPts, askPts, x, y, maxCum };
+    return { mid, lo, hi, bidPts, askPts, maxCum };
   }, [book, zoom]);
 
-  const priceAtX = (px: number): Dec | undefined => {
-    if (!geom || !Number.isFinite(px)) return undefined;
-    const frac = (px - PAD_L) / (W - PAD_L - PAD_R);
-    return geom.lo.add(geom.hi.sub(geom.lo).mul(Dec.of(Math.max(0, Math.min(1, frac)).toFixed(6))));
-  };
+  const fmt = (t: number) => timeToPrice(t).toFixed(decimalsRef.current);
+  const { containerRef, chart } = useLwcChart({
+    height: H,
+    options: {
+      // The x axis is price, not time — both formatters decode the
+      // encoded ticks back to price strings.
+      timeScale: { tickMarkFormatter: (t: number) => fmt(t) },
+      localization: { timeFormatter: (t: number) => fmt(t) },
+      handleScroll: false,
+      handleScale: false,
+    },
+    deps: [symbol],
+  });
 
-  const onMove = (e: ReactPointerEvent<SVGSVGElement>) => {
-    const rect = svgRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    // Degenerate layout (jsdom / zero-size) → treat clientX as viewBox coords.
-    const px = rect.width > 0 ? ((e.clientX - rect.left) / rect.width) * W : e.clientX;
-    const price = priceAtX(px);
-    if (price) setHover({ x: px, price });
-  };
-  const onWheel = (e: ReactWheelEvent<SVGSVGElement>) => {
+  const bidSeriesRef = useRef<ISeriesApi<'Area'> | null>(null);
+  const askSeriesRef = useRef<ISeriesApi<'Area'> | null>(null);
+
+  // Series wiring — once per chart instance.
+  useEffect(() => {
+    if (chart === null) return;
+    const c: IChartApi = chart;
+    bidSeriesRef.current = c.addSeries(AreaSeries, {
+      lineColor: '#34d399',
+      topColor: '#34d39955',
+      bottomColor: '#34d39910',
+      lineWidth: 2,
+      priceLineVisible: false,
+      crosshairMarkerVisible: true,
+    });
+    askSeriesRef.current = c.addSeries(AreaSeries, {
+      lineColor: '#f87171',
+      topColor: '#f8717155',
+      bottomColor: '#f8717110',
+      lineWidth: 2,
+      lineStyle: LineStyle.Dashed, // non-color distinguisher
+      priceLineVisible: false,
+      crosshairMarkerVisible: true,
+    });
+
+    const onMove = (param: MouseEventParams) => {
+      const t = param.time;
+      setHover(typeof t === 'number' ? timeToPrice(t) : null);
+    };
+    const onClick = (param: MouseEventParams) => {
+      const t = param.time;
+      if (typeof t === 'number') {
+        setDraft({ symbol, price: timeToPrice(t).toFixed(decimalsRef.current) });
+      }
+    };
+    const onRange = () => {
+      const g = geomRef.current;
+      setMidX(g === null ? null : c.timeScale().timeToCoordinate(priceToTime(g.mid)));
+    };
+    c.subscribeCrosshairMove(onMove);
+    c.subscribeClick(onClick);
+    c.timeScale().subscribeVisibleLogicalRangeChange(onRange);
+    return () => {
+      c.unsubscribeCrosshairMove(onMove);
+      c.unsubscribeClick(onClick);
+      c.timeScale().unsubscribeVisibleLogicalRangeChange(onRange);
+      bidSeriesRef.current = null;
+      askSeriesRef.current = null;
+    };
+  }, [chart, symbol, setDraft]);
+
+  // Latest geom for the range-change callback (ref — avoids stale closure).
+  const geomRef = useRef(geom);
+  geomRef.current = geom;
+
+  // Data push — bids ascend to mid, asks ascend from mid; a flat
+  // extension point at mid keeps the areas meeting like the old fill.
+  useEffect(() => {
+    const bid = bidSeriesRef.current;
+    const ask = askSeriesRef.current;
+    if (chart === null || bid === null || ask === null) return;
+    const midT = priceToTime(geom?.mid ?? Dec.ZERO);
+    // lwc requires strictly-ascending unique times — collapse levels that
+    // encode to the same tick (>8dp books, or a locked book where
+    // best-bid == mid) keeping the deepest cumulative value.
+    const toPoints = (pts: { price: Dec; cumQty: Dec }[]): AreaData<UTCTimestamp>[] =>
+      pts
+        .map((p) => ({ time: priceToTime(p.price), value: p.cumQty.toNumber() }))
+        .filter((p, i, a) => p.time !== a[i + 1]?.time);
+    // cumulate() walks best→worst: bids descend in price → reverse for
+    // lwc's strictly-ascending-time requirement.
+    const bidData = toPoints(geom?.bidPts.slice().reverse() ?? []);
+    const askData = toPoints(geom?.askPts ?? []);
+    if (geom !== null) {
+      // cumulate() walks best→worst, so [0] is the best level — the
+      // shallowest cum — which is what the curve shows AT mid.
+      const bidMid = { time: midT, value: geom.bidPts[0]?.cumQty.toNumber() ?? 0 };
+      const askMid = { time: midT, value: geom.askPts[0]?.cumQty.toNumber() ?? 0 };
+      if (bidData.at(-1)?.time === midT) bidData[bidData.length - 1] = bidMid;
+      else bidData.push(bidMid);
+      if (askData[0]?.time === midT) askData[0] = askMid;
+      else askData.unshift(askMid);
+    }
+    bid.setData(bidData);
+    ask.setData(askData);
+    chart.timeScale().fitContent();
+    setMidX(geom === null ? null : chart.timeScale().timeToCoordinate(midT));
+  }, [chart, geom]);
+
+  const onWheel = (e: ReactWheelEvent<HTMLDivElement>) => {
     setZoom((z) => Math.max(0.05, Math.min(1, z * (e.deltaY > 0 ? 1.2 : 1 / 1.2))));
-  };
-  const onClick = () => {
-    if (hover) setDraft({ symbol, price: hover.price.toFixed(decimals) });
   };
 
   const hoverDepth =
-    hover && book
+    hover !== null && book !== undefined
       ? {
-          bid: depthAtPrice('BID', hover.price, book),
-          ask: depthAtPrice('ASK', hover.price, book),
+          bid: depthAtPrice('BID', hover, book),
+          ask: depthAtPrice('ASK', hover, book),
         }
       : undefined;
 
@@ -195,108 +266,53 @@ export function DepthChart({ symbol, client = wsClient }: DepthChartProps) {
         </div>
       </div>
 
-      {geom === null ? (
-        <p className="py-10 text-center text-sm text-neutral-500" role="status">
-          {rest.isLoading ? 'Loading depth…' : `No depth data for ${symbol}.`}
-        </p>
-      ) : (
-        <svg
-          ref={svgRef}
-          viewBox={`0 0 ${String(W)} ${String(H)}`}
-          className="h-auto w-full cursor-crosshair"
+      {/* The lwc container stays mounted through empty/loading states —
+          useLwcChart creates the chart once on mount and would never
+          retry if the element appeared only after data arrived. */}
+      <div className="relative" onWheel={onWheel}>
+        <div
+          ref={containerRef}
+          className="w-full overflow-hidden rounded-lg cursor-crosshair"
           role="img"
-          aria-label={`Depth chart — mid ${geom.mid.toFixed(decimals)}`}
-          onPointerMove={onMove}
-          onPointerLeave={() => setHover(null)}
-          onWheel={onWheel}
-          onClick={onClick}
-        >
-          <rect x={0} y={0} width={W} height={H} fill="#0a0a0a" rx={6} />
-          <defs>
-            <pattern
-              id="askHatch"
-              width="6"
-              height="6"
-              patternTransform="rotate(45)"
-              patternUnits="userSpaceOnUse"
+          aria-label={
+            geom === null
+              ? `Depth chart — ${symbol}`
+              : `Depth chart — mid ${geom.mid.toFixed(decimals)}`
+          }
+        />
+        {geom === null && (
+          <p
+            className="absolute inset-0 flex items-center justify-center text-sm text-neutral-500"
+            role="status"
+          >
+            {rest.isLoading ? 'Loading depth…' : `No depth data for ${symbol}.`}
+          </p>
+        )}
+        {geom !== null && midX !== null && (
+          <>
+            {/* mid line + label (vertical marker — lwc has no vertical
+                line primitive; the overlay rides timeToCoordinate) */}
+            <div
+              className="pointer-events-none absolute top-0 bottom-0 border-l border-dashed border-sky-400"
+              style={{ left: midX }}
+              aria-hidden="true"
+            />
+            <div
+              className="pointer-events-none absolute bottom-0 -translate-x-1/2 text-[9px] text-sky-400"
+              style={{ left: midX }}
             >
-              <rect width="6" height="6" fill="#f87171" fillOpacity="0.10" />
-              <line
-                x1="0"
-                y1="0"
-                x2="0"
-                y2="6"
-                stroke="#f87171"
-                strokeOpacity="0.25"
-                strokeWidth="1"
-              />
-            </pattern>
-          </defs>
-
-          {/* bid / ask cumulative areas */}
-          {geom.bidPath !== '' && (
-            <path
-              d={geom.bidPath}
-              fill="#34d399"
-              fillOpacity="0.18"
-              stroke="#34d399"
-              strokeWidth={1.5}
-            />
-          )}
-          {geom.askPath !== '' && (
-            <path d={geom.askPath} fill="url(#askHatch)" stroke="#f87171" strokeWidth={1.5} />
-          )}
-
-          {/* mid line */}
-          <line
-            x1={geom.midX}
-            x2={geom.midX}
-            y1={PAD_T}
-            y2={H - PAD_B}
-            stroke="#38bdf8"
-            strokeDasharray="4 3"
-          />
-          <text x={geom.midX} y={H - PAD_B + 13} fontSize={9} fill="#38bdf8" textAnchor="middle">
-            mid {geom.mid.toFixed(decimals)}
-          </text>
-
-          {/* side labels — non-color distinguisher */}
-          <text x={PAD_L + 6} y={PAD_T + 12} fontSize={10} fill="#34d399" fontWeight={600}>
-            ▲ BIDS
-          </text>
-          <text x={W - PAD_R - 44} y={PAD_T + 12} fontSize={10} fill="#f87171" fontWeight={600}>
-            ASKS ▼
-          </text>
-
-          {/* price axis ends */}
-          <text x={PAD_L} y={H - PAD_B + 13} fontSize={9} fill="#737373">
-            {geom.lo.toFixed(decimals)}
-          </text>
-          <text x={W - PAD_R} y={H - PAD_B + 13} fontSize={9} fill="#737373">
-            {geom.hi.toFixed(decimals)}
-          </text>
-          {/* qty axis */}
-          <text x={W - PAD_R + 4} y={PAD_T + 8} fontSize={9} fill="#737373">
-            {geom.maxCum.toDisplay(0)}
-          </text>
-          <text x={W - PAD_R + 4} y={H - PAD_B} fontSize={9} fill="#737373">
-            0
-          </text>
-
-          {/* crosshair */}
-          {hover !== null && (
-            <line
-              x1={hover.x}
-              x2={hover.x}
-              y1={PAD_T}
-              y2={H - PAD_B}
-              stroke="#a3a3a3"
-              strokeWidth={0.75}
-              strokeDasharray="2 2"
-            />
-          )}
-        </svg>
-      )}
+              mid {geom.mid.toFixed(decimals)}
+            </div>
+            {/* side labels — non-color distinguisher */}
+            <span className="pointer-events-none absolute left-2 top-1 text-[10px] font-semibold text-emerald-400">
+              ▲ BIDS
+            </span>
+            <span className="pointer-events-none absolute right-2 top-1 text-[10px] font-semibold text-red-400">
+              ASKS ▼
+            </span>
+          </>
+        )}
+      </div>
 
       {/* crosshair readout (DOM tooltip — keyboard/SR accessible) */}
       <div
@@ -305,14 +321,12 @@ export function DepthChart({ symbol, client = wsClient }: DepthChartProps) {
       >
         {hover !== null && hoverDepth !== undefined ? (
           <span>
-            price {formatPrice(symbol, hover.price, instrument?.tickSize)} · bid depth{' '}
+            price {formatPrice(symbol, hover, instrument?.tickSize)} · bid depth{' '}
             {hoverDepth.bid.qty.toDisplay(2)} ({hoverDepth.bid.notional.toDisplay(0)} quote) · ask
             depth {hoverDepth.ask.qty.toDisplay(2)} ({hoverDepth.ask.notional.toDisplay(0)} quote)
           </span>
         ) : (
-          <span>
-            Hover for cumulative depth · click to prefill the order ticket · scroll to zoom
-          </span>
+          <span>Hover for cumulative depth · click to prefill the order ticket · scroll to zoom</span>
         )}
         <span className="text-neutral-600">zoom {(zoom * 100).toFixed(0)}%</span>
       </div>

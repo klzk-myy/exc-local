@@ -244,6 +244,8 @@ Percentage order quantity sliders — order entry form percentage selector (10%,
 
 Interactive depth chart visualization — D3.js or TradingView Lightweight Charts depth area chart rendering cumulative bid (green) and ask (red) volume curves vs price. Clicking a price level populates the order form price field. Updates in real-time from L2 feed. Displayed as collapsible panel below the order book.
 
+**(amended 2026-10-03 — chart-stack consolidation, spec §27):** the renderer is TradingView Lightweight Charts (the "or" resolved in favor of unification) — `features/depth-chart/DepthChart` draws the bid/ask cumulative curves as two `AreaSeries` on the shared `useLwcChart` lifecycle seam (`features/charts/useLwcChart`), with prices index-encoded on the time axis and decoded by `tickMarkFormatter`. The interim hand-rolled SVG renderer is deleted; the same migration put `features/performance/EquityCurveChart` (Task 10.3.18 surface) on a `LineSeries`. `ChartOverlays` remains an SVG annotation layer over the canonical chart — it is not a competing chart renderer.
+
 **SDD Checklist:**
 - [x] Spec checkpoint: interactive depth chart consumes canonical L2 data (§24 #268) — defined first, validated against spec
 
