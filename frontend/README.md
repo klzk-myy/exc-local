@@ -56,13 +56,18 @@ export const nav: FeatureNavItem[] = [
 ];
 ```
 
-| Field     | Type      | Notes                                                          |
-| --------- | --------- | -------------------------------------------------------------- |
-| `label`   | `string`  | Nav label (en-US).                                             |
-| `to`      | `string`  | Absolute route path the link navigates to.                     |
-| `icon`    | `string?` | Icon token — resolved by the shell.                            |
-| `section` | `string`  | Nav grouping in the header (e.g. `Trade`, `Account`, `Admin`). |
-| `order`   | `number?` | Sort key within the section (ascending).                       |
+| Field     | Type      | Notes                                                            |
+| --------- | --------- | ---------------------------------------------------------------- |
+| `label`   | `string`  | Nav label (en-US).                                               |
+| `to`      | `string`  | Absolute route path the link navigates to.                       |
+| `icon`    | `string?` | Icon token — resolved by the shell.                              |
+| `section` | `string`  | Nav grouping — sections render in `SECTION_ORDER` (manifest.ts). |
+| `order`   | `number?` | Sort key within the section (ascending).                         |
+
+Sidebar membership is opt-in: omit `nav.ts` (or omit the item) for
+deep-link pages that should stay routable but off the primary nav —
+e.g. notifications (the shell's bell already links there), account
+sessions (linked from Settings → Security), webhooks, fee tiers.
 
 Discovery is implemented in `src/app/manifest.ts` and consumed by
 `src/app/router.tsx` + `src/components/AppShell.tsx`. Both manifest files may
