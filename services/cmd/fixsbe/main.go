@@ -214,9 +214,23 @@ func run() error {
 	defer outSub.Close()
 	go func() {
 		for ctx.Err() == nil {
-			if n := outSub.Poll(10); n < 0 {
+			n := outSub.Poll(10)
+			if n < 0 {
 				log.Warn("fixsbe: orders_out poll error")
 				return
+			}
+			if n == 0 {
+				// Idle wait. Without it this goroutine busy-spins a full
+				// core whenever no orders_out fragments are pending — the
+				// same defect fixed in cmd/xshardrelay. Masked today only
+				// because fixsbe.enabled=false returns before reaching this
+				// loop; it would surface the moment SBE order entry is
+				// switched on.
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(100 * time.Microsecond):
+				}
 			}
 		}
 	}()
