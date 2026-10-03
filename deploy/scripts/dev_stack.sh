@@ -506,18 +506,29 @@ stop_one() { # name
   ok "$n stopped"
 }
 
-app_start() { # group(all|core)
-  local g="$1" row n stage last_stage=""
-  hdr "Stages 1-5 — application daemons ($g)"
-  ensure_binaries || return 1
+app_start() { # group(all|core) [tier(all|host|docker)]
+  local g="$1" tier="${2:-all}" row n stage last_stage="" total=0 i=0
+  hdr "Stages 1-5 — application daemons ($g · $tier)"
+  # ensure_binaries only applies to the host tier — docker daemons run
+  # images, not services/bin.
+  [[ "$tier" != "docker" ]] && { ensure_binaries || return 1; }
+  for row in "${DAEMONS[@]}"; do
+    n="$(echo "$row" | cut -d'|' -f1)"
+    [[ "$g" == "core" && "$(echo "$row" | cut -d'|' -f3)" != "core" ]] && continue
+    [[ "$tier" != "all" && "$(daemon_run_mode "$n")" != "$tier" ]] && continue
+    total=$((total+1))
+  done
   for row in "${DAEMONS[@]}"; do
     n="$(echo "$row" | cut -d'|' -f1)"
     stage="$(echo "$row" | cut -d'|' -f2)"
-    if [[ "$g" == "core" && "$(echo "$row" | cut -d'|' -f3)" != "core" ]]; then continue; fi
+    [[ "$g" == "core" && "$(echo "$row" | cut -d'|' -f3)" != "core" ]] && continue
+    [[ "$tier" != "all" && "$(daemon_run_mode "$n")" != "$tier" ]] && continue
     if [[ "$stage" != "$last_stage" ]]; then
       info "stage priority $stage"
       last_stage="$stage"
     fi
+    i=$((i+1))
+    info "[$i/$total] $n"
     if ! start_one "$n"; then
       # Fail-fast: later tiers depend on this daemon's rings/ports, so
       # starting them on a dead dependency only produces a degraded,
@@ -528,11 +539,19 @@ app_start() { # group(all|core)
   done
 }
 
-app_stop() {
-  hdr "Stages 1-5 — stop application daemons (reverse order)"
-  local row n i
+app_stop() { # [tier(all|host|docker)]
+  local tier="${1:-all}" row n i k=0 total=0
+  hdr "Stages 1-5 — stop application daemons (reverse order · $tier)"
+  for row in "${DAEMONS[@]}"; do
+    n="$(echo "$row" | cut -d'|' -f1)"
+    [[ "$tier" != "all" && "$(daemon_run_mode "$n")" != "$tier" ]] && continue
+    total=$((total+1))
+  done
   for (( i=${#DAEMONS[@]}-1; i>=0; i-- )); do
     n="$(echo "${DAEMONS[$i]}" | cut -d'|' -f1)"
+    [[ "$tier" != "all" && "$(daemon_run_mode "$n")" != "$tier" ]] && continue
+    k=$((k+1))
+    info "[$k/$total] $n"
     stop_one "$n"
   done
 }
@@ -580,23 +599,23 @@ do_status() {
 }
 
 # ── top-level actions ────────────────────────────────────────────────────────
-act_start() { # all|core|infra|app
-  local what="${1:-all}" rc=0
+act_start() { # all|core|infra|app [tier(all|host|docker)]
+  local what="${1:-all}" tier="${2:-all}" rc=0
   load_env
   require_host_or_docker "start $what"
   case "$what" in
-    all)   preflight; infra_start && app_start all || rc=1 ;;
-    core)  preflight; infra_start && app_start core || rc=1 ;;
+    all)   preflight; infra_start && app_start all "$tier" || rc=1 ;;
+    core)  preflight; infra_start && app_start core "$tier" || rc=1 ;;
     infra) infra_start || rc=1 ;;
-    app)   preflight; app_start all || rc=1 ;;
+    app)   preflight; app_start all "$tier" || rc=1 ;;
     *)     die "start: unknown target '$what' (all|core|infra|app)" ;;
   esac
-  [[ "$what" != "infra" ]] && { do_status; verify_started "$what" || rc=1; }
+  [[ "$what" != "infra" ]] && { do_status; verify_started "$what" "$tier" || rc=1; }
   return "$rc"
 }
 
 verify_started() { # post-start audit — is each requested daemon actually up?
-  local what="$1" row n port bad=0 tries=0 alive
+  local what="$1" tier="${2:-all}" row n port bad=0 tries=0 alive
   # Ports can take a few seconds to bind after the process is alive —
   # retry the whole sweep for up to ~15s before declaring failure.
   while (( tries < 60 )); do
@@ -605,6 +624,7 @@ verify_started() { # post-start audit — is each requested daemon actually up?
       n="$(echo "$row" | cut -d'|' -f1)"
       port="$(echo "$row" | cut -d'|' -f4)"
       [[ "$what" == "core" && "$(echo "$row" | cut -d'|' -f3)" != "core" ]] && continue
+      [[ "$tier" != "all" && "$(daemon_run_mode "$n")" != "$tier" ]] && continue
       alive=0
       if [[ "$(daemon_run_mode "$n")" == "docker" ]]; then
         docker ps --filter "name=exc-dev-$(docker_svc "$n")-" \
@@ -625,6 +645,7 @@ verify_started() { # post-start audit — is each requested daemon actually up?
     for row in "${DAEMONS[@]}"; do
       n="$(echo "$row" | cut -d'|' -f1)"; port="$(echo "$row" | cut -d'|' -f4)"
       [[ "$what" == "core" && "$(echo "$row" | cut -d'|' -f3)" != "core" ]] && continue
+      [[ "$tier" != "all" && "$(daemon_run_mode "$n")" != "$tier" ]] && continue
       if [[ "$(daemon_run_mode "$n")" == "docker" ]]; then
         docker ps --filter "name=exc-dev-$(docker_svc "$n")-" \
           --filter status=running -q 2>/dev/null | grep -q . || warn "  $n: container not running"
@@ -638,28 +659,29 @@ verify_started() { # post-start audit — is each requested daemon actually up?
   ok "verify: all daemons up"
 }
 
-act_stop() { # all|app|infra
-  local what="${1:-all}" rc=0
+act_stop() { # all|app|infra [tier(all|host|docker)]
+  local what="${1:-all}" tier="${2:-all}" rc=0
   load_env
   require_host_or_docker "stop $what"
   case "$what" in
-    all)   app_stop || rc=1; infra_stop || rc=1 ;;
-    app)   app_stop || rc=1 ;;
+    all)   app_stop "$tier" || rc=1; infra_stop || rc=1 ;;
+    app)   app_stop "$tier" || rc=1 ;;
     infra) infra_stop || rc=1 ;;
     *)     die "stop: unknown target '$what' (all|app|infra)" ;;
   esac
   # Daemons started under a DIFFERENT RUN_DIR are invisible to our pid
   # files — that's what made `stop all` appear to no-op. Surface them.
   foreign_run_pids
-  verify_stopped "$what" || rc=1
+  verify_stopped "$what" "$tier" || rc=1
   return "$rc"
 }
 
 verify_stopped() { # post-stop audit — did everything actually go down?
-  local what="$1" row n bad=0
+  local what="$1" tier="${2:-all}" row n bad=0
   if [[ "$what" != "infra" ]]; then
     for row in "${DAEMONS[@]}"; do
       n="$(echo "$row" | cut -d'|' -f1)"
+      [[ "$tier" != "all" && "$(daemon_run_mode "$n")" != "$tier" ]] && continue
       if [[ "$(daemon_run_mode "$n")" == "docker" ]]; then
         if docker ps --filter "name=exc-dev-$(docker_svc "$n")-" \
             --filter status=running -q 2>/dev/null | grep -q .; then
@@ -711,38 +733,98 @@ act_logs() {
   tail -f "$log"
 }
 
+menu_status() { # dual-tier table: host pid state × docker container state
+  local row n svc host dock line cname cst
+  # One batched docker query for all exc-dev-* containers, keyed by
+  # service name (container is exc-dev-<svc>-<replica>).
+  declare -A CST=()
+  while read -r line; do
+    cname="${line%% *}"; cst="${line#* }"
+    svc="${cname#exc-dev-}"; svc="${svc%-*}"
+    CST["$svc"]="$cst"
+  done < <(docker ps -a --filter "name=exc-dev-" \
+    --format '{{.Names}} {{.Status}}' 2>/dev/null)
+  printf "  %-22s %-12s %-12s %s\n" "DAEMON" "HOST" "DOCKER" "TIER"
+  for row in "${DAEMONS[@]}"; do
+    n="$(echo "$row" | cut -d'|' -f1)"
+    svc="$(docker_svc "$n")"
+    host="${C_D}down${C_0}"
+    [[ "$n" == "frontend" ]] && host="${C_D}-${C_0}"   # no host binary exists
+    [[ "$n" != "frontend" ]] && pid_alive "$n" && host="${C_G}up${C_0}"
+    case "${CST[$svc]:-}" in
+      Up*)      dock="${C_G}up${C_0}" ;;
+      "")       dock="${C_D}absent${C_0}" ;;
+      *)        dock="${C_D}stopped${C_0}" ;;
+    esac
+    printf "  %-22s " "$n"; cell "$host"; cell "$dock"
+    printf "%s\n" "$(daemon_run_mode "$n")"
+  done
+  # Infra summary line.
+  local up=0 tot=0
+  if [[ -f "$COMPOSE_FILE" ]]; then
+    tot="$($COMPOSE ps -a -q 2>/dev/null | wc -l)"
+    up="$($COMPOSE ps --filter status=running -q 2>/dev/null | wc -l)"
+  fi
+  printf "  %-22s %-12s %s\n" "infra (stage 0)" "-" "$up/$tot containers up"
+}
+
+cell() { # colored-text [width] — pad AFTER %b so ANSI escapes don't skew columns
+  local s="$1" w="${2:-13}" plain
+  plain="$(printf "%b" "$s" | sed $'s/\033\[[0-9;]*m//g')"
+  printf "%b%*s" "$s" $((w - ${#plain})) ""
+}
+
 menu() {
   load_env
   while true; do
+    hdr "exc.local — dev stack   (${C_D}$RUN_DIR · shm=$SHM_BASE${C_0})"
+    menu_status
     cat <<EOF
 
-${C_B}exc.local — local dev stack${C_0}   (${C_D}repo: $REPO${C_0})
-  1) start  everything   infra + all app daemons
-  2) start  core only    infra + trading-path daemons
-  3) start  infra only   Stage 0 (docker compose)
-  4) start  app only     app daemons (infra assumed up)
-  5) stop   app only     app daemons
-  6) stop   everything   app daemons + infra
-  7) restart             stop everything, then start everything
-  8) status
-  9) logs                tail a daemon's log
-  0) exit
+  ${C_B}action${C_0}:  [s]tart · sto[p] · [r]estart · stat[u]s · [l]ogs · [q]uit
 EOF
-    read -rp "  choose [1]: " choice; choice="${choice:-1}"
-    case "$choice" in
-      1) act_start all ;;
-      2) act_start core ;;
-      3) act_start infra ;;
-      4) act_start app ;;
-      5) act_stop app ;;
-      6) act_stop all ;;
-      7) act_stop all && act_start all ;;
-      8) do_status ;;
-      9) read -rp "  daemon name: " dn; act_logs "$dn" ;;
-      0|q|exit) info "bye"; exit 0 ;;
-      *) warn "unknown choice '$choice'" ;;
+    read -rp "  action: " act
+    case "$act" in
+      s|start)   menu_target start ;;
+      p|stop)    menu_target stop ;;
+      r|restart) menu_target restart ;;
+      u|status)  do_status ;;
+      l|logs)    read -rp "  daemon name: " dn; act_logs "$dn" ;;
+      q|quit|exit|0|"") info "bye"; exit 0 ;;
+      *) warn "unknown action '$act'" ;;
     esac
   done
+}
+
+menu_target() { # action(start|stop|restart) → prompt host/docker/both tier
+  local action="$1" t
+  if [[ "$action" == "restart" ]]; then
+    echo "  ${C_B}target${C_0}:  [h]ost · [d]ocker · [b]oth tiers · [a]ll tiers+infra · [c]ancel"
+  elif [[ "$action" == "stop" ]]; then
+    echo "  ${C_B}target${C_0}:  [h]ost · [d]ocker · [b]oth tiers · [i]nfra · [a]ll+infra · [c]ancel"
+  else
+    echo "  ${C_B}target${C_0}:  [h]ost · [d]ocker · [b]oth tiers · [i]nfra · [a]ll+infra · [c]ancel"
+  fi
+  read -rp "  target: " t
+  case "$action:$t" in
+    start:h)   act_start app host ;;
+    start:d)   act_start app docker ;;
+    start:b)   act_start app ;;
+    start:i)   act_start infra ;;
+    start:a)   act_start all ;;
+    stop:h)    act_stop app host ;;
+    stop:d)    act_stop app docker ;;
+    stop:b)    act_stop app ;;
+    stop:i)    act_stop infra ;;
+    stop:a)    act_stop all ;;
+    restart:h) act_stop app host   && act_start app host ;;
+    restart:d) act_stop app docker && act_start app docker ;;
+    restart:b) act_stop app        && act_start app ;;
+    restart:i) act_stop infra      && act_start infra ;;
+    restart:a) act_stop all        && act_start all ;;
+    *:c|*:"")  info "cancelled" ;;
+    *)         warn "unknown target '$t'" ;;
+  esac
 }
 
 usage() {
