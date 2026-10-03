@@ -2374,11 +2374,28 @@ func run() error {
 	// resolution then Notify, best-effort, panic-guarded by the consumer.
 	go orders.NewConsumer(orderSubmitter, orderStore, orderSvc.Pending()).
 		WithFrameTap(func(sh uint16, p []byte) {
+			// Copy: the drain buffer is reused by the consumer loop.
+			// Blocking send is the backpressure contract — a settlement
+			// queue >16K frames deep means settlement has halted and the
+			// read-model drain stalls rather than silently dropping fills.
+			// The settlement push runs before the opportunistic SOR mirror
+			// decode below: a decode panic there is recovered by
+			// fireFrameTap and must never starve the settlement leg.
+			if q := settleQueues[sh]; q != nil {
+				select {
+				case q <- append([]byte(nil), p...):
+				case <-sweepCtx.Done():
+				}
+			}
 			// Phase-3 Task 4 — feed the SOR book view from the same sole
 			// reader (decode is allocation-cheap and infallible here:
-			// unresolvable/non-snapshot frames return false).
+			// unresolvable/non-snapshot frames return false). The engine
+			// echoes the 64B EXCTRACE block verbatim on frames answering
+			// a traced command (Task 9.3.11); strip it first — the raw
+			// prefix decodes as a bogus FlatBuffers uoffset and panics.
 			if sorBookCache != nil {
-				if d, ok := marketdata.DecodeBookDeltaFrame(p, sorResolver); ok {
+				body, _, _ := tracing.StripAeronTrace(p)
+				if d, ok := marketdata.DecodeBookDeltaFrame(body, sorResolver); ok {
 					bids := make([]sor.Level, len(d.Bids))
 					for i, lv := range d.Bids {
 						bids[i] = sor.Level{Price: lv.Price, Qty: lv.Qty, Count: lv.Count}
@@ -2388,16 +2405,6 @@ func run() error {
 						asks[i] = sor.Level{Price: lv.Price, Qty: lv.Qty, Count: lv.Count}
 					}
 					sorBookCache.Observe(d.Symbol, bids, asks)
-				}
-			}
-			// Copy: the drain buffer is reused by the consumer loop.
-			// Blocking send is the backpressure contract — a settlement
-			// queue >16K frames deep means settlement has halted and the
-			// read-model drain stalls rather than silently dropping fills.
-			if q := settleQueues[sh]; q != nil {
-				select {
-				case q <- append([]byte(nil), p...):
-				case <-sweepCtx.Done():
 				}
 			}
 		}).
