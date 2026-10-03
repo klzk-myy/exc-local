@@ -83,10 +83,7 @@ describe('NotificationBell', () => {
         <NotificationBell />
       </MemoryRouter>,
     );
-    expect(wsClient.subscribe).toHaveBeenCalledWith(
-      'private:notifications',
-      expect.any(Function),
-    );
+    expect(wsClient.subscribe).toHaveBeenCalledWith('private:notifications', expect.any(Function));
     act(() => {
       pushNotification(delivery('Fill A'));
       pushNotification(delivery('Fill B'));
