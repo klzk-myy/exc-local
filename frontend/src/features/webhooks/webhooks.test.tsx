@@ -19,7 +19,10 @@ const { apiClient } = vi.hoisted(() => ({
     delete: vi.fn(),
   },
 }));
-vi.mock('@/app/runtime', () => ({ apiClient, wsClient: { subscribe: vi.fn(), unsubscribe: vi.fn() } }));
+vi.mock('@/app/runtime', () => ({
+  apiClient,
+  wsClient: { subscribe: vi.fn(), unsubscribe: vi.fn() },
+}));
 
 function qc() {
   return new QueryClient({ defaultOptions: { queries: { retry: false } } });
