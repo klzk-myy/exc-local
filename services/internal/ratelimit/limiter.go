@@ -22,6 +22,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"sync"
 	"time"
 
@@ -147,9 +148,12 @@ local min_win      = tonumber(ARGV[14])
 local day_win      = tonumber(ARGV[15])
 local weight_quota = tonumber(ARGV[16])
 local is_order     = tonumber(ARGV[17])
+local is_private   = tonumber(ARGV[18])
 
--- 1-3: ban machinery (skipped for allowlisted IPs)
-if redis.call('SISMEMBER', KEYS[4], ip) == 0 then
+-- 1-3: ban machinery (skipped for allowlisted and private/LAN IPs)
+-- Private/LAN IPs (127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12,
+-- 192.168.0.0/16, 169.254.0.0/16, ::1, fc00::/7) are never banned.
+if redis.call('SISMEMBER', KEYS[4], ip) == 0 and is_private == 0 then
   local ban = redis.call('GET', KEYS[1])
   if ban then
     local ttl = redis.call('PTTL', KEYS[1])
@@ -215,8 +219,8 @@ if is_order == 1 then
 end
 redis.call('PEXPIRE', KEYS[7], 172800000)
 
--- 8: arm the post-429 marker on any deny (non-allowlisted)
-if allowed == 0 and redis.call('SISMEMBER', KEYS[4], ip) == 0 then
+-- 8: arm the post-429 marker on any deny (non-allowlisted, non-private)
+if allowed == 0 and redis.call('SISMEMBER', KEYS[4], ip) == 0 and is_private == 0 then
   redis.call('SET', KEYS[2], now, 'PX', marker_ttl)
 end
 
@@ -273,6 +277,7 @@ func (b *RedisBackend) Hit(ctx context.Context, in HitInput) (HitResult, error) 
 		secWin, minWin, dayWin,
 		in.WeightQuota,
 		boolInt(in.Order),
+		boolInt(isPrivateIP(in.IP)),
 	).Slice()
 	if err != nil {
 		return HitResult{}, fmt.Errorf("ratelimit hit: %w", err)
@@ -732,4 +737,46 @@ func parseInt64(v interface{}) (int64, error) {
 	default:
 		return 0, fmt.Errorf("not an integer: %v", v)
 	}
+}
+
+// privateIPNetworks holds the RFC 1918/loopback/link-local ranges that
+// MUST NEVER be subject to IP-ban escalation — they are intra-host or
+// intra-LAN addresses (127.0.0.1, 10.x, 172.16-31.x, 192.168.x,
+// ::1, fc00::/7, 169.254.x). Task 5.3.34 bans target remote abusive
+// clients; a loopback/LAN false-positive would lock out the local
+// operator and every NAT'ed workstation behind the same edge.
+var privateIPNetworks []*net.IPNet
+
+func init() {
+	for _, cidr := range []string{
+		"127.0.0.0/8",    // IPv4 loopback
+		"10.0.0.0/8",     // RFC 1918 Class A
+		"172.16.0.0/12",  // RFC 1918 Class B
+		"192.168.0.0/16", // RFC 1918 Class C
+		"169.254.0.0/16", // IPv4 link-local
+		"::1/128",        // IPv6 loopback
+		"fc00::/7",       // IPv6 unique local
+	} {
+		_, n, err := net.ParseCIDR(cidr)
+		if err != nil {
+			panic(fmt.Sprintf("ratelimit: bad private CIDR %q: %v", cidr, err))
+		}
+		privateIPNetworks = append(privateIPNetworks, n)
+	}
+}
+
+// isPrivateIP reports whether ip is a loopback, RFC 1918, or link-local
+// address that must never be IP-banned. Unparseable / empty ⇒ false
+// (the caller is a real remote IP and subject to normal escalation).
+func isPrivateIP(ipStr string) bool {
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return false
+	}
+	for _, n := range privateIPNetworks {
+		if n.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }
