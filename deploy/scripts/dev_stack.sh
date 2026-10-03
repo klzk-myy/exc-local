@@ -608,7 +608,33 @@ act_stop() { # all|app|infra
   # Daemons started under a DIFFERENT RUN_DIR are invisible to our pid
   # files — that's what made `stop all` appear to no-op. Surface them.
   foreign_run_pids
+  verify_stopped "$what" || rc=1
   return "$rc"
+}
+
+verify_stopped() { # post-stop audit — did everything actually go down?
+  local what="$1" row n bad=0
+  if [[ "$what" != "infra" ]]; then
+    for row in "${DAEMONS[@]}"; do
+      n="$(echo "$row" | cut -d'|' -f1)"
+      if [[ "$(daemon_run_mode "$n")" == "docker" ]]; then
+        if docker ps --filter "name=exc-dev-$(docker_svc "$n")-" \
+            --filter status=running -q 2>/dev/null | grep -q .; then
+          warn "verify: $n container still running"; bad=1
+        fi
+      elif pid_alive "$n"; then
+        warn "verify: $n still running (pid $(pid_of "$n"))"; bad=1
+      fi
+    done
+  fi
+  if [[ "$what" != "app" ]] && [[ -f "$COMPOSE_FILE" ]]; then
+    if $COMPOSE ps --filter status=running -q 2>/dev/null | grep -q .; then
+      warn "verify: infra containers still running:"; bad=1
+      $COMPOSE ps --filter status=running --format '      {{.Name}}  {{.Status}}' 2>/dev/null
+    fi
+  fi
+  if [[ "$bad" == 0 ]]; then ok "verify: stack stopped"; else err "verify: stack NOT fully stopped"; fi
+  return "$bad"
 }
 
 foreign_run_pids() { # warn about live daemons owned by other RUN_DIRs
