@@ -50,6 +50,15 @@ interface RawLoginResponse {
   challenge?: string;
   mfa_token?: string;
   pending_token?: string;
+  // Gateway flat shape (services/internal/api/authn.go sessionBundleJSON):
+  // identity + admin-role hint ride top-level keys, not a nested `user`
+  // object. Accepted here so the §8.2 role hint reaches the session.
+  roles?: string[];
+  role?: string;
+  user_id?: number | string;
+  email?: string;
+  account_id?: number;
+  kyc_tier?: string;
   user?: {
     id?: number | string;
     user_id?: number | string;
@@ -64,19 +73,29 @@ interface RawLoginResponse {
 function userFrom(res: RawLoginResponse, accessToken: string): SessionUser {
   const claims = decodeJwtClaims(accessToken);
   const u = res.user;
+  // Nested `user` object wins; gateway flat top-level keys are the
+  // fallback; JWT claims are last. Any one carrying a §8.2 name lets
+  // useAdminRole() gate admin surfaces (server still re-authorizes).
   const roles =
-    u?.roles ?? (u?.role !== undefined ? [u.role] : undefined) ?? tokenRoles(accessToken);
+    u?.roles ??
+    (u?.role !== undefined ? [u.role] : undefined) ??
+    res.roles ??
+    (res.role !== undefined ? [res.role] : undefined) ??
+    tokenRoles(accessToken);
+  const userId =
+    u?.id !== undefined
+      ? String(u.id)
+      : u?.user_id !== undefined
+        ? String(u.user_id)
+        : res.user_id !== undefined
+          ? String(res.user_id)
+          : (claims?.sub ?? null);
   return {
-    userId:
-      u?.id !== undefined
-        ? String(u.id)
-        : u?.user_id !== undefined
-          ? String(u.user_id)
-          : (claims?.sub ?? null),
-    email: u?.email ?? claims?.email ?? null,
-    accountId: u?.account_id ?? claims?.account_id ?? null,
+    userId,
+    email: u?.email ?? res.email ?? claims?.email ?? null,
+    accountId: u?.account_id ?? res.account_id ?? claims?.account_id ?? null,
     roles,
-    kycTier: u?.kyc_tier ?? claims?.kyc_tier ?? null,
+    kycTier: u?.kyc_tier ?? res.kyc_tier ?? claims?.kyc_tier ?? null,
   };
 }
 
