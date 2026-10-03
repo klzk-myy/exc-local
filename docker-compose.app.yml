@@ -147,28 +147,28 @@ services:
   # Engine fields come from the top-level x-engine-common anchor.
   matching-engine:
     <<: *engine-common
-    command: ["-shard", "0", "-ipc-base", "${SHM_BASE:-exchange_ipc}", "-wal-dir", "/var/lib/exchange/wal", "-redis", "${REDIS_ADDR:-127.0.0.1:16379}", "-symbol", "EUR/USD", "-instrument-id", "1", "-dev-all-accounts", "-idle-sleep-ns", "${EXC_ENGINE_IDLE_NS:-100000}"]
+    command: ["-shard", "0", "-ipc-base", "${SHM_BASE:-exchange_ipc}", "-wal-dir", "/var/lib/exchange/wal", "-redis", "${REDIS_ADDR:-127.0.0.1:16379}", "-symbol", "EUR/USD", "-instrument-id", "1", "-dev-all-accounts", "-idle-sleep-ns", "${EXC_ENGINE_IDLE_NS:-100000}", "-tick-interval-ns", "${EXC_ENGINE_TICK_NS:-50000000}"]
   matching-engine-1:
     <<: *engine-common
-    command: ["-shard", "1", "-ipc-base", "${SHM_BASE:-exchange_ipc}", "-wal-dir", "/var/lib/exchange/wal", "-redis", "${REDIS_ADDR:-127.0.0.1:16379}", "-symbol", "EUR/USD", "-instrument-id", "1", "-dev-all-accounts", "-idle-sleep-ns", "${EXC_ENGINE_IDLE_NS:-100000}"]
+    command: ["-shard", "1", "-ipc-base", "${SHM_BASE:-exchange_ipc}", "-wal-dir", "/var/lib/exchange/wal", "-redis", "${REDIS_ADDR:-127.0.0.1:16379}", "-symbol", "EUR/USD", "-instrument-id", "1", "-dev-all-accounts", "-idle-sleep-ns", "${EXC_ENGINE_IDLE_NS:-100000}", "-tick-interval-ns", "${EXC_ENGINE_TICK_NS:-50000000}"]
   matching-engine-2:
     <<: *engine-common
-    command: ["-shard", "2", "-ipc-base", "${SHM_BASE:-exchange_ipc}", "-wal-dir", "/var/lib/exchange/wal", "-redis", "${REDIS_ADDR:-127.0.0.1:16379}", "-symbol", "EUR/USD", "-instrument-id", "1", "-dev-all-accounts", "-idle-sleep-ns", "${EXC_ENGINE_IDLE_NS:-100000}"]
+    command: ["-shard", "2", "-ipc-base", "${SHM_BASE:-exchange_ipc}", "-wal-dir", "/var/lib/exchange/wal", "-redis", "${REDIS_ADDR:-127.0.0.1:16379}", "-symbol", "EUR/USD", "-instrument-id", "1", "-dev-all-accounts", "-idle-sleep-ns", "${EXC_ENGINE_IDLE_NS:-100000}", "-tick-interval-ns", "${EXC_ENGINE_TICK_NS:-50000000}"]
   matching-engine-3:
     <<: *engine-common
-    command: ["-shard", "3", "-ipc-base", "${SHM_BASE:-exchange_ipc}", "-wal-dir", "/var/lib/exchange/wal", "-redis", "${REDIS_ADDR:-127.0.0.1:16379}", "-symbol", "EUR/USD", "-instrument-id", "1", "-dev-all-accounts", "-idle-sleep-ns", "${EXC_ENGINE_IDLE_NS:-100000}"]
+    command: ["-shard", "3", "-ipc-base", "${SHM_BASE:-exchange_ipc}", "-wal-dir", "/var/lib/exchange/wal", "-redis", "${REDIS_ADDR:-127.0.0.1:16379}", "-symbol", "EUR/USD", "-instrument-id", "1", "-dev-all-accounts", "-idle-sleep-ns", "${EXC_ENGINE_IDLE_NS:-100000}", "-tick-interval-ns", "${EXC_ENGINE_TICK_NS:-50000000}"]
   matching-engine-4:
     <<: *engine-common
-    command: ["-shard", "4", "-ipc-base", "${SHM_BASE:-exchange_ipc}", "-wal-dir", "/var/lib/exchange/wal", "-redis", "${REDIS_ADDR:-127.0.0.1:16379}", "-symbol", "EUR/USD", "-instrument-id", "1", "-dev-all-accounts", "-idle-sleep-ns", "${EXC_ENGINE_IDLE_NS:-100000}"]
+    command: ["-shard", "4", "-ipc-base", "${SHM_BASE:-exchange_ipc}", "-wal-dir", "/var/lib/exchange/wal", "-redis", "${REDIS_ADDR:-127.0.0.1:16379}", "-symbol", "EUR/USD", "-instrument-id", "1", "-dev-all-accounts", "-idle-sleep-ns", "${EXC_ENGINE_IDLE_NS:-100000}", "-tick-interval-ns", "${EXC_ENGINE_TICK_NS:-50000000}"]
   matching-engine-5:
     <<: *engine-common
-    command: ["-shard", "5", "-ipc-base", "${SHM_BASE:-exchange_ipc}", "-wal-dir", "/var/lib/exchange/wal", "-redis", "${REDIS_ADDR:-127.0.0.1:16379}", "-symbol", "EUR/USD", "-instrument-id", "1", "-dev-all-accounts", "-idle-sleep-ns", "${EXC_ENGINE_IDLE_NS:-100000}"]
+    command: ["-shard", "5", "-ipc-base", "${SHM_BASE:-exchange_ipc}", "-wal-dir", "/var/lib/exchange/wal", "-redis", "${REDIS_ADDR:-127.0.0.1:16379}", "-symbol", "EUR/USD", "-instrument-id", "1", "-dev-all-accounts", "-idle-sleep-ns", "${EXC_ENGINE_IDLE_NS:-100000}", "-tick-interval-ns", "${EXC_ENGINE_TICK_NS:-50000000}"]
   matching-engine-6:
     <<: *engine-common
-    command: ["-shard", "6", "-ipc-base", "${SHM_BASE:-exchange_ipc}", "-wal-dir", "/var/lib/exchange/wal", "-redis", "${REDIS_ADDR:-127.0.0.1:16379}", "-symbol", "EUR/USD", "-instrument-id", "1", "-dev-all-accounts", "-idle-sleep-ns", "${EXC_ENGINE_IDLE_NS:-100000}"]
+    command: ["-shard", "6", "-ipc-base", "${SHM_BASE:-exchange_ipc}", "-wal-dir", "/var/lib/exchange/wal", "-redis", "${REDIS_ADDR:-127.0.0.1:16379}", "-symbol", "EUR/USD", "-instrument-id", "1", "-dev-all-accounts", "-idle-sleep-ns", "${EXC_ENGINE_IDLE_NS:-100000}", "-tick-interval-ns", "${EXC_ENGINE_TICK_NS:-50000000}"]
   matching-engine-7:
     <<: *engine-common
-    command: ["-shard", "7", "-ipc-base", "${SHM_BASE:-exchange_ipc}", "-wal-dir", "/var/lib/exchange/wal", "-redis", "${REDIS_ADDR:-127.0.0.1:16379}", "-symbol", "EUR/USD", "-instrument-id", "1", "-dev-all-accounts", "-idle-sleep-ns", "${EXC_ENGINE_IDLE_NS:-100000}"]
+    command: ["-shard", "7", "-ipc-base", "${SHM_BASE:-exchange_ipc}", "-wal-dir", "/var/lib/exchange/wal", "-redis", "${REDIS_ADDR:-127.0.0.1:16379}", "-symbol", "EUR/USD", "-instrument-id", "1", "-dev-all-accounts", "-idle-sleep-ns", "${EXC_ENGINE_IDLE_NS:-100000}", "-tick-interval-ns", "${EXC_ENGINE_TICK_NS:-50000000}"]
 
   # Cross-shard ctl relay (Phase-3 Task 4, spec §2.2a): Aeron IPC is
   # point-to-point per channel alias, so dst_shard ctl frames only reach
