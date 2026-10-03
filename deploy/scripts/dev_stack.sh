@@ -76,6 +76,17 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # ── configuration ────────────────────────────────────────────────────────────
+# dev.env is sourced FIRST so stack-identity vars it may pin
+# (EXC_DEV_RUN_DIR, EXC_SHM_BASE, EXC_AERON_DIR, EXC_WAL_DIR) actually
+# resolve below — previously load_env ran inside the actions, so dev.env
+# could never influence run-dir/shm selection and `stop` against the
+# shared defaults silently no-oped on a per-user stack.
+DEV_ENV="$REPO/deploy/dev.env"
+if [[ -f "$DEV_ENV" ]]; then
+  set -a; . "$DEV_ENV"; set +a
+elif [[ -f "$DEV_ENV.example" ]]; then
+  set -a; . "$DEV_ENV.example"; set +a
+fi
 RUN_DIR="${EXC_DEV_RUN_DIR:-/tmp/exc-dev-stack}"
 LOG_DIR="$RUN_DIR/logs"
 PID_DIR="$RUN_DIR/pids"
@@ -107,7 +118,6 @@ FRONTEND_DOCKER_IMAGE="${EXC_FRONTEND_IMAGE:-exc-frontend:local}"
 BIN_DIR="$REPO/services/bin"
 ENGINE_BIN="$REPO/core/build/matching_engine"
 AERON_BIN="$REPO/core/third_party/aeron/bin/aeronmd"
-DEV_ENV="$REPO/deploy/dev.env"
 
 STOP_GRACE=10          # seconds to wait for a daemon to exit on SIGTERM
 START_GRACE=3          # seconds to wait before declaring a daemon "up"
