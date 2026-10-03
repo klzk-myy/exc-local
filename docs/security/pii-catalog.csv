@@ -196,3 +196,5 @@ venue_conflicts,subject,VARCHAR(256),FREE_TEXT,plaintext — conflict declaratio
 settlement_exceptions,resolution_notes,TEXT,FREE_TEXT,plaintext,exception investigation annotation,financial record floor
 pb_recon_breaks,resolution_note,TEXT,FREE_TEXT,plaintext,give-up break investigation annotation,financial record floor
 nostro_recon_breaks,resolution_notes,TEXT,FREE_TEXT,plaintext,break investigation annotation,financial record floor
+ict_providers,notes,TEXT,FREE_TEXT,plaintext — register note may name vendor contacts,DORA ICT third-party register,regulatory record floor
+ict_provider_reviews,notes,TEXT,FREE_TEXT,plaintext — review annotation may name reviewers/contacts,DORA ICT provider review record,regulatory record floor
