@@ -174,30 +174,37 @@ func TestParentFlagWins(t *testing.T) {
 
 func TestTailSampling(t *testing.T) {
 	exp := &memExporter{}
-	// RatioHead 0 → nothing head-samples; only tail wins.
+	t0 := time.Now()
+	// Options merge treats zero fields as unset, so RatioHead:0 cannot
+	// express "never head-sample" — the 1% default would flake. Pin an
+	// unsampled parent instead: the parent flag wins over the ratio, so
+	// only tail rules can promote these spans. The fixed clock keeps
+	// durations at 0 regardless of runner load.
+	unsampledCtx := func() context.Context {
+		return ContextWithSpanContext(context.Background(), SpanContext{
+			TraceID: NewTraceID(), SpanID: NewSpanID(), Sampled: false})
+	}
 	tr := NewTracer("svc", exp, &Options{
-		RatioHead:     0.0,
 		SlowThreshold: 10 * time.Millisecond,
-		Clock:         time.Now,
+		Clock:         func() time.Time { return t0 },
 	})
 	// Unsampled fast span → dropped.
-	_, s := tr.Start(context.Background(), "fast", KindInternal)
+	_, s := tr.Start(unsampledCtx(), "fast", KindInternal)
 	s.Finish()
 	if n := len(exp.all()); n != 0 {
 		t.Fatalf("fast unsampled span must not export, got %d", n)
 	}
 	// Error span → tail-sampled.
-	_, s = tr.Start(context.Background(), "boom", KindInternal)
+	_, s = tr.Start(unsampledCtx(), "boom", KindInternal)
 	s.RecordError(errors.New("matching rejected"))
 	s.Finish()
 	if n := len(exp.all()); n != 1 || exp.all()[0].Status != StatusError {
 		t.Fatalf("errored span must tail-sample: %+v", exp.all())
 	}
-	// Slow span → tail-sampled (fixed clock).
-	t0 := time.Now()
+	// Slow span → tail-sampled (clock advances past the threshold).
 	var now time.Time
 	tr2 := NewTracer("svc", exp, &Options{
-		RatioHead: 0.0, SlowThreshold: 5 * time.Millisecond,
+		SlowThreshold: 5 * time.Millisecond,
 		Clock: func() time.Time {
 			if now.IsZero() {
 				return t0
@@ -205,7 +212,7 @@ func TestTailSampling(t *testing.T) {
 			return now
 		},
 	})
-	_, s = tr2.Start(context.Background(), "slow", KindInternal)
+	_, s = tr2.Start(unsampledCtx(), "slow", KindInternal)
 	now = t0.Add(20 * time.Millisecond) // finish reads now() again
 	s.Finish()
 	if n := len(exp.all()); n != 2 {
