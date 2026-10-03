@@ -159,6 +159,10 @@ func (p *AccountStateProjector) build(ctx context.Context) (map[string]any, erro
 	}
 
 	// Accounts — status/kyc/category/stp + open-position count folded in.
+	// OPEN_POS counts non-zero NET positions per instrument (the same
+	// aggregation the p: fields use): a LONG/SHORT pair on one instrument
+	// nets to a single open position — raw row count would overstate the
+	// engine's max_open_positions gate.
 	rows, err = p.Pool.Query(ctx, `
 		SELECT a.id, a.status::text, a.kyc_tier::text,
 		       a.client_category::text, a.default_stp_mode,
@@ -166,7 +170,14 @@ func (p *AccountStateProjector) build(ctx context.Context) (map[string]any, erro
 		FROM accounts a
 		LEFT JOIN (
 		    SELECT account_id, count(*) AS n
-		    FROM positions WHERE quantity > 0 GROUP BY account_id
+		    FROM (
+		        SELECT account_id, instrument_id
+		        FROM positions WHERE quantity > 0
+		        GROUP BY account_id, instrument_id
+		        HAVING sum(CASE WHEN side = 'LONG'
+		                        THEN quantity ELSE -quantity END) <> 0
+		    ) net
+		    GROUP BY account_id
 		) pc ON pc.account_id = a.id`)
 	if err != nil {
 		return nil, fmt.Errorf("account_state: accounts: %w", err)
