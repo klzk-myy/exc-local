@@ -296,6 +296,47 @@ void blob_put(std::vector<uint8_t>& b, const T& v) {
 
 }  // namespace
 
+void SnapshotStore::order_from_rows(const WalSnapshotOrder& ord,
+                                    const WalSnapshotOrderExt& ext,
+                                    Order& out) noexcept {
+    out = Order{};
+    out.id = ord.order_id;
+    out.account_id = ord.account_id;
+    out.side = static_cast<Side>(ext.side);
+    out.type = static_cast<OrderType>(ext.type);
+    out.tif = static_cast<TimeInForce>(ord.tif);
+    out.stp_mode = static_cast<StpMode>(ord.stp_mode);
+    out.flags = ext.flags;
+    out.price_ticks = ext.price_ticks;
+    out.qty_units = ext.qty_units;
+    out.filled_qty_units = ext.filled_qty_units;
+    out.display_qty_units = ord.visible_qty_units;
+    out.quantity = Decimal::from_mantissa(ext.qty_units);  // compat mirror
+    out.timestamp_ns = ext.timestamp_ns;
+    out.ingress_seq = ext.ingress_seq;
+}
+
+void SnapshotStore::rows_from_order(const Order& o, WalSnapshotOrder& ord,
+                                    WalSnapshotOrderExt& ext) noexcept {
+    ord = WalSnapshotOrder{};
+    ord.order_id = o.id;
+    ord.account_id = o.account_id;
+    ord.qty_units = remaining_qty_units(o);  // pinned = remaining
+    ord.visible_qty_units = o.display_qty_units;
+    ord.stp_mode = static_cast<uint32_t>(o.stp_mode);
+    ord.tif = static_cast<uint8_t>(o.tif);
+    ext = WalSnapshotOrderExt{};
+    ext.order_id = o.id;
+    ext.qty_units = o.qty_units;             // ext = original total
+    ext.filled_qty_units = o.filled_qty_units;
+    ext.price_ticks = o.price_ticks;
+    ext.timestamp_ns = o.timestamp_ns;
+    ext.ingress_seq = o.ingress_seq;
+    ext.type = static_cast<uint8_t>(o.type);
+    ext.side = static_cast<uint8_t>(o.side);
+    ext.flags = o.flags;
+}
+
 bool SnapshotStore::serialize_book(const OrderBook& book,
                                    uint32_t instrument_id, uint64_t wal_seq,
                                    std::vector<uint8_t>& out,
@@ -373,14 +414,10 @@ bool SnapshotStore::serialize_book(const OrderBook& book,
             for (uint32_t i = 0; i < n; ++i) {
                 const PriceLevel* lvl = book.level(side, i);
                 for (const Order* o = lvl->head; o != nullptr; o = o->next) {
-                    WalSnapshotOrder wo{};
-                    wo.order_id = o->id;
-                    wo.account_id = o->account_id;
-                    wo.qty_units = remaining_qty_units(*o);   // pinned = remaining
-                    wo.visible_qty_units = o->display_qty_units;
-                    wo.stop_price_ticks = 0;  // stop state lives off-book (engine)
-                    wo.stp_mode = static_cast<uint32_t>(o->stp_mode);
-                    wo.tif = static_cast<uint8_t>(o->tif);
+                    WalSnapshotOrder wo;
+                    WalSnapshotOrderExt xe;  // unused here — shared mapper
+                    rows_from_order(*o, wo, xe);
+                    wo.stop_price_ticks = 0;  // stop state lives off-book
                     blob_put(out, wo);
                 }
             }
@@ -400,17 +437,10 @@ bool SnapshotStore::serialize_book(const OrderBook& book,
             for (uint32_t i = 0; i < n; ++i, ++level_index) {
                 const PriceLevel* lvl = book.level(side, i);
                 for (const Order* o = lvl->head; o != nullptr; o = o->next) {
-                    WalSnapshotOrderExt xe{};
-                    xe.order_id = o->id;
-                    xe.qty_units = o->qty_units;               // original total
-                    xe.filled_qty_units = o->filled_qty_units;
-                    xe.price_ticks = o->price_ticks;
-                    xe.timestamp_ns = o->timestamp_ns;
-                    xe.ingress_seq = o->ingress_seq;
+                    WalSnapshotOrder wo;   // unused here — shared mapper
+                    WalSnapshotOrderExt xe;
+                    rows_from_order(*o, wo, xe);
                     xe.level_index = level_index;
-                    xe.type = static_cast<uint8_t>(o->type);
-                    xe.side = static_cast<uint8_t>(o->side);
-                    xe.flags = o->flags;
                     blob_put(out, xe);
                 }
             }
@@ -433,25 +463,10 @@ bool SnapshotStore::serialize_book(const OrderBook& book,
             for (const auto& m : aux->metas) blob_put(out, m);
             for (const auto& p : aux->pendings) {
                 if (p.order == nullptr) return false;
-                const Order* o = p.order;
                 WalSnapshotPendingOrder w{};
-                w.ord.order_id = o->id;
-                w.ord.account_id = o->account_id;
-                w.ord.qty_units = o->qty_units - o->filled_qty_units;
-                w.ord.visible_qty_units = o->display_qty_units;
-                w.ord.stop_price_ticks = p.stop_price_ticks;
-                w.ord.stp_mode = static_cast<uint32_t>(o->stp_mode);
-                w.ord.tif = static_cast<uint8_t>(o->tif);
-                w.ext.order_id = o->id;
-                w.ext.qty_units = o->qty_units;
-                w.ext.filled_qty_units = o->filled_qty_units;
-                w.ext.price_ticks = o->price_ticks;
-                w.ext.timestamp_ns = o->timestamp_ns;
-                w.ext.ingress_seq = o->ingress_seq;
+                rows_from_order(*p.order, w.ord, w.ext);
+                w.ord.stop_price_ticks = p.stop_price_ticks;  // armed trigger
                 w.ext.level_index = kSnapLevelOffBook;
-                w.ext.type = static_cast<uint8_t>(o->type);
-                w.ext.side = static_cast<uint8_t>(o->side);
-                w.ext.flags = o->flags;
                 w.anchor_ticks = p.anchor_ticks;
                 w.activation_price_ticks = p.activation_price_ticks;
                 w.trail_distance = p.trail_distance;
@@ -641,20 +656,7 @@ bool SnapshotStore::parse_book(const uint8_t* blob, uint64_t len,
                 return false;
             }
             Order& t = out.orders[static_cast<std::size_t>(i)].tmpl;
-            t = Order{};
-            t.id = w.order_id;
-            t.account_id = w.account_id;
-            t.side = static_cast<Side>(xe.side);
-            t.type = static_cast<OrderType>(xe.type);
-            t.tif = static_cast<TimeInForce>(w.tif);
-            t.stp_mode = static_cast<StpMode>(w.stp_mode);
-            t.flags = xe.flags;
-            t.price_ticks = xe.price_ticks;
-            t.qty_units = xe.qty_units;
-            t.filled_qty_units = xe.filled_qty_units;
-            t.display_qty_units = w.visible_qty_units;
-            t.timestamp_ns = xe.timestamp_ns;
-            t.ingress_seq = xe.ingress_seq;
+            order_from_rows(w, xe, t);
             out.orders[static_cast<std::size_t>(i)].remaining = w.qty_units;
             out.orders[static_cast<std::size_t>(i)].level_index = xe.level_index;
         }

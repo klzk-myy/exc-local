@@ -450,6 +450,20 @@ public:
     [[nodiscard]] static bool parse_book(const uint8_t* blob, uint64_t len,
                                          ParsedSnapshot& out) noexcept;
 
+    // Canonical pinned+ext row ↔ Order mapping — one definition shared by
+    // book-restore (parse_book tmpl) and aux pending-restore
+    // (RecoveryManager), so the two rebuild paths can never drift. The
+    // caller stamps ext.level_index (book index or kSnapLevelOffBook) and
+    // reads ord.stop_price_ticks for the armed trigger.
+    static void order_from_rows(const WalSnapshotOrder& ord,
+                                const WalSnapshotOrderExt& ext,
+                                Order& out) noexcept;
+    // Order → pinned+ext row pair for serialization; the caller stamps
+    // ord.stop_price_ticks (armed trigger, 0 for book rows) and
+    // ext.level_index afterwards.
+    static void rows_from_order(const Order& o, WalSnapshotOrder& ord,
+                                WalSnapshotOrderExt& ext) noexcept;
+
     [[nodiscard]] uint64_t snapshots_taken() const noexcept { return taken_; }
     [[nodiscard]] uint64_t last_snapshot_seq() const noexcept { return last_seq_; }
     [[nodiscard]] uint64_t last_snapshot_ns() const noexcept { return last_ns_; }

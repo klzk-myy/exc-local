@@ -851,21 +851,9 @@ RecoveryResult RecoveryManager::recover(
                         last_outcome_ = res.outcome();
                         return res;
                     }
-                    *o = Order{};
-                    o->id = w.ord.order_id;
-                    o->account_id = w.ord.account_id;
-                    o->side = static_cast<Side>(w.ext.side);
-                    o->type = static_cast<OrderType>(w.ext.type);
-                    o->tif = static_cast<TimeInForce>(w.ord.tif);
-                    o->stp_mode = static_cast<StpMode>(w.ord.stp_mode);
-                    o->flags = w.ext.flags;
-                    o->price_ticks = w.ext.price_ticks;
-                    o->qty_units = w.ext.qty_units;
-                    o->filled_qty_units = w.ext.filled_qty_units;
-                    o->display_qty_units = w.ord.visible_qty_units;
-                    o->quantity = Decimal::from_mantissa(w.ext.qty_units);
-                    o->timestamp_ns = w.ext.timestamp_ns;
-                    o->ingress_seq = w.ext.ingress_seq;
+                    // Shared row→Order mapping (SnapshotStore owns the wire
+                    // contract) — identical to the book-restore tmpl fill.
+                    SnapshotStore::order_from_rows(w.ord, w.ext, *o);
                     SnapshotAuxPending s{};
                     s.order = o;
                     s.stop_price_ticks = w.ord.stop_price_ticks;
