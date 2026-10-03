@@ -295,9 +295,12 @@ infra_start() {
 
 infra_stop() {
   hdr "Stage 0 — stop infrastructure"
-  vlog "docker compose down"
-  $COMPOSE down
-  ok "infra stopped (volumes preserved)"
+  # stop, not down: containers stay created so state + topology survive a
+  # stop/start cycle; `down` deletes them (volumes are preserved either
+  # way). To remove containers + network entirely use compose directly.
+  vlog "docker compose stop"
+  $COMPOSE stop
+  ok "infra stopped (containers + volumes preserved)"
 }
 
 infra_status() {
@@ -340,6 +343,14 @@ free_port() { # port name
   for pid in $(port_holder_pid "$port"); do
     [[ "$pid" == "$$" ]] && continue
     local cmd; cmd="$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | cut -c1-90)"
+    # The holder lives inside a container (host-net service): SIGKILL only
+    # triggers a compose restart, not a free port — direct the operator to
+    # `compose stop` instead of starting a kill/resurrect loop.
+    if grep -qaE 'docker|kubepods' "/proc/$pid/cgroup" 2>/dev/null; then
+      warn "port $port busy (needed by $name) — held by containerized pid $pid: $cmd"
+      warn "  stop the compose service instead of killing it"
+      continue
+    fi
     if [[ "$FREE_PORTS" == "1" ]]; then
       warn "freeing :$port — killing pid $pid ($cmd)"
       kill -TERM "$pid" 2>/dev/null; sleep 1; kill -KILL "$pid" 2>/dev/null
@@ -375,6 +386,9 @@ foreign_engine_check() {
     # mentions the word (a false positive otherwise).
     argv0="$(tr '\0' '\n' < "/proc/$pid/cmdline" 2>/dev/null | head -1)"
     [[ "$argv0" == *matching_engine ]] || continue
+    # A containerized engine (docker mode) shows the same argv0 — its cgroup
+    # carries docker/kubepods, so only HOST-mode processes can be foreign.
+    grep -qaE 'docker|kubepods' "/proc/$pid/cgroup" 2>/dev/null && continue
     warn "foreign matching_engine pid $pid (not managed here): $argv0"
     warn "  a stray engine on the same shard causes 504 GATEWAY_TIMEOUT_MATCHING_ENGINE"
     warn "  kill it:  kill $pid   (or: pkill -f matching_engine, then re-run)"
@@ -398,13 +412,13 @@ docker_svc() { echo "${1//_/-}"; }
 
 docker_start_one() { # name — compose-supervised, no PID file
   ensure_docker_cli
+  local n="$1" svc; svc="$(docker_svc "$n")"
   # dev.env must be sourced (load_env does): without EXC_JWT_HS256_KEY_B64
   # the gateway boots keyless and every login fails AUTH_INTERNAL
   # "no active signing key configured" (seen 2026-10-02 after a raw
   # `docker compose up` bypassed dev_stack). Never start app services with
   # bare compose — always go through `dev_stack.sh start app`.
   [[ -n "${EXC_JWT_HS256_KEY_B64:-}" ]] || warn "$n: EXC_JWT_HS256_KEY_B64 empty — gateway logins will fail AUTH_INTERNAL (is deploy/dev.env sourced?)"
-  local n="$1" svc; svc="$(docker_svc "$n")"
   [[ -f "$APP_COMPOSE_FILE" ]] || { err "$n: docker mode needs $APP_COMPOSE_FILE (see deploy/docker/)"; return 1; }
   vlog "$n ← $APP_COMPOSE up -d $svc"
   # AERON_DIR pinned to the canonical driver dir in docker mode: the host
@@ -460,7 +474,16 @@ stop_one() { # name
   pf="$(pidfile "$n")"
   if ! pid_alive "$n"; then
     [[ -f "$pf" ]] && rm -f "$pf"
-    vlog "$n not running"; return 0
+    # Mode mismatch guard: a compose container can be running even when
+    # this invocation resolves host mode (started earlier under
+    # EXC_APP_MODE=docker). Stop it too rather than report a lie.
+    if docker ps --filter "name=exc-dev-$(docker_svc "$n")-" \
+        --filter status=running -q 2>/dev/null | grep -q .; then
+      docker_stop_one "$n"
+    else
+      vlog "$n not running"
+    fi
+    return 0
   fi
   pid="$(pid_of "$n")"
   vlog "$n (pid $pid) ← SIGTERM"
@@ -510,7 +533,15 @@ app_status() {
     port="$(echo "$row" | cut -d'|' -f4)"
     mode="$(daemon_run_mode "$n")"
     if [[ "$mode" == "docker" ]]; then
-      state="${C_B}docker${C_0}"; pid="$(docker_svc "$n")"
+      # Report the container's real state, not just the configured mode.
+      local cst; cst="$(docker ps -a --filter "name=exc-dev-$(docker_svc "$n")-" \
+        --format '{{.Status}}' 2>/dev/null | head -1)"
+      case "$cst" in
+        Up*)        state="${C_G}running${C_0}" ;;
+        "")         state="${C_D}absent${C_0}" ;;
+        *)          state="${C_D}${cst%% *}${C_0}" ;;
+      esac
+      pid="$(docker_svc "$n")"
     elif pid_alive "$n"; then state="${C_G}running${C_0}"; pid="$(pid_of "$n")"; else state="${C_D}stopped${C_0}"; pid="-"; fi
     printf "  %-22s %-6s %-7s %-7s %-18b %s\n" "$n" "$stage" "$port" "$mode" "$state" "$pid"
   done
@@ -605,7 +636,12 @@ EOF
   done
 }
 
-usage() { sed -n '2,64p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() {
+  # Print the header comment block: line 2 through the closing banner,
+  # located dynamically so the range can't silently truncate doc lines.
+  local end; end="$(awk 'NR>2 && /^# =/{print NR; exit}' "$0")"
+  sed -n "2,${end:-71}p" "$0" | sed 's/^# \{0,1\}//'
+}
 
 # ── entrypoint ───────────────────────────────────────────────────────────────
 cmd="${1:-}"
