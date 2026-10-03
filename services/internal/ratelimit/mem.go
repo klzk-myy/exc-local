@@ -117,8 +117,9 @@ func (m *MemBackend) Hit(_ context.Context, in HitInput) (HitResult, error) {
 	spec := SpecOf(in.Tier)
 	capacity := float64(in.Rate * spec.BurstFactor)
 
-	// 1-3: ban machinery (allowlisted IPs bypass it entirely).
-	if !m.allowlist[in.IP] {
+	// 1-3: ban machinery (allowlisted and private/LAN IPs bypass it).
+	isPrivate := isPrivateIP(in.IP)
+	if !m.allowlist[in.IP] && !isPrivate {
 		if b, ok := m.bans[in.IP]; ok && b.exp > now {
 			return HitResult{
 				Status:     HitBanned,
@@ -216,8 +217,8 @@ func (m *MemBackend) Hit(_ context.Context, in HitInput) (HitResult, error) {
 		u[fmt.Sprintf("ord:d:%d", dayWin)]++
 	}
 
-	// 8: arm the post-429 marker on deny (non-allowlisted).
-	if status != HitOK && !m.allowlist[in.IP] {
+	// 8: arm the post-429 marker on deny (non-allowlisted, non-private).
+	if status != HitOK && !m.allowlist[in.IP] && !isPrivate {
 		m.markers[in.IP] = now + offenseWindow.Milliseconds()
 	}
 
