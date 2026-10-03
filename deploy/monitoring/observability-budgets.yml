@@ -56,6 +56,7 @@ prefixes:
   - tracing_            # trace exporter self-stats
   - deprecation_        # API deprecation sunsets (Task 9.3.6)
   - orders_             # order-path counters
+  - settlement_         # settlement leg health (fill consumer, queue depth)
 exact_names:
   - clock_offset_nanoseconds   # spec §24 #127 PTP gauge (no prefix)
   - daemon_up                  # kept for clarity; also covered by daemon_
