@@ -41,3 +41,42 @@
   background-color: #ffffff;
   color: #1c1917;
 }
+/* Accent family — the dark palette's *-400 signal colors fail AA on
+ * white; remap to the *-700 counterparts (≥4.5:1 on #ffffff). */
+.ws-root[data-theme='light'] .text-emerald-400 {
+  color: #047857;
+}
+.ws-root[data-theme='light'] .text-red-400 {
+  color: #b91c1c;
+}
+.ws-root[data-theme='light'] .text-amber-400,
+.ws-root[data-theme='light'] .text-amber-500 {
+  color: #b45309;
+}
+.ws-root[data-theme='light'] .text-sky-400 {
+  color: #0369a1;
+}
+.ws-root[data-theme='light'] .border-sky-400,
+.ws-root[data-theme='light'] .border-sky-500 {
+  border-color: #0369a1;
+}
+/* accent fills carry white text — deepen one step to hold AA */
+.ws-root[data-theme='light'] .bg-emerald-600 {
+  background-color: #047857;
+}
+.ws-root[data-theme='light'] .bg-red-600 {
+  background-color: #b91c1c;
+}
+.ws-root[data-theme='light'] .bg-sky-600 {
+  background-color: #0369a1;
+}
+.ws-root[data-theme='light'] .bg-amber-500\/15 {
+  background-color: rgb(180 83 9 / 0.12);
+}
+.ws-root[data-theme='light'] .ring-sky-500 {
+  --tw-ring-color: #0284c7;
+}
+.ws-root[data-theme='light'] .bg-neutral-700,
+.ws-root[data-theme='light'] .bg-neutral-700\/60 {
+  background-color: rgb(214 211 209 / 0.8);
+}

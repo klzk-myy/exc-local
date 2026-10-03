@@ -50,7 +50,7 @@ export function ChartPanel({ symbol }: { symbol: string }) {
             type="button"
             aria-pressed={interval === i}
             onClick={() => pick(i)}
-            className={`rounded px-2 py-0.5 font-mono text-xs ${
+            className={`rounded px-2.5 py-1.5 font-mono text-xs ${
               interval === i
                 ? 'bg-sky-600 text-white'
                 : 'text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200'

@@ -171,14 +171,19 @@ export function AdvancedOrderPanel({
 
   // Default instrument: first ACTIVE listing, once — the placeholder-only
   // value read as "rejected input" next to validation chrome. Never
-  // overwrite a field the user has already edited (touched).
+  // overwrite a field the user has already edited (touched). The pick is
+  // also written into the shared draft so the cockpit's symbol context
+  // (ticker strip, book, chart, tape) agrees with the ticket — an empty
+  // draft must not leave the form trading a different pair than every
+  // panel is charting.
   useEffect(() => {
     if (form.symbol !== '' || touched['symbol'] === true) return;
     const first = (instruments.data ?? []).find((i) => i.status === 'ACTIVE');
     if (first !== undefined) {
       setForm((f) => (f.symbol === '' ? { ...f, symbol: first.symbol } : f));
+      setDraft({ symbol: first.symbol });
     }
-  }, [instruments.data, form.symbol, touched]);
+  }, [instruments.data, form.symbol, touched, setDraft]);
 
   const built = buildOrderPayload(form);
   const fieldErrors = built.errors;

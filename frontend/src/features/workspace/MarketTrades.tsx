@@ -9,7 +9,7 @@
  * Rows are newest-first, capped at 50; BUY/SELL colors carry text labels
  * too (color is never the only aggressor signal).
  */
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { wsClient } from '@/app/runtime';
 import { formatPrice, metaFor, useInstruments } from '@/lib/input-helpers';
@@ -19,18 +19,17 @@ import { tableCls, tdCls, thCls } from '@/lib/ui';
 import { useChannel, type WsClient } from '@/lib/ws';
 
 const TAPE_LIMIT = 50;
+/** Coalesce bursts — a hot market can print many frames per second; one
+ * re-render per 100ms window keeps the tape live without churn. */
+const FLUSH_MS = 100;
 
-export function MarketTrades({
-  symbol,
-  client = wsClient,
-}: {
-  symbol: string;
-  client?: WsClient;
-}) {
+export function MarketTrades({ symbol, client = wsClient }: { symbol: string; client?: WsClient }) {
   const { instruments } = useInstruments();
   const meta = metaFor(instruments, symbol);
   const [rows, setRows] = useState<TradeEvent[]>([]);
   const seq = useRef(0);
+  const pending = useRef<TradeEvent[]>([]);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Re-key on symbol — stale fills for the previous pair must never
   // render under the new label.
@@ -38,13 +37,27 @@ export function MarketTrades({
   if (rowsFor !== symbol) {
     setRowsFor(symbol);
     setRows([]);
+    pending.current = [];
   }
+  useEffect(
+    () => () => {
+      if (timer.current !== null) clearTimeout(timer.current);
+    },
+    [],
+  );
 
   useChannel(client, tradesChannel(symbol), (frame) => {
     const t = parseTradeEvent(frame.data);
     if (!t) return;
     seq.current += 1;
-    setRows((prev) => [{ ...t, tradeId: t.tradeId || seq.current }, ...prev].slice(0, TAPE_LIMIT));
+    pending.current.unshift({ ...t, tradeId: t.tradeId || seq.current });
+    timer.current ??= setTimeout(() => {
+      timer.current = null;
+      const batch = pending.current;
+      pending.current = [];
+      if (batch.length === 0) return;
+      setRows((prev) => [...batch, ...prev].slice(0, TAPE_LIMIT));
+    }, FLUSH_MS);
   });
 
   return (
@@ -66,9 +79,7 @@ export function MarketTrades({
                 <td className={`${tdCls} font-mono text-neutral-400`}>
                   {t.tsMs > 0 ? new Date(t.tsMs).toLocaleTimeString() : '—'}
                 </td>
-                <td
-                  className={`${tdCls} font-mono ${buy ? 'text-emerald-400' : 'text-red-400'}`}
-                >
+                <td className={`${tdCls} font-mono ${buy ? 'text-emerald-400' : 'text-red-400'}`}>
                   {t.side}
                 </td>
                 <td className={`${tdCls} font-mono`}>{formatPrice(meta, t.price)}</td>

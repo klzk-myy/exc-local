@@ -80,7 +80,7 @@ export function TickerStrip({
           type="button"
           aria-label={watched ? `Remove ${symbol} from watchlist` : `Add ${symbol} to watchlist`}
           aria-pressed={watched}
-          className={`text-sm leading-none ${watched ? 'text-amber-400' : 'text-neutral-600 hover:text-neutral-300'}`}
+          className={`p-1 text-sm leading-none ${watched ? 'text-amber-400' : 'text-neutral-600 hover:text-neutral-300'}`}
           onClick={() => toggleWatch(accountId, symbol)}
         >
           ★

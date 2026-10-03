@@ -195,10 +195,11 @@ function PanelFrame({
         role="toolbar"
         tabIndex={0}
         aria-label={`${title} panel controls — arrow keys move, shift+arrows resize, position ${shown.x},${shown.y} size ${shown.w}×${shown.h}`}
-        className="flex cursor-move items-center justify-between border-b border-neutral-800 bg-neutral-950 px-3 py-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sky-500"
+        className="flex cursor-move touch-none items-center justify-between border-b border-neutral-800 bg-neutral-950 px-3 py-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sky-500"
         onPointerDown={startDrag('move')}
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
+        onPointerCancel={endDrag}
         onKeyDown={onKeyDown}
       >
         <span className="select-none text-xs font-semibold uppercase tracking-wide text-neutral-400">
@@ -217,7 +218,7 @@ function PanelFrame({
           aria-label={`Hide ${title} panel`}
           onPointerDown={(e) => e.stopPropagation()}
           onClick={() => onHide(id, safetyCritical)}
-          className="rounded px-1.5 text-xs text-neutral-500 hover:bg-neutral-800 hover:text-neutral-200 focus-visible:ring-2 focus-visible:ring-sky-500"
+          className="rounded px-2 py-1 text-xs text-neutral-500 hover:bg-neutral-800 hover:text-neutral-200 focus-visible:ring-2 focus-visible:ring-sky-500"
         >
           hide
         </button>
@@ -230,10 +231,11 @@ function PanelFrame({
       <button
         type="button"
         aria-label={`Resize ${title} panel — drag or use shift+arrows on the header`}
-        className="absolute bottom-0 right-0 h-4 w-4 cursor-nwse-resize rounded-tl bg-neutral-700/60 focus-visible:ring-2 focus-visible:ring-sky-500"
+        className="absolute bottom-0 right-0 h-6 w-6 cursor-nwse-resize touch-none rounded-tl bg-neutral-700/60 focus-visible:ring-2 focus-visible:ring-sky-500"
         onPointerDown={startDrag('resize')}
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
+        onPointerCancel={endDrag}
       />
     </section>
   );
@@ -416,6 +418,12 @@ export default function WorkspacePage() {
       <div className="border-b border-neutral-800 px-4 py-1.5">
         <TickerStrip symbol={symbol} />
       </div>
+
+      {/* The Pro grid needs ≥640px — tell narrow viewports instead of
+          silently scrolling; Lite mode is the small-screen surface. */}
+      <p className="border-b border-neutral-800 px-4 py-1 text-xs text-amber-500 sm:hidden">
+        Workspace grid is wider than this screen — scroll sideways or switch to Lite mode.
+      </p>
 
       <div
         ref={containerRef}

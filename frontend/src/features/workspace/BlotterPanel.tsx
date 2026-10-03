@@ -93,23 +93,41 @@ export function BlotterPanel() {
   return (
     <div className="space-y-2">
       <div role="tablist" aria-label="Blotter" className="flex gap-1 border-b border-neutral-800">
-        {TABS.map((t) => (
+        {TABS.map((t, i) => (
           <button
             key={t.id}
             role="tab"
+            id={`blotter-tab-${t.id}`}
             aria-selected={tab === t.id}
-            className={`px-3 py-1.5 text-xs ${
+            aria-controls={`blotter-panel-${t.id}`}
+            tabIndex={tab === t.id ? 0 : -1}
+            className={`px-3 py-2 text-xs ${
               tab === t.id
                 ? 'border-b-2 border-sky-500 text-neutral-100'
                 : 'text-neutral-400 hover:text-neutral-200'
             }`}
             onClick={() => setTab(t.id)}
+            onKeyDown={(e) => {
+              // APG tabs pattern: arrows move focus+selection within the list
+              const dir = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+              if (dir === 0) return;
+              e.preventDefault();
+              const next = TABS[(i + dir + TABS.length) % TABS.length];
+              if (next === undefined) return;
+              setTab(next.id);
+              document.getElementById(`blotter-tab-${next.id}`)?.focus();
+            }}
           >
             {t.label}
           </button>
         ))}
       </div>
-      <div className="overflow-x-auto">
+      <div
+        className="overflow-x-auto"
+        role="tabpanel"
+        id={`blotter-panel-${tab}`}
+        aria-labelledby={`blotter-tab-${tab}`}
+      >
         {tab === 'positions' ? <PositionsPanel /> : null}
         {tab === 'open' ? (
           <>
