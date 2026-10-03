@@ -7,6 +7,9 @@ name: exc-dev
 x-redis-common: &redis-common
   image: redis:7.2-alpine
   command: ["redis-server", "/etc/redis/redis.conf"]
+  # Shutdown save + final AOF fsync must finish before docker escalates
+  # to SIGKILL; the 10s default is too tight under a populated dev set.
+  stop_grace_period: 20s
   volumes:
     - ./deploy/redis/redis.conf:/etc/redis/redis.conf:ro
   sysctls:
@@ -15,6 +18,8 @@ x-redis-common: &redis-common
 x-nats-common: &nats-common
   image: nats:2.11-alpine
   command: ["-c", "/etc/nats/nats.conf"]
+  # JetStream flushes pending acks/stream state on SIGTERM.
+  stop_grace_period: 15s
 
 services:
   postgres:
@@ -29,6 +34,9 @@ services:
       - "5433:5432"   # host 5432 is taken by a host-local postgres
     volumes:
       - pgdata:/var/lib/postgresql/data
+    # SIGTERM = smart shutdown: drain sessions, checkpoint, fsync. The
+    # 10s docker default can SIGKILL mid-checkpoint under load.
+    stop_grace_period: 30s
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U exchange -d exchange"]
       interval: 5s
@@ -147,6 +155,8 @@ services:
     ports:
       - "8123:8123"   # HTTP
       - "9000:9000"   # native
+    # In-flight merges and part commits must complete before SIGKILL.
+    stop_grace_period: 30s
     volumes:
       - clickhouse-data:/var/lib/clickhouse
       # Schema files are idempotent (IF NOT EXISTS) — the entrypoint applies
@@ -204,6 +214,8 @@ services:
     # the Trivy image gate (el9 OS pkgs + bundled jars); launcher gobinary
     # stdlib CVEs stay path-scoped in .trivyignore.yaml.
     image: trinodb/trino:483
+    # Hive file-metastore on the trino-metastore volume must close cleanly.
+    stop_grace_period: 15s
     ports:
       - "18443:8080"
     volumes:
