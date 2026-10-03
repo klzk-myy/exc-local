@@ -20,7 +20,7 @@
  *     label: string;            // en-US label (no i18n, spec §27 R5)
  *     to: string;               // absolute path matching a feature route
  *     icon?: string;            // icon token resolved by the shell
- *     section: string;          // nav grouping (e.g. 'Trade', 'Account')
+ *     section: string;          // nav grouping — sections render in SECTION_ORDER
  *     order?: number;           // sort key within the section
  *   }
  *
@@ -73,6 +73,17 @@ export function collectFeatureRoutes(): { feature: string; route: FeatureRoute }
   return out.sort((a, b) => a.feature.localeCompare(b.feature));
 }
 
+/**
+ * Canonical sidebar section order — sections render in this sequence;
+ * sections not listed sort alphabetically after the named ones.
+ */
+export const SECTION_ORDER: readonly string[] = ['Trade', 'Research', 'Invest', 'Account', 'Admin'];
+
+function sectionRank(section: string): number {
+  const i = SECTION_ORDER.indexOf(section);
+  return i === -1 ? SECTION_ORDER.length : i;
+}
+
 export function collectNavItems(): { feature: string; item: FeatureNavItem }[] {
   const out: { feature: string; item: FeatureNavItem }[] = [];
   for (const [file, mod] of Object.entries(navModules)) {
@@ -81,6 +92,7 @@ export function collectNavItems(): { feature: string; item: FeatureNavItem }[] {
   }
   return out.sort(
     (a, b) =>
+      sectionRank(a.item.section) - sectionRank(b.item.section) ||
       a.item.section.localeCompare(b.item.section) ||
       (a.item.order ?? 0) - (b.item.order ?? 0) ||
       a.item.label.localeCompare(b.item.label),
