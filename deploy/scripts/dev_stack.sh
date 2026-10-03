@@ -119,7 +119,7 @@ BIN_DIR="$REPO/services/bin"
 ENGINE_BIN="$REPO/core/build/matching_engine"
 AERON_BIN="$REPO/core/third_party/aeron/bin/aeronmd"
 
-STOP_GRACE=10          # seconds to wait for a daemon to exit on SIGTERM
+STOP_GRACE=15          # engines fsync WAL+snapshot on SIGTERM; compose grants them the same 15s
 START_GRACE=3          # seconds to wait before declaring a daemon "up"
 FREE_PORTS="${EXC_DEV_FREE_PORTS:-0}"
 VLOG=1
@@ -203,7 +203,16 @@ pid_alive() {
   local pf; pf="$(pidfile "$1")"
   [[ -f "$pf" ]] || return 1
   local pid; pid="$(cat "$pf" 2>/dev/null)"
-  [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null
+  [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null || return 1
+  # Identity check: a pid file proves nothing about what the pid *is*.
+  # If the daemon died and the pid was reused, the stop path would
+  # SIGTERM/SIGKILL an unrelated process. Require the pid to exec one
+  # of this stack's binaries before treating it as ours.
+  local exe; exe="$(readlink "/proc/$pid/exe" 2>/dev/null)"
+  case "$exe" in
+    "$BIN_DIR/"*|"$ENGINE_BIN"|"$AERON_BIN") return 0 ;;
+    *) warn "$1: pid $pid is $exe, not a dev-stack binary — treating pid file as stale"; rm -f "$pf"; return 1 ;;
+  esac
 }
 pid_of() { cat "$(pidfile "$1")" 2>/dev/null; }
 
@@ -509,7 +518,13 @@ app_start() { # group(all|core)
       info "stage priority $stage"
       last_stage="$stage"
     fi
-    start_one "$n"
+    if ! start_one "$n"; then
+      # Fail-fast: later tiers depend on this daemon's rings/ports, so
+      # starting them on a dead dependency only produces a degraded,
+      # misleading stack. Stop here, surface the failure.
+      err "aborting start — $n failed at stage $stage (later daemons depend on it)"
+      return 1
+    fi
   done
 }
 
@@ -559,33 +574,58 @@ app_status() {
   if [[ -e "$AERON_DIR/cnc.dat" ]]; then ok "aeron media driver live ($AERON_DIR)"; else warn "no aeron CnC ($AERON_DIR)"; fi
 }
 
-do_status() { if in_container; then warn "in-container status: host-mode rows reflect THIS container, not the host (docker rows via compose are accurate)"; fi; app_status; infra_status; }
+do_status() {
+  if in_container; then warn "in-container status: host-mode rows reflect THIS container, not the host (docker rows via compose are accurate)"; fi
+  app_status; infra_status; foreign_run_pids
+}
 
 # ── top-level actions ────────────────────────────────────────────────────────
 act_start() { # all|core|infra|app
-  local what="${1:-all}"
+  local what="${1:-all}" rc=0
   load_env
   require_host_or_docker "start $what"
   case "$what" in
-    all)   preflight; infra_start; app_start all ;;
-    core)  preflight; infra_start; app_start core ;;
-    infra) infra_start ;;
-    app)   preflight; app_start all ;;
+    all)   preflight; infra_start && app_start all || rc=1 ;;
+    core)  preflight; infra_start && app_start core || rc=1 ;;
+    infra) infra_start || rc=1 ;;
+    app)   preflight; app_start all || rc=1 ;;
     *)     die "start: unknown target '$what' (all|core|infra|app)" ;;
   esac
   [[ "$what" != "infra" ]] && do_status
+  return "$rc"
 }
 
 act_stop() { # all|app|infra
-  local what="${1:-all}"
+  local what="${1:-all}" rc=0
   load_env
   require_host_or_docker "stop $what"
   case "$what" in
-    all)   app_stop; infra_stop ;;
-    app)   app_stop ;;
-    infra) infra_stop ;;
+    all)   app_stop || rc=1; infra_stop || rc=1 ;;
+    app)   app_stop || rc=1 ;;
+    infra) infra_stop || rc=1 ;;
     *)     die "stop: unknown target '$what' (all|app|infra)" ;;
   esac
+  # Daemons started under a DIFFERENT RUN_DIR are invisible to our pid
+  # files — that's what made `stop all` appear to no-op. Surface them.
+  foreign_run_pids
+  return "$rc"
+}
+
+foreign_run_pids() { # warn about live daemons owned by other RUN_DIRs
+  local f d pid exe
+  for f in "${RUN_DIR%/*}"/exc-dev-stack*/pids/*.pid; do
+    [[ -f "$f" ]] || continue
+    d="${f%/pids/*}"
+    [[ "$d" == "$RUN_DIR" ]] && continue
+    pid="$(cat "$f" 2>/dev/null)"
+    [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null || continue
+    exe="$(readlink "/proc/$pid/exe" 2>/dev/null)"
+    case "$exe" in
+      "$BIN_DIR/"*|"$ENGINE_BIN"|"$AERON_BIN")
+        warn "daemon alive under foreign run dir $d: $(basename "$f" .pid) (pid $pid)"
+        warn "  stop it via: EXC_DEV_RUN_DIR=$d $0 stop app" ;;
+    esac
+  done
 }
 
 act_logs() {
@@ -627,7 +667,7 @@ EOF
       4) act_start app ;;
       5) act_stop app ;;
       6) act_stop all ;;
-      7) act_stop all; act_start all ;;
+      7) act_stop all && act_start all ;;
       8) do_status ;;
       9) read -rp "  daemon name: " dn; act_logs "$dn" ;;
       0|q|exit) info "bye"; exit 0 ;;
@@ -649,7 +689,7 @@ case "$cmd" in
   "")        menu ;;
   start)     shift; act_start "${1:-all}" ;;
   stop)      shift; act_stop "${1:-all}" ;;
-  restart)   act_stop all; act_start all ;;
+  restart)   act_stop all && act_start all ;;
   status)    load_env; do_status ;;
   logs)      shift; act_logs "${1:-}" ;;
   build)     load_env; build_apps ;;
