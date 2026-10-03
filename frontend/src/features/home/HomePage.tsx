@@ -1,26 +1,30 @@
 /**
- * Dashboard shell — the reference feature for the auto-discovery
- * manifest. Demonstrates the three sanctioned state surfaces:
- *   - Zustand for local UI state (compact-mode toggle)
- *   - TanStack Query for server state (GET /api/v1/time)
- *   - useWsStatus/useChannel for the WS state machine (Task 10.3.19)
+ * Dashboard — landing surface. Live tiles for the WS state machine
+ * (Task 10.3.19) and the exchange clock, plus an authenticated account
+ * snapshot (balances / open positions / open orders) and quick links
+ * into the trading surfaces.
  *
- * Wave-2 features (order book, charts, order entry) follow this shape —
- * see frontend/README.md.
+ * State surfaces:
+ *   - Zustand for local UI state (density preference)
+ *   - TanStack Query for server state (time, balances, positions, orders)
+ *   - useWsStatus for the WS state machine
  */
 import { useQuery } from '@tanstack/react-query';
+import { Link } from 'react-router';
 import { create } from 'zustand';
 
 import { apiClient, wsClient } from '@/app/runtime';
+import { useSessionStore } from '@/lib/auth/session';
+import { useBalances, useOpenOrders, usePositions } from '@/lib/trading/queries';
+import { tableCls, tdCls, thCls, cardCls, ErrorBox } from '@/lib/ui';
 import { useWsStatus } from '@/lib/ws';
 
-// Local UI state — Zustand (spec §21.2).
 const useDashboardPrefs = create<{ compact: boolean; toggleCompact: () => void }>((set) => ({
   compact: false,
   toggleCompact: () => set((s) => ({ compact: !s.compact })),
 }));
 
-// Server state — TanStack Query (public exchange clock, §21.11 surface).
+// Public exchange clock (§21.11 surface).
 function useServerTime() {
   return useQuery({
     queryKey: ['system', 'time'],
@@ -30,11 +34,125 @@ function useServerTime() {
   });
 }
 
+const QUICK_LINKS = [
+  { label: 'Trade EUR/USD', to: '/trade/EUR%2FUSD' },
+  { label: 'Order book', to: '/book/EUR%2FUSD' },
+  { label: 'Depth chart', to: '/depth/EUR%2FUSD' },
+  { label: 'Advanced orders', to: '/advanced' },
+  { label: 'Workspace', to: '/workspace' },
+  { label: 'Portfolio', to: '/portfolio' },
+];
+
+function AccountSnapshot() {
+  const balances = useBalances();
+  const positions = usePositions();
+  const { orders: openOrders, query: ordersQuery } = useOpenOrders();
+  const queryError = balances.error ?? positions.error ?? ordersQuery.error;
+
+  return (
+    <section className={cardCls} aria-label="Account snapshot">
+      <div className="mb-2 flex items-center justify-between">
+        <h2 className="text-sm font-medium text-neutral-400">Account snapshot</h2>
+        <Link to="/portfolio" className="text-xs text-sky-400 hover:underline">
+          Full portfolio →
+        </Link>
+      </div>
+      <ErrorBox error={queryError} />
+      <div className="grid gap-4 md:grid-cols-3">
+        <div>
+          <h3 className="mb-1 text-xs font-medium text-neutral-500">Balances</h3>
+          <table className={tableCls}>
+            <thead>
+              <tr>
+                <th className={thCls}>CCY</th>
+                <th className={thCls}>Available</th>
+                <th className={thCls}>Locked</th>
+                <th className={thCls}>Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(balances.data ?? []).map((b) => (
+                <tr key={b.currency}>
+                  <td className={tdCls}>{b.currency}</td>
+                  <td className={tdCls}>{b.available.toDisplay(2)}</td>
+                  <td className={tdCls}>{b.locked.toDisplay(2)}</td>
+                  <td className={tdCls}>{b.total.toDisplay(2)}</td>
+                </tr>
+              ))}
+              {balances.data?.length === 0 && (
+                <tr>
+                  <td className={tdCls} colSpan={4}>
+                    No balances — fund the account to trade.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        <div>
+          <h3 className="mb-1 text-xs font-medium text-neutral-500">Open positions</h3>
+          <table className={tableCls}>
+            <thead>
+              <tr>
+                <th className={thCls}>Symbol</th>
+                <th className={thCls}>Side</th>
+                <th className={thCls}>Qty</th>
+                <th className={thCls}>uPnL</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(positions.data ?? []).map((p) => (
+                <tr key={p.id}>
+                  <td className={tdCls}>
+                    <Link
+                      to={`/advanced/${encodeURIComponent(p.symbol)}`}
+                      className="text-sky-400 hover:underline"
+                    >
+                      {p.symbol}
+                    </Link>
+                  </td>
+                  <td className={tdCls}>{p.side}</td>
+                  <td className={tdCls}>{p.quantity.toDisplay()}</td>
+                  <td className={tdCls}>{p.unrealizedPnl.toDisplay(2)}</td>
+                </tr>
+              ))}
+              {positions.data?.length === 0 && (
+                <tr>
+                  <td className={tdCls} colSpan={4}>
+                    No open positions.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        <div>
+          <h3 className="mb-1 text-xs font-medium text-neutral-500">Open orders</h3>
+          <p className="text-2xl font-semibold">{openOrders.length}</p>
+          {openOrders.length > 0 && (
+            <ul className="mt-1 space-y-0.5 text-xs text-neutral-400">
+              {openOrders.slice(0, 5).map((o) => (
+                <li key={o.id}>
+                  {o.symbol} {o.side} {o.type}
+                </li>
+              ))}
+            </ul>
+          )}
+          <Link to="/orders" className="mt-2 inline-block text-xs text-sky-400 hover:underline">
+            Order history →
+          </Link>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export default function HomePage() {
   const status = useWsStatus(wsClient);
   const compact = useDashboardPrefs((s) => s.compact);
   const toggleCompact = useDashboardPrefs((s) => s.toggleCompact);
   const serverTime = useServerTime();
+  const signedIn = useSessionStore((s) => s.accessToken !== null);
 
   const staleChannels = Object.entries(status.health).filter(([, h]) => h.stale);
 
@@ -52,7 +170,7 @@ export default function HomePage() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
-        <section className="rounded-lg border border-neutral-800 bg-neutral-900 p-4">
+        <section className={cardCls} aria-label="Connection">
           <h2 className="mb-2 text-sm font-medium text-neutral-400">Connection</h2>
           <p className="text-lg font-semibold" data-testid="ws-state">
             {status.state}
@@ -62,7 +180,7 @@ export default function HomePage() {
           </p>
         </section>
 
-        <section className="rounded-lg border border-neutral-800 bg-neutral-900 p-4">
+        <section className={cardCls} aria-label="Subscriptions">
           <h2 className="mb-2 text-sm font-medium text-neutral-400">Subscriptions</h2>
           <p className="text-lg font-semibold">{status.subscriptions.length}</p>
           {staleChannels.length > 0 && (
@@ -70,7 +188,7 @@ export default function HomePage() {
           )}
         </section>
 
-        <section className="rounded-lg border border-neutral-800 bg-neutral-900 p-4">
+        <section className={cardCls} aria-label="Exchange time">
           <h2 className="mb-2 text-sm font-medium text-neutral-400">Exchange time (UTC)</h2>
           <p className="text-lg font-semibold" data-testid="server-time">
             {serverTime.data && Number.isFinite(serverTime.data.server_time_ms)
@@ -80,10 +198,33 @@ export default function HomePage() {
         </section>
       </div>
 
-      <p className="mt-8 text-sm text-neutral-500">
-        Trading cockpit surfaces arrive in Wave-2. This shell proves routing auto-discovery, the WS
-        state machine, server-state wiring, and the security/budget gates.
-      </p>
+      <div className="mt-4">
+        {signedIn ? (
+          <AccountSnapshot />
+        ) : (
+          <section className={cardCls} aria-label="Sign in">
+            <h2 className="mb-2 text-sm font-medium text-neutral-400">Account</h2>
+            <p className="text-sm text-neutral-500">
+              <Link to="/login" className="text-sky-400 hover:underline">
+                Sign in
+              </Link>{' '}
+              to see balances, positions, and open orders here.
+            </p>
+          </section>
+        )}
+      </div>
+
+      <nav aria-label="Quick links" className="mt-4 flex flex-wrap gap-2">
+        {QUICK_LINKS.map((l) => (
+          <Link
+            key={l.to}
+            to={l.to}
+            className="rounded border border-neutral-700 px-3 py-1.5 text-sm text-neutral-300 hover:bg-neutral-800 hover:text-neutral-100"
+          >
+            {l.label}
+          </Link>
+        ))}
+      </nav>
     </div>
   );
 }
