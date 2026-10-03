@@ -97,7 +97,7 @@ class Watchdog {
     void* ctx_ = nullptr;
 
     Level armed_ = Level::Ok;  // edge detection — re-arms on a fresh beat
-    int64_t last_warn_report_ns_ = 0;  // 1/sec WARN report cap (flap guard)
+    int64_t last_warn_report_ns_ = 0;            // 1/sec WARN report cap (flap guard)
     const std::atomic<bool>* parked_ = nullptr;  // nullable — see ctor doc
     uint64_t warn_samples_ = 0;
     uint64_t stall_samples_ = 0;
