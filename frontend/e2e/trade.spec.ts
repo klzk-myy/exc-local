@@ -192,7 +192,7 @@ test.describe('smoke path', () => {
     await entry.getByLabel('Price').fill('1.10010');
     await entry.getByLabel('Quantity').fill('1000');
     await entry.getByRole('button', { name: 'Submit Limit' }).click();
-    await expect(page.getByText(/Order accepted/i)).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(/Order sent/i)).toBeVisible({ timeout: 15_000 });
 
     // Settlement proof (PHYSICAL_DELIVERY): 1000 EUR/USD @1.10010 moves
     // 1,100.10 USD available→locked pending T+2 delivery. REST waits for
@@ -215,7 +215,7 @@ test.describe('smoke path', () => {
     await entry.getByLabel('Price').fill('1.09990');
     await entry.getByLabel('Quantity').fill('1000');
     await entry.getByRole('button', { name: 'Submit Limit' }).click();
-    await expect(page.getByText(/Order accepted/i).last()).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(/Order sent/i).last()).toBeVisible({ timeout: 15_000 });
 
     // The sell leg segregates the 1,000 EUR deliverable — both legs now
     // sit pending settlement, i.e. the spot exposure is closed out.

@@ -177,7 +177,7 @@ export function OrderInspectModal({
             {losesPriority && (priceChanged || qtyChanged) && (
               <p className="mb-2 rounded border border-amber-700/50 bg-amber-950/30 px-2 py-1.5 text-xs text-amber-300">
                 ⚠ {priceChanged ? 'Changing the price' : 'Increasing the quantity'} executes as
-                atomic cancel-replace — <strong>queue position is lost</strong> (§6.9).
+                atomic cancel-replace — <strong>queue position is lost</strong>.
               </p>
             )}
             {keepPriority && (

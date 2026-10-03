@@ -160,7 +160,7 @@ describe('WorkspacePage (pro mode)', () => {
     expect(screen.queryByLabelText('Order ticket panel')).not.toBeInTheDocument();
   });
 
-  it('save-as persists a named layout; reset restores defaults', async () => {
+  it('save-as persists a named layout; reset keeps it, delete requires confirmation', async () => {
     installFetchMock(EMPTY_FETCH);
     renderApp(<WorkspacePage />);
     await screen.findByLabelText('Order ticket panel');
@@ -170,8 +170,19 @@ describe('WorkspacePage (pro mode)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(localStorage.getItem(workspaceStorageKey('master'))).toContain('scalp desk');
 
+    // Reset restores the default arrangement but never destroys saved
+    // layouts — user-persisted config is not a side effect of reset.
     await userEvent.click(screen.getByRole('button', { name: 'Reset workspace layout' }));
-    expect(localStorage.getItem(workspaceStorageKey('master'))).toBeNull();
+    expect(localStorage.getItem(workspaceStorageKey('master'))).toContain('scalp desk');
+
+    // Re-loading the saved layout surfaces the delete affordance, and
+    // deletion goes through a confirmation dialog.
+    await userEvent.selectOptions(screen.getByLabelText('Layout'), 'scalp desk');
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Delete saved layout scalp desk' }),
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Delete layout' }));
+    expect(localStorage.getItem(workspaceStorageKey('master'))).not.toContain('scalp desk');
   });
 });
 

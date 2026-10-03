@@ -27,7 +27,7 @@ export function ModeToggle() {
           aria-pressed={resolved === m}
           onClick={() => setMode(m)}
           className={`rounded px-3 py-1 text-xs font-semibold uppercase tracking-wide focus-visible:ring-2 focus-visible:ring-sky-500 ${
-            resolved === m ? 'bg-sky-600 text-white' : 'text-neutral-400 hover:text-neutral-200'
+            resolved === m ? 'bg-sky-700 text-white' : 'text-neutral-400 hover:text-neutral-200'
           }`}
         >
           {m}

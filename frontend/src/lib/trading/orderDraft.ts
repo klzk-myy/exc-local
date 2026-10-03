@@ -8,6 +8,7 @@
  * in-progress ticket.
  */
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 
 export interface OrderDraft {
   symbol: string;
@@ -22,8 +23,20 @@ interface OrderDraftState {
   setSymbol: (symbol: string) => void;
 }
 
-export const useOrderDraft = create<OrderDraftState>()((set) => ({
-  draft: { symbol: '', side: 'BUY', price: '', quantity: '' },
-  setDraft: (d) => set((s) => ({ draft: { ...s.draft, ...d } })),
-  setSymbol: (symbol) => set((s) => ({ draft: { ...s.draft, symbol } })),
-}));
+export const useOrderDraft = create<OrderDraftState>()(
+  persist(
+    (set) => ({
+      draft: { symbol: '', side: 'BUY', price: '', quantity: '' },
+      setDraft: (d) => set((s) => ({ draft: { ...s.draft, ...d } })),
+      setSymbol: (symbol) => set((s) => ({ draft: { ...s.draft, symbol } })),
+    }),
+    {
+      name: 'exc.order-draft.v1',
+      // Only the symbol survives a reload — a stale price/quantity draft
+      // would be dangerous; a remembered symbol is just a preference.
+      partialize: (s) => ({
+        draft: { ...s.draft, side: 'BUY', price: '', quantity: '' },
+      }),
+    },
+  ),
+);

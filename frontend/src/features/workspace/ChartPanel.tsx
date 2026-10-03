@@ -52,7 +52,7 @@ export function ChartPanel({ symbol }: { symbol: string }) {
             onClick={() => pick(i)}
             className={`rounded px-2.5 py-1.5 font-mono text-xs ${
               interval === i
-                ? 'bg-sky-600 text-white'
+                ? 'bg-sky-700 text-white'
                 : 'text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200'
             }`}
           >

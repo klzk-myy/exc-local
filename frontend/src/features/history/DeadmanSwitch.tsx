@@ -68,7 +68,7 @@ export function DeadmanSwitch() {
           <p className="mt-1 max-w-md text-xs text-neutral-500">
             Arms a countdown that cancels ALL open orders unless renewed before expiry (
             {COUNTDOWN_MIN_MS.toLocaleString()}–{COUNTDOWN_MAX_MS.toLocaleString()} ms). Fails
-            closed: when the timer lapses the engine purges resting orders (spec §8.9).
+            closed: when the timer lapses the engine purges resting orders.
           </p>
         </div>
         {remaining !== null ? (

@@ -16,7 +16,7 @@ export function ConnectionBanner() {
     return (
       <div
         role="alert"
-        className="bg-red-600 px-4 py-2 text-center text-sm font-semibold text-white"
+        className="bg-red-700 px-4 py-2 text-center text-sm font-semibold text-white"
       >
         {status.state === 'RECONNECTING'
           ? `DISCONNECTED — RECONNECTING… (attempt ${status.attempt})`

@@ -227,7 +227,7 @@ export function OrderBook(props: OrderBookProps) {
   const ws = props.ws ?? wsClient;
   const viewportHeight = props.viewportHeight ?? 240;
   const [levels, setLevels] = useState<DepthLevels>(20);
-  const { view, flashes, channel, stale, resyncing, error, reload } = useOrderBook({
+  const { view, flashes, stale, resyncing, error, reload } = useOrderBook({
     api,
     ws,
     symbol: props.symbol,
@@ -343,7 +343,6 @@ export function OrderBook(props: OrderBookProps) {
                 {view.mid ? view.mid.toFixed(tickDecimals) : '—'}
               </span>
             </span>
-            <span className="font-mono text-[10px] text-neutral-600">seq {view.seq}</span>
           </div>
           <BookSide
             label="bids"
@@ -356,7 +355,6 @@ export function OrderBook(props: OrderBookProps) {
               props.onPriceClick ? (r) => props.onPriceClick?.(r.price, 'bid') : undefined
             }
           />
-          <p className="px-3 py-1 text-right text-[10px] text-neutral-600">{channel}</p>
         </>
       )}
     </section>

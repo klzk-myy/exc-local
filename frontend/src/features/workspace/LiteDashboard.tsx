@@ -106,8 +106,8 @@ export function LiteOrderForm({
             className={`rounded py-1.5 text-sm font-semibold focus-visible:ring-2 focus-visible:ring-sky-500 ${
               side === s
                 ? s === 'BUY'
-                  ? 'bg-emerald-600 text-white'
-                  : 'bg-red-600 text-white'
+                  ? 'bg-emerald-700 text-white'
+                  : 'bg-red-700 text-white'
                 : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'
             }`}
           >

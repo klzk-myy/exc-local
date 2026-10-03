@@ -18,8 +18,9 @@ import { useWatchlist, useWatchlistStore } from '@/lib/alerts';
 import { useSessionStore } from '@/lib/auth/session';
 import { formatPrice, metaFor, useInstruments } from '@/lib/input-helpers';
 import { tickerChannel } from '@/lib/market/channels';
+import { isFxMarketOpen, nextFxMarketTransitionMs } from '@/lib/market/tradingHours';
 import { parseTicker24h, type Ticker24h } from '@/lib/market/wire';
-import { selectCls } from '@/lib/ui';
+import { formatDurationMs, selectCompactCls, useNow } from '@/lib/ui';
 import { useBbo } from '@/lib/trading/marketStore';
 import { useOrderDraft } from '@/lib/trading/orderDraft';
 import { useChannel, type WsClient } from '@/lib/ws';
@@ -29,6 +30,30 @@ function Stat({ label, value }: { label: string; value: string }) {
     <span className="flex items-baseline gap-1">
       <span className="text-[10px] uppercase tracking-wide text-neutral-500">{label}</span>
       <span className="font-mono text-xs text-neutral-200">{value}</span>
+    </span>
+  );
+}
+
+/** Venue session chip — on a 24/5 exchange, open/closed is the most
+ * decision-relevant status in the strip; "order entry live" alone can't
+ * carry it (that badge only reflects the WS handshake). */
+function SessionChip() {
+  const now = useNow(30_000);
+  const open = isFxMarketOpen(now);
+  const ms = nextFxMarketTransitionMs(now);
+  return (
+    <span
+      role="status"
+      className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+        open ? 'bg-emerald-500/15 text-emerald-400' : 'bg-amber-500/15 text-amber-400'
+      }`}
+      title={
+        open
+          ? `FX trades 24/5 — session closes in ${formatDurationMs(ms)} (Fri 22:00 UTC)`
+          : `FX market closed — reopens in ${formatDurationMs(ms)} (Sun 21:00 UTC)`
+      }
+    >
+      {open ? 'OPEN' : 'CLOSED'}
     </span>
   );
 }
@@ -93,7 +118,7 @@ export function TickerStrip({
           aria-label="Symbol"
           value={symbol}
           onChange={(e) => setSymbol(e.target.value)}
-          className={`${selectCls} w-auto py-0.5 font-mono text-xs font-semibold`}
+          className={`${selectCompactCls} font-mono font-semibold`}
         >
           {watchlist.length > 0 && (
             <optgroup label="Watchlist">
@@ -143,6 +168,7 @@ export function TickerStrip({
           {formatPrice(meta, bid.toString())} / {formatPrice(meta, ask.toString())}
         </span>
       )}
+      <SessionChip />
     </div>
   );
 }

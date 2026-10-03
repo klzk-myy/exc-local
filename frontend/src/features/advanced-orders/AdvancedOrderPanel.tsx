@@ -28,6 +28,7 @@ import {
   inputCls,
   labelCls,
   selectCls,
+  useNow,
 } from '@/lib/ui';
 import { newIdempotencyKey } from '@/lib/api';
 import { Dec } from '@/lib/decimal/decimal';
@@ -45,6 +46,9 @@ import {
 } from '@/lib/trading/api';
 import { useBalances, useInstrument, useInstruments } from '@/lib/trading/queries';
 import { useOrderDraft } from '@/lib/trading/orderDraft';
+import { useWatchlist } from '@/lib/alerts';
+import { useSessionStore } from '@/lib/auth/session';
+import { isFxMarketOpen } from '@/lib/market/tradingHours';
 import { useBbo } from '@/lib/trading/marketStore';
 import { qtyConstraints, splitPair } from '@/lib/trading/fx';
 
@@ -94,6 +98,9 @@ export function AdvancedOrderPanel({
 
   const draft = useOrderDraft((s) => s.draft);
   const setDraft = useOrderDraft((s) => s.setDraft);
+  const accountId = useSessionStore((s) => s.user?.accountId ?? null);
+  const watchlist = useWatchlist(accountId);
+  const marketOpen = isFxMarketOpen(useNow(30_000));
   const [form, setForm] = useState<OrderFormState>(() => ({
     ...EMPTY_FORM,
     symbol: draft.symbol,
@@ -155,7 +162,7 @@ export function AdvancedOrderPanel({
       }
     },
     onSuccess: async () => {
-      setLastResult('Order accepted — awaiting engine ack (watch private:orders).');
+      setLastResult('Order sent — tracking under Open orders.');
       await queryClient.invalidateQueries({ queryKey: ['orders', scope] });
     },
     onError: (e) => {
@@ -178,12 +185,19 @@ export function AdvancedOrderPanel({
   // panel is charting.
   useEffect(() => {
     if (form.symbol !== '' || touched['symbol'] === true) return;
-    const first = (instruments.data ?? []).find((i) => i.status === 'ACTIVE');
-    if (first !== undefined) {
-      setForm((f) => (f.symbol === '' ? { ...f, symbol: first.symbol } : f));
-      setDraft({ symbol: first.symbol });
+    const actives = (instruments.data ?? []).filter((i) => i.status === 'ACTIVE');
+    // Default order: watchlist head → the venue's benchmark pair →
+    // first active. Alphabetical-first would strand every fresh session
+    // on an arbitrary (often illiquid) pair.
+    const pick =
+      actives.find((i) => i.symbol === watchlist[0]) ??
+      actives.find((i) => i.symbol === 'EUR/USD') ??
+      actives[0];
+    if (pick !== undefined) {
+      setForm((f) => (f.symbol === '' ? { ...f, symbol: pick.symbol } : f));
+      setDraft({ symbol: pick.symbol });
     }
-  }, [instruments.data, form.symbol, touched, setDraft]);
+  }, [instruments.data, watchlist, form.symbol, touched, setDraft]);
 
   const built = buildOrderPayload(form);
   const fieldErrors = built.errors;
@@ -259,8 +273,8 @@ export function AdvancedOrderPanel({
             className={`rounded py-1.5 text-sm font-semibold focus-visible:ring-2 focus-visible:ring-sky-500 ${
               form.side === s
                 ? s === 'BUY'
-                  ? 'bg-emerald-600 text-white'
-                  : 'bg-red-600 text-white'
+                  ? 'bg-emerald-700 text-white'
+                  : 'bg-red-700 text-white'
                 : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'
             }`}
           >
@@ -582,7 +596,7 @@ export function AdvancedOrderPanel({
       {conditional && (
         <div className="mb-4">
           <label htmlFor="trigger-source" className={labelCls}>
-            Trigger source (§6.2a)
+            Trigger source
           </label>
           <select
             id="trigger-source"
@@ -624,7 +638,17 @@ export function AdvancedOrderPanel({
 
       {form.kind === 'MARKET' && (
         <p className="mb-3 rounded border border-amber-700/50 bg-amber-950/30 px-2 py-1.5 text-xs text-amber-300">
-          Market orders fill at best available price — slippage collars apply server-side (§6.6a).
+          Market orders fill at the best available price; slippage limits apply.
+        </p>
+      )}
+
+      {!marketOpen && (
+        <p
+          role="status"
+          className="mb-3 rounded border border-amber-700/50 bg-amber-950/30 px-2 py-1.5 text-xs text-amber-300"
+        >
+          FX market is closed (24/5). New orders are rejected until the Sunday 21:00
+          UTC open — cancels still go through.
         </p>
       )}
 

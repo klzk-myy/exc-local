@@ -9,9 +9,9 @@ test('light theme: market-order banner + lite-switch affordance', async ({ page 
   });
   await page.goto('/workspace');
   await page.waitForSelector('[role="application"]', { timeout: 15000 });
-  // Flip the ticket to MARKET → the slippage-collar banner renders.
+  // Flip the ticket to MARKET → the slippage banner renders.
   await page.getByLabel('Order type').selectOption('MARKET');
-  await expect(page.getByText(/slippage collars apply/)).toBeVisible();
+  await expect(page.getByText(/slippage limits apply/)).toBeVisible();
   await page.screenshot({ path: '/tmp/light-banner.png', fullPage: true });
 
   await page.setViewportSize({ width: 480, height: 800 });

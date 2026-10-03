@@ -9,12 +9,18 @@ export const inputCls =
 
 export const selectCls = inputCls;
 
+/** Compact select for dense chrome (toolbars, ticker strips) — no
+ * w-full, tight padding. Appending `w-auto`/`py-0.5` to selectCls loses
+ * the cascade against its baked-in `w-full`/`py-2`. */
+export const selectCompactCls =
+  'rounded border border-neutral-700 bg-neutral-950 px-2 py-0.5 text-xs text-neutral-100 focus:border-sky-600 focus:outline-none disabled:opacity-50';
+
 export const textareaCls = `${inputCls} min-h-28`;
 
 export const cardCls = 'rounded-lg border border-neutral-800 bg-neutral-900 p-4';
 
 export const btnPrimary =
-  'rounded bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-50';
+  'rounded bg-sky-700 px-4 py-2 text-sm font-medium text-white hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-50';
 
 export const btnDanger =
   'rounded bg-red-700 px-4 py-2 text-sm font-medium text-white hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-50';

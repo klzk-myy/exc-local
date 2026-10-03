@@ -24,8 +24,9 @@ import {
   type ReactNode,
 } from 'react';
 
-import { Modal, ConfirmAction, btnGhost, inputCls, selectCls } from '@/lib/ui';
+import { Modal, ConfirmAction, btnGhost, inputCls, selectCompactCls } from '@/lib/ui';
 import { useScopeKey } from '@/lib/trading/queries';
+import { useAccountScope } from '@/lib/trading/accountScope';
 import { useOrderDraft } from '@/lib/trading/orderDraft';
 import { usePrivatePositionsFeed } from '@/lib/trading/positionFeed';
 import { useMarketFeed } from '@/lib/trading/marketStore';
@@ -37,9 +38,9 @@ import {
   PANELS,
   clampPlacement,
   defaultPlacements,
+  deleteLayout,
   listLayouts,
   loadLayout,
-  resetLayouts,
   saveLayout,
   type PanelId,
   type PanelPlacement,
@@ -246,6 +247,7 @@ function PanelFrame({
 
 export default function WorkspacePage() {
   const scope = useScopeKey();
+  const scopeLabel = useAccountScope((s) => s.scopeLabel);
   const mode = useUiMode();
   const { theme, setTheme } = useTheme();
   const draftSymbol = useOrderDraft((s) => s.draft.symbol);
@@ -263,6 +265,7 @@ export default function WorkspacePage() {
     typeof window === 'undefined' ? [] : listLayouts(scope),
   );
   const [hideWarn, setHideWarn] = useState<PanelId | null>(null);
+  const [deleteWarn, setDeleteWarn] = useState<string | null>(null);
   const [saveAs, setSaveAs] = useState(false);
   const [newName, setNewName] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
@@ -339,7 +342,7 @@ export default function WorkspacePage() {
             setLayoutName(l.name === name ? name : l.name);
             setNotice(`Layout "${name}" loaded`);
           }}
-          className={`${selectCls} w-auto py-1 text-xs`}
+          className={selectCompactCls}
         >
           <option value="">{layoutName !== '' ? layoutName : '— layouts —'}</option>
           {savedLayouts.map((n) => (
@@ -359,27 +362,36 @@ export default function WorkspacePage() {
           Save as…
         </button>
         {layoutName !== '' && (
-          <button
-            type="button"
-            className={btnGhost}
-            onClick={() => {
-              saveLayout(scope, layoutName, placements);
-              setNotice(`Layout "${layoutName}" saved`);
-            }}
-          >
-            Save
-          </button>
+          <>
+            <button
+              type="button"
+              className={btnGhost}
+              onClick={() => {
+                saveLayout(scope, layoutName, placements);
+                setNotice(`Layout "${layoutName}" saved`);
+              }}
+            >
+              Save
+            </button>
+            <button
+              type="button"
+              className={btnGhost}
+              aria-label={`Delete saved layout ${layoutName}`}
+              onClick={() => setDeleteWarn(layoutName)}
+            >
+              Delete
+            </button>
+          </>
         )}
         <button
           type="button"
           className={btnGhost}
           aria-label="Reset workspace layout"
+          title="Restore the default panel arrangement — saved layouts are kept"
           onClick={() => {
-            resetLayouts(scope);
             setPlacements(defaultPlacements(mode));
-            setSavedLayouts([]);
             setLayoutName('');
-            setNotice('Workspace reset to the Pro default layout');
+            setNotice('Workspace restored to the default layout');
           }}
         >
           Reset
@@ -400,7 +412,7 @@ export default function WorkspacePage() {
               const meta = PANELS.find((p) => p.id === e.target.value);
               if (meta) show(meta.id);
             }}
-            className={`${selectCls} w-auto py-1 text-xs`}
+            className={selectCompactCls}
           >
             <option value="">＋ show panel…</option>
             {hidden.map((p) => (
@@ -411,7 +423,7 @@ export default function WorkspacePage() {
           </select>
         )}
         <span className="ml-auto text-xs text-neutral-500" aria-live="polite">
-          {notice ?? `scope: ${scope}`}
+          {notice ?? `Viewing: ${scopeLabel}`}
         </span>
       </div>
 
@@ -482,6 +494,33 @@ export default function WorkspacePage() {
         />
       </Modal>
 
+      {/* saved-layout delete confirmation */}
+      <Modal
+        open={deleteWarn !== null}
+        title="Delete saved layout?"
+        onClose={() => setDeleteWarn(null)}
+      >
+        <ConfirmAction
+          message={
+            <>
+              <strong>{deleteWarn}</strong> will be permanently removed. The workspace keeps its
+              current panel arrangement.
+            </>
+          }
+          confirmLabel="Delete layout"
+          onConfirm={() => {
+            if (deleteWarn) {
+              deleteLayout(scope, deleteWarn);
+              setSavedLayouts(listLayouts(scope));
+              setLayoutName('');
+              setNotice(`Layout "${deleteWarn}" deleted`);
+            }
+            setDeleteWarn(null);
+          }}
+          onCancel={() => setDeleteWarn(null)}
+        />
+      </Modal>
+
       {/* save-as dialog */}
       <Modal open={saveAs} title="Save layout as" onClose={() => setSaveAs(false)}>
         <label htmlFor="ws-save-name" className="mb-1 block text-sm text-neutral-300">
@@ -508,7 +547,7 @@ export default function WorkspacePage() {
               setSavedLayouts(listLayouts(scope));
               setLayoutName(name);
               setSaveAs(false);
-              setNotice(`Layout "${name}" saved (this device, ${scope})`);
+              setNotice(`Layout "${name}" saved on this device`);
             }}
           >
             Save
