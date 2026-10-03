@@ -67,6 +67,31 @@ x-go-common: &go-common
   environment: *go-env
   restart: unless-stopped
 
+# Stage-2 engine anchor — must live OUTSIDE services: or compose
+# instantiates it as a real container whose default CMD is a ninth
+# engine on shard 0 (fighting the real shard-0 for its WAL dir and
+# leader lock).
+x-engine-common: &engine-common
+  image: ${ENGINE_DOCKER_IMAGE:-exc-matching-engine:local}
+  ipc: host
+  network_mode: host
+  volumes:
+    - /dev/shm:/dev/shm
+    - ${WAL_DIR:-wal-data}:/var/lib/exchange/wal
+    - snapshots-data:/var/lib/exchange/snapshots
+  environment:
+    EXC_REDIS_ADDR: ${REDIS_ADDR:-127.0.0.1:16379}
+    AERON_DIR: ${AERON_DIR:-/dev/shm/aeron-exchange}
+  depends_on:
+    aeronmd:
+      condition: service_started
+    redis-primary:
+      condition: service_healthy
+    nats-1:
+      condition: service_started
+  stop_grace_period: 15s # systemd TimeoutStopSec=15s (snapshot + WAL fsync)
+  restart: unless-stopped
+
 services:
   # ── Stage 1 — IPC foundation (EXC_ENGINE_MODE=docker) ────────────────────
   # Host parity: runs the vendored binary with no flags, exactly like
@@ -119,27 +144,7 @@ services:
   # engine leaves engine_ipc down and the gateway "major_outage". Mirrors
   # daemon_cmd(matching-engine-N) in dev_stack.sh; each engine owns
   # $WAL_DIR/<shard>/ (per-shard flock — shared volume is safe).
-  x-engine-common: &engine-common
-    image: ${ENGINE_DOCKER_IMAGE:-exc-matching-engine:local}
-    ipc: host
-    network_mode: host
-    volumes:
-      - /dev/shm:/dev/shm
-      - ${WAL_DIR:-wal-data}:/var/lib/exchange/wal
-      - snapshots-data:/var/lib/exchange/snapshots
-    environment:
-      EXC_REDIS_ADDR: ${REDIS_ADDR:-127.0.0.1:16379}
-      AERON_DIR: ${AERON_DIR:-/dev/shm/aeron-exchange}
-    depends_on:
-      aeronmd:
-        condition: service_started
-      redis-primary:
-        condition: service_healthy
-      nats-1:
-        condition: service_started
-    stop_grace_period: 15s # systemd TimeoutStopSec=15s (snapshot + WAL fsync)
-    restart: unless-stopped
-
+  # Engine fields come from the top-level x-engine-common anchor.
   matching-engine:
     <<: *engine-common
     command: ["-shard", "0", "-ipc-base", "${SHM_BASE:-exchange_ipc}", "-wal-dir", "/var/lib/exchange/wal", "-redis", "${REDIS_ADDR:-127.0.0.1:16379}", "-symbol", "EUR/USD", "-instrument-id", "1", "-dev-all-accounts"]
