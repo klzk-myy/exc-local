@@ -24,11 +24,16 @@ RUN npm run build
 FROM nginx:stable-alpine AS runtime
 
 # Main conf loads ngx_http_js_module (main-context only); edge.js
-# supplies the per-route XFF IP used by conf.d/default.conf.
+# supplies the per-request/per-connection XFF IPs used by
+# conf.d/default.conf. Security/cache headers are GENERATED at build
+# time from the canonical contract frontend/public/_headers (see
+# gen-nginx-headers.sh) — no second copy of the policy to drift.
 COPY deploy/docker/frontend.nginx-main.conf /etc/nginx/nginx.conf
 COPY deploy/docker/frontend.edge.js /etc/nginx/edge.js
 COPY deploy/docker/frontend.nginx.conf /etc/nginx/conf.d/default.conf
-COPY deploy/docker/frontend.headers.inc /etc/nginx/frontend.headers.inc
+COPY deploy/docker/gen-nginx-headers.sh /tmp/gen-nginx-headers.sh
+COPY frontend/public/_headers /tmp/_headers
+RUN sh /tmp/gen-nginx-headers.sh /tmp/_headers /etc/nginx
 COPY --from=builder /app/repo/frontend/dist /usr/share/nginx/html
 
 EXPOSE 3000
