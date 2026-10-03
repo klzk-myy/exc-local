@@ -12,7 +12,14 @@
  */
 import type { UiMode } from './liteMode';
 
-export type PanelId = 'order' | 'book' | 'positions' | 'chart' | 'depth' | 'balances';
+export type PanelId =
+  | 'order'
+  | 'book'
+  | 'positions'
+  | 'chart'
+  | 'depth'
+  | 'balances'
+  | 'tape';
 
 export interface PanelMeta {
   id: PanelId;
@@ -24,9 +31,10 @@ export interface PanelMeta {
 export const PANELS: readonly PanelMeta[] = [
   { id: 'order', title: 'Order ticket', safetyCritical: true },
   { id: 'book', title: 'Order book', safetyCritical: false },
-  { id: 'positions', title: 'Positions & quick actions', safetyCritical: true },
+  { id: 'positions', title: 'Blotter (positions/orders/history)', safetyCritical: true },
   { id: 'chart', title: 'Chart & overlays', safetyCritical: false },
   { id: 'depth', title: 'Market depth', safetyCritical: false },
+  { id: 'tape', title: 'Market trades', safetyCritical: false },
   { id: 'balances', title: 'Balances', safetyCritical: false },
 ] as const;
 
@@ -52,12 +60,13 @@ export const GRID_COLS = 12;
 export const ROW_H = 64;
 
 export const PRO_DEFAULT: Placements = {
-  order: { x: 0, y: 0, w: 4, h: 12, visible: true },
-  book: { x: 4, y: 0, w: 3, h: 12, visible: true },
-  chart: { x: 7, y: 0, w: 5, h: 7, visible: true },
-  depth: { x: 7, y: 7, w: 5, h: 5, visible: true },
+  order: { x: 0, y: 0, w: 3, h: 12, visible: true },
+  book: { x: 3, y: 0, w: 3, h: 12, visible: true },
+  tape: { x: 6, y: 0, w: 2, h: 12, visible: true },
+  chart: { x: 8, y: 0, w: 4, h: 7, visible: true },
+  depth: { x: 8, y: 7, w: 4, h: 5, visible: true },
   positions: { x: 0, y: 12, w: 12, h: 5, visible: true },
-  balances: { x: 0, y: 17, w: 12, h: 3, visible: false },
+  balances: { x: 0, y: 17, w: 12, h: 3, visible: true },
 };
 
 export const LITE_DEFAULT: Placements = {
@@ -67,6 +76,7 @@ export const LITE_DEFAULT: Placements = {
   book: { x: 0, y: 12, w: 12, h: 6, visible: false },
   chart: { x: 0, y: 12, w: 12, h: 6, visible: false },
   depth: { x: 0, y: 12, w: 12, h: 6, visible: false },
+  tape: { x: 0, y: 12, w: 12, h: 6, visible: false },
 };
 
 export function defaultPlacements(mode: UiMode): Placements {

@@ -202,6 +202,50 @@ export interface KlinesResponse {
   nextCursor?: string;
 }
 
+// ---------------------------------------------------------------------------
+// 24h rolling ticker
+// ---------------------------------------------------------------------------
+
+/** ticker@{symbol} event payload (marketdata tickerData — Binance-style
+ * 24h rolling stats). Decimal fields stay strings. */
+export interface Ticker24h {
+  symbol: string;
+  open: string;
+  high: string;
+  low: string;
+  close: string;
+  volume: string;
+  quoteVolume: string;
+  priceChange: string;
+  priceChangePct: string;
+  weightedAvgPrice: string;
+  tradeCount: number;
+  openTimeMs: number;
+  closeTimeMs: number;
+}
+
+export function parseTicker24h(v: unknown): Ticker24h | null {
+  if (!isRecord(v)) return null;
+  const symbol = str(v['symbol']);
+  const close = decStr(v['close']);
+  if (!symbol || !close) return null;
+  return {
+    symbol,
+    open: decStr(v['open']) ?? '',
+    high: decStr(v['high']) ?? '',
+    low: decStr(v['low']) ?? '',
+    close,
+    volume: decStr(v['volume']) ?? '',
+    quoteVolume: decStr(v['quote_volume']) ?? '',
+    priceChange: decStr(v['price_change']) ?? '',
+    priceChangePct: decStr(v['price_change_pct']) ?? '',
+    weightedAvgPrice: decStr(v['weighted_avg_price']) ?? '',
+    tradeCount: num(v['trade_count']) ?? 0,
+    openTimeMs: num(v['open_time_ms']) ?? 0,
+    closeTimeMs: num(v['close_time_ms']) ?? 0,
+  };
+}
+
 export function parseKlinesResponse(v: unknown): KlinesResponse | null {
   if (!isRecord(v)) return null;
   const symbol = str(v['symbol']);

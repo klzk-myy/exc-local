@@ -15,6 +15,7 @@ import {
   parsePositionRow,
   parsePositionsResponse,
   parsePrivateOrderEvent,
+  parseTicker24h,
   parseTradeEvent,
 } from './wire';
 
@@ -186,6 +187,34 @@ describe('trades + account rows', () => {
     });
     expect(t?.side).toBe('SELL');
     expect(parseTradeEvent({ symbol: 'X', side: 'BUY' })).toBeNull();
+  });
+
+  it('parses 24h ticker frames (snake_case → camel, decimals stay strings)', () => {
+    const t = parseTicker24h({
+      symbol: 'EUR/USD',
+      open: '1.08',
+      high: '1.11',
+      low: '1.07',
+      close: '1.1001',
+      volume: '250000',
+      quote_volume: '275000',
+      price_change: '0.0201',
+      price_change_pct: '1.86',
+      weighted_avg_price: '1.09',
+      trade_count: 42,
+      open_time_ms: 10,
+      close_time_ms: 20,
+    });
+    expect(t).toMatchObject({
+      symbol: 'EUR/USD',
+      close: '1.1001',
+      quoteVolume: '275000',
+      priceChange: '0.0201',
+      priceChangePct: '1.86',
+      tradeCount: 42,
+    });
+    expect(parseTicker24h({ symbol: 'X' })).toBeNull(); // no close
+    expect(parseTicker24h('nope')).toBeNull();
   });
 
   it('parses positions + balances responses', () => {

@@ -124,17 +124,19 @@ describe('workspace layout persistence', () => {
 });
 
 describe('WorkspacePage (pro mode)', () => {
-  it('renders the six panels of the Pro default layout', async () => {
+  it('renders the seven panels of the Pro default layout', async () => {
     installFetchMock(EMPTY_FETCH);
     renderApp(<WorkspacePage />);
     expect(await screen.findByLabelText('Order ticket panel')).toBeInTheDocument();
     expect(screen.getByLabelText('Order book panel')).toBeInTheDocument();
-    expect(screen.getByLabelText('Positions & quick actions panel')).toBeInTheDocument();
+    expect(await screen.findByLabelText('Blotter (positions/orders/history) panel')).toBeInTheDocument();
     expect(screen.getByLabelText('Chart & overlays panel')).toBeInTheDocument();
     expect(screen.getByLabelText('Market depth panel')).toBeInTheDocument();
-    // balances hidden by default in the Pro layout
-    expect(screen.queryByLabelText('Balances panel')).not.toBeInTheDocument();
-    expect(screen.getByLabelText(/Show a hidden panel/)).toBeInTheDocument();
+    expect(await screen.findByLabelText('Market trades panel')).toBeInTheDocument();
+    // balances are cockpit-visible in the Pro default (MT5-style status row)
+    expect(await screen.findByLabelText('Balances panel')).toBeInTheDocument();
+    // every panel visible → no "show hidden" affordance
+    expect(screen.queryByLabelText(/Show a hidden panel/)).not.toBeInTheDocument();
   });
 
   it('safety-critical panels warn before hiding; others hide directly', async () => {
@@ -196,8 +198,8 @@ describe('WorkspacePage (lite mode)', () => {
     expect(screen.getByLabelText('Order book panel')).toBeInTheDocument();
     expect(screen.getByLabelText('Chart & overlays panel')).toBeInTheDocument();
     expect(screen.getByLabelText('Market depth panel')).toBeInTheDocument();
-    expect(screen.getByLabelText('Positions & quick actions panel')).toBeInTheDocument();
-    expect(screen.queryByLabelText('Balances panel')).not.toBeInTheDocument();
+    expect(await screen.findByLabelText('Blotter (positions/orders/history) panel')).toBeInTheDocument();
+    expect(await screen.findByLabelText('Balances panel')).toBeInTheDocument();
   });
 });
 

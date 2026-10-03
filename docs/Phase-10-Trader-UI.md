@@ -272,6 +272,8 @@ Implement movable/resizable panels, saved named layouts, light/dark themes, per-
 
 **(amended 2026-10-03 — IA consolidation, spec §27):** the Pro grid gained a sixth panel (order book); stored layouts merge panels added after the save with the mode default rather than invalidating the layout.
 
+**(amended 2026-10-03 — cockpit consolidation, spec §27):** the Pro workspace is the primary trading cockpit: a fixed `TickerStrip` chrome row (symbol switcher via the shared order-draft seam, `ticker@` 24h stats, `bbo@` spread, watchlist toggle — price context is never hideable), a new `tape` grid panel consuming `trades@{symbol}`, a `ChartPanel` timeframe switcher over the canonical `TradingChart` (interval persisted per-device, vocabulary from `KLINE_INTERVALS`), a `BlotterPanel` (Positions · Open orders · History tabs reusing `PositionsPanel`/`useOpenOrders`/`useOrders`/`cancelOrder`+`ConfirmAction`) replacing the bare positions tile, and `balances` promoted to Pro-default-visible (MT5-style status row). All panels ride the existing `useChannel`/wire-parser/layout-merge seams — no parallel data layer.
+
 ---
 
 ### Task 10.3.15: Chart Trading and Order Overlays

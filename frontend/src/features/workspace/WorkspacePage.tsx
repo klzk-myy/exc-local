@@ -46,6 +46,8 @@ import {
   type Placements,
 } from './layouts';
 import { SubAccountSwitcher } from '@/features/advanced-orders/SubAccountSwitcher';
+import { ChartPanel } from './ChartPanel';
+import { TickerStrip } from './TickerStrip';
 
 import { useUiMode } from './liteMode';
 import { useTheme } from './theme';
@@ -60,10 +62,12 @@ const AdvancedOrderPanel = lazy(() =>
     default: m.AdvancedOrderPanel,
   })),
 );
-const PositionsPanel = lazy(() =>
-  import('@/features/advanced-orders/PositionsPanel').then((m) => ({ default: m.PositionsPanel })),
+const BlotterPanel = lazy(() =>
+  import('./BlotterPanel').then((m) => ({ default: m.BlotterPanel })),
 );
-const TradingChart = lazy(() => import('@/features/charts/TradingChart'));
+const MarketTrades = lazy(() =>
+  import('./MarketTrades').then((m) => ({ default: m.MarketTrades })),
+);
 const DepthChart = lazy(() =>
   import('@/features/depth-chart/DepthChart').then((m) => ({ default: m.DepthChart })),
 );
@@ -90,11 +94,13 @@ function PanelBody({ id, symbol }: { id: PanelId; symbol: string }) {
         />
       );
     case 'positions':
-      return <PositionsPanel />;
+      return <BlotterPanel />;
     case 'chart':
-      return <TradingChart symbol={symbol} interval="15m" />;
+      return <ChartPanel symbol={symbol} />;
     case 'depth':
       return <DepthChart symbol={symbol} />;
+    case 'tape':
+      return <MarketTrades symbol={symbol} />;
     case 'balances':
       return <BalancesPanel />;
   }
@@ -402,6 +408,13 @@ export default function WorkspacePage() {
         <span className="ml-auto text-xs text-neutral-500" aria-live="polite">
           {notice ?? `scope: ${scope}`}
         </span>
+      </div>
+
+      {/* Symbol context strip — MT5 Market Watch / Binance symbol bar
+          role. Fixed chrome, not a grid panel: price context for the
+          order ticket must never be hideable. */}
+      <div className="border-b border-neutral-800 px-4 py-1.5">
+        <TickerStrip symbol={symbol} />
       </div>
 
       <div
