@@ -62,6 +62,36 @@ describe('auto-discovery', () => {
     const sections = navBySection();
     expect(sections.get('Trade')?.map((e) => e.item.to)).toContain('/');
   });
+
+  it('renders sections in canonical product order, not alphabetically', () => {
+    expect([...navBySection().keys()]).toEqual(['Trade', 'Research', 'Invest', 'Account', 'Admin']);
+  });
+
+  it('keeps deep-link and redundant pages out of the sidebar', () => {
+    const tos = collectNavItems().map((e) => e.item.to);
+    for (const hidden of [
+      '/notifications', // NotificationBell already surfaces this
+      '/account/sessions', // linked from Settings → Security
+      '/webhooks',
+      '/fee-tiers',
+      '/workspace',
+    ]) {
+      expect(tos).not.toContain(hidden);
+    }
+  });
+
+  it('keeps hidden pages routable via feature routes', () => {
+    const paths = collectFeatureRoutes().map((r) => r.route.path);
+    for (const route of [
+      'notifications',
+      'account/sessions',
+      'webhooks',
+      'fee-tiers',
+      'workspace',
+    ]) {
+      expect(paths).toContain(route);
+    }
+  });
 });
 
 describe('shell + route rendering', () => {
