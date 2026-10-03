@@ -296,6 +296,10 @@ ANNOTATIONS = {
     ("settlement_exceptions", "resolution_notes"): ("FREE_TEXT", "plaintext", "exception investigation annotation", "financial record floor"),
     ("nostro_recon_breaks", "resolution_notes"): ("FREE_TEXT", "plaintext", "break investigation annotation", "financial record floor"),
     ("pb_recon_breaks", "resolution_note"): ("FREE_TEXT", "plaintext", "give-up break investigation annotation", "financial record floor"),
+    ("ict_providers", "notes"): ("FREE_TEXT", "plaintext — register note may name vendor contacts",
+        "DORA ICT third-party register", "regulatory record floor"),
+    ("ict_provider_reviews", "notes"): ("FREE_TEXT", "plaintext — review annotation may name reviewers/contacts",
+        "DORA ICT provider review record", "regulatory record floor"),
 }
 
 # Name patterns that force REVIEW when a column isn't curated — keeps the
@@ -338,6 +342,9 @@ NONPII = {
     ("mm_compliance", "breach_reason"): "ops vocabulary enum",
     ("fix_certifications", "revoked_reason"): "ops vocabulary",
     ("fix_allocations", "reject_reason"): "ops vocabulary",
+    ("fix_cert_revocations", "fingerprint"): "SHA-256 hex of DER cert — credential metadata, not personal",
+    ("fix_cert_revocations", "reason"): "ops vocabulary",
+    ("ict_providers", "name"): "institutional vendor name — DORA register counterparty, not personal",
     # ---- secrets inventory (migration 089) — metadata ABOUT vault
     # entries; no secret material or personal data is ever stored here
     ("secrets_inventory", "secret_name"): "canonical vault-entry identifier (e.g. 'jwt-hs256-key') — ops metadata, not personal data",
