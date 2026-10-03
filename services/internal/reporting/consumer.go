@@ -10,6 +10,7 @@ import (
 
 	"exchange/internal/ipc"
 	"exchange/internal/ipc/wire"
+	"exchange/internal/tracing"
 )
 
 // ---------------------------------------------------------------------------
@@ -55,7 +56,8 @@ func (c *ConfirmationConsumer) HandleMsg(ctx context.Context, m jetstream.Msg) (
 	if len(data) < 8 {
 		return nil
 	}
-	ev := ipc.DecodeEvent(data)
+	body, _, _ := tracing.StripAeronTrace(data)
+	ev := ipc.DecodeEvent(body)
 	if ev == nil || ev.TypeType() != wire.EventTypeTradeFill {
 		return nil
 	}

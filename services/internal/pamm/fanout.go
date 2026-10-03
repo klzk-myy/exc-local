@@ -10,6 +10,7 @@ import (
 	"exchange/internal/ipc"
 	"exchange/internal/ipc/wire"
 	"exchange/internal/settlement"
+	"exchange/internal/tracing"
 	"exchange/pkg/decimal"
 )
 
@@ -114,7 +115,8 @@ func (f *TradesFanout) HandleMsg(ctx context.Context, m jetstream.Msg) (err erro
 	if len(data) < 8 {
 		return nil // un-decodable — not a fill frame
 	}
-	ev := ipc.DecodeEvent(data)
+	body, _, _ := tracing.StripAeronTrace(data)
+	ev := ipc.DecodeEvent(body)
 	if ev == nil || ev.TypeType() != wire.EventTypeTradeFill {
 		return nil // not a fill — the trades stream also carries others
 	}

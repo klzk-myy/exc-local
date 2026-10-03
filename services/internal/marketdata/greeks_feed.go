@@ -42,7 +42,6 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
-	"strings"
 	"sync"
 	"time"
 
@@ -434,7 +433,7 @@ func JetStreamGreeksPublisher(nc *excnats.Client, stream string, shardID uint32)
 
 // PublishGreeks implements GreeksPublisher.
 func (p *jetStreamGreeksPublisher) PublishGreeks(ctx context.Context, underlying string, frame []byte) error {
-	token := strings.ReplaceAll(underlying, "/", "-")
+	token := excnats.SymbolToken(underlying)
 	_, err := p.nc.Publish(ctx, p.stream, p.shard, "greeks-"+token, frame)
 	return err
 }

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"exchange/internal/ipc"
+	excnats "exchange/internal/nats"
 	"exchange/internal/tracing"
 )
 
@@ -36,7 +37,7 @@ type Bridge struct {
 	log  *slog.Logger
 	m    *Metrics
 	buf  *eventBuffer
-	oidx *orderIndex
+	oidx *excnats.OrderIndex[string]
 	wake chan struct{} // cap-1 ingest -> drain notification
 }
 
@@ -61,7 +62,7 @@ func New(cfg Config, pub Publisher, res Resolver, log *slog.Logger) (*Bridge, er
 		log:  log,
 		m:    newMetrics(cfg.ShardID),
 		buf:  newEventBuffer(cfg.BufferSize),
-		oidx: newOrderIndex(cfg.OrderIndexSize),
+		oidx: excnats.NewOrderIndex[string](cfg.OrderIndexSize),
 		wake: make(chan struct{}, 1),
 	}, nil
 }

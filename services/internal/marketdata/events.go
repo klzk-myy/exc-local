@@ -120,58 +120,20 @@ type orderAdmission struct {
 	admitSeq uint64
 }
 
-// orderIndex maps engine order_id → admission record so order-keyed
-// events (TradeFill carries order ids, no instrument_id) resolve their
-// instrument and aggressor. Bounded FIFO eviction — engine order ids
-// are monotonic, so evicting the oldest insertion approximates LRU.
-// Same construction as internal/bridge.orderIndex, duplicated because
-// that type is package-private.
-type orderIndex struct {
-	m     map[uint64]orderAdmission
-	fifo  []uint64 // insertion order of live keys
-	start int
-	cap   int
-}
-
-func newOrderIndex(capacity int) *orderIndex {
-	if capacity < 1 {
-		capacity = 1
-	}
-	return &orderIndex{m: make(map[uint64]orderAdmission, 1024), cap: capacity}
-}
-
-func (o *orderIndex) put(orderID uint64, a orderAdmission) {
-	if _, exists := o.m[orderID]; exists {
-		o.m[orderID] = a
-		return
-	}
-	for len(o.m) >= o.cap {
-		delete(o.m, o.fifo[o.start])
-		o.start++
-	}
-	if o.start > 0 && o.start*2 >= len(o.fifo) {
-		o.fifo = append([]uint64(nil), o.fifo[o.start:]...)
-		o.start = 0
-	}
-	o.m[orderID] = a
-	o.fifo = append(o.fifo, orderID)
-}
-
-func (o *orderIndex) get(orderID uint64) (orderAdmission, bool) {
-	a, ok := o.m[orderID]
-	return a, ok
-}
-
+// orderIndex is the shared bounded order→admission index
+// (internal/nats.OrderIndex); resolveFill adds the aggressor decision on
+// top of it.
+//
 // resolveFill resolves a TradeFill's symbol and aggressor against the
 // admission index. The taker is the leg with the LATER admission seq —
 // a resting maker is always admitted before the taker that sweeps it.
 // When exactly one leg is indexed it is the maker (it rested); when
 // neither is indexed (producer attached mid-flight, index evicted) the
 // fill is unresolvable — returned ok=false, never guessed.
-func (o *orderIndex) resolveFill(buyID, sellID uint64) (symbol string,
+func resolveFill(o *excnats.OrderIndex[orderAdmission], buyID, sellID uint64) (symbol string,
 	takerID, makerID uint64, taker Side, ok bool) {
-	b, bOK := o.get(buyID)
-	s, sOK := o.get(sellID)
+	b, bOK := o.Get(buyID)
+	s, sOK := o.Get(sellID)
 	switch {
 	case bOK && sOK:
 		symbol = b.symbol
@@ -203,7 +165,7 @@ type WireTradeSource struct {
 	src ByteSource
 	res InstrumentResolver
 	log *slog.Logger
-	idx *orderIndex
+	idx *excnats.OrderIndex[orderAdmission]
 
 	// OnDrop observes skipped payloads ("malformed" | "unresolved").
 	OnDrop func(reason string)
@@ -218,12 +180,12 @@ func NewWireTradeSource(src ByteSource, res InstrumentResolver, log *slog.Logger
 		log = slog.Default()
 	}
 	return &WireTradeSource{src: src, res: res, log: log,
-		idx: newOrderIndex(DefaultOrderIndexCap)}
+		idx: excnats.NewOrderIndex[orderAdmission](DefaultOrderIndexCap)}
 }
 
 // OrderIndex exposes the admission index so a JetStream trade consumer
 // can share it with an auxiliary order-feed consumer.
-func (s *WireTradeSource) OrderIndex() *orderIndex { return s.idx }
+func (s *WireTradeSource) OrderIndex() *excnats.OrderIndex[orderAdmission] { return s.idx }
 
 // Trades implements TradeSource.
 func (s *WireTradeSource) Trades(ctx context.Context) (<-chan TradeEvent, error) {
@@ -294,7 +256,7 @@ func (s *WireTradeSource) decode(buf []byte) (TradeEvent, bool) {
 			}
 			return TradeEvent{}, false
 		}
-		s.idx.put(on.OrderId(), orderAdmission{symbol: sym, admitSeq: ev.Seq()})
+		s.idx.Put(on.OrderId(), orderAdmission{symbol: sym, admitSeq: ev.Seq()})
 		return TradeEvent{}, false
 	case wire.EventTypeTradeFill:
 		tf := ipc.EventTradeFill(ev)
@@ -326,7 +288,7 @@ func (s *WireTradeSource) fillToEvent(tf *wire.TradeFill, ev *wire.Event) TradeE
 		Seq:         tf.Seq(),
 		Ts:          time.Unix(0, int64(ev.Ts())),
 	}
-	sym, takerID, makerID, taker, ok := s.idx.resolveFill(tf.BuyOrderId(), tf.SellOrderId())
+	sym, takerID, makerID, taker, ok := resolveFill(s.idx, tf.BuyOrderId(), tf.SellOrderId())
 	if !ok {
 		// Unresolvable — the producer drops it below (symbol-less events
 		// cannot be routed to trades@{symbol}). Counted, never fatal.
@@ -423,7 +385,7 @@ func SubjectSymbols(res InstrumentResolver) SubjectSymbol {
 	out := SubjectSymbol{}
 	if mr, ok := res.(MapResolver); ok {
 		for _, sym := range mr {
-			out[strings.ReplaceAll(sym, "/", "-")] = sym
+			out[excnats.SymbolToken(sym)] = sym
 		}
 	}
 	return out
@@ -462,7 +424,7 @@ func (s SubjectSymbol) symbol(subject string) (string, bool) {
 type JetStreamTradeSource struct {
 	src     MsgSource
 	symbols SubjectSymbol
-	idx     *orderIndex
+	idx     *excnats.OrderIndex[orderAdmission]
 	res     InstrumentResolver
 	log     *slog.Logger
 
@@ -479,7 +441,7 @@ func NewJetStreamTradeSource(src MsgSource, symbols SubjectSymbol,
 	}
 	return &JetStreamTradeSource{
 		src: src, symbols: symbols, res: res, log: log,
-		idx: newOrderIndex(DefaultOrderIndexCap),
+		idx: excnats.NewOrderIndex[orderAdmission](DefaultOrderIndexCap),
 	}
 }
 
@@ -573,7 +535,7 @@ func (s *JetStreamTradeSource) indexOrder(buf []byte) {
 	if !ok {
 		sym = fmt.Sprintf("instr-%d", on.InstrumentId())
 	}
-	s.idx.put(on.OrderId(), orderAdmission{symbol: sym, admitSeq: ev.Seq()})
+	s.idx.Put(on.OrderId(), orderAdmission{symbol: sym, admitSeq: ev.Seq()})
 }
 
 // decode converts one republished wire.Event into a TradeEvent. Symbol
@@ -593,7 +555,11 @@ func (s *JetStreamTradeSource) decode(m RawMsg) (TradeEvent, bool) {
 		}
 		return TradeEvent{}, false
 	}
-	ev := ipc.DecodeEvent(m.Data)
+	// Task 9.3.11 — strip the echoed EXCTRACE block before decode, same
+	// as indexOrder: a TradeFill answering a traced OrderNew carries the
+	// 64B block and raw decode panics on the shifted frame.
+	body, _, _ := tracing.StripAeronTrace(m.Data)
+	ev := ipc.DecodeEvent(body)
 	if ev.TypeType() != wire.EventTypeTradeFill {
 		return TradeEvent{}, false
 	}
@@ -617,7 +583,7 @@ func (s *JetStreamTradeSource) decode(m RawMsg) (TradeEvent, bool) {
 	if !ok {
 		// Subject routing failed — fall back to the admission index
 		// before giving up (the index resolves via instrument map).
-		if t, takerID, makerID, side, ok2 := s.idx.resolveFill(
+		if t, takerID, makerID, side, ok2 := resolveFill(s.idx, 
 			tf.BuyOrderId(), tf.SellOrderId()); ok2 {
 			e.Symbol, e.TakerOrderID, e.MakerOrderID, e.TakerSide =
 				t, takerID, makerID, side
@@ -632,7 +598,7 @@ func (s *JetStreamTradeSource) decode(m RawMsg) (TradeEvent, bool) {
 	}
 	e.Symbol = sym
 	// Aggressor via admission index when available.
-	if _, takerID, makerID, side, ok2 := s.idx.resolveFill(
+	if _, takerID, makerID, side, ok2 := resolveFill(s.idx, 
 		tf.BuyOrderId(), tf.SellOrderId()); ok2 {
 		e.TakerOrderID, e.MakerOrderID, e.TakerSide = takerID, makerID, side
 	}

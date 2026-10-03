@@ -28,7 +28,7 @@ const UnknownSymbol = "UNKNOWN"
 //	                        row carries instrument_id — the order index
 //	                        backstops rows routed before a resolver sync)
 //	TimeTick / NONE        -> not republished (inbound-only control messages)
-func streamsForEvent(et wire.EventType) []string {
+func StreamsForEvent(et wire.EventType) []string {
 	switch et {
 	case wire.EventTypeTradeFill:
 		return []string{"trades", "settlements"}
@@ -66,52 +66,6 @@ func fallbackSymbol(instrumentID uint32) string {
 	return fmt.Sprintf("instr-%d", instrumentID)
 }
 
-// orderIndex maps engine order_id -> symbol token so order-keyed events
-// (TradeFill, OrderCancel, OrderAmend carry order ids but no
-// instrument_id) can be routed. It is populated from OrderNew events seen
-// on the engine's outbound stream (ack echo) and bounded by FIFO eviction —
-// engine order ids are monotonic, so evicting the oldest insertion first
-// approximates LRU closely enough at a fraction of the cost.
-type orderIndex struct {
-	m     map[uint64]string
-	fifo  []uint64 // insertion order of live keys
-	start int      // head index into fifo
-	cap   int
-}
-
-func newOrderIndex(capacity int) *orderIndex {
-	if capacity < 1 {
-		capacity = 1
-	}
-	return &orderIndex{m: make(map[uint64]string, 1024), cap: capacity}
-}
-
-func (o *orderIndex) put(orderID uint64, symbol string) {
-	if _, exists := o.m[orderID]; exists {
-		o.m[orderID] = symbol
-		return
-	}
-	for len(o.m) >= o.cap {
-		old := o.fifo[o.start]
-		o.start++
-		delete(o.m, old)
-	}
-	// Compact the FIFO tail lazily so it doesn't grow without bound.
-	if o.start > 0 && o.start*2 >= len(o.fifo) {
-		o.fifo = append([]uint64(nil), o.fifo[o.start:]...)
-		o.start = 0
-	}
-	o.m[orderID] = symbol
-	o.fifo = append(o.fifo, orderID)
-}
-
-func (o *orderIndex) get(orderID uint64) (string, bool) {
-	s, ok := o.m[orderID]
-	return s, ok
-}
-
-func (o *orderIndex) len() int { return len(o.m) }
-
 // resolveInstrument maps instrument_id to a symbol token via the
 // configured resolver, falling back to "instr-<id>" so ordering domains
 // stay per-instrument even with an unconfigured id.
@@ -126,7 +80,7 @@ func (b *Bridge) resolveInstrument(instrumentID uint32) (string, bool) {
 // the Aeron log buffer) to pick target subjects, and maintains the order
 // index. Returns nil subjects for events that are not republished.
 func (b *Bridge) route(ev *wire.Event) []string {
-	streams := streamsForEvent(ev.TypeType())
+	streams := StreamsForEvent(ev.TypeType())
 	if len(streams) == 0 {
 		return nil
 	}
@@ -140,9 +94,9 @@ func (b *Bridge) route(ev *wire.Event) []string {
 		if tf == nil {
 			return nil
 		}
-		if s, ok := b.oidx.get(tf.BuyOrderId()); ok {
+		if s, ok := b.oidx.Get(tf.BuyOrderId()); ok {
 			symbol = s
-		} else if s, ok := b.oidx.get(tf.SellOrderId()); ok {
+		} else if s, ok := b.oidx.Get(tf.SellOrderId()); ok {
 			symbol = s
 		} else {
 			symbol, resolved = UnknownSymbol, false
@@ -153,14 +107,14 @@ func (b *Bridge) route(ev *wire.Event) []string {
 			return nil
 		}
 		symbol, resolved = b.resolveInstrument(on.InstrumentId())
-		b.oidx.put(on.OrderId(), symbol)
+		b.oidx.Put(on.OrderId(), symbol)
 	case wire.EventTypeOrderCancel:
 		if !ev.Type(&t) {
 			return nil
 		}
 		oc := &wire.OrderCancel{}
 		oc.Init(t.Bytes, t.Pos)
-		if s, ok := b.oidx.get(oc.OrderId()); ok {
+		if s, ok := b.oidx.Get(oc.OrderId()); ok {
 			symbol = s
 		} else {
 			symbol, resolved = UnknownSymbol, false
@@ -171,7 +125,7 @@ func (b *Bridge) route(ev *wire.Event) []string {
 		}
 		oa := &wire.OrderAmend{}
 		oa.Init(t.Bytes, t.Pos)
-		if s, ok := b.oidx.get(oa.OrderId()); ok {
+		if s, ok := b.oidx.Get(oa.OrderId()); ok {
 			symbol = s
 		} else {
 			symbol, resolved = UnknownSymbol, false
@@ -196,7 +150,7 @@ func (b *Bridge) route(ev *wire.Event) []string {
 		}
 		if s, hit := b.resolveInstrument(l3.InstrumentID); hit {
 			symbol = s
-		} else if s, hit := b.oidx.get(l3.OrderID); hit {
+		} else if s, hit := b.oidx.Get(l3.OrderID); hit {
 			symbol = s
 		} else {
 			symbol, resolved = UnknownSymbol, false

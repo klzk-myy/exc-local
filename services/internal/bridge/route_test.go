@@ -7,6 +7,7 @@ import (
 
 	"exchange/internal/ipc"
 	"exchange/internal/ipc/wire"
+	excnats "exchange/internal/nats"
 )
 
 func testBridge(t *testing.T, res Resolver) *Bridge {
@@ -97,7 +98,7 @@ func TestStreamMapping(t *testing.T) {
 		wire.EventTypeNONE:         nil,
 	}
 	for et, want := range cases {
-		got := streamsForEvent(et)
+		got := StreamsForEvent(et)
 		if len(got) != len(want) {
 			t.Fatalf("%s: streams %v want %v", et, got, want)
 		}
@@ -195,20 +196,20 @@ func TestRouteSkipsControlEvents(t *testing.T) {
 }
 
 func TestOrderIndexBounded(t *testing.T) {
-	o := newOrderIndex(4)
+	o := excnats.NewOrderIndex[string](4)
 	for i := uint64(0); i < 10; i++ {
-		o.put(i, "SYM")
+		o.Put(i, "SYM")
 	}
-	if o.len() != 4 {
-		t.Fatalf("orderIndex len=%d want 4", o.len())
+	if o.Len() != 4 {
+		t.Fatalf("orderIndex len=%d want 4", o.Len())
 	}
 	for i := uint64(0); i < 6; i++ {
-		if _, ok := o.get(i); ok {
+		if _, ok := o.Get(i); ok {
 			t.Fatalf("order %d should have been evicted", i)
 		}
 	}
 	for i := uint64(6); i < 10; i++ {
-		if s, ok := o.get(i); !ok || s != "SYM" {
+		if s, ok := o.Get(i); !ok || s != "SYM" {
 			t.Fatalf("order %d missing", i)
 		}
 	}

@@ -45,7 +45,9 @@ import (
 	"exchange/internal/ipc"
 	"exchange/internal/ipc/wire"
 	"exchange/internal/middleware"
+	excnats "exchange/internal/nats"
 	"exchange/internal/ratelimit"
+	"exchange/internal/tracing"
 	"exchange/internal/ws"
 	"exchange/pkg/decimal"
 )
@@ -184,7 +186,7 @@ func (f L3SourceFunc) Events(ctx context.Context) (<-chan L3Event, error) {
 type WireL3Source struct {
 	src ByteSource
 	res InstrumentResolver
-	idx *orderIndex
+	idx *excnats.OrderIndex[orderAdmission]
 	log *slog.Logger
 
 	// OnDrop observes skipped payloads ("malformed" | "unresolved").
@@ -199,12 +201,12 @@ func NewWireL3Source(src ByteSource, res InstrumentResolver, log *slog.Logger) *
 		log = slog.Default()
 	}
 	return &WireL3Source{src: src, res: res, log: log,
-		idx: newOrderIndex(DefaultOrderIndexCap)}
+		idx: excnats.NewOrderIndex[orderAdmission](DefaultOrderIndexCap)}
 }
 
 // OrderIndex exposes the admission index so a second consumer can share
 // order_id → symbol resolution.
-func (s *WireL3Source) OrderIndex() *orderIndex { return s.idx }
+func (s *WireL3Source) OrderIndex() *excnats.OrderIndex[orderAdmission] { return s.idx }
 
 // Events implements L3Source.
 func (s *WireL3Source) Events(ctx context.Context) (<-chan L3Event, error) {
@@ -256,7 +258,8 @@ func (s *WireL3Source) decode(buf []byte) (L3Event, bool) {
 		}
 		return L3Event{}, false
 	}
-	ev := ipc.DecodeEvent(buf)
+	body, _, _ := tracing.StripAeronTrace(buf)
+	ev := ipc.DecodeEvent(body)
 	switch ev.TypeType() {
 	case wireTypeOrderNew:
 		on := ipc.EventOrderNew(ev)
@@ -271,7 +274,7 @@ func (s *WireL3Source) decode(buf []byte) (L3Event, bool) {
 			}
 			return L3Event{}, false
 		}
-		s.idx.put(on.OrderId(), orderAdmission{symbol: sym, admitSeq: ev.Seq()})
+		s.idx.Put(on.OrderId(), orderAdmission{symbol: sym, admitSeq: ev.Seq()})
 		return L3Event{}, false
 	case ipc.EventTypeL3OrderEvent:
 		f, ok := ipc.DecodeL3OrderEvent(ev)
@@ -308,7 +311,7 @@ func (s *WireL3Source) decode(buf []byte) (L3Event, bool) {
 			}
 		}
 		if e.Symbol == "" {
-			if a, ok := s.idx.get(f.OrderID); ok {
+			if a, ok := s.idx.Get(f.OrderID); ok {
 				e.Symbol = a.symbol
 			}
 		}
@@ -396,7 +399,8 @@ func (s *JetStreamL3Source) decode(m RawMsg) (L3Event, bool) {
 		}
 		return L3Event{}, false
 	}
-	ev := ipc.DecodeEvent(m.Data)
+	body, _, _ := tracing.StripAeronTrace(m.Data)
+	ev := ipc.DecodeEvent(body)
 	f, ok := ipc.DecodeL3OrderEvent(ev)
 	if !ok {
 		if s.OnDrop != nil {

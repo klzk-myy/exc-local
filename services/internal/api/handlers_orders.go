@@ -33,6 +33,23 @@ type OrderDeps struct {
 	Verifier     *auth.SignatureVerifier
 	TrustProxy   bool
 	RoleResolver func(ctx context.Context, adminUserID int64) (string, error)
+	// SymbolFor resolves instrument_id → canonical symbol for order
+	// views — the wire contract private:orders and the UI's order
+	// parser both key on. Nil leaves the view's instrument_id only.
+	SymbolFor func(instrumentID int64) (string, bool)
+}
+
+// orderView renders o per the §5.3 wire contract, decorating the
+// canonical symbol clients key on (the REST row only carries
+// instrument_id; OrderEvent.Symbol is the private-stream shape).
+func (d *OrderDeps) orderView(o *orders.Order) map[string]any {
+	v := o.View()
+	if d.SymbolFor != nil {
+		if sym, ok := d.SymbolFor(o.InstrumentID); ok && sym != "" {
+			v["symbol"] = sym
+		}
+	}
+	return v
 }
 
 // actor renders the audit actor string from the auth context.
@@ -228,7 +245,7 @@ func OrderModify(d *OrderDeps) http.HandlerFunc {
 			writeServiceErr(w, r, err)
 			return
 		}
-		WriteJSON(w, http.StatusOK, o.View())
+		WriteJSON(w, http.StatusOK, d.orderView(o))
 	}
 }
 
@@ -392,7 +409,7 @@ func OrderList(d *OrderDeps) http.HandlerFunc {
 		}
 		views := make([]map[string]any, 0, len(page))
 		for i := range page {
-			views = append(views, page[i].View())
+			views = append(views, d.orderView(&page[i]))
 		}
 		env := NewListEnvelope(views, p,
 			PageCursors(page, func(o orders.Order) (time.Time, int64) {
@@ -421,7 +438,7 @@ func OrderGet(d *OrderDeps) http.HandlerFunc {
 			writeServiceErr(w, r, err)
 			return
 		}
-		WriteJSON(w, http.StatusOK, o.View())
+		WriteJSON(w, http.StatusOK, d.orderView(o))
 	}
 }
 
@@ -615,7 +632,7 @@ func OrderCancelReplace(d *OrderDeps) http.HandlerFunc {
 			"cancel_outcome": "SUPERSEDED", // single atomic replace — no split legs
 			"new_outcome":    "APPLIED",
 			"order_seq":      o.OrderSeq,
-			"order":          o.View(),
+			"order":          d.orderView(o),
 		})
 	}
 }
@@ -649,7 +666,7 @@ func OrderKeepPriority(d *OrderDeps) http.HandlerFunc {
 			writeServiceErr(w, r, err)
 			return
 		}
-		WriteJSON(w, http.StatusOK, o.View())
+		WriteJSON(w, http.StatusOK, d.orderView(o))
 	}
 }
 

@@ -20,6 +20,7 @@ import (
 	"exchange/internal/ipc"
 	"exchange/internal/ipc/wire"
 	excnats "exchange/internal/nats"
+	"exchange/internal/tracing"
 )
 
 // InstrumentResolver maps a wire instrument_id to its display symbol
@@ -119,7 +120,8 @@ func (s *WireDeltaSource) decodeFrame(buf []byte) (BookDelta, bool) {
 		}
 		return BookDelta{}, false
 	}
-	ev := ipc.DecodeEvent(buf)
+	body, _, _ := tracing.StripAeronTrace(buf)
+	ev := ipc.DecodeEvent(body)
 	if ev.TypeType() != wire.EventTypeBookSnapshot {
 		return BookDelta{}, false
 	}
@@ -154,7 +156,8 @@ func DecodeBookDeltaFrame(buf []byte, res InstrumentResolver) (BookDelta, bool) 
 	if len(buf) < 8 {
 		return BookDelta{}, false
 	}
-	ev := ipc.DecodeEvent(buf)
+	body, _, _ := tracing.StripAeronTrace(buf)
+	ev := ipc.DecodeEvent(body)
 	if ev.TypeType() != wire.EventTypeBookSnapshot {
 		return BookDelta{}, false
 	}

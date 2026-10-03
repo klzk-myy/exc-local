@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -431,7 +430,7 @@ func (c *FillConsumer) republishBacklog(ctx context.Context) error {
 // dead-letters (count + log); a publish error aborts the caller.
 func (c *FillConsumer) publishFillFrame(ctx context.Context, tradeID int64,
 	symbol string, engineSeq int64, raw []byte) error {
-	sym := strings.ReplaceAll(symbol, "/", "-")
+	sym := excnats.SymbolToken(symbol)
 	msgID := fmt.Sprintf("s%d-%d", c.shardID, engineSeq)
 	for _, stream := range []string{"trades", "settlements"} {
 		subj, err := excnats.Subject(stream, uint32(c.shardID), sym)

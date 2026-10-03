@@ -177,7 +177,7 @@ func LPQuoteSubject(lpID int64, symbol string) (string, error) {
 	if lpID <= 0 {
 		return "", fmt.Errorf("fix quoting: lp_id %d invalid for quote subject", lpID)
 	}
-	tok := strings.ReplaceAll(symbol, "/", "-")
+	tok := excnats.SymbolToken(symbol)
 	if tok == "" || strings.ContainsAny(tok, ". *>\t\n\r") {
 		return "", fmt.Errorf("fix quoting: symbol %q is not a valid subject token", symbol)
 	}

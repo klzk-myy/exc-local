@@ -21,9 +21,11 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
+	flatbuffers "github.com/google/flatbuffers/go"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nats-io/nats.go/jetstream"
@@ -36,6 +38,7 @@ import (
 	"exchange/internal/auth"
 	"exchange/internal/backoffice"
 	"exchange/internal/bots"
+	"exchange/internal/bridge"
 	"exchange/internal/cache"
 	"exchange/internal/compliance"
 	regreport "exchange/internal/compliance/reporting"
@@ -56,9 +59,11 @@ import (
 	"exchange/internal/gateway"
 	"exchange/internal/instruments"
 	"exchange/internal/ipc"
+	"exchange/internal/ipc/wire"
 	excmargin "exchange/internal/margin"
 	"exchange/internal/marketapi"
 	"exchange/internal/marketdata"
+	"exchange/internal/marketdata/ohlcv"
 	"exchange/internal/marketmaking"
 	"exchange/internal/middleware"
 	"exchange/internal/nats"
@@ -1233,13 +1238,47 @@ func run() error {
 	// model, ShmSubmitter the engine-bound Aeron ring producer. A
 	// missing engine image fails closed SERVICE_DEGRADED at dispatch.
 	orderStore := orders.NewPgStore(pool)
+
+	// L2 public-market-data fanout + the shm-topology JetStream
+	// republisher. In the shm-only topology there is no Aeron bridge
+	// (cmd/bridge subscribes an outbound stream the engine never
+	// publishes), so this process owns BOTH ring ends:
+	//   - sorResolver feeds DecodeBookDeltaFrame + the republisher's
+	//     instrument_id → symbol-token routing.
+	//   - l2RawCh mirrors frames into WireTradeSource (engine _out
+	//     carries no OrderNew, so dispatchMirror feeds the admission
+	//     index from the _in side); l2DeltaCh feeds the bbo@ producer.
+	//   - repubQ republishes events onto the streams the bridge would
+	//     feed (compliance/analytics per internal/bridge's table) so
+	//     marketdata can consume via JetStream instead of competing for
+	//     the SPSC _out tail; orderSyms resolves order_id → symbol token
+	//     for OrderCancel routing (populated by dispatchMirror).
+	sorResolver := loadInstrumentResolver(context.Background(), pool, log)
+	var l2Fanout atomic.Pointer[marketdata.Conflator]
+	l2RawCh := make(chan []byte, 8192)
+	l2DeltaCh := make(chan marketdata.BookDelta, 8192)
+	repubQ := make(repubQueue, 8192)
+	orderSyms := newSyncOrderIndex(1 << 16)
+	go refreshInstrumentResolver(sweepCtx, pool, sorResolver, 60*time.Second, log)
+
 	// EXC_IPC_BASE namespaces the shm rings away from the default
 	// "exchange_ipc" base — test harnesses run a parallel stack without
 	// colliding with a live gateway's segments.
 	orderSubmitter := orders.NewShmSubmitter(os.Getenv("EXC_IPC_BASE"))
 	orderSvc, err := orders.NewService(orders.Options{
-		Store:      orderStore,
-		Submitter:  orderSubmitter,
+		Store: orderStore,
+		// dispatchMirror wraps the ring producer: every successfully
+		// dispatched frame also feeds the trade admission index
+		// (l2RawCh) and the shm-topology republisher (repubQ) — the
+		// engine never echoes OrderNew on _out, so this is the only
+		// place order-lifecycle events can reach the wire consumers.
+		Submitter: &dispatchMirror{
+			inner:  orderSubmitter,
+			frames: l2RawCh,
+			repub:  repubQ,
+			syms:   orderSyms,
+			res:    sorResolver,
+		},
 		ShardMap:   shardMap,
 		Limits:     riskLimits,
 		KillSwitch: killResolver, // Tasks 11.3.4/11.3.8 — every admission path consults it
@@ -1308,8 +1347,15 @@ func run() error {
 	// order submits locally, matching the documented zero-venue
 	// behaviour.
 	sorBookCache := sor.NewBookViewCache()
-	sorResolver := loadInstrumentResolver(context.Background(), pool, log)
-	go refreshInstrumentResolver(sweepCtx, pool, sorResolver, 60*time.Second, log)
+	// L2 public-channel fanout: the same frame tap that feeds the SOR
+	// book view also pushes every decoded BookDelta into a marketdata
+	// Conflator — its 100ms/§10.9 frames are what depth@{sym}/book@{sym}
+	// subscribers on the unified /ws/v1 socket consume (spec §10.5).
+	// l2Fanout is assigned once wsSrv exists; nil ⇒ the tap skips
+	// publishing. l2RawCh/l2DeltaCh are drop-on-full — WS fanout must
+	// never backpressure the order pipeline (conflation + REST resync
+	// cover the gap). Channels are declared above beside orderSubmitter
+	// so the dispatch mirror can feed the admission index too.
 	if router := buildSORRouter(pool, natsClient, log); router != nil {
 		orderSvc.WithSOR(router, sorBookCache)
 		router.Start(context.Background())
@@ -2387,14 +2433,25 @@ func run() error {
 				case <-sweepCtx.Done():
 				}
 			}
+			// Mirror raw frames into the public-market-data feed
+			// (WireTradeSource decodes TradeFill here; its admission
+			// index is fed from the _in side by dispatchMirror since the
+			// engine never echoes OrderNew on _out). Drop-on-full:
+			// lagging WS consumers must never stall the order path.
+			select {
+			case l2RawCh <- append([]byte(nil), p...):
+			default:
+			}
 			// Phase-3 Task 4 — feed the SOR book view from the same sole
 			// reader (decode is allocation-cheap and infallible here:
 			// unresolvable/non-snapshot frames return false). The engine
 			// echoes the 64B EXCTRACE block verbatim on frames answering
 			// a traced command (Task 9.3.11); strip it first — the raw
 			// prefix decodes as a bogus FlatBuffers uoffset and panics.
-			if sorBookCache != nil {
-				body, _, _ := tracing.StripAeronTrace(p)
+			body, _, _ := tracing.StripAeronTrace(p)
+			switch ev := ipc.DecodeEvent(body); {
+			case ev != nil && ev.TypeType() == wire.EventTypeBookSnapshot &&
+				sorBookCache != nil:
 				if d, ok := marketdata.DecodeBookDeltaFrame(body, sorResolver); ok {
 					bids := make([]sor.Level, len(d.Bids))
 					for i, lv := range d.Bids {
@@ -2405,6 +2462,34 @@ func run() error {
 						asks[i] = sor.Level{Price: lv.Price, Qty: lv.Qty, Count: lv.Count}
 					}
 					sorBookCache.Observe(d.Symbol, bids, asks)
+					if gc := l2Fanout.Load(); gc != nil {
+						gc.Push(d)
+					}
+					select {
+					case l2DeltaCh <- d:
+					default:
+					}
+					// Bridge-role republish: BookSnapshot → analytics
+					// (marketdata's JetStreamDeltaSource + ch-etl tick
+					// capture). Raw frame, bridge subject/msgID contract.
+					repubQ.enqueue(sh, "s", ev.Seq(),
+						nats.SymbolToken(d.Symbol), p,
+						bridge.StreamsForEvent(ev.TypeType())...)
+				}
+			case ev != nil && ev.TypeType() == wire.EventTypeOrderCancel:
+				// Engine terminal notices route to the order-lifecycle
+				// streams per the bridge table (expiry/reject surfaces
+				// as OrderCancel on _out — the only place it exists).
+				var t flatbuffers.Table
+				if ev.Type(&t) {
+					oc := &wire.OrderCancel{}
+					oc.Init(t.Bytes, t.Pos)
+					tok := bridge.UnknownSymbol
+					if s, ok := orderSyms.Get(oc.OrderId()); ok {
+						tok = s
+					}
+					repubQ.enqueue(sh, "s", ev.Seq(), tok, p,
+						bridge.StreamsForEvent(ev.TypeType())...)
 				}
 			}
 		}).
@@ -2696,6 +2781,83 @@ func run() error {
 	// "admin.circuit_breaker" WS admin-monitor channel (documented seam —
 	// no pre-existing admin monitor channel in ws.Server).
 	breakerSvc.WithPublisher(wsSrv)
+
+	// Phase-06 market-data fanout on the unified socket (ws/server.go's
+	// "when it lands" seam — landed here): the orders-consumer frame tap
+	// pushes decoded BookSnapshots through the same Conflator the
+	// marketdata service runs, emitting §10.9 depth@{sym}/book@{sym}
+	// frames on this process's wsSrv. SeqStore nil = in-memory cursors —
+	// a restart resets seq so clients hit prev_last_seq mismatch → resync
+	// (REST refetch), the honest fail-closed recovery (§10.9).
+	emitPublic := func(channel string, _ uint64, data any) {
+		wsSrv.Publish(channel, data)
+	}
+	{
+		l2 := marketdata.NewConflator(marketdata.ConflatorConfig{
+			Logger: log,
+		}, nil, nil, emitPublic, nil)
+		l2Fanout.Store(l2)
+		go func() {
+			if err := l2.Run(sweepCtx); err != nil && !errors.Is(err, context.Canceled) {
+				log.Error("l2 fanout conflator exited", "err", err)
+			}
+		}()
+	}
+	// shm-topology republisher drain: dispatchMirror (_in OrderNew/Amend)
+	// and the frame tap (_out BookSnapshot/OrderCancel) enqueue here so
+	// JetStream streams see the events the absent Aeron bridge would
+	// have carried — same "s{shard}-{seq}"/subject contract the
+	// settlement fill republisher already honours. Drop-on-full at
+	// enqueue, so the drain can never stall the order path.
+	go repubQ.run(sweepCtx, natsClient, log)
+	// Trade-derived public channels reuse the same producer set the
+	// marketdata service composes in cmd/marketdata/producers.go —
+	// WireTradeSource resolves TradeFill order legs through its admission
+	// index (fed by dispatchMirror's _in OrderNew frames — the engine
+	// never echoes commands on _out) so nothing is re-decoded
+	// twice and no parallel decoder exists.
+	{
+		tradeSrc := marketdata.NewWireTradeSource(
+			marketdata.ByteSource(func(context.Context) (<-chan []byte, error) {
+				return l2RawCh, nil
+			}), sorResolver, log)
+		if tradeCh, terr := tradeSrc.Trades(sweepCtx); terr == nil {
+			hub := marketdata.NewFanOut(tradeCh)
+			go func() {
+				if err := hub.Run(sweepCtx); err != nil && !errors.Is(err, context.Canceled) {
+					log.Error("l2 trade fanout exited", "err", err)
+				}
+			}()
+			chanTrades := func(ch <-chan marketdata.TradeEvent) marketdata.TradeSource {
+				return marketdata.TradeSourceFunc(
+					func(context.Context) (<-chan marketdata.TradeEvent, error) { return ch, nil })
+			}
+			go marketdata.NewTradesProducer(
+				marketdata.TradesProducerConfig{Logger: log},
+				chanTrades(hub.Subscribe(8192)), emitPublic).Run(sweepCtx)
+			go marketdata.NewTickerProducer(
+				marketdata.TickerProducerConfig{Logger: log},
+				chanTrades(hub.Subscribe(8192)), emitPublic).Run(sweepCtx)
+			klineEng := ohlcv.NewEngine(ohlcv.Config{Logger: log}, ohlcv.Deps{
+				Emitter: wsKlineEmitter{pub: wsSrv.Publish},
+			})
+			go func() {
+				if err := klineEng.Run(sweepCtx, ohlcvTradeSource{
+					events: hub.Subscribe(8192)}); err != nil &&
+					!errors.Is(err, context.Canceled) {
+					log.Error("kline fanout engine exited", "err", err)
+				}
+			}()
+		} else {
+			log.Warn("l2 trade source open failed — trades@/kline@/ticker@ idle",
+				"err", terr)
+		}
+		go marketdata.NewBBOProducer(
+			marketdata.BBOProducerConfig{Logger: log},
+			marketdata.DeltaSourceFunc(func(context.Context) (<-chan marketdata.BookDelta, error) {
+				return l2DeltaCh, nil
+			}), emitPublic).Run(sweepCtx)
+	}
 
 	// ---- Phase-17 Tasks 17.3.2/17.3.4 — L3 order-level surface ----
 	//
@@ -3032,6 +3194,9 @@ func run() error {
 		Verifier:     sigVerifier,
 		TrustProxy:   true,
 		RoleResolver: adminRoleResolver, // Phase-07 role store (fail-closed on no binding)
+		SymbolFor: func(instrumentID int64) (string, bool) {
+			return sorResolver.Symbol(uint32(instrumentID))
+		},
 	}
 
 	// Phase-16 algo surface — shares the order auth path (Bearer or
@@ -7100,6 +7265,172 @@ func (a categorizerAdapter) Category(ctx context.Context, accountID int64) (stri
 	return string(c), err
 }
 
+// ---- shm-topology JetStream republisher --------------------------------
+//
+// In the shm-only deployment there is no Aeron bridge: the engine's only
+// outbound transport is the SPSC _out ring and this process is its sole
+// consumer. To keep the JetStream streams the bridge would feed alive
+// (internal/bridge's route table), the dispatch mirror and the frame tap
+// enqueue raw wire frames here; repubQueue.run publishes them under the
+// same "{stream}.{shard}.{symbol}" subject + Nats-Msg-Id dedup contract.
+
+// repubEvent is one frame routed for republish. scope namespaces the
+// msgID sequence domain: "s" = engine seq (_out frames — the bridge's
+// "s{shard}-{seq}" key), "g" = gateway dispatch seq (_in frames).
+// Distinct prefixes keep the per-stream dedup window from collapsing
+// unrelated events that share a numeric seq.
+type repubEvent struct {
+	shard   uint16
+	scope   string
+	seq     uint64
+	symbol  string
+	payload []byte
+	streams []string
+}
+
+type repubQueue chan repubEvent
+
+// enqueue copies the frame into the queue or drops when full — the
+// republish path must never backpressure order traffic; consumers
+// gap-recover via seq cursors.
+func (q repubQueue) enqueue(shard uint16, scope string, seq uint64,
+	symbol string, payload []byte, streams ...string) {
+	select {
+	case q <- repubEvent{shard: shard, scope: scope, seq: seq, symbol: symbol,
+		payload: append([]byte(nil), payload...), streams: streams}:
+	default:
+	}
+}
+
+// run drains the queue onto JetStream. A nil client (NATS down at boot)
+// idles the drain — frames drop at publish time, counted on the second
+// power-of-two edge to keep the log quiet.
+func (q repubQueue) run(ctx context.Context, nc *nats.Client, log *slog.Logger) {
+	var pub jetstreamFillPublisher
+	if nc != nil {
+		pub = jetstreamFillPublisher{js: nc.JetStream()}
+	}
+	var dropped atomic.Uint64
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case it := <-q:
+			if pub.js == nil {
+				continue
+			}
+			msgID := fmt.Sprintf("%s%d-%d", it.scope, it.shard, it.seq)
+			for _, stream := range it.streams {
+				subj, err := nats.Subject(stream, uint32(it.shard), it.symbol)
+				if err != nil {
+					// Same reroute as the bridge: an invalid token goes to
+					// the UNKNOWN ordering domain instead of dropping.
+					if subj, err = nats.Subject(stream, uint32(it.shard),
+						bridge.UnknownSymbol); err != nil {
+						continue
+					}
+				}
+				pctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+				err = pub.PublishEvent(pctx, subj, msgID, it.payload)
+				cancel()
+				if err != nil {
+					if n := dropped.Add(1); n&(n-1) == 0 {
+						log.Warn("bridge-role republish failed",
+							"subject", subj, "err", err, "total", n)
+					}
+				}
+			}
+		}
+	}
+}
+
+// syncOrderIndex adds mutual exclusion to the shared nats.OrderIndex —
+// the bridge/marketdata indexes live on a single goroutine, but here
+// Put runs on the order-dispatch path while Get runs on the _out frame
+// tap.
+type syncOrderIndex struct {
+	mu  sync.Mutex
+	idx *nats.OrderIndex[string]
+}
+
+func newSyncOrderIndex(capacity int) *syncOrderIndex {
+	return &syncOrderIndex{idx: nats.NewOrderIndex[string](capacity)}
+}
+
+func (i *syncOrderIndex) Put(id uint64, sym string) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	i.idx.Put(id, sym)
+}
+
+func (i *syncOrderIndex) Get(id uint64) (string, bool) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	return i.idx.Get(id)
+}
+
+// dispatchMirror wraps the engine-bound Submitter: after a frame lands
+// on the _in ring it is also mirrored into the market-data admission
+// feed and republished onto the order-lifecycle streams. The engine
+// never echoes commands on _out, so the dispatch point is the only
+// place OrderNew/OrderAmend events exist for downstream consumers.
+type dispatchMirror struct {
+	inner  orders.Submitter
+	frames chan<- []byte
+	repub  repubQueue
+	syms   *syncOrderIndex
+	res    marketdata.InstrumentResolver
+}
+
+func (m *dispatchMirror) Send(ctx context.Context, shard uint16, payload []byte) error {
+	if err := m.inner.Send(ctx, shard, payload); err != nil {
+		return err
+	}
+	// Mirror for WireTradeSource's admission index — every frame type
+	// flows; the decoder filters. Drop-on-full like the _out tap mirror.
+	select {
+	case m.frames <- append([]byte(nil), payload...):
+	default:
+	}
+	body, _, _ := tracing.StripAeronTrace(payload)
+	ev := ipc.DecodeEvent(body)
+	if ev == nil {
+		return nil
+	}
+	switch ev.TypeType() {
+	case wire.EventTypeOrderNew:
+		on := ipc.EventOrderNew(ev)
+		if on == nil {
+			return nil
+		}
+		sym, ok := m.res.Symbol(on.InstrumentId())
+		if !ok {
+			sym = fmt.Sprintf("instr-%d", on.InstrumentId())
+		}
+		tok := nats.SymbolToken(sym)
+		m.syms.Put(on.OrderId(), tok)
+		m.repub.enqueue(shard, "g", ev.Seq(), tok, payload,
+			bridge.StreamsForEvent(ev.TypeType())...)
+	case wire.EventTypeOrderAmend:
+		var t flatbuffers.Table
+		if ev.Type(&t) {
+			oa := &wire.OrderAmend{}
+			oa.Init(t.Bytes, t.Pos)
+			tok := bridge.UnknownSymbol
+			if s, ok := m.syms.Get(oa.OrderId()); ok {
+				tok = s
+			}
+			m.repub.enqueue(shard, "g", ev.Seq(), tok, payload,
+				bridge.StreamsForEvent(ev.TypeType())...)
+		}
+	}
+	return nil
+}
+
+func (m *dispatchMirror) Channel(shard uint16) (*ipc.Channel, error) {
+	return m.inner.Channel(shard)
+}
+
 // jetstreamFillPublisher adapts the JetStream context to the
 // settlement.TradeRepublisher seam — publishes with Nats-Msg-Id dedup,
 // the bridge.Publisher contract for TradeFill fan-out.
@@ -7402,6 +7733,62 @@ func runDailyUTC(ctx context.Context, log *slog.Logger, name string,
 // tap resolves instrument ids on the read-model drain goroutine while
 // the refresher swaps snapshots.
 type atomicResolver struct{ v atomic.Value } // stores marketdata.MapResolver
+
+// ---- Phase-06 public market-data fanout adapters ---------------------------
+// The unified /ws/v1 surface emits the same §10.9 channels the
+// marketdata service produces — these two shims adapt its exported
+// component seams (ohlcv.Emitter, ohlcv.Source) onto ws.Server.Publish
+// and the FanOut tap channels, so no parallel decoder/encoder exists.
+
+// wsKlineEmitter forwards each finished kline@ envelope's Data payload
+// through ws.Server.Publish — the server wraps it in its own eventFrame
+// (channel/seq/ts_ms), so the KlineFrame envelope is not re-marshaled.
+type wsKlineEmitter struct {
+	pub func(channel string, data any)
+}
+
+func (e wsKlineEmitter) Emit(_ context.Context, f ohlcv.KlineFrame) error {
+	e.pub(f.Channel, f.Data)
+	return nil
+}
+
+// ohlcvTradeSource adapts a FanOut tap of marketdata.TradeEvent into the
+// ohlcv.Source contract — field semantics are identical between the two
+// TradeEvent projections (events.go documents them as mirrors).
+type ohlcvTradeSource struct {
+	events <-chan marketdata.TradeEvent
+}
+
+func (s ohlcvTradeSource) Events(ctx context.Context) (<-chan ohlcv.TradeEvent, error) {
+	out := make(chan ohlcv.TradeEvent, 1024)
+	go func() {
+		defer close(out)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case ev, ok := <-s.events:
+				if !ok {
+					return
+				}
+				select {
+				case out <- ohlcv.TradeEvent{
+					TradeID:   ev.TradeID,
+					Symbol:    ev.Symbol,
+					Price:     ev.Price,
+					Quantity:  ev.Quantity,
+					TakerSide: ohlcv.Side(ev.TakerSide),
+					Seq:       ev.Seq,
+					Ts:        ev.Ts,
+				}:
+				case <-ctx.Done():
+					return
+				}
+			}
+		}
+	}()
+	return out, nil
+}
 
 func (a *atomicResolver) Symbol(id uint32) (string, bool) {
 	if m, ok := a.v.Load().(marketdata.MapResolver); ok {

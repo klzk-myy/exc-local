@@ -53,6 +53,7 @@ import (
 	"exchange/internal/ipc"
 	"exchange/internal/ipc/wire"
 	"exchange/internal/recovery"
+	"exchange/internal/tracing"
 )
 
 // ---------------------------------------------------------------------------
@@ -242,7 +243,8 @@ func cmdDrive(args []string) int {
 				continue
 			}
 			lastEvent = time.Now()
-			ev := ipc.DecodeEvent(buf[:n])
+			body, _, _ := tracing.StripAeronTrace(buf[:n])
+			ev := ipc.DecodeEvent(body)
 			if ev == nil {
 				st.decodeErrors.Add(1)
 				continue

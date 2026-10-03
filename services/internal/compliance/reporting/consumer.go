@@ -24,6 +24,7 @@ import (
 
 	"exchange/internal/ipc"
 	"exchange/internal/ipc/wire"
+	"exchange/internal/tracing"
 )
 
 // Durable names — stable identities; changing one orphans the cursor.
@@ -57,7 +58,8 @@ func (c *ExecutionConsumer) HandleMsg(ctx context.Context, m jetstream.Msg) (err
 	if len(data) < 8 {
 		return nil
 	}
-	ev := ipc.DecodeEvent(data)
+	body, _, _ := tracing.StripAeronTrace(data)
+	ev := ipc.DecodeEvent(body)
 	if ev == nil || ev.TypeType() != wire.EventTypeTradeFill {
 		return nil
 	}
@@ -116,7 +118,8 @@ func (c *SettlementConsumer) HandleMsg(ctx context.Context, m jetstream.Msg) (er
 	if len(data) < 8 {
 		return nil
 	}
-	ev := ipc.DecodeEvent(data)
+	body, _, _ := tracing.StripAeronTrace(data)
+	ev := ipc.DecodeEvent(body)
 	if ev == nil || ev.TypeType() != wire.EventTypeTradeFill {
 		return nil
 	}

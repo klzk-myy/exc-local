@@ -41,6 +41,7 @@ import (
 	"exchange/internal/ipc/wire"
 	"exchange/internal/oracle"
 	"exchange/internal/settlement"
+	"exchange/internal/tracing"
 	"exchange/pkg/decimal"
 )
 
@@ -636,7 +637,8 @@ func decodeTCAFillPayload(data []byte) (fillID, buyOrderID, sellOrderID uint64,
 	if len(data) < 8 {
 		return 0, 0, 0, decimal.Zero, decimal.Zero, time.Time{}, false
 	}
-	ev := ipc.DecodeEvent(data)
+	body, _, _ := tracing.StripAeronTrace(data)
+	ev := ipc.DecodeEvent(body)
 	if ev == nil || ev.TypeType() != wire.EventTypeTradeFill {
 		return 0, 0, 0, decimal.Zero, decimal.Zero, time.Time{}, false
 	}

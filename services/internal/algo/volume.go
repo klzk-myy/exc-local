@@ -27,6 +27,7 @@ import (
 	"exchange/internal/config"
 	"exchange/internal/ipc"
 	"exchange/internal/ipc/wire"
+	"exchange/internal/tracing"
 	"exchange/pkg/decimal"
 )
 
@@ -111,7 +112,8 @@ func (t *TradeVolumeTracker) Consume(msg jetstream.Msg) {
 		return
 	}
 	symbol := toks[len(toks)-1]
-	ev := ipc.DecodeEvent(msg.Data())
+	body, _, _ := tracing.StripAeronTrace(msg.Data())
+	ev := ipc.DecodeEvent(body)
 	if ev == nil || ev.TypeType() != wire.EventTypeTradeFill {
 		_ = msg.Ack()
 		return

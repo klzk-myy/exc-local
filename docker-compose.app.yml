@@ -52,6 +52,27 @@ x-go-env: &go-env
   EXC_CH_PASSWORD: ${EXC_CH_PASSWORD:-}
   EXC_DOCS_SECRET: ${EXC_DOCS_SECRET:-}
   EXC_SENDER_BIC: ${EXC_SENDER_BIC:-EXCHUS33}
+  # Task 5.3.29: honor X-Forwarded-For so the Vite dev proxy's per-route
+  # synthetic XFF (10.90.x.x buckets) reaches the rate limiter — without
+  # this every public-tier route shares the single loopback bucket.
+  EXC_TRUST_PROXY: ${EXC_TRUST_PROXY:-}
+  # Services that attach engine _out rings read their own *_IPC_BASE vars
+  # (cmd/marketdata, cmd/fix, cmd/recovery) — default "exchange_ipc".
+  # Pin them to the same namespace as the engines' -ipc-base so the dev
+  # SHM_BASE override never strands consumers on the wrong ring set.
+  EXC_MARKETDATA_IPC_BASE: ${SHM_BASE:-exchange_ipc}
+  # In this stack the gateway is the SOLE consumer of the SPSC _out
+  # rings (a second consumer advances the shared tail and starves the
+  # order path). marketdata must consume the republished JetStream
+  # streams — the gateway performs the Aeron bridge's republish role
+  # (analytics/compliance order-lifecycle + BookSnapshot subjects).
+  EXC_MARKETDATA_SOURCE: ${EXC_MARKETDATA_SOURCE:-jetstream}
+  EXC_MARKETDATA_TRADES_SOURCE: ${EXC_MARKETDATA_TRADES_SOURCE:-jetstream}
+  EXC_RECOVERY_IPC_BASE: ${SHM_BASE:-exchange_ipc}
+  # instrument_id → symbol map for the marketdata decoder — sourced from
+  # dev.env (mirrors the PG instruments seed); unset leaves every engine
+  # BookSnapshot dropped as "unresolvable instrument".
+  EXC_MARKETDATA_INSTRUMENTS: ${EXC_MARKETDATA_INSTRUMENTS:-}
   # Canonical driver dir (systemd unit): the driver is started with the same
   # --aeron-dir below, so clients and driver always agree.
   AERON_DIR: ${AERON_DIR:-/dev/shm/aeron-exchange}

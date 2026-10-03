@@ -30,6 +30,7 @@ import (
 	"exchange/internal/ipc"
 	"exchange/internal/ipc/wire"
 	excnats "exchange/internal/nats"
+	"exchange/internal/tracing"
 )
 
 // ConsumerOptions tunes the pull loop.
@@ -310,7 +311,8 @@ func (c *Consumer) handleMsg(msg jetstream.Msg, shard uint32, symbol string,
 		c.m.incMalformed()
 		return
 	}
-	ev := ipc.DecodeEvent(data)
+	body, _, _ := tracing.StripAeronTrace(data)
+	ev := ipc.DecodeEvent(body)
 	if ev == nil {
 		c.m.incMalformed()
 		return
