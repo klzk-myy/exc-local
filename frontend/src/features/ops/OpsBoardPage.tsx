@@ -17,10 +17,11 @@
  * the drift is noted here (spec-truthful naming follows the registry).
  */
 import { useQuery } from '@tanstack/react-query';
+import { Link } from 'react-router';
 
 import { apiClient } from '@/app/runtime';
 import type { ApiClient } from '@/lib/api';
-import { fetchOpsHealth, fetchSystemStatus } from '@/lib/admin/api';
+import { fetchOpsBoard, fetchOpsHealth, fetchSystemStatus } from '@/lib/admin/api';
 import { EnvSwitcher, EnvWatermark, EnvPill, useBoundAdminApi } from '@/lib/env';
 import { cardCls, tableCls, tdCls, thCls, ErrorBox, StatusBadge } from '@/lib/ui';
 import { AccessDeniedCard, RequireAdmin } from '@/features/admin/RequireAdmin';
@@ -133,27 +134,136 @@ function ComponentsTable({
   );
 }
 
-function StubPanels({ role }: { role: string | null }) {
+function MarketOpsBoard({
+  adminApi,
+  role,
+}: {
+  adminApi: ReturnType<typeof useBoundAdminApi>;
+  role: string | null;
+}) {
+  const board = useQuery({
+    queryKey: ['ops', 'board', adminApi.env],
+    queryFn: () => fetchOpsBoard(adminApi),
+    refetchInterval: 15_000,
+    retry: false,
+  });
+
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
-      <section className={cardCls} aria-label="Market ops board">
-        <h2 className="mb-2 text-sm font-medium text-neutral-400">Market-ops board</h2>
-        <p className="text-sm text-neutral-500">
-          <code>GET /api/v1/admin/ops-board</code> is registered but its handler ships with Phase-15
-          Task 15.3.12. Required role when live: <strong>Risk Manager</strong>
-          {role !== 'Risk Manager' && role !== null ? ' (your claim does not carry it)' : ''}.
-        </p>
-      </section>
-      <section className={cardCls} aria-label="Instrument lifecycle">
-        <h2 className="mb-2 text-sm font-medium text-neutral-400">Instrument lifecycle</h2>
-        <p className="text-sm text-neutral-500">
-          List-pair / suspend / restrict / cancel-only / halt / resume / delist actions are
-          registered under <code>/api/v1/admin/instruments/…</code> (Phase-15 Task 15.3.1) and are
-          dual-controlled in production. They activate when the handlers land — surfacing
-          placeholder controls would not be honest.
-        </p>
-      </section>
-    </div>
+    <section className={cardCls} aria-label="Market ops board">
+      <div className="mb-2 flex items-center justify-between">
+        <h2 className="text-sm font-medium text-neutral-400">Market-ops board</h2>
+        <span className="text-xs text-neutral-500">
+          required role: <strong>Risk Manager</strong>
+          {role !== 'Risk Manager' && role !== null ? ' (not in your claim)' : ''}
+        </span>
+      </div>
+      {board.error !== null && isAccessDenied(board.error) && (
+        <AccessDeniedCard detail="The market-ops board requires an authorized Risk Manager role for this env." />
+      )}
+      {board.error !== null && !isAccessDenied(board.error) && <ErrorBox error={board.error} />}
+      {board.data !== undefined && (
+        <div className="space-y-3 text-sm">
+          {board.data.warnings.length > 0 && (
+            <ul className="space-y-1">
+              {board.data.warnings.map((w) => (
+                <li
+                  key={w}
+                  className="rounded bg-amber-500/15 px-2 py-1 text-xs text-amber-300"
+                  role="alert"
+                >
+                  {w}
+                </li>
+              ))}
+            </ul>
+          )}
+          <table className={tableCls}>
+            <tbody>
+              <tr>
+                <td className={tdCls}>Non-active instruments</td>
+                <td className={tdCls}>{board.data.instruments.length}</td>
+                <td className={tdCls}>
+                  {board.data.instruments.map((i) => (
+                    <span key={i.symbol} className="mr-2 inline-flex items-center gap-1">
+                      <StatusBadge value={i.status} /> {i.symbol}
+                      {i.statusDrift === true && (
+                        <span className="rounded bg-red-500/20 px-1 text-xs text-red-300">
+                          engine drift {i.engineStatus ?? '?'}
+                        </span>
+                      )}
+                    </span>
+                  ))}
+                </td>
+              </tr>
+              <tr>
+                <td className={tdCls}>Pending proposals</td>
+                <td className={tdCls}>{board.data.pendingProposals.length}</td>
+                <td className={tdCls}>
+                  {board.data.pendingProposals.map((p) => (
+                    <span key={p.id} className="mr-2">
+                      #{p.id} {p.symbol} ({p.status}
+                      {p.overdue === true ? ', overdue' : ''})
+                    </span>
+                  ))}
+                </td>
+              </tr>
+              <tr>
+                <td className={tdCls}>Pending approvals</td>
+                <td className={tdCls}>{board.data.pendingApprovals.length}</td>
+                <td className={tdCls}>
+                  {board.data.pendingApprovals.map((a) => (
+                    <span key={a.id} className="mr-2">
+                      #{a.id} {a.operation} {a.targetId}
+                    </span>
+                  ))}
+                </td>
+              </tr>
+              <tr>
+                <td className={tdCls}>Upcoming auctions</td>
+                <td className={tdCls}>{board.data.upcomingAuctions.length}</td>
+                <td className={tdCls}>
+                  {board.data.upcomingAuctions.map((a) => (
+                    <span key={`${a.symbol}:${a.nextAt ?? ''}`} className="mr-2">
+                      {a.symbol} {a.auctionType} {a.nextAt ?? ''}
+                    </span>
+                  ))}
+                </td>
+              </tr>
+              <tr>
+                <td className={tdCls}>Today's fixings</td>
+                <td className={tdCls}>{board.data.todayFixings.length}</td>
+                <td className={tdCls}>
+                  {board.data.todayFixings.map((f) => (
+                    <span key={`${f.symbol}:${f.benchmark}`} className="mr-2">
+                      {f.symbol} {f.benchmark} <StatusBadge value={f.status} />
+                    </span>
+                  ))}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          {board.data.generatedAt !== undefined && (
+            <p className="text-xs text-neutral-500">generated {board.data.generatedAt}</p>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function LifecyclePanel() {
+  return (
+    <section className={cardCls} aria-label="Instrument lifecycle">
+      <h2 className="mb-2 text-sm font-medium text-neutral-400">Instrument lifecycle</h2>
+      <p className="text-sm text-neutral-500">
+        List-pair / suspend / restrict / cancel-only / halt / resume / delist actions are live under{' '}
+        <code>/api/v1/admin/instruments/…</code> (Phase-15 Task 15.3.1) and are dual-controlled in
+        production. They are executed from the{' '}
+        <Link to="/admin" className="text-sky-400 hover:underline">
+          Admin console instruments panel
+        </Link>
+        .
+      </p>
+    </section>
   );
 }
 
@@ -180,7 +290,8 @@ function OpsBoard({ systemApi }: { systemApi: ApiClient }) {
       </div>
       <div className="space-y-4">
         <ComponentsTable adminApi={adminApi} systemApi={systemApi} />
-        <StubPanels role={role} />
+        <MarketOpsBoard adminApi={adminApi} role={role} />
+        <LifecyclePanel />
       </div>
     </div>
   );
