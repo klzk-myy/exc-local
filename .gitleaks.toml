@@ -22,5 +22,6 @@ regexes = [
   '''^exc\.dismissed-announcements\.v1$''',
   '''^018f8b7e-8f6a-4b2c-9d1e-2f3a4b5c6d7e$''',
   '''^EXC_S3_REGION\.$''',
+  '''^primary\+secondary$''', # migration 285 DORA register — Vault replica scope, not a secret
 ]
 paths = ['''^deploy/haproxy/test/certs/localhost\.pem$''']
