@@ -44,18 +44,22 @@ x-go-env: &go-env
   EXC_REDIS_ADDR: ${REDIS_ADDR:-127.0.0.1:16379}
   EXC_REDIS_DB: ${EXC_REDIS_DB:-0}
   EXC_SENTINEL_ADDRS: ${EXC_SENTINEL_ADDRS:-127.0.0.1:36379,127.0.0.1:36380,127.0.0.1:36381}
-  EXC_NATS_URLS: ${EXC_NATS_URLS:-}
-  EXC_JWT_HS256_KEY_B64: ${EXC_JWT_HS256_KEY_B64:-}
-  EXC_CH_URL: ${EXC_CH_URL:-}
-  EXC_CH_DATABASE: ${EXC_CH_DATABASE:-}
-  EXC_CH_USER: ${EXC_CH_USER:-}
-  EXC_CH_PASSWORD: ${EXC_CH_PASSWORD:-}
+  # Load-bearing dev values inline (same committed values as deploy/dev.env
+  # — that file states "no real secrets belong here"). A bare
+  # `docker compose up` must yield a working stack; dev_stack.sh exports
+  # override every one of these.
+  EXC_NATS_URLS: ${EXC_NATS_URLS:-nats://127.0.0.1:4222,nats://127.0.0.1:4223,nats://127.0.0.1:4224}
+  EXC_JWT_HS256_KEY_B64: ${EXC_JWT_HS256_KEY_B64:-cGVudGVzdC1rZXktMzItYnl0ZXMtc3VmZmljaWVudCEh}
+  EXC_CH_URL: ${EXC_CH_URL:-127.0.0.1:9000}
+  EXC_CH_DATABASE: ${EXC_CH_DATABASE:-exchange_analytics}
+  EXC_CH_USER: ${EXC_CH_USER:-exchange}
+  EXC_CH_PASSWORD: ${EXC_CH_PASSWORD:-exchange_dev}
   EXC_DOCS_SECRET: ${EXC_DOCS_SECRET:-}
   EXC_SENDER_BIC: ${EXC_SENDER_BIC:-EXCHUS33}
   # Task 5.3.29: honor X-Forwarded-For so the Vite dev proxy's per-route
   # synthetic XFF (10.90.x.x buckets) reaches the rate limiter — without
   # this every public-tier route shares the single loopback bucket.
-  EXC_TRUST_PROXY: ${EXC_TRUST_PROXY:-}
+  EXC_TRUST_PROXY: ${EXC_TRUST_PROXY:-1}
   # Services that attach engine _out rings read their own *_IPC_BASE vars
   # (cmd/marketdata, cmd/fix, cmd/recovery) — default "exchange_ipc".
   # Pin them to the same namespace as the engines' -ipc-base so the dev
@@ -72,7 +76,7 @@ x-go-env: &go-env
   # instrument_id → symbol map for the marketdata decoder — sourced from
   # dev.env (mirrors the PG instruments seed); unset leaves every engine
   # BookSnapshot dropped as "unresolvable instrument".
-  EXC_MARKETDATA_INSTRUMENTS: ${EXC_MARKETDATA_INSTRUMENTS:-}
+  EXC_MARKETDATA_INSTRUMENTS: ${EXC_MARKETDATA_INSTRUMENTS:-1:EUR/USD,2:GBP/USD,3:USD/JPY,4:AUD/USD,5:USD/CAD,6:USD/CHF,7:NZD/USD,8:USD/MXN,9:EUR/GBP,10:EUR/JPY,11:EUR/CHF,12:USD/BRL}
   # Canonical driver dir (systemd unit): the driver is started with the same
   # --aeron-dir below, so clients and driver always agree.
   AERON_DIR: ${AERON_DIR:-/dev/shm/aeron-exchange}
