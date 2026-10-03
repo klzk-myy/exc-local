@@ -230,5 +230,7 @@ the build when gzipped initial JS exceeds **300 kB** (Task 10.3.1 item 7).
 
 Vitest + React Testing Library (jsdom). `src/lib/ws/testkit.ts` provides the
 `FakeClock`/`MockSocket` ports the client tests use — reuse them in feature
-tests. Playwright is scaffolded under `e2e/` with `npm run test:e2e`; the CI
-e2e job lands in Wave-2.
+tests. Playwright lives under `e2e/` (`npm run test:e2e`) and targets the
+DOCKER frontend at `http://localhost:3000` by default — bring the stack up
+with `deploy/scripts/dev_stack.sh up` first; `E2E_BASE_URL` overrides the
+target. `vite preview` is not a valid target (it never proxied /api or /ws).

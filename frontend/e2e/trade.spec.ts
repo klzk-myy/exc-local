@@ -1,5 +1,7 @@
 import { expect, request, test, type APIRequestContext, type Page } from '@playwright/test';
 
+import { API, HARNESS_XFF, MAKER, TAKER, apiLogin, uiLogin } from './support';
+
 /**
  * Wave-2 acceptance smoke path (Task 10.3.1): login → subscribe → place
  * order → close position, exercised end-to-end against the real stack
@@ -24,27 +26,8 @@ import { expect, request, test, type APIRequestContext, type Page } from '@playw
  * deterministic against a live (WAL-recovered) engine book.
  */
 
-const TAKER = { email: 'e2e.taker@example.com', password: 'E2e-passphrase-9' };
-const MAKER = { email: 'e2e.maker@example.com', password: 'E2e-passphrase-9' };
 const SYMBOL = 'EUR/USD';
 const SYMBOL_URL = `/trade/${encodeURIComponent(SYMBOL)}`;
-// Test-harness calls bypass the vite proxy and carry their own XFF — the
-// gateway keys §8.8 edge buckets on client IP (EXC_TRUST_PROXY=1), so the
-// browser (proxied as 10.90.0.1) and harness (10.90.0.2) never compete.
-const API = 'http://127.0.0.1:8080';
-const HARNESS_XFF = { 'x-forwarded-for': '10.90.0.2' };
-
-async function apiLogin(email: string, password: string): Promise<string> {
-  const ctx = await request.newContext({
-    baseURL: API,
-    extraHTTPHeaders: { ...HARNESS_XFF },
-  });
-  const res = await ctx.post('/api/v1/auth/login', { data: { email, password } });
-  expect(res.ok(), `login ${email} ${res.status()}`).toBeTruthy();
-  const body = await res.json();
-  await ctx.dispose();
-  return body.access_token as string;
-}
 
 async function seedBook(): Promise<void> {
   const token = await apiLogin(MAKER.email, MAKER.password);
@@ -180,11 +163,7 @@ test.describe('smoke path', () => {
 
   test('login → subscribe → place order → close position', async ({ page }) => {
     // ── 1. login ──────────────────────────────────────────────────────
-    await page.goto('/login');
-    await page.getByLabel('Email').fill(TAKER.email);
-    await page.getByLabel('Password').fill(TAKER.password);
-    await page.getByRole('button', { name: 'Sign in' }).click();
-    await expect(page).not.toHaveURL(/\/login/, { timeout: 15_000 });
+    await uiLogin(page, TAKER.email, TAKER.password);
 
     // REST context over the token the SPA minted — settle-state polling
     // rides the harness bucket, not the browser's (see HARNESS_XFF).
@@ -227,6 +206,11 @@ test.describe('smoke path', () => {
     const eurBefore = await readBalance(page, 'EUR');
 
     // ── 4. close — the offsetting SELL fills against the seeded bid ───
+    // Back on the workspace via the symbol deep link so the order draft
+    // carries EUR/USD again — Pro/lite mode persists in localStorage
+    // (exc.ui-mode.v1) and the lazily-resolved `entry` locator rebinds.
+    await page.goto(SYMBOL_URL);
+    await expect(page).toHaveURL(/\/workspace$/, { timeout: 15_000 });
     await entry.getByRole('button', { name: 'SELL', exact: true }).click();
     await entry.getByLabel('Price').fill('1.09990');
     await entry.getByLabel('Quantity').fill('1000');

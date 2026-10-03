@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
 
+import { TAKER, uiLogin, watchErrors } from './support';
+
 /**
  * Sidebar link smoke test — reuses the nav items the AppShell renders.
  *
@@ -28,16 +30,19 @@ const KNOWN_PATHS = [
   { label: 'Settings', path: '/settings' },
   { label: 'Webhooks', path: '/webhooks' },
   { label: 'Support', path: '/support' },
-  { label: 'Admin', path: '/admin' },
+  // The Admin section is role-filtered (AppShell renders it only for
+  // venue-admin sessions) — the T1 taker fixture correctly never sees it.
 ];
 
 test.describe('sidebar links', () => {
+  // Every nav route sits behind the auth guard — without a session the
+  // app redirects to /login, so the suite signs in once per test.
+  test.beforeEach(async ({ page }) => {
+    await uiLogin(page, TAKER.email, TAKER.password);
+  });
+
   test('every known nav path renders without errors', async ({ page }) => {
-    const consoleErrors: string[] = [];
-    page.on('console', (msg) => {
-      if (msg.type() === 'error') consoleErrors.push(msg.text());
-    });
-    page.on('pageerror', (err) => consoleErrors.push(err.message));
+    const consoleErrors = watchErrors(page);
 
     for (const { label, path } of KNOWN_PATHS) {
       await page.goto(path);
@@ -74,11 +79,7 @@ test.describe('sidebar links', () => {
   });
 
   test('sidebar links route correctly when clicked', async ({ page }) => {
-    const consoleErrors: string[] = [];
-    page.on('console', (msg) => {
-      if (msg.type() === 'error') consoleErrors.push(msg.text());
-    });
-    page.on('pageerror', (err) => consoleErrors.push(err.message));
+    const consoleErrors = watchErrors(page);
 
     await page.goto('/');
     const nav = page.getByRole('navigation', { name: 'Primary' });

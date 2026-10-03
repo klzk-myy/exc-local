@@ -8,7 +8,8 @@ import { defineConfig, type Plugin } from 'vite';
  * Dev-mode CSP relaxation (Phase-10 Task 10.3.1 item 8).
  *
  * `index.html` ships the production meta Content-Security-Policy verbatim —
- * `default-src 'self'`, no `'unsafe-inline'`, `frame-ancestors 'none'`.
+ * `default-src 'self'`, no `'unsafe-inline'`. `frame-ancestors` is absent
+ * from the meta (browsers ignore it there); response headers own it.
  * That strict policy would break the Vite dev server (HMR injects `<style>`
  * tags and dials ws://localhost). During `vite serve` ONLY, this plugin
  * rewrites the meta content to a dev-relaxed policy. The built `dist/index.html`
@@ -28,7 +29,6 @@ function devCspRelaxation(): Plugin {
     "connect-src 'self' ws: wss:",
     "object-src 'none'",
     "base-uri 'self'",
-    "frame-ancestors 'none'",
   ].join('; ');
   return {
     name: 'exchange:dev-csp-relaxation',
@@ -92,7 +92,16 @@ export default defineConfig({
         target: 'ws://localhost:8080',
         ws: true,
         changeOrigin: false,
-        headers: { 'x-forwarded-for': '10.90.255.1' },
+        configure: (proxy) => {
+          // Per-connection bucket — the gateway's ReconnectRate (10
+          // upgrades /60s/IP) would 429 a SPA that opens a socket per
+          // page mount if every upgrade shared one fixed proxy IP. WS
+          // upgrades surface as proxyReqWs, not proxyReq.
+          proxy.on('proxyReqWs', (proxyReq, req) => {
+            const port = (req.socket.remotePort ?? 0) % 256;
+            proxyReq.setHeader('x-forwarded-for', `10.90.255.${port}`);
+          });
+        },
       },
     },
   },
