@@ -429,3 +429,65 @@ func TestAuthenticatedKeysIsolateAccounts(t *testing.T) {
 		t.Fatalf("acct2 must have an independent bucket")
 	}
 }
+
+// TestPrivateIPNotBanned verifies that private/LAN IPs (loopback, RFC 1918,
+// link-local) can be rate-limited but NEVER escalated to an IP_BANNED 418 —
+// even after repeated post-429 abuse that would normally trigger the
+// Task 5.3.34 escalation ladder. Locking out a loopback/LAN client would
+// cut off the local operator and every NAT'ed workstation at the edge.
+func TestPrivateIPNotBanned(t *testing.T) {
+	privateIPs := []string{
+		"127.0.0.1", "127.0.0.53", "127.255.255.255", // loopback
+		"10.0.0.1", "10.255.255.255", // RFC 1918 Class A
+		"172.16.0.1", "172.31.255.255", // RFC 1918 Class B
+		"192.168.0.1", "192.168.255.255", // RFC 1918 Class C
+		"169.254.1.1", // link-local
+		"::1", "fd00::1", // IPv6 loopback + ULA
+	}
+	for _, ip := range privateIPs {
+		l, mem, ck := newTestRig(t)
+		id := ipIdentity(ip)
+		// Slam well past Public capacity to arm the 429 marker.
+		for i := 0; i < 15; i++ {
+			l.Check(context.Background(), id, 1, false)
+		}
+		// Follow-up request would normally be a ban offense for a public IP.
+		res, err := l.Check(context.Background(), id, 1, false)
+		if err != nil {
+			t.Fatalf("%s: %v", ip, err)
+		}
+		if res.Status == HitBanned || res.Status == HitBannedNew {
+			t.Fatalf("%s: got %v — private IP must never be banned", ip, res.Status)
+		}
+		// BanInfo must be clean for the admin surface.
+		if bi, _ := mem.BanInfo(context.Background(), ip); bi != nil {
+			t.Fatalf("%s: BanInfo=%+v, want nil", ip, bi)
+		}
+		// Confirm it's still rate-limited (just not banned) — bucket drained.
+		if res.Status != HitRateLimited && res.Status != HitWeightExceeded {
+			// After refill it may be OK; advance and re-check the next
+			// window is also clean (no stale strike carrying over).
+			ck.advance(2 * time.Second)
+			res2, _ := l.Check(context.Background(), id, 1, false)
+			if res2.Status == HitBanned || res2.Status == HitBannedNew {
+				t.Fatalf("%s: post-refill %v — private IP leaking into ban state", ip, res2.Status)
+			}
+		}
+	}
+}
+
+// TestPrivateIPRateLimitedStillWorks confirms the token bucket still gates
+// private IPs — only the ban machinery is exempt, not rate limiting.
+func TestPrivateIPRateLimitedStillWorks(t *testing.T) {
+	l, _, _ := newTestRig(t)
+	id := ipIdentity("10.0.0.7")
+	// Public: rate 5/s, burst 2x → 10 tokens.
+	for i := 0; i < 10; i++ {
+		if res, _ := l.Check(context.Background(), id, 1, false); res.Status != HitOK {
+			t.Fatalf("private hit %d denied early", i)
+		}
+	}
+	if res, _ := l.Check(context.Background(), id, 1, false); res.Status != HitRateLimited {
+		t.Fatalf("private IP must still be rate-limited at capacity: got %v", res.Status)
+	}
+}
