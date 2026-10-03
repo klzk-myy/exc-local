@@ -49,7 +49,7 @@ import { SubAccountSwitcher } from '@/features/advanced-orders/SubAccountSwitche
 import { ChartPanel } from './ChartPanel';
 import { TickerStrip } from './TickerStrip';
 
-import { useUiMode } from './liteMode';
+import { useUiMode, useUiModeStore } from './liteMode';
 import { useTheme } from './theme';
 import { ModeToggle } from './ModeToggle';
 import { LiteDashboard } from './LiteDashboard';
@@ -422,7 +422,15 @@ export default function WorkspacePage() {
       {/* The Pro grid needs ≥640px — tell narrow viewports instead of
           silently scrolling; Lite mode is the small-screen surface. */}
       <p className="border-b border-neutral-800 px-4 py-1 text-xs text-amber-500 sm:hidden">
-        Workspace grid is wider than this screen — scroll sideways or switch to Lite mode.
+        Workspace grid is wider than this screen — scroll sideways or{' '}
+        <button
+          type="button"
+          className="underline underline-offset-2"
+          onClick={() => useUiModeStore.getState().setMode('lite')}
+        >
+          switch to Lite mode
+        </button>
+        .
       </p>
 
       <div
