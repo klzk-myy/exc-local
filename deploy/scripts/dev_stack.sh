@@ -591,8 +591,51 @@ act_start() { # all|core|infra|app
     app)   preflight; app_start all || rc=1 ;;
     *)     die "start: unknown target '$what' (all|core|infra|app)" ;;
   esac
-  [[ "$what" != "infra" ]] && do_status
+  [[ "$what" != "infra" ]] && { do_status; verify_started "$what" || rc=1; }
   return "$rc"
+}
+
+verify_started() { # post-start audit — is each requested daemon actually up?
+  local what="$1" row n port bad=0 tries=0 alive
+  # Ports can take a few seconds to bind after the process is alive —
+  # retry the whole sweep for up to ~15s before declaring failure.
+  while (( tries < 60 )); do
+    bad=0
+    for row in "${DAEMONS[@]}"; do
+      n="$(echo "$row" | cut -d'|' -f1)"
+      port="$(echo "$row" | cut -d'|' -f4)"
+      [[ "$what" == "core" && "$(echo "$row" | cut -d'|' -f3)" != "core" ]] && continue
+      alive=0
+      if [[ "$(daemon_run_mode "$n")" == "docker" ]]; then
+        docker ps --filter "name=exc-dev-$(docker_svc "$n")-" \
+          --filter status=running -q 2>/dev/null | grep -q . && alive=1
+      else
+        pid_alive "$n" && alive=1
+      fi
+      if [[ "$alive" == 0 ]]; then bad=1; continue; fi
+      # Port check: daemon is alive but hasn't bound its listen port yet.
+      [[ "$port" != "-" ]] && ! ss -ltn 2>/dev/null | awk '{print $4}' \
+        | grep -qE "[:.]${port}\$" && bad=1
+    done
+    (( bad == 0 )) && break
+    sleep 0.25; tries=$((tries+1))
+  done
+  if (( bad != 0 )); then
+    err "verify: daemons not fully up after start —"
+    for row in "${DAEMONS[@]}"; do
+      n="$(echo "$row" | cut -d'|' -f1)"; port="$(echo "$row" | cut -d'|' -f4)"
+      [[ "$what" == "core" && "$(echo "$row" | cut -d'|' -f3)" != "core" ]] && continue
+      if [[ "$(daemon_run_mode "$n")" == "docker" ]]; then
+        docker ps --filter "name=exc-dev-$(docker_svc "$n")-" \
+          --filter status=running -q 2>/dev/null | grep -q . || warn "  $n: container not running"
+      elif ! pid_alive "$n"; then warn "  $n: process dead — see $(logfile "$n")"
+      elif [[ "$port" != "-" ]] && ! ss -ltn 2>/dev/null | awk '{print $4}' | grep -qE "[:.]${port}\$"; then
+        warn "  $n: alive but port $port not bound — see $(logfile "$n")"
+      fi
+    done
+    return 1
+  fi
+  ok "verify: all daemons up"
 }
 
 act_stop() { # all|app|infra
