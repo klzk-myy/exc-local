@@ -186,6 +186,151 @@ export async function fetchOpsHealth(api: BoundAdminApi): Promise<OpsHealth> {
 }
 
 // ---------------------------------------------------------------------------
+// Market-ops board (GET /api/v1/admin/ops-board — Phase-15 Task 15.3.12,
+// Risk Manager). Read-only consolidated board: non-ACTIVE instruments
+// with grace windows + engine-status drift, pending listing proposals,
+// pending four-eyes approvals, upcoming auctions, today's fixings, and
+// operational warnings.
+// ---------------------------------------------------------------------------
+
+export interface OpsBoardInstrument {
+  symbol: string;
+  status: string;
+  engineStatus?: string;
+  statusDrift?: boolean;
+  graceKind?: string;
+  graceDeadline?: string;
+  delistPhase?: string;
+}
+
+export interface OpsBoardProposal {
+  id: number;
+  symbol: string;
+  status: string;
+  overdue?: boolean;
+  createdAt?: string;
+}
+
+export interface OpsBoardApproval {
+  id: number;
+  operation: string;
+  targetId: string;
+  requiredRole?: string;
+  expiresAt?: string;
+}
+
+export interface OpsBoardAuction {
+  symbol: string;
+  auctionType: string;
+  benchmark?: string;
+  nextAt?: string;
+}
+
+export interface OpsBoardFixing {
+  symbol: string;
+  benchmark: string;
+  status: string;
+  scheduledAt?: string;
+  rate?: string;
+}
+
+export interface OpsBoard {
+  generatedAt?: string;
+  instruments: OpsBoardInstrument[];
+  pendingProposals: OpsBoardProposal[];
+  pendingApprovals: OpsBoardApproval[];
+  upcomingAuctions: OpsBoardAuction[];
+  todayFixings: OpsBoardFixing[];
+  warnings: string[];
+}
+
+function parseBoardInstrument(v: unknown): OpsBoardInstrument | null {
+  if (!isRecord(v)) return null;
+  const symbol = str(v['symbol']);
+  if (symbol === undefined) return null;
+  return {
+    symbol,
+    status: str(v['status']) ?? 'UNKNOWN',
+    engineStatus: str(v['engine_status']),
+    statusDrift: bool(v['status_drift']),
+    graceKind: str(v['grace_kind']),
+    graceDeadline: str(v['grace_deadline']),
+    delistPhase: str(v['delist_phase']),
+  };
+}
+
+function parseBoardProposal(v: unknown): OpsBoardProposal | null {
+  if (!isRecord(v)) return null;
+  const id = num(v['id']);
+  const symbol = str(v['symbol']);
+  if (id === undefined || symbol === undefined) return null;
+  return {
+    id,
+    symbol,
+    status: str(v['status']) ?? 'UNKNOWN',
+    overdue: bool(v['overdue']),
+    createdAt: str(v['created_at']),
+  };
+}
+
+function parseBoardApproval(v: unknown): OpsBoardApproval | null {
+  if (!isRecord(v)) return null;
+  const id = num(v['id']);
+  if (id === undefined) return null;
+  return {
+    id,
+    operation: str(v['operation']) ?? 'UNKNOWN',
+    targetId: str(v['target_id']) ?? '',
+    requiredRole: str(v['required_role']),
+    expiresAt: str(v['expires_at']),
+  };
+}
+
+function parseBoardAuction(v: unknown): OpsBoardAuction | null {
+  if (!isRecord(v)) return null;
+  const symbol = str(v['symbol']);
+  if (symbol === undefined) return null;
+  return {
+    symbol,
+    auctionType: str(v['auction_type']) ?? 'UNKNOWN',
+    benchmark: str(v['benchmark']),
+    nextAt: str(v['next_at']),
+  };
+}
+
+function parseBoardFixing(v: unknown): OpsBoardFixing | null {
+  if (!isRecord(v)) return null;
+  const symbol = str(v['symbol']);
+  const benchmark = str(v['benchmark']);
+  if (symbol === undefined || benchmark === undefined) return null;
+  return {
+    symbol,
+    benchmark,
+    status: str(v['status']) ?? 'UNKNOWN',
+    scheduledAt: str(v['scheduled_at']),
+    rate: str(v['rate']),
+  };
+}
+
+export async function fetchOpsBoard(api: BoundAdminApi): Promise<OpsBoard> {
+  const v = await api.get<unknown>('/admin/ops-board');
+  if (!isRecord(v)) throw malformed('ops board');
+  const pick = <T>(key: string, parse: (row: unknown) => T | null): T[] =>
+    arr(v[key])
+      .map(parse)
+      .filter((r): r is T => r !== null);
+  return {
+    generatedAt: str(v['generated_at']),
+    instruments: pick('instruments', parseBoardInstrument),
+    pendingProposals: pick('pending_proposals', parseBoardProposal),
+    pendingApprovals: pick('pending_approvals', parseBoardApproval),
+    upcomingAuctions: pick('upcoming_auctions', parseBoardAuction),
+    todayFixings: pick('today_fixings', parseBoardFixing),
+    warnings: arr(v['warnings']).filter((w): w is string => typeof w === 'string'),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Audit log (GET /api/v1/admin/audit-log — keyset cursor)
 // ---------------------------------------------------------------------------
 
