@@ -8,7 +8,7 @@
 .claude/
 
 # MCP local-scope config may contain secrets - never commit
-.devin/mcp_config.local.json
+.devin/
 
 # Hosting panel artifact - not part of the repo
 .user.ini
@@ -127,6 +127,8 @@ Testing/
 
 # Other per-device agent/tool caches — same class as .claude/.gitnexus/.mimocode
 .reasonix/
+reasonix.toml
+/opencode.json
 .cursor/
 .codeium/
 .windsurf/
