@@ -86,7 +86,7 @@ Watchdog::Level Watchdog::check_once(int64_t now_mono_ns) noexcept {
             if (lvl == Level::Stall) ++stall_reports_;
             try {
                 fn_(ctx_, lvl, last > 0 ? now_mono_ns - last : 0, beat);
-            } catch (...) {
+            } catch (...) {  // NOLINT(bugprone-empty-catch) noexcept report boundary
             }
         }
     }
@@ -255,7 +255,7 @@ void EngineLoop::report(const char* code, const char* detail) noexcept {
             report_fn_(report_ctx_, code, detail);
         else
             stderr_loop_report(nullptr, code, detail);
-    } catch (...) {
+    } catch (...) {  // NOLINT(bugprone-empty-catch) noexcept report boundary
     }
 }
 
