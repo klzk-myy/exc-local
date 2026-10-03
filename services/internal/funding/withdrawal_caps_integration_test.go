@@ -121,13 +121,31 @@ func TestITWithdrawalCaps(t *testing.T) {
 		t.Fatalf("post-window withdrawal must pass: %v", err)
 	}
 
-	// Venue day sum is 600+400+600 = 1600 (cap-1 at -2h still counts —
-	// the venue ceiling is per UTC DAY, not a rolling hour). Account 2
-	// has no hourly cap: 1600 + 5400 == 7000 → boundary passes.
+	// Venue ceiling: the cap-1 backdate (-2h) only stays inside the
+	// current UTC day for runs after 02:00 UTC — earlier runs shift it
+	// to yesterday, changing the venue sum. Pin the global limit to the
+	// actual in-day sum + 5400 so cap-5 lands exactly on the boundary
+	// either way. Account 2 has no hourly cap.
+	if _, err := pool.Exec(ctx, `
+		UPDATE risk_limits SET exchange_daily_withdraw_limit = (
+			SELECT COALESCE(SUM(amount), 0) + 5400
+			FROM funding_transactions
+			WHERE type = 'WITHDRAWAL'
+			  AND status IN ('PENDING','CONFIRMED','PENDING_REVIEW','COMPLETED')
+			  AND created_at >= $1
+		)
+		WHERE account_id IS NULL AND tier IS NULL
+		  AND (symbol IS NULL OR symbol = '*')`,
+		time.Now().UTC().Truncate(24*time.Hour)); err != nil {
+		t.Fatalf("venue limit pin: %v", err)
+	}
+	if err := limits.Load(ctx); err != nil {
+		t.Fatalf("limits reload: %v", err)
+	}
 	if err := mkWithdrawal(2, "5400", "cap-5"); err != nil {
 		t.Fatalf("venue boundary must pass: %v", err)
 	}
-	// 7000 + 1 > 7000 → ORDER_REJECTED for ANY account.
+	// day-sum + 1 > limit → ORDER_REJECTED for ANY account.
 	requireErrCode(t, mkWithdrawal(2, "1", "cap-6"), "ORDER_REJECTED")
 	requireErrCode(t, mkWithdrawal(1, "1", "cap-7"), "ORDER_REJECTED")
 }
