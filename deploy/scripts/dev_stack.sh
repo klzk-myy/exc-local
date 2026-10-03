@@ -2,47 +2,33 @@
 # =============================================================================
 # dev_stack.sh — interactive lifecycle for the exc.local local development stack
 #
-# Brings up (and tears down) BOTH halves of the local topology:
+# Docker-only. There is NO bare-metal mode: every daemon runs as a container
+# (docker-compose.app.yml), supervised by compose restart/healthchecks. The
+# legacy pid-file/nohup host tier was removed 2026-10-03 with the full docker
+# migration — `baremetal_sweep` below fails status/stop if a stack binary is
+# found running outside a container.
 #
 #   Stage 0  clustered infrastructure — docker-compose.dev.yml
 #            PostgreSQL 16 · Redis 1 primary + 2 replicas + 3 sentinels + cache
 #            · NATS JetStream ×3 · ClickHouse · Trino
 #
-#   Stage 1-5  application daemons, started in the deterministic
-#            bootstrap order of spec §19.13.2 (Tier 1 IPC → Tier 2 State →
-#            Tier 3 Core Engines → Tier 4 Services → Tier 5 Gateways):
+#   Stage 1-5  application daemons — docker-compose.app.yml, started in the
+#            deterministic bootstrap order of spec §19.13.2 (Tier 1 IPC →
+#            Tier 2 State → Tier 3 Core Engines → Tier 4 Services →
+#            Tier 5 Gateways):
 #              aeronmd · watchdogd · matching-engine · bridge · oracle
 #              · marketdata · risk · settlement · gateway · compliance
 #              · analytics · recovery-orchestrator · sentinel_exporter
 #              · admin · fix
 #
-# Run modes (prod docker redesign, 2026-10-02 — supersedes prior
-# "bare-metal only, no containers in hot path" default for local dev):
-#   host   (default) — bare-metal binaries with PID files, per spec §19.1/
-#            §19.13.1 (C++ core NUMA-pinned, no containers in hot path).
-#            Lowest latency jitter; required for p99 ≤50µs validation.
-#   docker — every daemon runs as a container via docker-compose.app.yml
-#            (images from deploy/docker/; engine + aeronmd use host IPC +
-#            host networking + /dev/shm + WAL volumes — 127.0.0.1 inside a
-#            container IS the host, so all host-mapped addresses behave
-#            exactly like host mode; still needs isolcpus/NUMA on the host
-#            for determinism — containers add jitter, so soak/benchmark
-#            numbers taken in docker mode are NOT production evidence).
-#            Only PTP (ptp4l/phc2sys) stays on the host — hardware clock;
-#            docker mode uses the software-clock fallback per §19.13.4.
-#   Go daemons are dockerized with EXC_GO_MODE=docker; engine + aeronmd
-#   with EXC_ENGINE_MODE=docker; EXC_APP_MODE=docker sets both at once.
-#   The trader UI (frontend) is docker-only — no host-mode binary.
+# Engine + aeronmd containers use host IPC + host networking + /dev/shm +
+# WAL volumes — 127.0.0.1 inside a container IS the host, so host-mapped
+# addresses behave identically to native (still needs isolcpus/NUMA on the
+# host for determinism — containers add jitter, so soak/benchmark numbers
+# taken here are NOT production evidence). Only PTP stays host-side —
+# docker mode uses the software-clock fallback per §19.13.4.
 #
-# Supervisord still required? No — in docker mode compose
-# restart/healthchecks supervise every daemon (see docker-compose.app.yml
-# + deploy/supervisord.conf header); supervisord remains only for
-# bare-metal/host-mode operation.
-# This script supervises host-mode daemons directly with PID files
-# instead of supervisord, because supervisord is not installed on
-# this host and deploy/supervisord.conf references several `cmd/`
-# names that have no implementation. Every host-mode daemon here is
-# a real, runnable binary.
+# Images are built from deploy/docker/Dockerfile.* via `dev_stack.sh build`.
 #
 # Usage:
 #   deploy/scripts/dev_stack.sh                 # interactive menu
@@ -52,10 +38,10 @@
 #   deploy/scripts/dev_stack.sh start app       # app daemons only (infra assumed up)
 #   deploy/scripts/dev_stack.sh stop all        # app daemons + infra
 #   deploy/scripts/dev_stack.sh stop app        # app daemons only
-#   deploy/scripts/dev_stack.sh restart
+#   deploy/scripts/dev_stack.sh restart         # stop all + verify, then start all
 #   deploy/scripts/dev_stack.sh status
 #   deploy/scripts/dev_stack.sh logs <daemon>   # tail one daemon's log
-#   deploy/scripts/dev_stack.sh build           # (re)build the binaries
+#   deploy/scripts/dev_stack.sh build           # (re)build the docker images
 #
 # Env overrides:
 #   EXC_DEV_RUN_DIR   runtime state root      (default /tmp/exc-dev-stack)
@@ -63,11 +49,9 @@
 #   EXC_SHM_BASE      shm ring namespace      (default exchange_ipc)
 #   EXC_REDIS_ADDR    coordination Redis      (default 127.0.0.1:16379)
 #   EXC_DEV_QUIET=1   suppress the verbose trace
-#   EXC_DEV_FREE_PORTS=1  auto-kill foreign processes holding a needed port
-#   EXC_APP_MODE=docker      dockerize engine + Go daemons at once
-#   EXC_ENGINE_MODE=host|docker  matching-engine run mode (default host)
-#   EXC_GO_MODE=host|docker      Go daemons run mode (default host)
 #   EXC_APP_COMPOSE=path        app compose file (default docker-compose.app.yml)
+#   EXC_ENGINE_IMAGE / EXC_GO_IMAGE / EXC_AERON_IMAGE / EXC_FRONTEND_IMAGE
+#                     image tags (default exc-*:local)
 # =============================================================================
 set -uo pipefail
 
@@ -89,12 +73,13 @@ elif [[ -f "$DEV_ENV.example" ]]; then
 fi
 RUN_DIR="${EXC_DEV_RUN_DIR:-/tmp/exc-dev-stack}"
 LOG_DIR="$RUN_DIR/logs"
-PID_DIR="$RUN_DIR/pids"
 WAL_DIR="${EXC_WAL_DIR:-$RUN_DIR/wal}"
 SPOOL_DIR="$RUN_DIR/ch-spool"
 SHM_BASE="${EXC_SHM_BASE:-exchange_ipc}"
 REDIS_ADDR="${EXC_REDIS_ADDR:-127.0.0.1:16379}"
-AERON_DIR="${EXC_AERON_DIR:-/dev/shm/aeron-${USER:-root}}"
+# Docker-mode Aeron dir is pinned by docker-compose.app.yml (--aeron-dir);
+# status checks look there, not at the legacy host default.
+AERON_DIR="/dev/shm/aeron-exchange"
 
 COMPOSE_FILE="$REPO/docker-compose.dev.yml"
 COMPOSE="docker compose -f $COMPOSE_FILE"
@@ -103,26 +88,12 @@ APP_COMPOSE_FILE="${EXC_APP_COMPOSE:-$REPO/docker-compose.app.yml}"
 # resolve redis-primary/nats-1/postgres by service name (fixed 2026-10-02 —
 # app-only `-f` broke depends_on; the combined model is the supported path).
 APP_COMPOSE="docker compose -f $COMPOSE_FILE -f $APP_COMPOSE_FILE"
-# Run-mode resolution: EXC_APP_MODE=docker is shorthand for both.
-if [[ "${EXC_APP_MODE:-host}" == "docker" ]]; then
-  ENGINE_MODE="docker"
-  GO_MODE="docker"
-else
-  ENGINE_MODE="${EXC_ENGINE_MODE:-host}"
-  GO_MODE="${EXC_GO_MODE:-host}"
-fi
 ENGINE_DOCKER_IMAGE="${EXC_ENGINE_IMAGE:-exc-matching-engine:local}"
 GO_DOCKER_IMAGE="${EXC_GO_IMAGE:-exc-go-service:local}"
 AERON_DOCKER_IMAGE="${EXC_AERON_IMAGE:-exc-aeronmd:local}"
 FRONTEND_DOCKER_IMAGE="${EXC_FRONTEND_IMAGE:-exc-frontend:local}"
-BIN_DIR="$REPO/services/bin"
-ENGINE_BIN="$REPO/core/build/matching_engine"
-AERON_BIN="$REPO/core/third_party/aeron/bin/aeronmd"
 
-STOP_GRACE=15          # seconds to wait for a daemon to exit on SIGTERM
-ENGINE_STOP_GRACE="${EXC_DEV_ENGINE_STOP_GRACE:-30}"  # engines checkpoint snapshot + fsync WAL — killing mid-flush forces recovery
-START_GRACE=3          # seconds to wait before declaring a daemon "up"
-FREE_PORTS="${EXC_DEV_FREE_PORTS:-0}"
+START_GRACE=3          # seconds to wait before declaring a container "up"
 VLOG=1
 [[ "${EXC_DEV_QUIET:-0}" == "1" ]] && VLOG=0
 
@@ -132,6 +103,7 @@ VLOG=1
 #           ext  → supporting services (compliance, analytics, admin, fix, …)
 #   port  = HTTP bind port (0/- = none) — used for the conflict preflight
 #   health= path served on that port (empty = no HTTP health surface)
+# Every name maps to a docker-compose.app.yml service via docker_svc().
 DAEMONS=(
   "aeronmd|20|core|-|"
   "watchdogd|20|core|9110|"
@@ -160,27 +132,14 @@ DAEMONS=(
   "frontend|60|ext|3000|/"
 )
 
-# ── container guard ────────────────────────────────────────────────────────
-# dev_stack.sh is a HOST orchestrator: PID files, /proc scans, ss/pgrep,
-# /dev/shm and nohup supervision only mean something on the host. Inside a
-# container those read container-local state — every host daemon would
-# report "stopped" and `start` would double-start it (verified 2026-10-02:
-# golang container + repo mount printed all-stopped while the host stack
-# was live). So: inside a container, only full-docker mode is allowed
-# (compose talks to the host daemon via the socket; host networking keeps
-# addresses valid). Host rows in `status` are still container-local there.
+# ── container guard ──────────────────────────────────────────────────────────
+# Inside a container, /proc and ss see container-local state. Compose calls
+# still work when the host docker socket is mounted — so the script is
+# usable there, but warn that baremetal_sweep/status see this container's
+# namespace, not the host's.
 in_container() { [[ -f /.dockerenv ]] || grep -qaE 'docker|kubepods' /proc/1/cgroup 2>/dev/null; }
-require_host_or_docker() { # action — refuse host-mode supervision in containers
-  local what="$1"
-  if in_container && [[ "$ENGINE_MODE" != "docker" || "$GO_MODE" != "docker" ]]; then
-    die "in-container $what needs full-docker mode (EXC_APP_MODE=docker): host PID/IPC supervision is meaningless inside a container (needs host namespaces + repo + docker socket for compose)"
-  fi
-  if in_container; then
-    warn "running inside a container: host-mode rows below reflect THIS container, not the host"
-  fi
-}
 ensure_docker_cli() {
-  command -v docker >/dev/null 2>&1 || die "docker mode needs the docker CLI (mount the host socket: -v /var/run/docker.sock:/var/run/docker.sock)"
+  command -v docker >/dev/null 2>&1 || die "dev stack needs the docker CLI (in a container, mount the host socket: -v /var/run/docker.sock:/var/run/docker.sock)"
 }
 
 # ── pretty output ────────────────────────────────────────────────────────────
@@ -196,36 +155,13 @@ err()  { printf "  ${C_R}✗${C_0} %s\n" "$*"; }
 hdr()  { printf "\n${C_B}══ %s ══${C_0}\n" "$*"; }
 die()  { err "$*"; exit 1; }
 
+cell() { # colored-text [width] — pad AFTER %b so ANSI escapes don't skew columns
+  local s="$1" w="${2:-13}" plain
+  plain="$(printf "%b" "$s" | sed $'s/\033\[[0-9;]*m//g')"
+  printf "%b%*s" "$s" $((w - ${#plain})) ""
+}
+
 # ── small helpers ────────────────────────────────────────────────────────────
-pidfile() { echo "$PID_DIR/$1.pid"; }
-logfile() { echo "$LOG_DIR/$1.log"; }
-
-pid_alive() {
-  local pf; pf="$(pidfile "$1")"
-  [[ -f "$pf" ]] || return 1
-  local pid; pid="$(cat "$pf" 2>/dev/null)"
-  [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null || return 1
-  # Identity check: a pid file proves nothing about what the pid *is*.
-  # If the daemon died and the pid was reused, the stop path would
-  # SIGTERM/SIGKILL an unrelated process. Require the pid to exec one
-  # of this stack's binaries before treating it as ours.
-  local exe; exe="$(readlink "/proc/$pid/exe" 2>/dev/null)"
-  case "$exe" in
-    "$BIN_DIR/"*|"$ENGINE_BIN"|"$AERON_BIN") return 0 ;;
-    *) warn "$1: pid $pid is $exe, not a dev-stack binary — treating pid file as stale"; rm -f "$pf"; return 1 ;;
-  esac
-}
-pid_of() { cat "$(pidfile "$1")" 2>/dev/null; }
-
-port_holder_pid() { # port -> pid(s) listening (ss → fuser → lsof)
-  local pids
-  pids="$(ss -ltnp 2>/dev/null | awk -v p=":$1\$" '$4 ~ p {print $NF}' | grep -oE 'pid=[0-9]+' | cut -d= -f2)"
-  [[ -z "$pids" ]] && pids="$(fuser -n tcp "$1" 2>/dev/null | tr -s ' ' '\n' | grep -E '^[0-9]+$')"
-  [[ -z "$pids" ]] && pids="$(lsof -ti "tcp:$1" -sTCP:LISTEN 2>/dev/null)"
-  echo "$pids" | sort -u
-}
-port_busy() { [[ -n "$(port_holder_pid "$1")" ]] || ss -ltn 2>/dev/null | awk '{print $4}' | grep -qE "[:.]$1\$"; }
-
 daemon_field() { # name field-index(2=stage,3=group,4=port,5=health)
   local n="$1" f="$2" row
   for row in "${DAEMONS[@]}"; do
@@ -237,36 +173,39 @@ daemon_names() { local g="${1:-}" row; for row in "${DAEMONS[@]}"; do
   [[ -z "$g" || "$(echo "$row" | cut -d'|' -f3)" == "$g" ]] && echo "$row" | cut -d'|' -f1
 done; }
 
-# Full launch command (env prefix + exec) for a daemon.
-daemon_cmd() {
-  case "$1" in
-    aeronmd)
-      echo "exec $AERON_BIN" ;;
-    watchdogd)
-      echo "exec $BIN_DIR/watchdogd -redis-addr $REDIS_ADDR -aeron-dir $AERON_DIR -ptp=false -ptp-expected=false -no-demote" ;;
-    matching-engine|matching-engine-[0-9]*)
-      # One process per shard — the gateway readiness probe fails closed
-      # unless every shard in config/sharding.yaml stamps a live producer.
-      local _s="${1#matching-engine}"; _s="${_s#-}"; _s="${_s:-0}"
-      echo "exec $ENGINE_BIN -shard $_s -ipc-base $SHM_BASE -wal-dir $WAL_DIR -redis $REDIS_ADDR -symbol EUR/USD -instrument-id 1 -dev-all-accounts" ;;
-    xshardrelay)
-      echo "exec $BIN_DIR/xshardrelay -shards ${EXC_XSHARD_SHARDS:-0,1,2,3,4,5,6,7}" ;;
-    oracle)
-      echo "EXC_ORACLE_SIM=1 EXC_ORACLE_HEALTH_ADDR=127.0.0.1:8090 exec $BIN_DIR/oracle" ;;
-    risk)
-      echo "EXC_RISK_HEALTH_ADDR=127.0.0.1:8091 exec $BIN_DIR/risk" ;;
-    analytics)
-      echo "EXC_CH_SPOOL_DIR=$SPOOL_DIR exec $BIN_DIR/analytics" ;;
-    settlement)
-      echo "EXC_SENDER_BIC=EXCHUS33 exec $BIN_DIR/settlement" ;;
-    *)
-      echo "exec $BIN_DIR/$1" ;;
-  esac
+docker_svc() { echo "${1//_/-}"; }   # sentinel_exporter → sentinel-exporter
+
+docker_container_running() { # name -> its exc-dev-<svc>-N container is up
+  docker ps --filter "name=exc-dev-$(docker_svc "$1")-" \
+    --filter status=running -q 2>/dev/null | grep -q .
+}
+docker_container_state() { # name -> compose container status string ("" if absent)
+  docker ps -a --filter "name=exc-dev-$(docker_svc "$1")-" \
+    --format '{{.Status}}' 2>/dev/null | head -1
+}
+
+# Docker-only policy: a stack binary running OUTSIDE a container is a
+# migration violation — it shares /dev/shm and WAL paths with the engine
+# containers and silently double-owns shard rings. Detected via exe path
+# (readlink lands on the repo, not an overlay) + cgroup filter.
+baremetal_sweep() { # -> 1 if any bare-metal stack process found
+  local pid exe bad=0
+  for pid in /proc/[0-9]*; do
+    pid="${pid#/proc/}"
+    exe="$(readlink "/proc/$pid/exe" 2>/dev/null)" || continue
+    case "$exe" in
+      "$REPO/services/bin/"*|"$REPO/core/build/matching_engine"|*"/aeron/bin/aeronmd")
+        grep -qaE 'docker|kubepods' "/proc/$pid/cgroup" 2>/dev/null && continue
+        warn "bare-metal stack process pid $pid ($exe) — docker-only policy, stop it properly"
+        bad=1 ;;
+    esac
+  done
+  return "$bad"
 }
 
 # ── environment ──────────────────────────────────────────────────────────────
 load_env() {
-  mkdir -p "$RUN_DIR" "$LOG_DIR" "$PID_DIR" "$WAL_DIR" "$SPOOL_DIR"
+  mkdir -p "$RUN_DIR" "$LOG_DIR" "$WAL_DIR" "$SPOOL_DIR"
   # dev.env carries JWT key + ClickHouse creds + NATS seeds; it is gitignored,
   # so fall back to the committed example when it has not been created yet.
   if [[ -f "$DEV_ENV" ]]; then
@@ -282,21 +221,16 @@ load_env() {
   export EXC_WAL_DIR="$WAL_DIR"
   export EXC_REDIS_ADDR="$REDIS_ADDR"
   export EXC_CH_SPOOL_DIR="$SPOOL_DIR"
-  export EXC_ORACLE_HEALTH_ADDR="127.0.0.1:8090"
-  export EXC_RISK_HEALTH_ADDR="127.0.0.1:8091"
   export EXC_SENTINEL_ADDRS="${EXC_SENTINEL_ADDRS:-127.0.0.1:36379,127.0.0.1:36380,127.0.0.1:36381}"
   vlog "shm=$EXC_SHM_BASE wal=$EXC_WAL_DIR redis=$EXC_REDIS_ADDR aeron=$AERON_DIR"
-  vlog "mode: engine=$ENGINE_MODE go=$GO_MODE (docker adds jitter — not prod p99 evidence)"
-  if [[ "$ENGINE_MODE" == "docker" || "$GO_MODE" == "docker" ]]; then
-    [[ -f "$APP_COMPOSE_FILE" ]] || warn "docker mode selected but $APP_COMPOSE_FILE missing — create it (see deploy/docker/) before start"
-  fi
+  [[ -f "$APP_COMPOSE_FILE" ]] || warn "$APP_COMPOSE_FILE missing — app daemons cannot start (see deploy/docker/)"
 }
 
 # ── Stage 0 — infrastructure ─────────────────────────────────────────────────
 infra_start() {
   hdr "Stage 0 — infrastructure (docker compose)"
   [[ -f "$COMPOSE_FILE" ]] || die "missing $COMPOSE_FILE"
-  vlog "docker compose up -d --wait  (PG, Redis×6, NATS×3, ClickHouse, Trino)"
+  vlog "docker compose up -d --wait  (PG, Redis×7, NATS×3, ClickHouse, Trino)"
   if ! $COMPOSE up -d --wait; then
     err "infra did not reach healthy"; return 1
   fi
@@ -319,125 +253,42 @@ infra_status() {
 }
 
 # ── build ────────────────────────────────────────────────────────────────────
-build_apps() {
-  hdr "build application binaries"
-  info "Go services → services/bin/  (go build -o bin/ ./cmd/...)"
-  ( cd "$REPO/services" && go build -o bin/ ./cmd/... ) || die "go build failed"
-  ok "Go binaries built"
-  [[ -x "$AERON_BIN" ]] || warn "vendored aeronmd missing at $AERON_BIN (bridge/risk will not start)"
-  if [[ ! -x "$ENGINE_BIN" ]]; then
-    warn "engine binary missing — building C++ core"
-    cmake -S "$REPO/core" -B "$REPO/core/build" -DCMAKE_BUILD_TYPE=Release >/dev/null || die "cmake configure failed"
-    cmake --build "$REPO/core/build" -j >/dev/null || die "cmake build failed"
-  fi
-  ok "engine: $ENGINE_BIN"
+build_images() {
+  hdr "build docker images"
+  ensure_docker_cli
+  local df
+  for df in engine go aeron frontend; do
+    info "docker build deploy/docker/Dockerfile.$df"
+    case "$df" in
+      engine)   docker build -t "$ENGINE_DOCKER_IMAGE"   -f "$REPO/deploy/docker/Dockerfile.engine"   "$REPO" || return 1 ;;
+      go)       docker build -t "$GO_DOCKER_IMAGE"       -f "$REPO/deploy/docker/Dockerfile.go"       "$REPO" || return 1 ;;
+      aeron)    docker build -t "$AERON_DOCKER_IMAGE"    -f "$REPO/deploy/docker/Dockerfile.aeron"    "$REPO" || return 1 ;;
+      frontend) docker build -t "$FRONTEND_DOCKER_IMAGE" -f "$REPO/deploy/docker/Dockerfile.frontend" "$REPO" || return 1 ;;
+    esac
+  done
+  ok "images built"
 }
 
-ensure_binaries() {
-  local missing=0 n mode
-  for n in $(daemon_names); do
-    mode="$(daemon_run_mode "$n")"
-    # Docker-mode daemons run from images — no host binary needed.
-    [[ "$mode" == "docker" ]] && continue
-    [[ "$n" == matching-engine* ]] && { [[ -x "$ENGINE_BIN" ]] || missing=1; continue; }
-    [[ "$n" == "aeronmd" ]] && { [[ -x "$AERON_BIN" ]] || missing=1; continue; }
-    [[ -x "$BIN_DIR/$n" ]] || missing=1
+ensure_images() {
+  local missing=0 img
+  for img in "$ENGINE_DOCKER_IMAGE" "$GO_DOCKER_IMAGE" "$AERON_DOCKER_IMAGE" "$FRONTEND_DOCKER_IMAGE"; do
+    docker image inspect "$img" >/dev/null 2>&1 || { warn "image $img missing"; missing=1; }
   done
-  (( missing )) && build_apps
+  (( missing )) && { warn "run: $0 build   (or docker build deploy/docker/)"; return 1; }
   return 0
 }
 
 # ── preflight ────────────────────────────────────────────────────────────────
-free_port() { # port name
-  local port="$1" name="$2" pid
-  for pid in $(port_holder_pid "$port"); do
-    [[ "$pid" == "$$" ]] && continue
-    local cmd; cmd="$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | cut -c1-90)"
-    # The holder lives inside a container (host-net service): SIGKILL only
-    # triggers a compose restart, not a free port — direct the operator to
-    # `compose stop` instead of starting a kill/resurrect loop.
-    if grep -qaE 'docker|kubepods' "/proc/$pid/cgroup" 2>/dev/null; then
-      warn "port $port busy (needed by $name) — held by containerized pid $pid: $cmd"
-      warn "  stop the compose service instead of killing it"
-      continue
-    fi
-    # Data integrity: never SIGKILL a port holder. A datastore or engine
-    # process killed mid-checkpoint corrupts/loses state — and even for
-    # unknown processes, TERM is the only signal a script should send on
-    # the operator's behalf. Refuse instead of escalating.
-    local exe; exe="$(readlink "/proc/$pid/exe" 2>/dev/null)"
-    case "$exe" in
-      *postgres*|*redis-server*|*nats-server*|*clickhouse*|*matching_engine*|*aeronmd*|*trino*)
-        warn "port $port busy (needed by $name) — held by datastore/engine pid $pid: $cmd"
-        warn "  refusing to signal it — stop it properly first"
-        continue ;;
-    esac
-    if [[ "$FREE_PORTS" == "1" ]]; then
-      warn "freeing :$port — SIGTERM pid $pid ($cmd)"
-      kill -TERM "$pid" 2>/dev/null
-      for _ in 1 2 3 4 5 6 7 8; do
-        kill -0 "$pid" 2>/dev/null || break; sleep 0.5
-      done
-      if kill -0 "$pid" 2>/dev/null; then
-        warn "pid $pid ignored SIGTERM — leaving it alone (kill manually if safe)"
-      fi
-    else
-      warn "port $port busy (needed by $name) — pid $pid: $cmd"
-      warn "  re-run with EXC_DEV_FREE_PORTS=1 (SIGTERM only), or stop pid $pid"
-    fi
-  done
-}
-
 preflight() {
   hdr "preflight"
-  local row n port
-  for row in "${DAEMONS[@]}"; do
-    n="$(echo "$row" | cut -d'|' -f1)"; port="$(echo "$row" | cut -d'|' -f4)"
-    [[ "$port" == "-" ]] && continue
-    pid_alive "$n" && continue
-    port_busy "$port" && free_port "$port" "$n"
-  done
-  foreign_engine_check
+  ensure_docker_cli
+  ensure_images || return 1
+  baremetal_sweep || warn "bare-metal stack processes found — docker-only policy, stop them before starting"
   vlog "preflight done"
 }
 
-# A matching_engine started outside this script (e.g. a leftover e2e harness
-# run on a different -ipc-base) still contends for the shard leader lock and
-# will make order legs time out with GATEWAY_TIMEOUT_MATCHING_ENGINE.
-foreign_engine_check() {
-  local mine="" pid argv0
-  pid_alive matching-engine && mine="$(pid_of matching-engine)"
-  for pid in $(pgrep -f 'matching_engine' 2>/dev/null); do
-    [[ "$pid" == "$mine" || "$pid" == "$$" || "$pid" == "$PPID" ]] && continue
-    # argv[0] must be the engine binary itself — not a shell/bwrap that merely
-    # mentions the word (a false positive otherwise).
-    argv0="$(tr '\0' '\n' < "/proc/$pid/cmdline" 2>/dev/null | head -1)"
-    [[ "$argv0" == *matching_engine ]] || continue
-    # A containerized engine (docker mode) shows the same argv0 — its cgroup
-    # carries docker/kubepods, so only HOST-mode processes can be foreign.
-    grep -qaE 'docker|kubepods' "/proc/$pid/cgroup" 2>/dev/null && continue
-    warn "foreign matching_engine pid $pid (not managed here): $argv0"
-    warn "  a stray engine on the same shard causes 504 GATEWAY_TIMEOUT_MATCHING_ENGINE"
-    warn "  kill it:  kill $pid   (or: pkill -f matching_engine, then re-run)"
-  done
-}
-
-# ── start / stop app daemons ─────────────────────────────────────────────────
-# Docker run-mode routing (full-project docker): aeronmd follows ENGINE_MODE
-# (Stage-1 IPC foundation for the containerized engine), watchdogd follows
-# GO_MODE, frontend is docker-only (no host binary exists). Supervisord/
-# compose mapping: dockerized daemons are supervised by compose
-# restart/healthchecks, NOT supervisord or PID files.
-daemon_run_mode() { # name -> host|docker
-  case "$1" in
-    frontend)          echo "docker" ;;
-    matching-engine*|aeronmd) echo "$ENGINE_MODE" ;;
-    *)                 echo "$GO_MODE" ;;
-  esac
-}
-docker_svc() { echo "${1//_/-}"; }
-
-docker_start_one() { # name — compose-supervised, no PID file
+# ── start/stop primitives ────────────────────────────────────────────────────
+start_one() { # name — compose-supervised
   ensure_docker_cli
   local n="$1" svc; svc="$(docker_svc "$n")"
   # dev.env must be sourced (load_env does): without EXC_JWT_HS256_KEY_B64
@@ -446,15 +297,12 @@ docker_start_one() { # name — compose-supervised, no PID file
   # `docker compose up` bypassed dev_stack). Never start app services with
   # bare compose — always go through `dev_stack.sh start app`.
   [[ -n "${EXC_JWT_HS256_KEY_B64:-}" ]] || warn "$n: EXC_JWT_HS256_KEY_B64 empty — gateway logins will fail AUTH_INTERNAL (is deploy/dev.env sourced?)"
-  [[ -f "$APP_COMPOSE_FILE" ]] || { err "$n: docker mode needs $APP_COMPOSE_FILE (see deploy/docker/)"; return 1; }
+  [[ -f "$APP_COMPOSE_FILE" ]] || { err "$n: needs $APP_COMPOSE_FILE (see deploy/docker/)"; return 1; }
   vlog "$n ← $APP_COMPOSE up -d $svc"
-  # AERON_DIR pinned to the canonical driver dir in docker mode: the host
-  # default (/dev/shm/aeron-${USER}) would disagree with the containerized
-  # driver's --aeron-dir and strand every Aeron client (fixed 2026-10-02).
   ENGINE_DOCKER_IMAGE="$ENGINE_DOCKER_IMAGE" GO_DOCKER_IMAGE="$GO_DOCKER_IMAGE" \
     AERON_DOCKER_IMAGE="$AERON_DOCKER_IMAGE" FRONTEND_DOCKER_IMAGE="$FRONTEND_DOCKER_IMAGE" \
     SHM_BASE="$SHM_BASE" WAL_DIR="$WAL_DIR" REDIS_ADDR="$REDIS_ADDR" \
-    AERON_DIR="/dev/shm/aeron-exchange" \
+    AERON_DIR="$AERON_DIR" \
     $APP_COMPOSE up -d "$svc" || return 1
   sleep "$START_GRACE"
   if $APP_COMPOSE ps --format json 2>/dev/null | grep -q "\"Service\":\"$svc\""; then
@@ -465,90 +313,32 @@ docker_start_one() { # name — compose-supervised, no PID file
   fi
 }
 
-docker_stop_one() { # name
+stop_one() { # name — compose stop (grace per docker-compose.app.yml)
   local n="$1" svc; svc="$(docker_svc "$n")"
-  [[ -f "$APP_COMPOSE_FILE" ]] || { vlog "$n: no $APP_COMPOSE_FILE, nothing to stop"; return 0; }
+  if ! docker_container_running "$n"; then
+    vlog "$n not running"; return 0
+  fi
   vlog "$n ← $APP_COMPOSE stop $svc"
+  # `compose stop` honors each service's stop_grace_period (30s engines,
+  # see docker-compose.app.yml) — snapshot + WAL fsync complete before
+  # docker escalates. Containers are stopped, never removed.
   $APP_COMPOSE stop "$svc" 2>/dev/null || true
   ok "$n stopped (docker)"
 }
 
-start_one() { # name
-  local n="$1"
-  if [[ "$(daemon_run_mode "$n")" == "docker" ]]; then docker_start_one "$n"; return $?; fi
-  if pid_alive "$n"; then ok "$n already running (pid $(pid_of "$n"))"; return 0; fi
-  local cmd log pf
-  cmd="$(daemon_cmd "$n")"
-  log="$(logfile "$n")"; pf="$(pidfile "$n")"
-  vlog "$n ← $cmd"
-  : > "$log"
-  nohup bash -c "$cmd" >>"$log" 2>&1 &
-  echo $! > "$pf"
-  sleep "$START_GRACE"
-  if pid_alive "$n"; then
-    ok "$n up (pid $(pid_of "$n"), stage $(daemon_field "$n" 2))"
-  else
-    err "$n exited during startup — last log lines:"
-    sed 's/^/      /' <(tail -n 6 "$log" 2>/dev/null)
-    rm -f "$pf"
-    return 1
-  fi
-}
-
-stop_one() { # name
-  local n="$1" pf pid i=0
-  if [[ "$(daemon_run_mode "$n")" == "docker" ]]; then docker_stop_one "$n"; return $?; fi
-  pf="$(pidfile "$n")"
-  if ! pid_alive "$n"; then
-    [[ -f "$pf" ]] && rm -f "$pf"
-    # Mode mismatch guard: a compose container can be running even when
-    # this invocation resolves host mode (started earlier under
-    # EXC_APP_MODE=docker). Stop it too rather than report a lie.
-    if docker ps --filter "name=exc-dev-$(docker_svc "$n")-" \
-        --filter status=running -q 2>/dev/null | grep -q .; then
-      docker_stop_one "$n"
-    else
-      vlog "$n not running"
-    fi
-    return 0
-  fi
-  pid="$(pid_of "$n")"
-  # Engines flush WAL + write a snapshot on SIGTERM — give them the
-  # longer checkpoint window (ENGINE_STOP_GRACE) so a dev machine under
-  # load doesn't force a mid-flush SIGKILL and a slow WAL replay on the
-  # next start.
-  local grace="$STOP_GRACE"
-  [[ "$n" == matching-engine* ]] && grace="$ENGINE_STOP_GRACE"
-  vlog "$n (pid $pid) ← SIGTERM"
-  kill -TERM "$pid" 2>/dev/null
-  while kill -0 "$pid" 2>/dev/null && (( i < grace*4 )); do sleep 0.25; i=$((i+1)); done
-  if kill -0 "$pid" 2>/dev/null; then
-    warn "$n ignored SIGTERM after ${grace}s — SIGKILL"
-    kill -KILL "$pid" 2>/dev/null; sleep 0.5
-    [[ "$n" == matching-engine* ]] && \
-      warn "$n killed mid-shutdown — WAL replay will run on next start (recovery is expected, not corruption)"
-  fi
-  rm -f "$pf"
-  ok "$n stopped"
-}
-
-app_start() { # group(all|core) [tier(all|host|docker)]
-  local g="$1" tier="${2:-all}" row n stage last_stage="" total=0 i=0
-  hdr "Stages 1-5 — application daemons ($g · $tier)"
-  # ensure_binaries only applies to the host tier — docker daemons run
-  # images, not services/bin.
-  [[ "$tier" != "docker" ]] && { ensure_binaries || return 1; }
+# ── application stages ───────────────────────────────────────────────────────
+app_start() { # group(all|core)
+  local g="$1" row n stage last_stage="" total=0 i=0
+  hdr "Stages 1-5 — application daemons ($g · docker)"
+  ensure_images || return 1
   for row in "${DAEMONS[@]}"; do
-    n="$(echo "$row" | cut -d'|' -f1)"
     [[ "$g" == "core" && "$(echo "$row" | cut -d'|' -f3)" != "core" ]] && continue
-    [[ "$tier" != "all" && "$(daemon_run_mode "$n")" != "$tier" ]] && continue
     total=$((total+1))
   done
   for row in "${DAEMONS[@]}"; do
     n="$(echo "$row" | cut -d'|' -f1)"
     stage="$(echo "$row" | cut -d'|' -f2)"
     [[ "$g" == "core" && "$(echo "$row" | cut -d'|' -f3)" != "core" ]] && continue
-    [[ "$tier" != "all" && "$(daemon_run_mode "$n")" != "$tier" ]] && continue
     if [[ "$stage" != "$last_stage" ]]; then
       info "stage priority $stage"
       last_stage="$stage"
@@ -565,33 +355,16 @@ app_start() { # group(all|core) [tier(all|host|docker)]
   done
 }
 
-docker_container_running() { # name -> its exc-dev-<svc>-N container is up
-  docker ps --filter "name=exc-dev-$(docker_svc "$1")-" \
-    --filter status=running -q 2>/dev/null | grep -q .
-}
-
-stop_target_alive() { # name tier -> this stop op should touch it
-  # IMPORTANT: for `stop`, a tier means "things actually running under
-  # that runtime", not "things configured for it" — a gateway container
-  # running under GO_MODE=host must still be stopped by `stop docker`.
-  case "$2" in
-    all)    return 0 ;;   # stop_one covers pid + container + mode mismatch
-    host)   pid_alive "$1" ;;
-    docker) docker_container_running "$1" ;;
-    *)      return 0 ;;
-  esac
-}
-
-app_stop() { # [tier(all|host|docker)]
-  local tier="${1:-all}" row n i k=0 total=0
-  hdr "Stages 1-5 — stop application daemons (reverse order · $tier)"
+app_stop() {
+  hdr "Stages 1-5 — stop application daemons (reverse order · docker)"
+  local row n i k=0 total=0
   for row in "${DAEMONS[@]}"; do
     n="$(echo "$row" | cut -d'|' -f1)"
-    stop_target_alive "$n" "$tier" && total=$((total+1))
+    docker_container_running "$n" && total=$((total+1))
   done
   for (( i=${#DAEMONS[@]}-1; i>=0; i-- )); do
     n="$(echo "${DAEMONS[$i]}" | cut -d'|' -f1)"
-    stop_target_alive "$n" "$tier" || continue
+    docker_container_running "$n" || continue
     k=$((k+1))
     info "[$k/$total] $n"
     stop_one "$n"
@@ -600,26 +373,22 @@ app_stop() { # [tier(all|host|docker)]
 
 # ── status ───────────────────────────────────────────────────────────────────
 app_status() {
-  hdr "Stages 1-5 — application daemons (engine=$ENGINE_MODE go=$GO_MODE)"
-  local row n stage port state pid hp mode
-  printf "  %-22s %-6s %-7s %-7s %-9s %s\n" "DAEMON" "STAGE" "PORT" "MODE" "STATE" "PID/SERVICE"
+  hdr "Stages 1-5 — application daemons (docker)"
+  local row n stage port state pid cst
+  printf "  %-22s %-6s %-7s %-12s %s\n" "DAEMON" "STAGE" "PORT" "STATE" "SERVICE"
   for row in "${DAEMONS[@]}"; do
     n="$(echo "$row" | cut -d'|' -f1)"
     stage="$(echo "$row" | cut -d'|' -f2)"
     port="$(echo "$row" | cut -d'|' -f4)"
-    mode="$(daemon_run_mode "$n")"
-    if [[ "$mode" == "docker" ]]; then
-      # Report the container's real state, not just the configured mode.
-      local cst; cst="$(docker ps -a --filter "name=exc-dev-$(docker_svc "$n")-" \
-        --format '{{.Status}}' 2>/dev/null | head -1)"
-      case "$cst" in
-        Up*)        state="${C_G}running${C_0}" ;;
-        "")         state="${C_D}absent${C_0}" ;;
-        *)          state="${C_D}${cst%% *}${C_0}" ;;
-      esac
-      pid="$(docker_svc "$n")"
-    elif pid_alive "$n"; then state="${C_G}running${C_0}"; pid="$(pid_of "$n")"; else state="${C_D}stopped${C_0}"; pid="-"; fi
-    printf "  %-22s %-6s %-7s %-7s %-18b %s\n" "$n" "$stage" "$port" "$mode" "$state" "$pid"
+    cst="$(docker_container_state "$n")"
+    case "$cst" in
+      Up*)        state="${C_G}running${C_0}" ;;
+      "")         state="${C_D}absent${C_0}" ;;
+      *)          state="${C_D}${cst%% *}${C_0}" ;;
+    esac
+    printf "  %-22s %-6s %-7s " "$n" "$stage" "$port"
+    cell "$state"
+    printf "%s\n" "$(docker_svc "$n")"
   done
   hdr "health"
   for row in "${DAEMONS[@]}"; do
@@ -629,36 +398,33 @@ app_status() {
     [[ "$port" == "-" || -z "$hp" ]] && continue
     if curl -sf -m 2 "http://127.0.0.1:$port$hp" >/dev/null 2>&1; then ok "$n :$port$hp"; else warn "$n :$port$hp unreachable"; fi
   done
-  if [[ -x "$ENGINE_BIN" ]]; then
-    if ls /dev/shm/ 2>/dev/null | grep -q "^${SHM_BASE}"; then ok "engine shm rings present (${SHM_BASE})"; else warn "no engine shm rings (${SHM_BASE})"; fi
-  fi
+  if ls /dev/shm/ 2>/dev/null | grep -q "^${SHM_BASE}"; then ok "engine shm rings present (${SHM_BASE})"; else warn "no engine shm rings (${SHM_BASE})"; fi
   if [[ -e "$AERON_DIR/cnc.dat" ]]; then ok "aeron media driver live ($AERON_DIR)"; else warn "no aeron CnC ($AERON_DIR)"; fi
 }
 
 do_status() {
-  if in_container; then warn "in-container status: host-mode rows reflect THIS container, not the host (docker rows via compose are accurate)"; fi
-  app_status; infra_status; foreign_run_pids
+  if in_container; then warn "in-container status: process/port state reflects THIS container's namespace (docker rows via compose are accurate)"; fi
+  app_status; infra_status; baremetal_sweep
 }
 
 # ── top-level actions ────────────────────────────────────────────────────────
-act_start() { # all|core|infra|app [tier(all|host|docker)]
-  local what="${1:-all}" tier="${2:-all}" rc=0
+act_start() { # all|core|infra|app
+  local what="${1:-all}" rc=0
   load_env
-  require_host_or_docker "start $what"
   case "$what" in
-    all)   preflight; infra_start && app_start all "$tier" || rc=1 ;;
-    core)  preflight; infra_start && app_start core "$tier" || rc=1 ;;
-    infra) infra_start || rc=1 ;;
-    app)   preflight; app_start all "$tier" || rc=1 ;;
+    all)   preflight && infra_start && app_start all || rc=1 ;;
+    core)  preflight && infra_start && app_start core || rc=1 ;;
+    infra) ensure_docker_cli && infra_start || rc=1 ;;
+    app)   preflight && app_start all || rc=1 ;;
     *)     die "start: unknown target '$what' (all|core|infra|app)" ;;
   esac
-  [[ "$what" != "infra" ]] && { do_status; verify_started "$what" "$tier" || rc=1; }
+  [[ "$what" != "infra" ]] && { do_status; verify_started "$what" || rc=1; }
   return "$rc"
 }
 
 verify_started() { # post-start audit — is each requested daemon actually up?
-  local what="$1" tier="${2:-all}" row n port bad=0 tries=0 alive
-  # Ports can take a few seconds to bind after the process is alive —
+  local what="$1" row n port bad=0 tries=0
+  # Ports can take a few seconds to bind after the container is alive —
   # retry the whole sweep for up to ~15s before declaring failure.
   while (( tries < 60 )); do
     bad=0
@@ -666,16 +432,8 @@ verify_started() { # post-start audit — is each requested daemon actually up?
       n="$(echo "$row" | cut -d'|' -f1)"
       port="$(echo "$row" | cut -d'|' -f4)"
       [[ "$what" == "core" && "$(echo "$row" | cut -d'|' -f3)" != "core" ]] && continue
-      [[ "$tier" != "all" && "$(daemon_run_mode "$n")" != "$tier" ]] && continue
-      alive=0
-      if [[ "$(daemon_run_mode "$n")" == "docker" ]]; then
-        docker ps --filter "name=exc-dev-$(docker_svc "$n")-" \
-          --filter status=running -q 2>/dev/null | grep -q . && alive=1
-      else
-        pid_alive "$n" && alive=1
-      fi
-      if [[ "$alive" == 0 ]]; then bad=1; continue; fi
-      # Port check: daemon is alive but hasn't bound its listen port yet.
+      docker_container_running "$n" || { bad=1; continue; }
+      # Port check: container alive but hasn't bound its listen port yet.
       [[ "$port" != "-" ]] && ! ss -ltn 2>/dev/null | awk '{print $4}' \
         | grep -qE "[:.]${port}\$" && bad=1
     done
@@ -687,13 +445,10 @@ verify_started() { # post-start audit — is each requested daemon actually up?
     for row in "${DAEMONS[@]}"; do
       n="$(echo "$row" | cut -d'|' -f1)"; port="$(echo "$row" | cut -d'|' -f4)"
       [[ "$what" == "core" && "$(echo "$row" | cut -d'|' -f3)" != "core" ]] && continue
-      [[ "$tier" != "all" && "$(daemon_run_mode "$n")" != "$tier" ]] && continue
-      if [[ "$(daemon_run_mode "$n")" == "docker" ]]; then
-        docker ps --filter "name=exc-dev-$(docker_svc "$n")-" \
-          --filter status=running -q 2>/dev/null | grep -q . || warn "  $n: container not running"
-      elif ! pid_alive "$n"; then warn "  $n: process dead — see $(logfile "$n")"
+      if ! docker_container_running "$n"; then
+        warn "  $n: container not running — see: $APP_COMPOSE logs $(docker_svc "$n")"
       elif [[ "$port" != "-" ]] && ! ss -ltn 2>/dev/null | awk '{print $4}' | grep -qE "[:.]${port}\$"; then
-        warn "  $n: alive but port $port not bound — see $(logfile "$n")"
+        warn "  $n: alive but port $port not bound — see: $APP_COMPOSE logs $(docker_svc "$n")"
       fi
     done
     return 1
@@ -701,34 +456,26 @@ verify_started() { # post-start audit — is each requested daemon actually up?
   ok "verify: all daemons up"
 }
 
-act_stop() { # all|app|infra [tier(all|host|docker)]
-  local what="${1:-all}" tier="${2:-all}" rc=0
+act_stop() { # all|app|infra
+  local what="${1:-all}" rc=0
   load_env
-  require_host_or_docker "stop $what"
   case "$what" in
-    all)   app_stop "$tier" || rc=1; infra_stop || rc=1 ;;
-    app)   app_stop "$tier" || rc=1 ;;
+    all)   app_stop || rc=1; infra_stop || rc=1 ;;
+    app)   app_stop || rc=1 ;;
     infra) infra_stop || rc=1 ;;
     *)     die "stop: unknown target '$what' (all|app|infra)" ;;
   esac
-  # Daemons started under a DIFFERENT RUN_DIR are invisible to our pid
-  # files — that's what made `stop all` appear to no-op. Surface them.
-  foreign_run_pids
-  verify_stopped "$what" "$tier" || rc=1
+  baremetal_sweep || warn "bare-metal stack processes survived — docker-only policy violation"
+  verify_stopped "$what" || rc=1
   return "$rc"
 }
 
 verify_stopped() { # post-stop audit — did everything actually go down?
-  local what="$1" tier="${2:-all}" row n bad=0
+  local what="$1" row n bad=0
   if [[ "$what" != "infra" ]]; then
     for row in "${DAEMONS[@]}"; do
       n="$(echo "$row" | cut -d'|' -f1)"
-      # Check BOTH runtimes regardless of configured mode — a container
-      # can run while the daemon resolves host tier (and vice versa).
-      if [[ "$tier" != "docker" ]] && pid_alive "$n"; then
-        warn "verify: $n still running (pid $(pid_of "$n"))"; bad=1
-      fi
-      if [[ "$tier" != "host" ]] && docker_container_running "$n"; then
+      if docker_container_running "$n"; then
         warn "verify: $n container still running"; bad=1
       fi
     done
@@ -743,39 +490,16 @@ verify_stopped() { # post-stop audit — did everything actually go down?
   return "$bad"
 }
 
-foreign_run_pids() { # warn about live daemons owned by other RUN_DIRs
-  local f d pid exe
-  for f in "${RUN_DIR%/*}"/exc-dev-stack*/pids/*.pid; do
-    [[ -f "$f" ]] || continue
-    d="${f%/pids/*}"
-    [[ "$d" == "$RUN_DIR" ]] && continue
-    pid="$(cat "$f" 2>/dev/null)"
-    [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null || continue
-    exe="$(readlink "/proc/$pid/exe" 2>/dev/null)"
-    case "$exe" in
-      "$BIN_DIR/"*|"$ENGINE_BIN"|"$AERON_BIN")
-        warn "daemon alive under foreign run dir $d: $(basename "$f" .pid) (pid $pid)"
-        warn "  stop it via: EXC_DEV_RUN_DIR=$d $0 stop app" ;;
-    esac
-  done
-}
-
 act_logs() {
   local n="${1:-}"
   [[ -n "$n" ]] || die "logs: name a daemon (e.g. gateway)"
-  if [[ "$(daemon_run_mode "$n")" == "docker" ]]; then
-    info "$APP_COMPOSE logs -f $(docker_svc "$n")   (Ctrl-C to stop)"
-    $APP_COMPOSE logs -f "$(docker_svc "$n")"
-    return $?
-  fi
-  local log; log="$(logfile "$n")"
-  [[ -f "$log" ]] || die "no log for '$n' ($log)"
-  info "tail -f $log   (Ctrl-C to stop)"
-  tail -f "$log"
+  info "$APP_COMPOSE logs -f $(docker_svc "$n")   (Ctrl-C to stop)"
+  $APP_COMPOSE logs -f "$(docker_svc "$n")"
 }
 
-menu_status() { # dual-tier table: host pid state × docker container state
-  local row n svc host dock line cname cst
+# ── interactive menu ─────────────────────────────────────────────────────────
+menu_status() { # per-daemon container state + infra summary
+  local row n svc dock line cname cst
   # One batched docker query for all exc-dev-* containers, keyed by
   # service name (container is exc-dev-<svc>-<replica>).
   declare -A CST=()
@@ -785,40 +509,31 @@ menu_status() { # dual-tier table: host pid state × docker container state
     CST["$svc"]="$cst"
   done < <(docker ps -a --filter "name=exc-dev-" \
     --format '{{.Names}} {{.Status}}' 2>/dev/null)
-  printf "  %-22s %-12s %-12s %s\n" "DAEMON" "HOST" "DOCKER" "TIER"
+  printf "  %-22s %-12s %s\n" "DAEMON" "DOCKER" "STAGE"
   for row in "${DAEMONS[@]}"; do
     n="$(echo "$row" | cut -d'|' -f1)"
     svc="$(docker_svc "$n")"
-    host="${C_D}down${C_0}"
-    [[ "$n" == "frontend" ]] && host="${C_D}-${C_0}"   # no host binary exists
-    [[ "$n" != "frontend" ]] && pid_alive "$n" && host="${C_G}up${C_0}"
     case "${CST[$svc]:-}" in
       Up*)      dock="${C_G}up${C_0}" ;;
       "")       dock="${C_D}absent${C_0}" ;;
       *)        dock="${C_D}stopped${C_0}" ;;
     esac
-    printf "  %-22s " "$n"; cell "$host"; cell "$dock"
-    printf "%s\n" "$(daemon_run_mode "$n")"
+    printf "  %-22s " "$n"; cell "$dock"
+    printf "%s\n" "$(echo "$row" | cut -d'|' -f2)"
   done
-  # Infra summary line.
   local up=0 tot=0
   if [[ -f "$COMPOSE_FILE" ]]; then
     tot="$($COMPOSE ps -a -q 2>/dev/null | wc -l)"
     up="$($COMPOSE ps --filter status=running -q 2>/dev/null | wc -l)"
   fi
   printf "  %-22s %-12s %s\n" "infra (stage 0)" "-" "$up/$tot containers up"
-}
-
-cell() { # colored-text [width] — pad AFTER %b so ANSI escapes don't skew columns
-  local s="$1" w="${2:-13}" plain
-  plain="$(printf "%b" "$s" | sed $'s/\033\[[0-9;]*m//g')"
-  printf "%b%*s" "$s" $((w - ${#plain})) ""
+  baremetal_sweep >/dev/null 2>&1 || printf "  ${C_Y}! bare-metal stack processes detected (see status)${C_0}\n"
 }
 
 menu() {
   load_env
   while true; do
-    hdr "exc.local — dev stack   (${C_D}$RUN_DIR · shm=$SHM_BASE${C_0})"
+    hdr "exc.local — dev stack   (${C_D}docker-only · shm=$SHM_BASE${C_0})"
     menu_status
     cat <<EOF
 
@@ -837,33 +552,24 @@ EOF
   done
 }
 
-menu_target() { # action(start|stop|restart) → prompt host/docker/both tier
+menu_target() { # action(start|stop|restart) → prompt scope
   local action="$1" t
-  if [[ "$action" == "restart" ]]; then
-    echo "  ${C_B}target${C_0}:  [h]ost · [d]ocker · [b]oth tiers · [a]ll tiers+infra · [c]ancel"
-  elif [[ "$action" == "stop" ]]; then
-    echo "  ${C_B}target${C_0}:  [h]ost · [d]ocker · [b]oth tiers · [i]nfra · [a]ll+infra · [c]ancel"
-  else
-    echo "  ${C_B}target${C_0}:  [h]ost · [d]ocker · [b]oth tiers · [i]nfra · [a]ll+infra · [c]ancel"
-  fi
+  echo "  ${C_B}target${C_0}:  [a]pp daemons · [c]ore daemons · [i]nfra · [e]verything · cance[l]"
   read -rp "  target: " t
   case "$action:$t" in
-    start:h)   act_start app host ;;
-    start:d)   act_start app docker ;;
-    start:b)   act_start app ;;
+    start:a)   act_start app ;;
+    start:c)   act_start core ;;
     start:i)   act_start infra ;;
-    start:a)   act_start all ;;
-    stop:h)    act_stop app host ;;
-    stop:d)    act_stop app docker ;;
-    stop:b)    act_stop app ;;
+    start:e)   act_start all ;;
+    stop:a)    act_stop app ;;
     stop:i)    act_stop infra ;;
-    stop:a)    act_stop all ;;
-    restart:h) act_stop app host   && act_start app host ;;
-    restart:d) act_stop app docker && act_start app docker ;;
-    restart:b) act_stop app        && act_start app ;;
-    restart:i) act_stop infra      && act_start infra ;;
-    restart:a) act_stop all        && act_start all ;;
-    *:c|*:"")  info "cancelled" ;;
+    stop:e)    act_stop all ;;
+    stop:c)    warn "stop: core-only not supported — app daemons stop as one tier";;
+    restart:a) act_stop app   && act_start app ;;
+    restart:c) act_stop app   && act_start core ;;
+    restart:i) act_stop infra && act_start infra ;;
+    restart:e) act_stop all   && act_start all ;;
+    *:l|*:c|*:"") info "cancelled" ;;
     *)         warn "unknown target '$t'" ;;
   esac
 }
@@ -884,7 +590,7 @@ case "$cmd" in
   restart)   act_stop all && act_start all ;;
   status)    load_env; do_status ;;
   logs)      shift; act_logs "${1:-}" ;;
-  build)     load_env; build_apps ;;
+  build)     load_env; build_images ;;
   -h|--help|help) usage ;;
   *)         usage; exit 2 ;;
 esac
