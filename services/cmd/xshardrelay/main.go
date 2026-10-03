@@ -154,9 +154,25 @@ func main() {
 		defer sub.Close()
 		go func(s *ipcaeron.Subscription, shard uint32) {
 			for ctx.Err() == nil {
-				if n := s.Poll(10); n < 0 {
+				n := s.Poll(10)
+				if n < 0 {
 					log.Error("xshardrelay: poll error", "shard", shard)
 					return
+				}
+				if n == 0 {
+					// Cross-shard ctl frames are a cold path (basket 2PC /
+					// optimistic legs only), so an idle wait is correct here.
+					// Without it each of the per-shard poll goroutines
+					// busy-spins a full core — eight shards burned ~800% CPU
+					// on this host while idle. Matches the bridge/risk idle
+					// convention. Sustained traffic never sleeps (Poll > 0
+					// turns the loop straight around); only the idle->burst
+					// onset pays one wait.
+					select {
+					case <-ctx.Done():
+						return
+					case <-time.After(100 * time.Microsecond):
+					}
 				}
 			}
 		}(sub, src)
