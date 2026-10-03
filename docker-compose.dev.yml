@@ -85,6 +85,9 @@ services:
     image: redis:7.2-alpine
     command: ["sh", "-c", "cp /etc/redis/sentinel-base.conf /tmp/sentinel.conf && redis-sentinel /tmp/sentinel.conf"]
     ports: ["36379:26379"]
+    # tmpfs covers the image's VOLUME /data — sentinel state is transient,
+    # and an unmapped VOLUME leaks one anonymous volume per recreate.
+    tmpfs: ["/data"]
     volumes:
       - ./deploy/redis/sentinel.conf:/etc/redis/sentinel-base.conf:ro
     depends_on: [redis-primary, redis-replica-1, redis-replica-2]
@@ -97,6 +100,7 @@ services:
     image: redis:7.2-alpine
     command: ["sh", "-c", "cp /etc/redis/sentinel-base.conf /tmp/sentinel.conf && redis-sentinel /tmp/sentinel.conf"]
     ports: ["36380:26379"]
+    tmpfs: ["/data"]
     volumes:
       - ./deploy/redis/sentinel.conf:/etc/redis/sentinel-base.conf:ro
     depends_on: [redis-primary, redis-replica-1, redis-replica-2]
@@ -109,6 +113,7 @@ services:
     image: redis:7.2-alpine
     command: ["sh", "-c", "cp /etc/redis/sentinel-base.conf /tmp/sentinel.conf && redis-sentinel /tmp/sentinel.conf"]
     ports: ["36381:26379"]
+    tmpfs: ["/data"]
     volumes:
       - ./deploy/redis/sentinel.conf:/etc/redis/sentinel-base.conf:ro
     depends_on: [redis-primary, redis-replica-1, redis-replica-2]
@@ -123,6 +128,8 @@ services:
     image: redis:7.2-alpine
     command: ["redis-server", "/etc/redis/redis-cache.conf"]
     ports: ["6382:6379"]
+    # tmpfs for VOLUME /data — cache is disposable; anonymous volumes leak.
+    tmpfs: ["/data"]
     volumes:
       - ./deploy/redis/redis-cache.conf:/etc/redis/redis-cache.conf:ro
     healthcheck:
