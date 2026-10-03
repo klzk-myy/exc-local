@@ -112,8 +112,8 @@ public:
         uint64_t /*account_id*/) const noexcept override {
         // kStpModeUnset (0xFF) is a deliberate out-of-domain sentinel —
         // resolve_stp_mode() treats it as "no account default".
-        return static_cast<exch::StpMode>(
-            exch::kStpModeUnset);  // NOLINT(clang-analyzer-optin.core.EnumCastOutOfRange)
+        // NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange)
+        return static_cast<exch::StpMode>(exch::kStpModeUnset);
     }
     [[nodiscard]] exch::ClientCategory client_category(
         uint64_t /*account_id*/) const noexcept override {
