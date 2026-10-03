@@ -27,6 +27,15 @@ import WorkspacePage from './WorkspacePage';
 
 vi.mock('@/app/runtime', () => import('@/test/accountMocks').then((m) => m.runtimeModule()));
 
+// The unified TradingChart pulls in lightweight-charts (Canvas/matchMedia)
+// — outside jsdom's reach and outside this suite's scope (panel plumbing,
+// not chart internals).
+vi.mock('@/features/charts/TradingChart', () => ({
+  default: ({ symbol }: { symbol: string }) => (
+    <div data-testid="trading-chart" data-symbol={symbol} />
+  ),
+}));
+
 const EMPTY_FETCH = {
   'GET /api/v1/instruments': { body: { data: [] } },
   'GET /api/v1/account/balances': {
@@ -92,13 +101,27 @@ describe('workspace layout persistence', () => {
     const l = loadLayout('master', 'pro');
     expect(l.placements.order.visible).toBe(true);
   });
+
+  it('merges panels added after a layout was saved (book backfilled from default)', () => {
+    const legacy = { ...defaultPlacements('pro') };
+    // Simulate a pre-'book' stored layout: drop the panel entirely.
+    Reflect.deleteProperty(legacy, 'book');
+    saveLayout('master', 'legacy', legacy);
+
+    const l = loadLayout('master', 'pro', 'legacy');
+    expect(l.name).toBe('legacy');
+    // Stored values preserved; the new panel comes from the mode default.
+    expect(l.placements.book).toEqual(defaultPlacements('pro').book);
+    expect(l.placements.order).toEqual(legacy.order);
+  });
 });
 
 describe('WorkspacePage (pro mode)', () => {
-  it('renders the five panels of the Pro default layout', async () => {
+  it('renders the six panels of the Pro default layout', async () => {
     installFetchMock(EMPTY_FETCH);
     renderApp(<WorkspacePage />);
     expect(await screen.findByLabelText('Order ticket panel')).toBeInTheDocument();
+    expect(screen.getByLabelText('Order book panel')).toBeInTheDocument();
     expect(screen.getByLabelText('Positions & quick actions panel')).toBeInTheDocument();
     expect(screen.getByLabelText('Chart & overlays panel')).toBeInTheDocument();
     expect(screen.getByLabelText('Market depth panel')).toBeInTheDocument();
@@ -151,6 +174,23 @@ describe('WorkspacePage (lite mode)', () => {
     expect(await screen.findByRole('form', { name: 'Simple order form' })).toBeInTheDocument();
     expect(screen.getByText('Balances')).toBeInTheDocument();
     expect(screen.queryByLabelText('Order ticket panel')).not.toBeInTheDocument();
+  });
+
+  it('lite → pro toggle reloads the Pro layout, not stale lite geometry', async () => {
+    useUiModeStore.setState({ mode: 'lite' });
+    installFetchMock(EMPTY_FETCH);
+    renderApp(<WorkspacePage />);
+    await screen.findByRole('form', { name: 'Simple order form' });
+
+    await userEvent.click(screen.getByRole('button', { name: /^pro/ }));
+    // The Pro default shows the five trading panels — a lite-initialized
+    // placements state would instead render order/positions/balances only.
+    expect(await screen.findByLabelText('Order ticket panel')).toBeInTheDocument();
+    expect(screen.getByLabelText('Order book panel')).toBeInTheDocument();
+    expect(screen.getByLabelText('Chart & overlays panel')).toBeInTheDocument();
+    expect(screen.getByLabelText('Market depth panel')).toBeInTheDocument();
+    expect(screen.getByLabelText('Positions & quick actions panel')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Balances panel')).not.toBeInTheDocument();
   });
 });
 

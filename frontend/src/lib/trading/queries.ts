@@ -10,7 +10,6 @@ import {
   fetchBalances,
   fetchBookSnapshot,
   fetchInstruments,
-  fetchKlines,
   fetchOrders,
   fetchPositions,
   fetchSubAccounts,
@@ -20,7 +19,6 @@ import {
   type Balance,
   type BookSnapshot,
   type Instrument,
-  type Kline,
   type Order,
   type Position,
   type SubAccount,
@@ -107,18 +105,5 @@ export function useBookSnapshot(
     queryFn: () => (symbol ? fetchBookSnapshot(symbol, depth) : Promise.resolve(null)),
     enabled: symbol !== undefined,
     staleTime: 0,
-  });
-}
-
-export function useKlines(
-  symbol: string | undefined,
-  interval: string,
-  limit = 120,
-): UseQueryResult<Kline[]> {
-  return useQuery({
-    queryKey: ['klines', symbol ?? '', interval, limit],
-    queryFn: () => (symbol ? fetchKlines(symbol, interval, limit) : Promise.resolve([])),
-    enabled: symbol !== undefined,
-    staleTime: 10_000,
   });
 }

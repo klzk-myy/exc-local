@@ -12,7 +12,7 @@
  */
 import type { UiMode } from './liteMode';
 
-export type PanelId = 'order' | 'positions' | 'chart' | 'depth' | 'balances';
+export type PanelId = 'order' | 'book' | 'positions' | 'chart' | 'depth' | 'balances';
 
 export interface PanelMeta {
   id: PanelId;
@@ -23,6 +23,7 @@ export interface PanelMeta {
 
 export const PANELS: readonly PanelMeta[] = [
   { id: 'order', title: 'Order ticket', safetyCritical: true },
+  { id: 'book', title: 'Order book', safetyCritical: false },
   { id: 'positions', title: 'Positions & quick actions', safetyCritical: true },
   { id: 'chart', title: 'Chart & overlays', safetyCritical: false },
   { id: 'depth', title: 'Market depth', safetyCritical: false },
@@ -52,8 +53,9 @@ export const ROW_H = 64;
 
 export const PRO_DEFAULT: Placements = {
   order: { x: 0, y: 0, w: 4, h: 12, visible: true },
-  chart: { x: 4, y: 0, w: 8, h: 7, visible: true },
-  depth: { x: 4, y: 7, w: 8, h: 5, visible: true },
+  book: { x: 4, y: 0, w: 3, h: 12, visible: true },
+  chart: { x: 7, y: 0, w: 5, h: 7, visible: true },
+  depth: { x: 7, y: 7, w: 5, h: 5, visible: true },
   positions: { x: 0, y: 12, w: 12, h: 5, visible: true },
   balances: { x: 0, y: 17, w: 12, h: 3, visible: false },
 };
@@ -62,6 +64,7 @@ export const LITE_DEFAULT: Placements = {
   order: { x: 0, y: 0, w: 6, h: 8, visible: true },
   positions: { x: 6, y: 0, w: 6, h: 8, visible: true },
   balances: { x: 0, y: 8, w: 12, h: 4, visible: true },
+  book: { x: 0, y: 12, w: 12, h: 6, visible: false },
   chart: { x: 0, y: 12, w: 12, h: 6, visible: false },
   depth: { x: 0, y: 12, w: 12, h: 6, visible: false },
 };
@@ -75,7 +78,9 @@ export function defaultPlacements(mode: UiMode): Placements {
 
 export interface WorkspaceStoreShape {
   activeName: string;
-  layouts: Record<string, Placements>;
+  /** Stored layouts may predate newer panels — they validate as Partial
+   * and loadLayout merges the missing panels in from the mode default. */
+  layouts: Record<string, Partial<Placements>>;
 }
 
 export function workspaceStorageKey(scopeKey: string): string {
@@ -89,7 +94,7 @@ function readStore(scopeKey: string, storage: Storage): WorkspaceStoreShape {
     const parsed: unknown = JSON.parse(raw);
     if (typeof parsed !== 'object' || parsed === null) return { activeName: '', layouts: {} };
     const r = parsed as Record<string, unknown>;
-    const layouts: Record<string, Placements> = {};
+    const layouts: Record<string, Partial<Placements>> = {};
     if (typeof r['layouts'] === 'object' && r['layouts'] !== null) {
       for (const [name, v] of Object.entries(r['layouts'] as Record<string, unknown>)) {
         if (isPlacements(v)) layouts[name] = v;
@@ -101,19 +106,22 @@ function readStore(scopeKey: string, storage: Storage): WorkspaceStoreShape {
   }
 }
 
-function isPlacements(v: unknown): v is Placements {
+function isPlacements(v: unknown): v is Partial<Placements> {
   if (typeof v !== 'object' || v === null) return false;
   const r = v as Record<string, unknown>;
-  return PANELS.every((p) => {
-    const pl = r[p.id];
-    if (typeof pl !== 'object' || pl === null) return false;
-    const c = pl as Record<string, unknown>;
+  // Entries are per-panel; a stored layout may legitimately lack panels
+  // added after it was saved (defaults merge in at load). Unknown panel
+  // keys are dropped rather than invalidating the whole layout.
+  return Object.entries(r).every(([key, c]) => {
+    if (!PANELS.some((p) => p.id === key)) return true;
+    if (typeof c !== 'object' || c === null) return false;
+    const pl = c as Record<string, unknown>;
     return (
-      typeof c['x'] === 'number' &&
-      typeof c['y'] === 'number' &&
-      typeof c['w'] === 'number' &&
-      typeof c['h'] === 'number' &&
-      typeof c['visible'] === 'boolean'
+      typeof pl['x'] === 'number' &&
+      typeof pl['y'] === 'number' &&
+      typeof pl['w'] === 'number' &&
+      typeof pl['h'] === 'number' &&
+      typeof pl['visible'] === 'boolean'
     );
   });
 }
@@ -140,12 +148,23 @@ export function loadLayout(
 ): WorkspaceLayout {
   const store = readStore(scopeKey, storage);
   const want = name ?? store.activeName;
-  const placements = store.layouts[want];
+  const stored = store.layouts[want];
   return {
-    name: placements ? want : `${mode === 'lite' ? 'Lite' : 'Pro'} default`,
+    name: stored ? want : `${mode === 'lite' ? 'Lite' : 'Pro'} default`,
     mode,
-    placements: placements ? structuredClone(placements) : defaultPlacements(mode),
+    placements: stored ? mergeWithDefaults(stored, mode) : defaultPlacements(mode),
   };
+}
+
+/** Fill panels missing from a stored layout with the mode default so a
+ * saved layout survives the panel set growing (unknown keys dropped). */
+function mergeWithDefaults(stored: Partial<Placements>, mode: UiMode): Placements {
+  const out = defaultPlacements(mode);
+  for (const p of PANELS) {
+    const s = stored[p.id];
+    if (s !== undefined) out[p.id] = structuredClone(s);
+  }
+  return out;
 }
 
 export function saveLayout(

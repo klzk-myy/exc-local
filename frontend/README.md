@@ -31,10 +31,10 @@ under `src/features/<name>/` exporting the conventions below and it is live:
 import { lazy } from 'react';
 import type { FeatureRoute } from '@/app/manifest';
 
-const TradePage = lazy(() => import('./TradePage'));
+const ChartPage = lazy(() => import('./ChartPage'));
 
 export const routes: FeatureRoute[] = [
-  { path: 'trade/:symbol', element: TradePage, title: 'Trade' },
+  { path: 'chart/:symbol', element: ChartPage, title: 'Chart' },
 ];
 ```
 
@@ -52,7 +52,7 @@ export const routes: FeatureRoute[] = [
 import type { FeatureNavItem } from '@/app/manifest';
 
 export const nav: FeatureNavItem[] = [
-  { label: 'Trade', to: '/trade/EUR/USD', section: 'Trade', order: 10 },
+  { label: 'Workspace', to: '/workspace', section: 'Trade', order: 10 },
 ];
 ```
 
@@ -67,7 +67,14 @@ export const nav: FeatureNavItem[] = [
 Sidebar membership is opt-in: omit `nav.ts` (or omit the item) for
 deep-link pages that should stay routable but off the primary nav —
 e.g. notifications (the shell's bell already links there), account
-sessions (linked from Settings → Security), webhooks, fee tiers.
+sessions (linked from Settings → Security), webhooks, fee tiers, and the
+trading pop-outs (`/book`, `/depth`, `/chart`, `/calculator`) whose primary
+surface is a workspace panel or an order-ticket modal. `/trade/:symbol` and
+`/advanced/:symbol?` are legacy entry points that redirect into
+`/workspace` — the customizable cockpit (Task 10.3.14) is the canonical
+trading surface: Pro mounts order ticket, order book, positions, chart +
+overlays, depth and balances panels, and the sub-account switcher lives in
+the workspace header (spec §27, 2026-10-03 IA record).
 
 Discovery is implemented in `src/app/manifest.ts` and consumed by
 `src/app/router.tsx` + `src/components/AppShell.tsx`. Both manifest files may

@@ -191,7 +191,12 @@ test.describe('smoke path', () => {
     const api = await balancesCtx(await pageToken(page));
 
     // ── 2. subscribe — the book renders WS depth frames ───────────────
+    // /trade/:symbol redirects into the workspace carrying the symbol in
+    // the order draft; the taker is T1 → Lite by default, so switch to
+    // Pro for the full ticket + book panel.
     await page.goto(SYMBOL_URL);
+    await expect(page).toHaveURL(/\/workspace$/, { timeout: 15_000 });
+    await page.getByRole('button', { name: /^pro/ }).click();
     await expect(page.getByRole('rowgroup', { name: /depth$/ }).first()).toBeVisible({
       timeout: 15_000,
     });
@@ -202,20 +207,13 @@ test.describe('smoke path', () => {
     const usdBefore = await apiBalance(api, 'USD');
 
     // ── 3. place order — BUY LIMIT crosses the seeded ask ─────────────
-    await page.goto(SYMBOL_URL);
-    const entry = page.getByLabel(`Order entry ${SYMBOL}`);
+    const entry = page.getByLabel('Advanced order entry');
     await entry.getByRole('button', { name: 'BUY', exact: true }).click();
-    await entry.getByRole('button', { name: 'Limit', exact: true }).click();
+    await entry.getByLabel('Order type').selectOption('LIMIT');
     await entry.getByLabel('Price').fill('1.10010');
     await entry.getByLabel('Quantity').fill('1000');
-    await entry.getByRole('button', { name: 'Review Buy Limit' }).click();
-
-    const dialog = page.getByRole('dialog', { name: 'Confirm order' });
-    await expect(dialog).toBeVisible();
-    await dialog.getByRole('button', { name: 'Confirm Buy' }).click();
-    await expect(page.getByTestId('order-notices').getByText(/accepted|filled/i)).toBeVisible({
-      timeout: 15_000,
-    });
+    await entry.getByRole('button', { name: 'Submit Limit' }).click();
+    await expect(page.getByText(/Order accepted/i)).toBeVisible({ timeout: 15_000 });
 
     // Settlement proof (PHYSICAL_DELIVERY): 1000 EUR/USD @1.10010 moves
     // 1,100.10 USD available→locked pending T+2 delivery. REST waits for
@@ -229,17 +227,11 @@ test.describe('smoke path', () => {
     const eurBefore = await readBalance(page, 'EUR');
 
     // ── 4. close — the offsetting SELL fills against the seeded bid ───
-    await page.goto(SYMBOL_URL);
     await entry.getByRole('button', { name: 'SELL', exact: true }).click();
-    await entry.getByRole('button', { name: 'Limit', exact: true }).click();
     await entry.getByLabel('Price').fill('1.09990');
     await entry.getByLabel('Quantity').fill('1000');
-    await entry.getByRole('button', { name: 'Review Sell Limit' }).click();
-    await expect(dialog).toBeVisible();
-    await dialog.getByRole('button', { name: 'Confirm Sell' }).click();
-    await expect(page.getByTestId('order-notices').getByText(/accepted|filled/i)).toBeVisible({
-      timeout: 15_000,
-    });
+    await entry.getByRole('button', { name: 'Submit Limit' }).click();
+    await expect(page.getByText(/Order accepted/i).last()).toBeVisible({ timeout: 15_000 });
 
     // The sell leg segregates the 1,000 EUR deliverable — both legs now
     // sit pending settlement, i.e. the spot exposure is closed out.

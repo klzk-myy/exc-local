@@ -35,11 +35,10 @@ function useServerTime() {
 }
 
 const QUICK_LINKS = [
-  { label: 'Trade EUR/USD', to: '/trade/EUR%2FUSD' },
-  { label: 'Order book', to: '/book/EUR%2FUSD' },
-  { label: 'Depth chart', to: '/depth/EUR%2FUSD' },
-  { label: 'Advanced orders', to: '/advanced' },
   { label: 'Workspace', to: '/workspace' },
+  { label: 'Chart', to: '/chart/EUR%2FUSD' },
+  { label: 'Orders', to: '/orders' },
+  { label: 'Calculator', to: '/calculator' },
   { label: 'Portfolio', to: '/portfolio' },
 ];
 

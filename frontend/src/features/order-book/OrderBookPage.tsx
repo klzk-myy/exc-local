@@ -1,6 +1,6 @@
 /**
- * Standalone order-book view — `/book/:symbol`. The trading cockpit
- * (order-entry feature) embeds the same component beside the form.
+ * Standalone order-book view — `/book/:symbol` (deep-link popout; the
+ * primary surface is the workspace's order-book panel).
  */
 import { useParams } from 'react-router';
 

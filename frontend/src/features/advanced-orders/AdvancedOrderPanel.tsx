@@ -15,11 +15,20 @@
  *   - MARKET orders disclose that fills are at best available price.
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState, type FormEvent } from 'react';
+import { lazy, Suspense, useEffect, useState, type FormEvent } from 'react';
 
 import { apiClient, wsClient } from '@/app/runtime';
 import { useWsStatus, type WsClient } from '@/lib/ws';
-import { ErrorBox, Field, btnPrimary, inputCls, labelCls, selectCls } from '@/lib/ui';
+import {
+  ErrorBox,
+  Field,
+  Modal,
+  btnGhost,
+  btnPrimary,
+  inputCls,
+  labelCls,
+  selectCls,
+} from '@/lib/ui';
 import { newIdempotencyKey } from '@/lib/api';
 import { Dec } from '@/lib/decimal/decimal';
 import { useAccountScope } from '@/lib/trading/accountScope';
@@ -51,6 +60,12 @@ import {
   type Tif,
   type TrailingUnit,
 } from './orderPayload';
+
+const PositionCalculator = lazy(() =>
+  import('@/features/calculator/PositionCalculator').then((m) => ({
+    default: m.PositionCalculator,
+  })),
+);
 
 const KIND_LABEL: Record<OrderKind, string> = {
   LIMIT: 'Limit',
@@ -150,6 +165,7 @@ export function AdvancedOrderPanel({
   });
   const [submitError, setSubmitError] = useState<unknown>(null);
   const [lastResult, setLastResult] = useState<string | null>(null);
+  const [calcOpen, setCalcOpen] = useState(false);
   const [touched, setTouched] = useState<Partial<Record<string, true>>>({});
   const [submitTried, setSubmitTried] = useState(false);
 
@@ -200,13 +216,33 @@ export function AdvancedOrderPanel({
     >
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-sm font-semibold text-neutral-200">Order ticket</h2>
-        <span
-          className={`rounded px-2 py-0.5 text-xs ${ws.orderEntryEnabled ? 'bg-emerald-500/15 text-emerald-400' : 'bg-red-500/15 text-red-400'}`}
-          role="status"
-        >
-          {ws.orderEntryEnabled ? 'order entry live' : `order entry locked (${ws.state})`}
-        </span>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className={`${btnGhost} py-0.5 text-xs`}
+            onClick={() => setCalcOpen(true)}
+            aria-label="Open position calculator"
+          >
+            Calculator
+          </button>
+          <span
+            className={`rounded px-2 py-0.5 text-xs ${ws.orderEntryEnabled ? 'bg-emerald-500/15 text-emerald-400' : 'bg-red-500/15 text-red-400'}`}
+            role="status"
+          >
+            {ws.orderEntryEnabled ? 'order entry live' : `order entry locked (${ws.state})`}
+          </span>
+        </div>
       </div>
+
+      <Modal
+        open={calcOpen}
+        title="Position & margin calculator"
+        onClose={() => setCalcOpen(false)}
+      >
+        <Suspense fallback={<p className="p-4 text-sm text-neutral-500">Loading calculator…</p>}>
+          <PositionCalculator initialSymbol={form.symbol !== '' ? form.symbol : 'EUR/USD'} />
+        </Suspense>
+      </Modal>
 
       {/* Side */}
       <div className="mb-3 grid grid-cols-2 gap-1" role="group" aria-label="Order side">

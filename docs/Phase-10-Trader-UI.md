@@ -95,6 +95,8 @@ Implement the React 18 + TypeScript trading UI: order entry, order book (virtual
 - [x] Spec checkpoint: order entry with validation — defined first, validated against spec
 - [x] All spec checkpoints pass after implementation
 
+**(amended 2026-10-03 — IA consolidation, spec §27):** the standalone `/trade/:symbol` page and its basic `OrderEntry` form are superseded — the workspace order ticket is `AdvancedOrderPanel` (Task 10.3.7); `/trade/:symbol` redirects into `/workspace` preserving the instrument, and book-level click prefill survives via the workspace order-book panel + `useOrderDraft`. Server-side order preview→confirm remains on `history/OrderTestPanel` (`POST /api/v1/orders/test`, Task 10.3.27).
+
 ---
 
 ### Task 10.3.4: Charts (TradingView Lightweight Charts)
@@ -119,6 +121,8 @@ Implement the React 18 + TypeScript trading UI: order entry, order book (virtual
 **SDD Checklist:**
 - [x] Spec checkpoint: TradingView Lightweight Charts — defined first, validated against spec
 - [x] All spec checkpoints pass after implementation
+
+**(amended 2026-10-03 — IA consolidation, spec §27):** `features/charts/TradingChart` is the single chart implementation — it now also hosts the Task-10.3.15 overlay layer (`ChartOverlays`); the interim hand-rolled SVG renderer under `advanced-orders/` is deleted.
 
 ---
 
@@ -194,6 +198,8 @@ Implement the React 18 + TypeScript trading UI: order entry, order book (virtual
 - [x] Spec checkpoint: advanced order UI — defined first, validated against spec
 - [x] All spec checkpoints pass after implementation
 
+**(amended 2026-10-03 — IA consolidation, spec §27):** `AdvancedOrderPanel` is the single Pro order ticket (the Task-10.3.3 basic form is superseded); `SubAccountSwitcher` renders in the workspace header rather than a dedicated page; `/advanced/:symbol` redirects into `/workspace`. The panel also opens the Task-10.3.8 calculator as a modal.
+
 ---
 
 ### Task 10.3.8: Position / margin calculator widget
@@ -202,6 +208,8 @@ Position / margin calculator widget — React component panel accessible from tr
 
 **SDD Checklist:**
 - [x] Spec checkpoint: calculator outputs use live marks and account leverage (§24 #267) — defined first, validated against spec
+
+**(amended 2026-10-03 — IA consolidation, spec §27):** delivered as the reusable `PositionCalculator` widget — opened as a modal from the order ticket; `/calculator/:symbol?` is a thin deep-link host, no longer a primary nav destination.
 
 ---
 
@@ -260,6 +268,8 @@ Implement movable/resizable panels, saved named layouts, light/dark themes, per-
 **SDD Checklist:**
 - [x] Spec checkpoint: users can save, restore, and reset accessible trading layouts (§24 #292) — defined first, validated against spec
 
+**(amended 2026-10-03 — IA consolidation, spec §27):** the Pro grid gained a sixth panel (order book); stored layouts merge panels added after the save with the mode default rather than invalidating the layout.
+
 ---
 
 ### Task 10.3.15: Chart Trading and Order Overlays
@@ -268,6 +278,8 @@ Display open orders as draggable price lines, historical fills as buy/sell marke
 
 **SDD Checklist:**
 - [x] Spec checkpoint: chart overlays support safe inspect/modify/cancel with explicit priority semantics (§24 #292) — defined first, validated against spec
+
+**(amended 2026-10-03 — IA consolidation, spec §27):** overlays render on the canonical Lightweight Charts surface (`features/charts/ChartOverlays`) via `priceToCoordinate`/`coordinateToPrice`/`timeToCoordinate`; drag, keyboard-nudge, inspect, and cancel-replace/priority-loss semantics are unchanged — the interim SVG renderer is deleted.
 
 ---
 

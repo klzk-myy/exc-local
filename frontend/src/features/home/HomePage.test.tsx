@@ -77,10 +77,11 @@ describe('HomePage', () => {
     expect(await screen.findByText('Account snapshot')).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText('USD')).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText('EUR/USD')).toBeInTheDocument());
-    expect(screen.getByRole('link', { name: 'Trade EUR/USD' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'Chart' })).toHaveAttribute(
       'href',
-      '/trade/EUR%2FUSD',
+      '/chart/EUR%2FUSD',
     );
+    expect(screen.getByRole('link', { name: 'Orders' })).toHaveAttribute('href', '/orders');
     expect(screen.getByRole('link', { name: 'Workspace' })).toHaveAttribute('href', '/workspace');
   });
 });

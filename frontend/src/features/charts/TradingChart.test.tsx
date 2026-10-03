@@ -4,6 +4,7 @@
  * series.update) without Canvas/WebGL. ChartPage smoke-tests the lazy
  * boundary + timeframe selector.
  */
+import { useState } from 'react';
 import { act, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -21,6 +22,9 @@ interface FakeSeries {
   updates: unknown[];
   setData(d: unknown[]): void;
   update(d: unknown): void;
+  applyOptions(o: unknown): void;
+  priceToCoordinate(p: number): number | null;
+  coordinateToPrice(y: number): number | null;
 }
 
 const fake = {
@@ -38,6 +42,12 @@ function makeSeries(kind: string): FakeSeries {
     update(d: unknown) {
       this.updates.push(d);
     },
+    applyOptions() {
+      /* autoscaleInfoProvider etc. — no-op in the stub */
+    },
+    // Coordinate APIs return null → overlays render empty in jsdom.
+    priceToCoordinate: () => null,
+    coordinateToPrice: () => null,
   };
 }
 
@@ -56,8 +66,15 @@ vi.mock('lightweight-charts', () => ({
         chart.series.push(s);
         return s;
       },
-      priceScale: () => ({ applyOptions: () => undefined }),
-      timeScale: () => ({ fitContent: () => undefined }),
+      priceScale: () => ({ applyOptions: () => undefined, width: () => 72 }),
+      timeScale: () => ({
+        fitContent: () => undefined,
+        subscribeVisibleLogicalRangeChange: () => undefined,
+        unsubscribeVisibleLogicalRangeChange: () => undefined,
+        timeToCoordinate: () => null,
+        width: () => 600,
+        height: () => 280,
+      }),
       applyOptions: () => undefined,
       remove() {
         this.removed = true;
@@ -192,11 +209,20 @@ describe('TradingChart', () => {
 
   it('re-keys the chart when the interval changes (fresh channel+history)', async () => {
     const h = harness();
-    const { rerender } = renderApp(
-      <TradingChart symbol="EUR/USD" interval="1h" api={h.api} ws={h.ws} />,
-    );
+    // Providers must wrap the rerender — a state-driven harness keeps
+    // renderApp's QueryClientProvider mounted across the interval change.
+    function Harness() {
+      const [tf, setTf] = useState<'1h' | '4h'>('1h');
+      return (
+        <>
+          <button onClick={() => setTf('4h')}>switch-tf</button>
+          <TradingChart symbol="EUR/USD" interval={tf} api={h.api} ws={h.ws} />
+        </>
+      );
+    }
+    renderApp(<Harness />);
     await waitFor(() => expect(fake.charts).toHaveLength(1));
-    rerender(<TradingChart symbol="EUR/USD" interval="4h" api={h.api} ws={h.ws} />);
+    await userEvent.click(screen.getByRole('button', { name: 'switch-tf' }));
     await waitFor(() => expect(fake.charts).toHaveLength(2));
     expect(fake.charts[0]?.removed).toBe(true);
   });

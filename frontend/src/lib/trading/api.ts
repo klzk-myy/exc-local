@@ -14,7 +14,6 @@ import {
   parseBalanceList,
   parseBookSnapshot,
   parseInstrumentList,
-  parseKlineList,
   parseOrder,
   parseOrderList,
   parsePositionList,
@@ -22,7 +21,6 @@ import {
   type Balance,
   type BookSnapshot,
   type Instrument,
-  type Kline,
   type Order,
   type Position,
   type SubAccount,
@@ -60,18 +58,9 @@ export async function fetchBookSnapshot(
   );
 }
 
-export async function fetchKlines(
-  symbol: string,
-  interval = '15m',
-  limit = 120,
-  api: Api = apiClient,
-): Promise<Kline[]> {
-  return parseKlineList(
-    await api.get(`/klines/${encodeURIComponent(symbol)}`, {
-      query: { interval, limit },
-    }),
-  );
-}
+// Klines live in lib/market (fetchKlines → parseKlinesResponse → the
+// chart UDF adapter) — that is the single kline wire path; do not
+// re-add a parallel trading-side fetch here.
 
 // -- account reads --------------------------------------------------------------
 

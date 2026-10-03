@@ -45,6 +45,8 @@ import {
   type PanelPlacement,
   type Placements,
 } from './layouts';
+import { SubAccountSwitcher } from '@/features/advanced-orders/SubAccountSwitcher';
+
 import { useUiMode } from './liteMode';
 import { useTheme } from './theme';
 import { ModeToggle } from './ModeToggle';
@@ -61,24 +63,36 @@ const AdvancedOrderPanel = lazy(() =>
 const PositionsPanel = lazy(() =>
   import('@/features/advanced-orders/PositionsPanel').then((m) => ({ default: m.PositionsPanel })),
 );
-const TradingChart = lazy(() =>
-  import('@/features/advanced-orders/TradingChart').then((m) => ({ default: m.TradingChart })),
-);
+const TradingChart = lazy(() => import('@/features/charts/TradingChart'));
 const DepthChart = lazy(() =>
   import('@/features/depth-chart/DepthChart').then((m) => ({ default: m.DepthChart })),
+);
+const OrderBook = lazy(() =>
+  import('@/features/order-book/OrderBook').then((m) => ({ default: m.OrderBook })),
 );
 const BalancesPanel = lazy(() =>
   import('./BalancesPanel').then((m) => ({ default: m.BalancesPanel })),
 );
 
 function PanelBody({ id, symbol }: { id: PanelId; symbol: string }) {
+  const setDraft = useOrderDraft((s) => s.setDraft);
   switch (id) {
     case 'order':
       return <AdvancedOrderPanel />;
+    case 'book':
+      return (
+        <OrderBook
+          symbol={symbol}
+          viewportHeight={360}
+          onPriceClick={(price, side) =>
+            setDraft({ price, side: side === 'ask' ? 'BUY' : 'SELL', symbol })
+          }
+        />
+      );
     case 'positions':
       return <PositionsPanel />;
     case 'chart':
-      return <TradingChart symbol={symbol} />;
+      return <TradingChart symbol={symbol} interval="15m" />;
     case 'depth':
       return <DepthChart symbol={symbol} />;
     case 'balances':
@@ -243,10 +257,12 @@ export default function WorkspacePage() {
   const [notice, setNotice] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Reload when the account scope switches.
-  const [loadedScope, setLoadedScope] = useState(scope);
-  if (loadedScope !== scope) {
-    setLoadedScope(scope);
+  // Reload when the account scope OR the ui mode switches — placements
+  // are resolved per mode, so a lite→pro toggle must not keep the lite
+  // geometry (and its hidden-panel set) on the Pro grid.
+  const [loadedAt, setLoadedAt] = useState({ scope, mode });
+  if (loadedAt.scope !== scope || loadedAt.mode !== mode) {
+    setLoadedAt({ scope, mode });
     const loaded = loadLayout(scope, mode);
     setPlacements(loaded.placements);
     setLayoutName(loaded.name);
@@ -282,7 +298,10 @@ export default function WorkspacePage() {
       <div className="ws-root min-h-full" data-theme={theme}>
         <div className="flex items-center justify-between border-b border-neutral-800 px-4 py-2">
           <h1 className="text-lg font-semibold">Workspace</h1>
-          <ModeToggle />
+          <div className="flex items-center gap-2">
+            <SubAccountSwitcher />
+            <ModeToggle />
+          </div>
         </div>
         <LiteDashboard />
       </div>
@@ -294,6 +313,7 @@ export default function WorkspacePage() {
       <div className="flex flex-wrap items-center gap-2 border-b border-neutral-800 px-4 py-2">
         <h1 className="mr-2 text-lg font-semibold">Workspace</h1>
         <ModeToggle />
+        <SubAccountSwitcher />
         <label className="sr-only" htmlFor="ws-layout">
           Layout
         </label>

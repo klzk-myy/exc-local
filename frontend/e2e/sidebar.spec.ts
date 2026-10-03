@@ -19,9 +19,8 @@ import { expect, test } from '@playwright/test';
 const KNOWN_PATHS = [
   // (label, path) — mirrors features/*/nav.ts. Kept in sync manually;
   // the DOM-read approach below is the source of truth, this is the
-  // assertion contract.
-  { label: 'Book', path: '/book/EUR%2FUSD' },
-  { label: 'Chart', path: '/chart/EUR%2FUSD' },
+  // assertion contract. Book/Depth/Chart/Calculator/Advanced fold into
+  // the workspace (IA consolidation 2026-10) — no sidebar entries.
   { label: 'Workspace', path: '/workspace' },
   { label: 'PAMM pools', path: '/pamm' },
   { label: 'Verification', path: '/kyc' },

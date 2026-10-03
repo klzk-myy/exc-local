@@ -341,45 +341,6 @@ export function parseBbo(v: unknown): Bbo | null {
 }
 
 // ---------------------------------------------------------------------------
-// Klines — GET /api/v1/klines/{symbol} (marketapi.Kline)
-// ---------------------------------------------------------------------------
-
-export interface Kline {
-  openTimeMs: number;
-  open: Dec;
-  high: Dec;
-  low: Dec;
-  close: Dec;
-  volume: Dec;
-  closed: boolean;
-}
-
-export function parseKline(v: unknown): Kline | null {
-  if (!isRecord(v)) return null;
-  const t = num(v['open_time_ms']);
-  const o = tryDec(v['open']);
-  const h = tryDec(v['high']);
-  const l = tryDec(v['low']);
-  const c = tryDec(v['close']);
-  if (t === undefined || !o || !h || !l || !c) return null;
-  return {
-    openTimeMs: t,
-    open: o,
-    high: h,
-    low: l,
-    close: c,
-    volume: tryDec(v['volume']) ?? Dec.ZERO,
-    closed: v['closed'] === true,
-  };
-}
-
-export function parseKlineList(v: unknown): Kline[] {
-  const rows = isRecord(v) ? v['data'] : undefined;
-  if (!Array.isArray(rows)) return [];
-  return rows.map(parseKline).filter((k): k is Kline => k !== null);
-}
-
-// ---------------------------------------------------------------------------
 // private:positions WS event — Phase-19 publishes position upserts carrying
 // `adl_indicator`; the envelope `data` may be one position or an array.
 // ---------------------------------------------------------------------------
