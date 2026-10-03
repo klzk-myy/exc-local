@@ -43,7 +43,8 @@ export interface WebhookDelivery {
 
 export function parseEndpoint(v: unknown): WebhookEndpoint | null {
   if (!isRecord(v)) return null;
-  const id = str(v['endpoint_id']) ?? str(v['id']) ?? (num(v['id']) !== undefined ? String(v['id']) : null);
+  const id =
+    str(v['endpoint_id']) ?? str(v['id']) ?? (num(v['id']) !== undefined ? String(v['id']) : null);
   const url = str(v['url']);
   const createdAt = str(v['created_at']);
   if (!id || !url || !createdAt) return null;
@@ -62,7 +63,8 @@ export function parseEndpoint(v: unknown): WebhookEndpoint | null {
 
 export function parseDelivery(v: unknown): WebhookDelivery | null {
   if (!isRecord(v)) return null;
-  const id = str(v['delivery_id']) ?? str(v['id']) ?? (num(v['id']) !== undefined ? String(v['id']) : null);
+  const id =
+    str(v['delivery_id']) ?? str(v['id']) ?? (num(v['id']) !== undefined ? String(v['id']) : null);
   const event = str(v['event']);
   const status = str(v['status']);
   if (!id || !event || !status) return null;
@@ -131,9 +133,7 @@ export async function listDeliveries(
   api: ApiClient,
   endpointId: string,
 ): Promise<WebhookDelivery[]> {
-  const res = await api.get<unknown>(
-    `/webhooks/${endpointId}/deliveries?limit=200`,
-  );
+  const res = await api.get<unknown>(`/webhooks/${endpointId}/deliveries?limit=200`);
   const rec = isRecord(res) ? res : {};
   const raw = Array.isArray(rec['deliveries']) ? rec['deliveries'] : [];
   return raw.map(parseDelivery).filter((d): d is WebhookDelivery => d !== null);
