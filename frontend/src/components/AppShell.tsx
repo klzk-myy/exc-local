@@ -9,6 +9,7 @@ import { NavLink, Outlet } from 'react-router';
 import { navBySection } from '@/app/manifest';
 import { wsClient } from '@/app/runtime';
 import { ConnectionBanner, StalePricingBadge } from '@/components/ConnectionBanner';
+import { useAdminRole } from '@/features/admin/adminRole';
 import { NotificationBell } from '@/features/notifications/NotificationBell';
 import { isFxMarketOpen } from '@/lib/market/tradingHours';
 import { useWsStatus } from '@/lib/ws';
@@ -51,6 +52,14 @@ function MarketHoursBadge() {
 
 export function AppShell() {
   const sections = navBySection();
+  // Role-filtered sidebar: the Admin section (spec §8.2 surfaces) renders
+  // only when the session carries a recognized venue-admin role. Page-level
+  // RequireAdmin + server-side authorization stay the real gates — this
+  // just keeps non-admins from seeing links that would render denial cards.
+  const adminRole = useAdminRole();
+  const visibleSections = adminRole === null
+    ? [...sections.entries()].filter(([section]) => section !== 'Admin')
+    : [...sections.entries()];
 
   // Connect the shared WS client for the shell's lifetime; feature
   // subscriptions attach via client.subscribe().
@@ -70,7 +79,7 @@ export function AppShell() {
             <span className="text-lg font-bold tracking-tight">Exchange</span>
           </div>
           <nav aria-label="Primary" className="min-h-0 flex-1 overflow-y-auto p-2">
-            {[...sections.entries()].map(([section, items]) => (
+            {visibleSections.map(([section, items]) => (
               <div key={section} className="mb-1">
                 <div className="px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">
                   {section}
