@@ -300,7 +300,8 @@ bool SnapshotStore::serialize_book(const OrderBook& book,
                                    uint32_t instrument_id, uint64_t wal_seq,
                                    std::vector<uint8_t>& out,
                                    WalBookSnapshotHeader& header_out,
-                                   uint64_t next_trade_id) noexcept {
+                                   uint64_t next_trade_id,
+                                   const SnapshotAuxState* aux) noexcept {
     try {
         out.clear();
         // Levels: bids descending then asks ascending (pinned contract order).
@@ -324,12 +325,30 @@ bool SnapshotStore::serialize_book(const OrderBook& book,
         header_out.order_count = order_count;
         header_out.book_seq = wal_seq;  // WAL cursor covered (see header doc)
 
+        // Aux rows join the blob only when the engine exports them — nullptr
+        // keeps the v2 shape for book-only callers (tests, fingerprinting).
+        const uint64_t aux_meta = aux != nullptr ? aux->metas.size() : 0;
+        const uint64_t aux_pend = aux != nullptr ? aux->pendings.size() : 0;
+        const uint64_t aux_ice  = aux != nullptr ? aux->icebergs.size() : 0;
+        const uint64_t aux_oco  = aux != nullptr ? aux->ocos.size() : 0;
+        const uint64_t aux_peg  = aux != nullptr ? aux->pegs.size() : 0;
+        const uint64_t aux_bytes =
+            aux != nullptr
+                ? sizeof(WalSnapshotAuxHeader) +
+                  sizeof(WalSnapshotOrderAux) * aux_meta +
+                  sizeof(WalSnapshotPendingOrder) * aux_pend +
+                  sizeof(WalSnapshotIceberg) * aux_ice +
+                  sizeof(WalSnapshotOco) * aux_oco +
+                  sizeof(WalSnapshotPeg) * aux_peg
+                : 0;
+
         const uint64_t total =
             sizeof(WalBookSnapshotHeader) +
             sizeof(WalSnapshotLevel) * level_count +
             sizeof(WalSnapshotOrder) * order_count +
             sizeof(WalSnapshotExtHeader) +
             sizeof(WalSnapshotOrderExt) * order_count +
+            aux_bytes +
             sizeof(WalSnapshotCounters);
         if (total > kSnapMaxPayload) return false;
         out.reserve(static_cast<std::size_t>(total));
@@ -369,7 +388,7 @@ bool SnapshotStore::serialize_book(const OrderBook& book,
 
         WalSnapshotExtHeader xh{};
         xh.magic = kSnapExtMagic;
-        xh.version = kSnapExtVersion;
+        xh.version = aux != nullptr ? 3 : 2;
         xh.flags = 0;
         xh.order_count = order_count;
         blob_put(out, xh);
@@ -395,6 +414,63 @@ bool SnapshotStore::serialize_book(const OrderBook& book,
                     blob_put(out, xe);
                 }
             }
+        }
+
+        // v3 aux block — engine side-table rows the book cannot carry. The
+        // pending records reuse the pinned+ext shapes verbatim so restore
+        // walks one record family for both resting and off-book orders.
+        if (aux != nullptr) {
+            WalSnapshotAuxHeader ah{};
+            ah.magic = kSnapAuxMagic;
+            ah.version = kSnapAuxVersion;
+            ah.flags = 0;
+            ah.meta_count = aux_meta;
+            ah.pending_count = aux_pend;
+            ah.iceberg_count = aux_ice;
+            ah.oco_count = aux_oco;
+            ah.peg_count = aux_peg;
+            blob_put(out, ah);
+            for (const auto& m : aux->metas) blob_put(out, m);
+            for (const auto& p : aux->pendings) {
+                if (p.order == nullptr) return false;
+                const Order* o = p.order;
+                WalSnapshotPendingOrder w{};
+                w.ord.order_id = o->id;
+                w.ord.account_id = o->account_id;
+                w.ord.qty_units = o->qty_units - o->filled_qty_units;
+                w.ord.visible_qty_units = o->display_qty_units;
+                w.ord.stop_price_ticks = p.stop_price_ticks;
+                w.ord.stp_mode = static_cast<uint32_t>(o->stp_mode);
+                w.ord.tif = static_cast<uint8_t>(o->tif);
+                w.ext.order_id = o->id;
+                w.ext.qty_units = o->qty_units;
+                w.ext.filled_qty_units = o->filled_qty_units;
+                w.ext.price_ticks = o->price_ticks;
+                w.ext.timestamp_ns = o->timestamp_ns;
+                w.ext.ingress_seq = o->ingress_seq;
+                w.ext.level_index = kSnapLevelOffBook;
+                w.ext.type = static_cast<uint8_t>(o->type);
+                w.ext.side = static_cast<uint8_t>(o->side);
+                w.ext.flags = o->flags;
+                w.anchor_ticks = p.anchor_ticks;
+                w.activation_price_ticks = p.activation_price_ticks;
+                w.trail_distance = p.trail_distance;
+                w.gslo_notional_units = p.gslo_notional_units;
+                w.trigger_source = p.trigger_source;
+                w.trail_unit = p.trail_unit;
+                w.armed = p.armed;
+                blob_put(out, w);
+            }
+            for (const auto& r : aux->icebergs) {
+                WalSnapshotIceberg w{};
+                w.order_id = r.tmpl.id;
+                w.total_qty_units = r.tmpl.qty_units;
+                w.filled_total_units = r.filled_total_units;
+                w.display_qty_units = r.display_qty_units;
+                blob_put(out, w);
+            }
+            for (const auto& r : aux->ocos) blob_put(out, r);
+            for (const auto& r : aux->pegs) blob_put(out, r);
         }
 
         // v2 counters trailer — allocator high-water marks. A fingerprinting
@@ -494,17 +570,51 @@ bool SnapshotStore::parse_book(const uint8_t* blob, uint64_t len,
         const uint64_t ext_orders = sizeof(WalSnapshotOrderExt) * oc;
         const uint64_t ctr_bytes =
             (xh.version >= 2) ? sizeof(WalSnapshotCounters) : 0;
-        if (left != ext_orders + ctr_bytes) return false;
+        // v3 aux block: the aux header sits directly after the order-ext
+        // array — peek at it for the row counts before the strict length
+        // check, then validate each record below.
+        uint64_t aux_bytes = 0;
+        WalSnapshotAuxHeader ah{};
+        if (xh.version >= 3) {
+            if (left < ext_orders + sizeof(WalSnapshotAuxHeader) + ctr_bytes) {
+                return false;
+            }
+            std::memcpy(&ah, p + ext_orders, sizeof(ah));
+            if (ah.magic != kSnapAuxMagic ||
+                ah.version != kSnapAuxVersion) {
+                return false;
+            }
+            // Row counts bounded by the same order-cap sanity as the pinned
+            // region — the multiplies below can then never overflow.
+            if (ah.meta_count > OrderBook::kMaxOrders * 2 ||
+                ah.pending_count > OrderBook::kMaxOrders ||
+                ah.iceberg_count > OrderBook::kMaxOrders ||
+                ah.oco_count > OrderBook::kMaxOrders * 2 ||
+                ah.peg_count > OrderBook::kMaxOrders) {
+                return false;
+            }
+            aux_bytes = sizeof(WalSnapshotAuxHeader) +
+                        sizeof(WalSnapshotOrderAux) * ah.meta_count +
+                        sizeof(WalSnapshotPendingOrder) * ah.pending_count +
+                        sizeof(WalSnapshotIceberg) * ah.iceberg_count +
+                        sizeof(WalSnapshotOco) * ah.oco_count +
+                        sizeof(WalSnapshotPeg) * ah.peg_count;
+        }
+        if (left != ext_orders + aux_bytes + ctr_bytes) return false;
         if (ctr_bytes != 0) {
             WalSnapshotCounters ctr{};
-            std::memcpy(&ctr, p + ext_orders, sizeof(ctr));
+            std::memcpy(&ctr, p + ext_orders + aux_bytes, sizeof(ctr));
             if (ctr.magic != kSnapCtrMagic ||
                 ctr.version != kSnapCtrVersion) {
                 return false;
             }
             out.next_trade_id = ctr.next_trade_id;
         }
-        if (oc == 0) return true;
+        if (oc == 0 && xh.version < 3) return true;
+        if (oc == 0 && ah.meta_count + ah.pending_count + ah.iceberg_count +
+                      ah.oco_count + ah.peg_count == 0) {
+            return true;   // v3 empty blob — nothing below to validate
+        }
 
         out.orders.resize(static_cast<std::size_t>(oc));
         for (uint64_t i = 0; i < oc; ++i) {
@@ -548,6 +658,75 @@ bool SnapshotStore::parse_book(const uint8_t* blob, uint64_t len,
             out.orders[static_cast<std::size_t>(i)].remaining = w.qty_units;
             out.orders[static_cast<std::size_t>(i)].level_index = xe.level_index;
         }
+
+        // v3 aux arrays — p now sits on the aux header (already validated
+        // above; skip it) followed by the five row families.
+        if (xh.version >= 3) {
+            p += sizeof(WalSnapshotAuxHeader);
+            left -= sizeof(WalSnapshotAuxHeader);
+            const uint64_t mc = ah.meta_count, pc = ah.pending_count,
+                           ic = ah.iceberg_count, kc = ah.oco_count,
+                           gc = ah.peg_count;
+            out.metas.resize(static_cast<std::size_t>(mc));
+            for (uint64_t i = 0; i < mc; ++i) {
+                std::memcpy(&out.metas[static_cast<std::size_t>(i)], p,
+                            sizeof(WalSnapshotOrderAux));
+                p += sizeof(WalSnapshotOrderAux);
+                if (out.metas[static_cast<std::size_t>(i)].order_id == 0 ||
+                    out.metas[static_cast<std::size_t>(i)].expiry_ns < 0) {
+                    return false;
+                }
+            }
+            out.pendings.resize(static_cast<std::size_t>(pc));
+            for (uint64_t i = 0; i < pc; ++i) {
+                WalSnapshotPendingOrder& w =
+                    out.pendings[static_cast<std::size_t>(i)];
+                std::memcpy(&w, p, sizeof(w));
+                p += sizeof(w);
+                // Same fidelity invariants as a book order, minus the level
+                // membership (off-book) and plus an armed trigger threshold.
+                if (w.ord.order_id == 0 || w.ext.order_id != w.ord.order_id ||
+                    w.ext.level_index != kSnapLevelOffBook ||
+                    w.ext.qty_units <= 0 || w.ext.filled_qty_units < 0 ||
+                    w.ext.filled_qty_units >= w.ext.qty_units ||
+                    w.ord.qty_units !=
+                        w.ext.qty_units - w.ext.filled_qty_units ||
+                    w.ext.side > 1 ||
+                    (w.trail_unit == 0 && w.ord.stop_price_ticks <= 0) ||
+                    w.trigger_source > kTriggerSourceIndex) {
+                    return false;
+                }
+            }
+            out.icebergs.resize(static_cast<std::size_t>(ic));
+            for (uint64_t i = 0; i < ic; ++i) {
+                WalSnapshotIceberg& w =
+                    out.icebergs[static_cast<std::size_t>(i)];
+                std::memcpy(&w, p, sizeof(w));
+                p += sizeof(w);
+                if (w.order_id == 0 || w.total_qty_units <= 0 ||
+                    w.filled_total_units < 0 ||
+                    w.filled_total_units >= w.total_qty_units ||
+                    w.display_qty_units <= 0) {
+                    return false;
+                }
+            }
+            out.ocos.resize(static_cast<std::size_t>(kc));
+            for (uint64_t i = 0; i < kc; ++i) {
+                WalSnapshotOco& w = out.ocos[static_cast<std::size_t>(i)];
+                std::memcpy(&w, p, sizeof(w));
+                p += sizeof(w);
+                if (w.order_id == 0 || w.link_id == 0 || w.state > 1) {
+                    return false;
+                }
+            }
+            out.pegs.resize(static_cast<std::size_t>(gc));
+            for (uint64_t i = 0; i < gc; ++i) {
+                WalSnapshotPeg& w = out.pegs[static_cast<std::size_t>(i)];
+                std::memcpy(&w, p, sizeof(w));
+                p += sizeof(w);
+                if (w.order_id == 0 || w.mode == 0) return false;
+            }
+        }
         return true;
     } catch (...) {
         return false;
@@ -564,7 +743,8 @@ SnapshotOutcome SnapshotStore::maybe_snapshot(const OrderBook& book,
                                               uint64_t wal_seq,
                                               uint64_t now_ns,
                                               uint64_t trades_delta,
-                                              uint64_t next_trade_id) noexcept {
+                                              uint64_t next_trade_id,
+                                              const SnapshotAuxState* aux) noexcept {
     trades_acc_ += trades_delta;
     const bool trade_hit = trades_acc_ >= policy_.trade_interval;
     const bool time_hit =
@@ -573,7 +753,7 @@ SnapshotOutcome SnapshotStore::maybe_snapshot(const OrderBook& book,
         // First-ever snapshot is unconditional — a boot's earliest checkpoint
         // bounds worst-case replay depth.
         const SnapshotOutcome o =
-            force_snapshot(book, instrument_id, wal_seq, next_trade_id);
+            force_snapshot(book, instrument_id, wal_seq, next_trade_id, aux);
         if (o == SnapshotOutcome::Taken) last_ns_ = now_ns;
         return o;
     }
@@ -583,11 +763,12 @@ SnapshotOutcome SnapshotStore::maybe_snapshot(const OrderBook& book,
 SnapshotOutcome SnapshotStore::force_snapshot(const OrderBook& book,
                                               uint32_t instrument_id,
                                               uint64_t wal_seq,
-                                              uint64_t next_trade_id) noexcept {
+                                              uint64_t next_trade_id,
+                                              const SnapshotAuxState* aux) noexcept {
     std::vector<uint8_t> blob;
     WalBookSnapshotHeader hdr{};
     if (!serialize_book(book, instrument_id, wal_seq, blob, hdr,
-                        next_trade_id)) {
+                        next_trade_id, aux)) {
         return SnapshotOutcome::SerializeFailed;
     }
     if (!sink_.store(instrument_id, wal_seq, blob.data(), blob.size())) {

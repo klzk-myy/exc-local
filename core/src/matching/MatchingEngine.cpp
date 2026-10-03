@@ -4515,4 +4515,145 @@ void MatchingEngine::adopt_auction_state(
     }
 }
 
+// ---------------------------------------------------------------------------
+// Snapshot aux state (v3 side-table block) — see the header contract.
+// ---------------------------------------------------------------------------
+
+bool MatchingEngine::export_aux_state(SnapshotAuxState& out) const noexcept {
+    try {
+        out = SnapshotAuxState{};
+        if (meta_ != nullptr) {
+            out.metas.reserve(meta_live_);
+            for (std::size_t i = 0; i < meta_cap_; ++i) {
+                const OrderMeta& m = meta_[i];
+                if (m.order_id == 0) continue;
+                WalSnapshotOrderAux r{};
+                r.order_id = m.order_id;
+                r.expiry_ns = m.expiry_ns;
+                r.amend_seq = m.amend_seq;
+                r.prevented_qty_units = m.prevented_qty_units;
+                r.trade_group_id = m.trade_group_id;
+                r.instrument_id = m.instrument_id;
+                r.trigger_source = m.trigger_source;
+                r.amend_seen = m.amend_seen ? 1 : 0;
+                out.metas.push_back(r);
+            }
+        }
+        stops_.for_each_pending(
+            [&out](Order* o, const StopOrderTrigger::Pending& p) {
+                SnapshotAuxPending s{};
+                s.order = o;
+                s.stop_price_ticks = p.stop_price_ticks;
+                s.anchor_ticks = p.anchor_ticks;
+                s.activation_price_ticks = p.activation_price_ticks;
+                s.trail_distance = p.trail_distance;
+                s.gslo_notional_units = p.gslo_notional_units;
+                s.trigger_source = p.trigger_source;
+                s.trail_unit = p.trail_unit;
+                s.armed = p.armed;
+                out.pendings.push_back(s);
+            });
+        icebergs_.for_each([&out](const IcebergManager::Record& r) {
+            SnapshotAuxIceberg s{};
+            s.tmpl = r.tmpl;
+            s.filled_total_units = r.filled_total_units;
+            s.display_qty_units = r.display_qty_units;
+            out.icebergs.push_back(s);
+        });
+        if (oco_ != nullptr) {
+            for (std::size_t i = 0; i < oco_cap_; ++i) {
+                const OcoMember& c = oco_[i];
+                if (c.order_id == 0) continue;
+                WalSnapshotOco r{};
+                r.order_id = c.order_id;
+                r.link_id = c.link_id;
+                r.sibling_id = c.sibling_id;
+                r.instrument_id = c.instrument_id;
+                r.state = c.state;
+                out.ocos.push_back(r);
+            }
+        }
+        if (pegs_ != nullptr) {
+            out.pegs.reserve(pegs_live_);
+            for (std::size_t i = 0; i < pegs_live_; ++i) {
+                const PegRec& g = pegs_[i];
+                WalSnapshotPeg r{};
+                r.order_id = g.order_id;
+                r.offset_ticks = g.offset_ticks;
+                r.limit_ticks = g.limit_ticks;
+                r.mode = g.mode;
+                r.priced_ok = g.priced_ok;
+                out.pegs.push_back(r);
+            }
+        }
+        return true;
+    } catch (...) {
+        out = SnapshotAuxState{};
+        return false;
+    }
+}
+
+bool MatchingEngine::drain_aux_state(SnapshotAuxState& out) noexcept {
+    // Export collects the pending rows (node pointers included) first, then
+    // the wholesale drain hands the nodes over — the caller re-enqueues them
+    // into the live engine.
+    if (!export_aux_state(out)) return false;
+    stops_.drain([](Order*, const StopOrderTrigger::Pending&) {});
+    return true;
+}
+
+void MatchingEngine::adopt_aux_state(SnapshotAuxState in) noexcept {
+    // Meta rows first — the expiry heap and pending enqueue reference them.
+    for (const auto& r : in.metas) {
+        OrderMeta* m = meta_ensure(r.order_id);
+        if (m == nullptr) continue;
+        m->trade_group_id = r.trade_group_id;
+        m->expiry_ns = r.expiry_ns;
+        m->amend_seq = r.amend_seq;
+        m->amend_seen = r.amend_seen != 0;
+        m->prevented_qty_units = r.prevented_qty_units;
+        m->instrument_id = r.instrument_id;
+        m->trigger_source = r.trigger_source;
+        if (m->expiry_ns > 0 && m->heap_index < 0) {
+            (void)expiry_track(*m);  // heap full: stays live, expiry degraded
+        }
+    }
+    for (const auto& p : in.pendings) {
+        if (p.order == nullptr) continue;
+        StopOrderTrigger::Pending pm{};
+        pm.anchor_ticks = p.anchor_ticks;
+        pm.activation_price_ticks = p.activation_price_ticks;
+        pm.trail_distance = p.trail_distance;
+        pm.gslo_notional_units = p.gslo_notional_units;
+        pm.trigger_source = p.trigger_source;
+        pm.trail_unit = p.trail_unit;
+        pm.armed = p.armed;
+        if (!stops_.enqueue(p.order, p.stop_price_ticks, pm)) {
+            orders_.free(p.order);   // table full/dup — release the node
+            continue;
+        }
+        if (p.gslo_notional_units > 0) {
+            gslo_notional_units_ += p.gslo_notional_units;
+            ++gslo_live_count_;
+        }
+    }
+    for (const auto& r : in.icebergs) {
+        (void)icebergs_.register_order(r.tmpl, r.filled_total_units,
+                                       r.display_qty_units);
+    }
+    for (const auto& r : in.ocos) {
+        OcoMember* c = oco_ensure(r.order_id);
+        if (c == nullptr) continue;
+        c->link_id = r.link_id;
+        c->sibling_id = r.sibling_id;
+        c->instrument_id = r.instrument_id;
+        c->state = r.state;
+    }
+    for (const auto& r : in.pegs) {
+        if (pegs_ == nullptr || pegs_live_ >= pegs_cap_) continue;
+        pegs_[pegs_live_++] = PegRec{r.order_id, r.offset_ticks,
+                                   r.limit_ticks, r.mode, r.priced_ok};
+    }
+}
+
 }  // namespace exch

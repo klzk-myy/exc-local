@@ -938,6 +938,29 @@ TEST(Phase16Pump, StopMarketPlusTrailUnitDecodesTrailing) {
     EXPECT_EQ(eng.auxs[0].activation_price_ticks, 99'000'000);
 }
 
+TEST(Phase16Pump, StopMarketWithoutLimitPriceDecodes) {
+    FakeChannel in, out;
+    FakeIngress eng;
+    MemoryPool<Order> pool(8);
+    (void)in.open();
+    // A plain stop-market order carries stop_price but no limit price —
+    // the price slot stays 0. It must decode to STOP, not DECODE_ERROR.
+    in.inq.push_back(wire_order_new(
+        /*seq=*/1, /*order_id=*/9007, /*account_id=*/77,
+        exc::wire::OrderType_StopMarket, /*qty=*/10, /*price=*/0,
+        /*ts=*/8'000, /*flags=*/0, /*peg_mode=*/0, /*peg_offset=*/0,
+        /*peg_limit=*/0, /*trigger_source=*/0,
+        /*trailing_offset=*/0, /*trailing_offset_unit=*/0,
+        /*activation_price=*/0, /*stop_price=*/105'000'000));
+    EnginePump pump(&in, &out, &eng, &pool);
+    ASSERT_EQ(pump.run_once(4), 1u);
+    ASSERT_EQ(eng.orders.size(), 1u);
+    EXPECT_EQ(eng.orders[0].type, OrderType::STOP);
+    ASSERT_EQ(eng.auxs.size(), 1u);
+    EXPECT_EQ(eng.auxs[0].stop_price_ticks, 105'000'000);
+    EXPECT_EQ(pump.decode_errors(), 0u);
+}
+
 TEST(Phase16Pump, HiddenAndGsloWireFlagsTranslate) {
     FakeChannel in, out;
     FakeIngress eng;

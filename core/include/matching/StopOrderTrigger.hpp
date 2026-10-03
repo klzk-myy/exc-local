@@ -289,6 +289,34 @@ public:
     [[nodiscard]] std::size_t size() const noexcept { return live_; }
     [[nodiscard]] bool empty() const noexcept { return live_ == 0; }
 
+    // Cold-path enumeration (snapshot export): invoke f(order, pending) for
+    // every live entry. Traversal order is slot order — restore re-sorts via
+    // enqueue, so determinism is preserved.
+    template <typename F>
+    void for_each_pending(F&& f) const noexcept {
+        for (std::size_t i = 0; i < capacity_; ++i) {
+            if (slots_[i].order_id != 0) f(slots_[i].order, slots_[i]);
+        }
+    }
+
+    // Replay→live adoption handoff: invoke f(order, pending) for every live
+    // entry, then reset the queue wholesale — node ownership moves to the
+    // caller. Only legal on a queue that will not be used again.
+    template <typename F>
+    void drain(F&& f) noexcept {
+        for (std::size_t i = 0; i < capacity_; ++i) {
+            if (slots_[i].order_id != 0) {
+                f(slots_[i].order, slots_[i]);
+                slots_[i] = Pending{};
+            }
+        }
+        live_ = trail_live_ = 0;
+        pop_count_ = 0;
+        source_live_[0] = source_live_[1] = source_live_[2] = 0;
+        buy_head_ = buy_tail_ = sell_head_ = sell_tail_ = nullptr;
+        trail_head_ = nullptr;
+    }
+
 private:
     [[nodiscard]] std::size_t bucket(uint64_t id) const noexcept {
         return static_cast<std::size_t>(id * 0x9E3779B97F4A7C15ull) &

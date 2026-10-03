@@ -144,6 +144,10 @@ struct SnapshotCtx {
     // curve shards) — the v2 snapshot counters trailer captures it so the
     // next generation reseeds next_trade_id even when replay is empty.
     const uint64_t* tid_stream = nullptr;
+    // Aux exporter — the engine's side tables ride the v3 snapshot block
+    // (pending stops / expiry heap / iceberg / OCO / peg). nullptr on tests
+    // and book-only harnesses keeps the v2 blob shape.
+    exch::MatchingEngine* engine = nullptr;
 };
 
 void on_snapshot_tick(void* raw, uint64_t now_ns,
@@ -151,9 +155,30 @@ void on_snapshot_tick(void* raw, uint64_t now_ns,
     auto* c = static_cast<SnapshotCtx*>(raw);
     const uint64_t delta = trades_emitted - c->last_trades;
     c->last_trades = trades_emitted;
-    const exch::SnapshotOutcome oc = c->store->maybe_snapshot(
-        *c->book, c->instrument_id, c->wal->tail_seq(), now_ns, delta,
-        c->tid_stream != nullptr ? *c->tid_stream : 0);
+    // Aux export only when the cadence will fire — the export allocates, so
+    // it must not run on every tick. A failed export SKIPS the snapshot:
+    // storing a v2 blob (or a partial aux) while covered WAL gets trimmed
+    // would silently lose pending conditionals — retry next window.
+    exch::SnapshotAuxState aux;
+    const exch::SnapshotAuxState* auxp = nullptr;
+    bool aux_ok = true;
+    if (c->engine != nullptr &&
+        c->store->would_snapshot(now_ns, delta)) {
+        aux_ok = c->engine->export_aux_state(aux);
+        if (!aux_ok && !c->serialize_failed) {
+            c->serialize_failed = true;
+            std::fprintf(stderr,
+                         "snapshot aux export failed — cadence retry "
+                         "pending\n");
+        }
+        if (aux_ok) auxp = &aux;
+    }
+    const exch::SnapshotOutcome oc =
+        aux_ok ? c->store->maybe_snapshot(
+                     *c->book, c->instrument_id, c->wal->tail_seq(), now_ns,
+                     delta, c->tid_stream != nullptr ? *c->tid_stream : 0,
+                     auxp)
+               : exch::SnapshotOutcome::SerializeFailed;
     // Task 4.3.1: a stored snapshot is handed to the Go recovery service
     // (compact SnapReadyMsg on the shm ring — the file is the transport),
     // and confirmed snapshots trim sealed WAL segments. Both are cold-path,
@@ -1409,7 +1434,7 @@ int main(int argc, char** argv) {
                      snap_mgr.ack_open() ? 1 : 0);
     }
     SnapshotCtx snap_ctx{&snap_store, &book, &wal, &snap_mgr, instrument_id, 0,
-                         false, false, &engine.tid_stream()};
+                         false, false, &engine.tid_stream(), &engine};
     engine.set_snapshot_hook(&on_snapshot_tick, &snap_ctx);
     // Curve slots share the shard's store/mgr — each book snapshots under
     // its own instrument_id (Task 22.3.12).
@@ -1417,7 +1442,8 @@ int main(int argc, char** argv) {
         CurveSlot* sp = curve_slots[ci].get();
         sp->snap_ctx = SnapshotCtx{&snap_store, sp->book.get(), &wal,
                                    &snap_mgr, curve_ids[ci + 1], 0, false,
-                                   false, &sp->engine->tid_stream()};
+                                   false, &sp->engine->tid_stream(),
+                                   sp->engine.get()};
         sp->engine->set_snapshot_hook(&on_snapshot_tick, &sp->snap_ctx);
     }
 
@@ -1551,6 +1577,22 @@ int main(int argc, char** argv) {
                              ra->quarantined ? 1 : 0, ra->parked_count);
             }
         }
+        // v3 aux adoption (pending stops, GTD/DAY expiry re-arm, iceberg
+        // reserves, OCO links, pegs) — the replay engine's drained side
+        // tables move into the live engine BEFORE the ingress ring opens.
+        // Pending nodes live in `orders` (the binding pool shared with the
+        // live engine) — adoption moves ownership, not memory.
+        if (auto* aux = recovery.recovered_aux_state(instrument_id)) {
+            const std::size_t pendings = aux->pendings.size();
+            const std::size_t metas = aux->metas.size();
+            engine.adopt_aux_state(std::move(*aux));
+            if (pendings + metas > 0) {
+                std::fprintf(stderr,
+                             "recovery: aux state adopted — pendings=%zu "
+                             "metas=%zu\n",
+                             pendings, metas);
+            }
+        }
         // Curve slots adopt their own replayed auction/lifecycle state.
         for (auto& sp : curve_slots) {
             const uint32_t sid =
@@ -1561,6 +1603,9 @@ int main(int argc, char** argv) {
                     ra->extensions, ra->awaiting, ra->last_completed,
                     ra->quarantined, ra->quarantine_code, ra->parked_head,
                     ra->parked_count);
+            }
+            if (auto* aux = recovery.recovered_aux_state(sid)) {
+                sp->engine->adopt_aux_state(std::move(*aux));
             }
         }
         std::fprintf(stderr,
@@ -1831,9 +1876,14 @@ int main(int argc, char** argv) {
     loop.stop_watchdog();
     // Drain snapshot: a graceful stop leaves a fresh base so the next boot
     // replays only the post-snapshot tail instead of the whole journal.
-    if (snap_store.force_snapshot(book, instrument_id, wal.tail_seq(),
-                                  engine.tid_stream()) ==
-        exch::SnapshotOutcome::Taken) {
+    // The aux block carries the engine side tables (pending stops, expiry
+    // heap, iceberg reserves, OCO links, pegs) — a failed export skips the
+    // snapshot entirely rather than trimming WAL past un-captured state.
+    exch::SnapshotAuxState drain_aux;
+    if (engine.export_aux_state(drain_aux) &&
+        snap_store.force_snapshot(book, instrument_id, wal.tail_seq(),
+                                  engine.tid_stream(), &drain_aux) ==
+            exch::SnapshotOutcome::Taken) {
         std::fprintf(stderr, "snapshot stored at seq=%llu\n",
                      (unsigned long long)wal.tail_seq());
         (void)snap_mgr.notify_stored(instrument_id,
@@ -1843,9 +1893,11 @@ int main(int argc, char** argv) {
     for (auto& sp : curve_slots) {
         const uint32_t sid =
             static_cast<uint32_t>(sp->ins.instrument_id);
-        if (snap_store.force_snapshot(*sp->book, sid, wal.tail_seq(),
-                                      sp->engine->tid_stream()) ==
-            exch::SnapshotOutcome::Taken) {
+        exch::SnapshotAuxState slot_aux;
+        if (sp->engine->export_aux_state(slot_aux) &&
+            snap_store.force_snapshot(*sp->book, sid, wal.tail_seq(),
+                                      sp->engine->tid_stream(), &slot_aux) ==
+                exch::SnapshotOutcome::Taken) {
             (void)snap_mgr.notify_stored(sid,
                                          snap_store.last_snapshot_seq());
         }

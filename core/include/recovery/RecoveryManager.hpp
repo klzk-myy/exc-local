@@ -76,26 +76,24 @@
 // CANCEL/MODIFY carry no instrument_id — dispatch resolves order_id → book via
 // the live order map built during snapshot restore + ORDER_NEW replay.
 //
-// Snapshot coverage note (documented boundary): the pinned snapshot format
-// restores book-visible state only — levels, resting orders, FIFO
-// (timestamp_ns, ingress_seq) keys, filled/remaining quantities, tif,
-// stp_mode, type, flags. Engine-private meta is NOT serialised and cannot
-// be re-seeded through the public MatchingEngine API: the pending-stop
-// queue, the GTD/DAY expiry heap, per-order STP trade_group_id, iceberg
-// slice records, §6.9 amend fences, and cumulative prevented_qty all live
-// in the engine's OrderMeta/stop/iceberg side tables and are populated
-// only at live admission. Journaled EFFECTS of that meta still re-derive
-// faithfully from the tail — expiry cancels, triggered-stop outcomes, and
-// STP suppression cancels/modifies arrive as ordinary tail entries — so
-// the book-visible end state converges whenever the tail's decisions do
-// not themselves depend on lost meta. The residual divergence window is a
-// snapshot that covers aux-bearing live orders followed by a tail whose
-// decisions need that meta (e.g., same-group STP against a restored
-// maker, or a pending stop whose trigger decision the tail expects to
-// re-derive). WAL-only recovery is unaffected: every replayed ORDER_NEW
-// re-registers its aux at admission. Closing the gap requires extending
-// the snapshot contract (an aux side-block beside WalSnapshotOrderExt)
-// plus an engine meta-restore path — outside this component's ownership.
+// Snapshot coverage note: the pinned+ext snapshot format restores
+// book-visible state — levels, resting orders, FIFO (timestamp_ns,
+// ingress_seq) keys, filled/remaining quantities, tif, stp_mode, type,
+// flags. Engine-private side tables ride the v3 aux block (SnapshotStore
+// ext version >= 3): OrderMeta rows (GTD/DAY expiry, STP trade_group,
+// §6.9 amend fences, prevented_qty, trigger source/instrument), the
+// pending-stop queue (whole off-book orders incl. trailing state), iceberg
+// hidden reserves, OCO links, and peg records. Parsed aux rows are adopted
+// into the per-book replay engine BEFORE replay begins — journaled
+// post-snapshot mutations (cancel/amend/trigger/expiry) then update them
+// identically to live admission — and the post-replay result drains into
+// the live engine through the recovered_aux_state()/adopt_aux_state()
+// handoff (same ownership contract as recovered_auction_state): pending
+// nodes are pool-owned by the binding's orders pool; adopt only into a
+// live engine bound to that same pool (the main.cpp wiring). Pre-v3
+// snapshots restore without aux — the documented boundary still applies
+// to them, and WAL-only recovery is unaffected: every replayed ORDER_NEW
+// re-registers its aux at admission and drains through the same path.
 //
 // Replay capacity: ingress nodes are allocated from the binding's order
 // pool (RecoveryBookBinding::orders — the pool the book itself allocates
@@ -399,6 +397,18 @@ public:
     [[nodiscard]] const RecoveredAuctionState* recovered_auction_state(
         uint32_t instrument_id) const noexcept;
 
+    // --- Snapshot aux recovery (v3 side-table block) ----------------------
+    // Post-replay engine side-table contents per bound book: snapshot aux
+    // rows adopted into the replay engine pre-replay (so journaled
+    // mutations update them) plus every WAL-replayed aux registration —
+    // drained wholesale at end of recover(). main.cpp installs it into the
+    // live engine via MatchingEngine::adopt_aux_state(std::move(*aux));
+    // pending Order nodes live in the binding's orders pool (or the
+    // retained arena) — same ownership contract as parked auction nodes.
+    // nullptr when the instrument was not bound.
+    [[nodiscard]] SnapshotAuxState* recovered_aux_state(
+        uint32_t instrument_id) noexcept;
+
 private:
     struct BookState;  // per-binding working set (pimpl to keep the header lean)
 
@@ -428,6 +438,8 @@ private:
     // recover() — see RecoveredAuctionState above.
     std::unordered_map<uint32_t, RecoveredAuctionState>
         recovered_auctions_;
+    // Per-instrument drained aux state — see recovered_aux_state() above.
+    std::unordered_map<uint32_t, SnapshotAuxState> recovered_aux_;
 };
 
 }  // namespace exch

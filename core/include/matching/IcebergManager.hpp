@@ -121,6 +121,15 @@ public:
         --live_;
     }
 
+    // Cold-path enumeration (snapshot export): invoke f(record) for every
+    // live entry in slot order. Read-only — records may not be modified.
+    template <typename F>
+    void for_each(F&& f) const noexcept {
+        for (std::size_t i = 0; i < capacity_; ++i) {
+            if (slots_[i].order_id != 0) f(slots_[i]);
+        }
+    }
+
     // Hidden quantity not yet committed to any slice (0 at live node — the
     // node's remaining slice is excluded from hidden by definition).
     [[nodiscard]] static int64_t

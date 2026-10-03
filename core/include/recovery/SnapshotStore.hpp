@@ -13,6 +13,15 @@
 //                                                       same order as levels
 //   [WalSnapshotExtHeader]                       16 B — magic/version/count
 //   [WalSnapshotOrderExt × order_count]          60 B — restore extension
+//   [WalSnapshotAuxHeader]                       48 B — ext v3+ only: engine
+//                                                       side-table counts
+//   [WalSnapshotOrderAux    × meta_count]        48 B — OrderMeta rows
+//                                                       (resting + pending)
+//   [WalSnapshotPendingOrder × pending_count]   148 B — off-book conditional
+//                                                       orders (stop queue)
+//   [WalSnapshotIceberg     × iceberg_count]     32 B — hidden-reserve rows
+//   [WalSnapshotOco         × oco_count]         40 B — OCO link rows
+//   [WalSnapshotPeg         × peg_count]         32 B — pegged-order rows
 //   [WalSnapshotCounters]                        16 B — ext v2+ only: engine
 //                                                       allocator counters
 //
@@ -73,11 +82,12 @@ struct WalSnapshotOrderExt {
 };
 #pragma pack(pop)
 
-// Counters trailer (ext version >= 2, appended after the order-ext records):
-// engine-owned allocator high-water marks the OrderBook blob cannot carry —
-// the trade-id stream lives on the engine, not the book. A v1 snapshot loses
-// the mark, so a fully snapshot-covered boot would restart the allocator at
-// 1 and re-issue journaled trade ids (Phase-09 swap-drill finding).
+// Counters trailer (ext version >= 2, appended after the order-ext records —
+// after the aux block on v3+): engine-owned allocator high-water marks the
+// OrderBook blob cannot carry — the trade-id stream lives on the engine, not
+// the book. A v1 snapshot loses the mark, so a fully snapshot-covered boot
+// would restart the allocator at 1 and re-issue journaled trade ids
+// (Phase-09 swap-drill finding).
 #pragma pack(push, 1)
 struct WalSnapshotCounters {
     uint32_t magic;          // kSnapCtrMagic
@@ -85,15 +95,137 @@ struct WalSnapshotCounters {
     uint16_t _pad;
     uint64_t next_trade_id;  // engine trade-id allocator counter at capture
 };
+
+// --- Aux block (ext version >= 3) -----------------------------------------
+// Engine-private side-table rows the book blob cannot carry: the OrderMeta
+// table (GTD/DAY expiry, STP trade-group, amend fence, prevented qty,
+// conditional trigger source/instrument), the pending-stop queue (whole
+// off-book orders), iceberg hidden-reserve records, OCO links, and pegged
+// order records. Without them a snapshot-covered restart loses conditional
+// orders outright and un-arms expiry/STP bookkeeping on the survivors —
+// book-visible state alone is not the full engine state.
+struct WalSnapshotAuxHeader {
+    uint32_t magic;          // kSnapAuxMagic
+    uint16_t version;        // kSnapAuxVersion
+    uint16_t flags;          // reserved, 0
+    uint64_t meta_count;     // WalSnapshotOrderAux rows
+    uint64_t pending_count;  // WalSnapshotPendingOrder rows
+    uint64_t iceberg_count;  // WalSnapshotIceberg rows
+    uint64_t oco_count;      // WalSnapshotOco rows
+    uint64_t peg_count;      // WalSnapshotPeg rows
+};
+
+// One MatchingEngine::OrderMeta row. Keyed by order id — the order itself is
+// either a book row (resting) or a WalSnapshotPendingOrder row (off-book).
+struct WalSnapshotOrderAux {
+    uint64_t order_id;
+    int64_t  expiry_ns;          // GTD/DAY deadline; 0 = none (heap re-arm)
+    uint64_t amend_seq;          // §6.9 amend fence — last APPLIED ingress seq
+    int64_t  prevented_qty_units;// cumulative STP-suppressed qty
+    uint32_t trade_group_id;     // STP group (migration 072)
+    uint32_t instrument_id;      // pending conditional's instrument
+    uint8_t  trigger_source;     // kTriggerSource* for conditional orders
+    uint8_t  amend_seen;         // amend fence armed
+    uint8_t  _pad[6];
+};
+
+// Off-book pending conditional order: embeds the pinned + ext shapes so the
+// restore side needs no second record family — ext.level_index carries the
+// kSnapLevelOffBook sentinel (the order has no level). ord.stop_price_ticks
+// is the armed trigger threshold (the field the book rows leave zeroed).
+struct WalSnapshotPendingOrder {
+    WalSnapshotOrder    ord;
+    WalSnapshotOrderExt ext;
+    int64_t  anchor_ticks;            // trailing: most-favorable reference
+    int64_t  activation_price_ticks;  // trailing gate; 0 = armed
+    int64_t  trail_distance;          // trailing distance (unit per trail_unit)
+    int64_t  gslo_notional_units;     // GSLO exposure reserved at admission
+    uint8_t  trigger_source;
+    uint8_t  trail_unit;              // kTrailUnit*; 0 = plain stop
+    uint8_t  armed;                   // trailing gate passed
+    uint8_t  _pad[5];
+};
+
+// IcebergManager::Record minus the re-slice template — the template is the
+// restored book node for the live slice (only its qty_units differs: it is
+// the slice remainder, tmpl.qty_units is the TOTAL carried here).
+struct WalSnapshotIceberg {
+    uint64_t order_id;
+    int64_t  total_qty_units;
+    int64_t  filled_total_units;
+    int64_t  display_qty_units;
+};
+
+struct WalSnapshotOco {
+    uint64_t order_id;
+    uint64_t link_id;
+    uint64_t sibling_id;
+    uint32_t instrument_id;
+    uint8_t  state;            // kOcoArmed / kOcoDoomed
+    uint8_t  _pad[11];
+};
+
+struct WalSnapshotPeg {
+    uint64_t order_id;
+    int64_t  offset_ticks;
+    int64_t  limit_ticks;
+    uint8_t  mode;             // kPeg*
+    uint8_t  priced_ok;
+    uint8_t  _pad[6];
+};
 #pragma pack(pop)
 
 inline constexpr uint32_t kSnapExtMagic = 0x31455853u;   // 'SXE1'
-inline constexpr uint16_t kSnapExtVersion = 2;
+inline constexpr uint16_t kSnapExtVersion = 3;
 inline constexpr uint32_t kSnapCtrMagic = 0x32544353u;   // 'SCT2'
 inline constexpr uint16_t kSnapCtrVersion = 1;
+inline constexpr uint32_t kSnapAuxMagic = 0x33554153u;   // 'SAU3'
+inline constexpr uint16_t kSnapAuxVersion = 1;
+// level_index sentinel on WalSnapshotPendingOrder.ext — the pending order
+// lives in the engine's stop queue, not in any book level.
+inline constexpr uint32_t kSnapLevelOffBook = UINT32_MAX;
 static_assert(sizeof(WalSnapshotExtHeader) == 16);
 static_assert(sizeof(WalSnapshotOrderExt) == 60);
 static_assert(sizeof(WalSnapshotCounters) == 16);
+static_assert(sizeof(WalSnapshotAuxHeader) == 48);
+static_assert(sizeof(WalSnapshotOrderAux) == 48);
+static_assert(sizeof(WalSnapshotPendingOrder) == 148);
+static_assert(sizeof(WalSnapshotIceberg) == 32);
+static_assert(sizeof(WalSnapshotOco) == 40);
+static_assert(sizeof(WalSnapshotPeg) == 32);
+
+// --- Engine-side aux provider (serialize input) ----------------------------
+// Wire-ready engine side-table contents the book cannot see. The matching
+// engine marshals its meta/stop/iceberg/oco/peg tables into these PODs; the
+// serializer stays engine-agnostic. SnapshotAuxPending.order is a pool-owned
+// node read for its full order template — the writer never mutates it.
+struct SnapshotAuxPending {
+    Order*   order;                  // full order template (not book-resting)
+    int64_t  stop_price_ticks = 0;
+    int64_t  anchor_ticks = 0;
+    int64_t  activation_price_ticks = 0;
+    int64_t  trail_distance = 0;
+    int64_t  gslo_notional_units = 0;
+    uint8_t  trigger_source = 0;
+    uint8_t  trail_unit = 0;
+    uint8_t  armed = 1;
+};
+
+// Iceberg restore input: the re-slice template (qty_units = TOTAL) plus the
+// manager's cumulative counters.
+struct SnapshotAuxIceberg {
+    Order    tmpl;
+    int64_t  filled_total_units = 0;
+    int64_t  display_qty_units = 0;
+};
+
+struct SnapshotAuxState {
+    std::vector<WalSnapshotOrderAux> metas;        // resting + pending orders
+    std::vector<SnapshotAuxPending>  pendings;     // off-book conditionals
+    std::vector<SnapshotAuxIceberg>  icebergs;     // hidden-reserve records
+    std::vector<WalSnapshotOco>      ocos;
+    std::vector<WalSnapshotPeg>      pegs;
+};
 
 // --- Pluggable sink ----------------------------------------------------------
 //
@@ -237,6 +369,12 @@ struct ParsedSnapshot {
     std::vector<WalSnapshotLevel> levels;        // bids desc, then asks asc
     std::vector<ParsedSnapshotOrder> orders;     // level-major FIFO order
     uint64_t next_trade_id = 0;                  // v2 counters; 0 = v1/absent
+    // v3 aux block — engine side-table rows (empty on v1/v2 blobs).
+    std::vector<WalSnapshotOrderAux>    metas;
+    std::vector<WalSnapshotPendingOrder> pendings;
+    std::vector<WalSnapshotIceberg>     icebergs;
+    std::vector<WalSnapshotOco>         ocos;
+    std::vector<WalSnapshotPeg>         pegs;
 };
 
 // --- SnapshotStore: serializer + cadence hook ---------------------------------
@@ -264,29 +402,47 @@ public:
     // clock (TIME_TICK discipline — never clock_gettime on the matching
     // thread). `trades_delta` = trades executed since the previous call.
     // Serializes + persists only when trades accumulated >= trade_interval
-    // OR now_ns - last_snapshot_ns >= interval_ns.
+    // OR now_ns - last_snapshot_ns >= interval_ns. `aux` = engine side-table
+    // export (matching thread collects it on the same call) — nullptr keeps
+    // the v2 blob shape for book-only/test callers.
     [[nodiscard]] SnapshotOutcome maybe_snapshot(const OrderBook& book,
                                                  uint32_t instrument_id,
                                                  uint64_t wal_seq,
                                                  uint64_t now_ns,
                                                  uint64_t trades_delta,
-                                                 uint64_t next_trade_id = 0) noexcept;
+                                                 uint64_t next_trade_id = 0,
+                                                 const SnapshotAuxState* aux = nullptr) noexcept;
 
     // Unconditional snapshot (drain/shutdown paths, tests).
     [[nodiscard]] SnapshotOutcome force_snapshot(const OrderBook& book,
                                                  uint32_t instrument_id,
                                                  uint64_t wal_seq,
-                                                 uint64_t next_trade_id = 0) noexcept;
+                                                 uint64_t next_trade_id = 0,
+                                                 const SnapshotAuxState* aux = nullptr) noexcept;
+
+    // Cadence pre-check (no mutation): identical predicate to the one inside
+    // maybe_snapshot — callers that must marshal engine aux state use it to
+    // skip the export on non-firing ticks.
+    [[nodiscard]] bool would_snapshot(uint64_t now_ns,
+                                      uint64_t trades_delta) const noexcept {
+        return !first_done_ ||
+               trades_acc_ + trades_delta >= policy_.trade_interval ||
+               (first_done_ &&
+                (now_ns - last_ns_) >= policy_.interval_ns);
+    }
 
     // Serialize the book into the pinned+extension blob. `out` is replaced.
     // header_out.book_seq = wal_seq (the covered WAL cursor). Cold path —
     // allocates; matching thread calls between events (spec §3.5 cadence).
+    // `aux` != nullptr writes the v3 side-table block; nullptr emits the v2
+    // shape (older readers can still parse it).
     [[nodiscard]] static bool serialize_book(const OrderBook& book,
                                              uint32_t instrument_id,
                                              uint64_t wal_seq,
                                              std::vector<uint8_t>& out,
                                              WalBookSnapshotHeader& header_out,
-                                             uint64_t next_trade_id = 0) noexcept;
+                                             uint64_t next_trade_id = 0,
+                                             const SnapshotAuxState* aux = nullptr) noexcept;
 
     // Parse + structurally validate a blob. Fails (returns false) on size
     // mismatch, bad ext magic/version, count divergence, out-of-range level

@@ -1574,3 +1574,221 @@ TEST(RecoveryLadder, UncoveredSealedCorruptionHaltsAndReports) {
     EXPECT_NE(line.find("runbook"), std::string::npos);
     EXPECT_EQ(f.book.live_orders(), 0u);  // fail-closed — nothing applied
 }
+
+// --- v3 aux block: engine side-table persistence ------------------------------
+// Pending conditionals and OrderMeta rows (GTD/DAY expiry heap, STP group,
+// amend fence) are NOT book-visible — they ride the v3 aux trailer, adopt
+// into the replay engine pre-replay, then drain into the live engine.
+// Regression: a fully snapshot-covered restart must not strand a pending
+// STOP (PG shows ACTIVE while the engine silently lost it) nor un-arm the
+// expiry heap on a restored GTD order.
+
+// Pool-allocated live node — engine admission takes ownership (the pending
+// stop queue adopts the node; terminal paths free it back).
+Order* mk_live(MemoryPool<Order>& pool, Order tmpl) {
+    Order* o = pool.alloc();
+    if (o != nullptr) *o = tmpl;
+    return o;
+}
+
+TEST(SnapshotAux, RoundTripCarriesAllSideTables) {
+    Fixture src;
+    Order pending_node{};
+    pending_node.id = 88;
+    pending_node.account_id = 42;
+    pending_node.side = Side::BUY;
+    pending_node.type = OrderType::STOP;
+    pending_node.tif = TimeInForce::GTC;
+    pending_node.price_ticks = 0;           // stop-market — no limit price
+    pending_node.qty_units = 60;
+    pending_node.timestamp_ns = 102;
+    pending_node.ingress_seq = 2;
+
+    SnapshotAuxState aux;
+    WalSnapshotOrderAux m{};
+    m.order_id = 3; m.expiry_ns = 5000; m.trade_group_id = 9;
+    m.instrument_id = kIid; m.amend_seq = 7; m.amend_seen = 1;
+    aux.metas.push_back(m);
+    SnapshotAuxPending p{};
+    p.order = &pending_node;
+    p.stop_price_ticks = 10500 * kTick;
+    p.trigger_source = kTriggerSourceMark;
+    aux.pendings.push_back(p);
+    SnapshotAuxIceberg ice{};
+    ice.tmpl = mk_order(9, Side::SELL, 10100 * kTick, 500, 110, 4);
+    ice.filled_total_units = 100;
+    ice.display_qty_units = 50;
+    aux.icebergs.push_back(ice);
+    WalSnapshotOco oc{};
+    oc.order_id = 20; oc.link_id = 5; oc.sibling_id = 21; oc.instrument_id = kIid;
+    aux.ocos.push_back(oc);
+    WalSnapshotPeg pg{};
+    pg.order_id = 30; pg.offset_ticks = 10; pg.mode = 1; pg.priced_ok = 1;
+    aux.pegs.push_back(pg);
+
+    std::vector<uint8_t> blob;
+    WalBookSnapshotHeader hdr{};
+    ASSERT_TRUE(SnapshotStore::serialize_book(src.book, kIid, /*seq*/ 4,
+                                              blob, hdr, 0, &aux));
+    ParsedSnapshot ps;
+    ASSERT_TRUE(SnapshotStore::parse_book(blob.data(), blob.size(), ps));
+
+    ASSERT_EQ(ps.metas.size(), 1u);
+    EXPECT_EQ(ps.metas[0].order_id, 3u);
+    EXPECT_EQ(ps.metas[0].expiry_ns, 5000);
+    EXPECT_EQ(ps.metas[0].trade_group_id, 9u);
+    EXPECT_EQ(ps.metas[0].amend_seq, 7u);
+    ASSERT_EQ(ps.pendings.size(), 1u);
+    EXPECT_EQ(ps.pendings[0].ord.order_id, 88u);
+    EXPECT_EQ(ps.pendings[0].ord.stop_price_ticks, 10500 * kTick);
+    EXPECT_EQ(ps.pendings[0].ext.level_index, kSnapLevelOffBook);
+    EXPECT_EQ(ps.pendings[0].trigger_source, kTriggerSourceMark);
+    ASSERT_EQ(ps.icebergs.size(), 1u);
+    EXPECT_EQ(ps.icebergs[0].order_id, 9u);
+    EXPECT_EQ(ps.icebergs[0].total_qty_units, 500);
+    EXPECT_EQ(ps.icebergs[0].filled_total_units, 100);
+    EXPECT_EQ(ps.icebergs[0].display_qty_units, 50);
+    ASSERT_EQ(ps.ocos.size(), 1u);
+    EXPECT_EQ(ps.ocos[0].link_id, 5u);
+    EXPECT_EQ(ps.ocos[0].sibling_id, 21u);
+    ASSERT_EQ(ps.pegs.size(), 1u);
+    EXPECT_EQ(ps.pegs[0].offset_ticks, 10);
+    EXPECT_EQ(ps.pegs[0].mode, 1);
+}
+
+TEST(RecoveryManager, SnapshotAuxRestoresPendingStopAndExpiry) {
+    const auto root = tmp_dir("snap_aux");
+    const auto wal_dir = root / "wal";
+    std::filesystem::create_directories(wal_dir);
+    const auto wpath = wal_dir / "0.wal";
+
+    // WAL tail = 4 (four ticks); the snapshot covers it entirely — the
+    // drain-shutdown production shape: nothing replays, the aux block must
+    // carry the whole engine-private state.
+    WalTimeTickPayload tk{};
+    tk.tick_ns = 50;
+    write_wal(wpath.string(), kShard,
+              {{0, 10, WalEventType::TIME_TICK, &tk, sizeof(tk)},
+               {1, 20, WalEventType::TIME_TICK, &tk, sizeof(tk)},
+               {2, 30, WalEventType::TIME_TICK, &tk, sizeof(tk)},
+               {3, 40, WalEventType::TIME_TICK, &tk, sizeof(tk)}});
+
+    // Source engine: one resting GTC limit + one resting GTD + one pending
+    // STOP (the pending node is engine-private — invisible to the pinned
+    // blob, survives only via the aux trailer).
+    Fixture src;
+    MatchingEngine src_engine{kShard, src.book, src.pool, nullptr, nullptr};
+    src_engine.on_order_received(
+        mk_live(src.pool, mk_order(1, Side::BUY, 10000 * kTick, 50, 100, 0)));
+    OrderAux gtd{};
+    gtd.gtd_expiry_ns = 5000;
+    src_engine.on_order_received(
+        mk_live(src.pool, mk_order(3, Side::SELL, 10100 * kTick, 20, 101, 1)),
+        gtd);
+    OrderAux stop{};
+    stop.stop_price_ticks = 10500 * kTick;
+    Order st = mk_order(2, Side::BUY, /*price*/ 0, 60, 102, 2);
+    st.type = OrderType::STOP;   // stop-market — converts to taker on trigger
+    src_engine.on_order_received(mk_live(src.pool, st), stop);
+    ASSERT_TRUE(src_engine.stops().pending(2));
+    ASSERT_EQ(src.book.live_orders(), 2u);    // pending stop is NOT in book
+
+    SnapshotAuxState aux;
+    ASSERT_TRUE(src_engine.export_aux_state(aux));
+    EXPECT_EQ(aux.pendings.size(), 1u);
+    EXPECT_EQ(aux.metas.size(), 1u);          // the GTD row
+    std::vector<uint8_t> blob;
+    WalBookSnapshotHeader hdr{};
+    ASSERT_TRUE(SnapshotStore::serialize_book(src.book, kIid, /*seq*/ 4,
+                                              blob, hdr, 0, &aux));
+    FileSnapshotSink sink(root.string(), kShard);
+    ASSERT_TRUE(sink.store(kIid, 4, blob.data(), blob.size()));
+
+    Fixture dst;
+    RecoveryManager rm(kShard, sink);
+    const RecoveryResult res = rm.recover(wal_dir.string(),
+                                          {{kIid, &dst.book, &dst.pool}});
+    ASSERT_EQ(res.status, RecoveryStatus::Ok) << res.detail;
+    ASSERT_EQ(res.books.size(), 1u);
+    EXPECT_EQ(res.books[0].pending_stops, 1u);
+    EXPECT_EQ(dst.book.live_orders(), 2u);    // book rows only
+
+    // Live-engine adoption — the main.cpp handoff.
+    MatchingEngine live{kShard, dst.book, dst.pool, nullptr, nullptr};
+    SnapshotAuxState* ra = rm.recovered_aux_state(kIid);
+    ASSERT_NE(ra, nullptr);
+    ASSERT_EQ(ra->pendings.size(), 1u);
+    ASSERT_EQ(ra->metas.size(), 1u);
+    live.adopt_aux_state(std::move(*ra));
+
+    // The pending stop is live again — its node is real and cancellable.
+    EXPECT_TRUE(live.stops().pending(2));
+    live.on_cancel_received(2, /*account*/ 42);
+    EXPECT_FALSE(live.stops().pending(2));
+
+    // The GTD expiry re-armed: ticking past the deadline expires order 3.
+    EXPECT_NE(dst.book.find_order(3), nullptr);
+    live.on_time_tick(6000);
+    EXPECT_EQ(dst.book.find_order(3), nullptr);
+    EXPECT_NE(dst.book.find_order(1), nullptr);   // GTC untouched
+}
+
+TEST(RecoveryManager, SnapshotAuxPendingStopTriggersAfterAdoption) {
+    const auto root = tmp_dir("snap_aux_trigger");
+    const auto wal_dir = root / "wal";
+    std::filesystem::create_directories(wal_dir);
+    const auto wpath = wal_dir / "0.wal";
+
+    WalTimeTickPayload tk{};
+    tk.tick_ns = 50;
+    write_wal(wpath.string(), kShard,
+              {{0, 10, WalEventType::TIME_TICK, &tk, sizeof(tk)}});
+
+    // Resting asks at 10100 and 10600; a pending BUY stop armed at 10500.
+    // Distinct accounts — a shared account would trip STP CANCEL_NEWEST.
+    Fixture src;
+    MatchingEngine src_engine{kShard, src.book, src.pool, nullptr, nullptr};
+    src_engine.on_order_received(mk_live(
+        src.pool, mk_order(3, Side::SELL, 10100 * kTick, 20, 101, 1, 1)));
+    src_engine.on_order_received(mk_live(
+        src.pool, mk_order(4, Side::SELL, 10600 * kTick, 10, 102, 2, 1)));
+    OrderAux stop{};
+    stop.stop_price_ticks = 10500 * kTick;
+    Order st = mk_order(2, Side::BUY, /*price*/ 0, 60, 103, 3, 2);
+    st.type = OrderType::STOP;
+    src_engine.on_order_received(mk_live(src.pool, st), stop);
+    ASSERT_TRUE(src_engine.stops().pending(2));
+
+    SnapshotAuxState aux;
+    ASSERT_TRUE(src_engine.export_aux_state(aux));
+    std::vector<uint8_t> blob;
+    WalBookSnapshotHeader hdr{};
+    ASSERT_TRUE(SnapshotStore::serialize_book(src.book, kIid, /*seq*/ 1,
+                                              blob, hdr, 0, &aux));
+    FileSnapshotSink sink(root.string(), kShard);
+    ASSERT_TRUE(sink.store(kIid, 1, blob.data(), blob.size()));
+
+    Fixture dst;
+    RecoveryManager rm(kShard, sink);
+    const RecoveryResult res = rm.recover(wal_dir.string(),
+                                          {{kIid, &dst.book, &dst.pool}});
+    ASSERT_EQ(res.status, RecoveryStatus::Ok) << res.detail;
+
+    MatchingEngine live{kShard, dst.book, dst.pool, nullptr, nullptr};
+    SnapshotAuxState* ra = rm.recovered_aux_state(kIid);
+    ASSERT_NE(ra, nullptr);
+    live.adopt_aux_state(std::move(*ra));
+    ASSERT_TRUE(live.stops().pending(2));
+
+    // A 30-unit buy sweeps 10100 then 10600 — last=10600 >= 10500 fires the
+    // restored stop mid-ingress exactly like a live-admitted one.
+    live.on_order_received(mk_live(
+        dst.pool, mk_order(9, Side::BUY, 10600 * kTick, 30, 104, 4, 9)));
+    EXPECT_EQ(live.last_price_ticks(),
+              static_cast<uint64_t>(10600 * kTick));
+    EXPECT_FALSE(live.stops().pending(2));
+    EXPECT_GT(live.trades_emitted(), 0u);
+    // Stop-market remainder: every ask was consumed, the residue is killed —
+    // the triggered order never rests on the bid side.
+    EXPECT_EQ(dst.book.find_order(2), nullptr);
+}

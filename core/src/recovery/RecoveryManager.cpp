@@ -34,6 +34,12 @@ RecoveryManager::recovered_auction_state(uint32_t instrument_id)
     return it == recovered_auctions_.end() ? nullptr : &it->second;
 }
 
+SnapshotAuxState* RecoveryManager::recovered_aux_state(
+    uint32_t instrument_id) noexcept {
+    const auto it = recovered_aux_.find(instrument_id);
+    return it == recovered_aux_.end() ? nullptr : &it->second;
+}
+
 const char* recovery_status_str(RecoveryStatus s) noexcept {
     switch (s) {
         case RecoveryStatus::Ok:                return "Ok";
@@ -363,6 +369,7 @@ RecoveryResult RecoveryManager::recover(
     RecoveryResult res;
     recovered_auctions_.clear();  // stale state from a prior run must never
                                   // be adopted by a later caller
+    recovered_aux_.clear();       // same contract for drained aux state
     try {
         std::vector<BookState> states(bindings.size());
         std::unordered_map<uint32_t, BookState*> by_instrument;
@@ -811,6 +818,107 @@ RecoveryResult RecoveryManager::recover(
                                                *bs.replay_pool,
                                                /*wal*/ nullptr,
                                                /*publisher*/ nullptr));
+        }
+
+        // --- Phase 4b: snapshot aux block (v3) --------------------------------
+        // Engine side-table rows the book blob cannot carry (OrderMeta /
+        // pending stops / iceberg reserves / OCO links / peg records —
+        // SnapshotStore.hpp). Adopt them into the replay engine BEFORE any
+        // journaled entry lands so post-snapshot cancels, amends, triggers
+        // and expiries update them identically to live admission; the
+        // post-replay state drains to the live engine via
+        // recovered_aux_state().
+        for (std::size_t bsi = 0; bsi < states.size(); ++bsi) {
+            auto& bs = states[bsi];
+            const ParsedSnapshot& ps = bs.parsed;
+            if (bs.engine == nullptr ||
+                (ps.metas.empty() && ps.pendings.empty() &&
+                 ps.icebergs.empty() && ps.ocos.empty() && ps.pegs.empty())) {
+                continue;
+            }
+            SnapshotAuxState aux;
+            try {
+                aux.metas = ps.metas;
+                for (const auto& w : ps.pendings) {
+                    Order* o = bs.replay_pool != nullptr
+                                   ? bs.replay_pool->alloc() : nullptr;
+                    if (o == nullptr) {
+                        set_fail(res, RecoveryStatus::ApplyFailed,
+                                 bs.snapshot_seq, bs.instrument_id,
+                                 "snapshot pending order exceeds pool");
+                        res.books.push_back(bs.report);
+                        wal_tail_ = res.wal_tail;
+                        last_outcome_ = res.outcome();
+                        return res;
+                    }
+                    *o = Order{};
+                    o->id = w.ord.order_id;
+                    o->account_id = w.ord.account_id;
+                    o->side = static_cast<Side>(w.ext.side);
+                    o->type = static_cast<OrderType>(w.ext.type);
+                    o->tif = static_cast<TimeInForce>(w.ord.tif);
+                    o->stp_mode = static_cast<StpMode>(w.ord.stp_mode);
+                    o->flags = w.ext.flags;
+                    o->price_ticks = w.ext.price_ticks;
+                    o->qty_units = w.ext.qty_units;
+                    o->filled_qty_units = w.ext.filled_qty_units;
+                    o->display_qty_units = w.ord.visible_qty_units;
+                    o->quantity = Decimal::from_mantissa(w.ext.qty_units);
+                    o->timestamp_ns = w.ext.timestamp_ns;
+                    o->ingress_seq = w.ext.ingress_seq;
+                    SnapshotAuxPending s{};
+                    s.order = o;
+                    s.stop_price_ticks = w.ord.stop_price_ticks;
+                    s.anchor_ticks = w.anchor_ticks;
+                    s.activation_price_ticks = w.activation_price_ticks;
+                    s.trail_distance = w.trail_distance;
+                    s.gslo_notional_units = w.gslo_notional_units;
+                    s.trigger_source = w.trigger_source;
+                    s.trail_unit = w.trail_unit;
+                    s.armed = w.armed;
+                    aux.pendings.push_back(s);
+                    // Pending orders sit outside the book — register them for
+                    // CANCEL/MODIFY dispatch + the journaled-fill baseline the
+                    // same way restore_snapshot registers resting rows.
+                    order_owner.set(o->id,
+                                    static_cast<uint32_t>(bsi) + 1);
+                    bs.journaled_fills.set(o->id, o->filled_qty_units);
+                    if (o->timestamp_ns > max_ts) max_ts = o->timestamp_ns;
+                    if (o->ingress_seq > max_seq) max_seq = o->ingress_seq;
+                }
+                for (const auto& w : ps.icebergs) {
+                    // The re-slice template is the restored book node (live
+                    // slice) with the record's TOTAL qty — a dangling record
+                    // means hidden quantity is unaccountable: fail closed.
+                    const Order* live = bs.book->find_order(w.order_id);
+                    if (live == nullptr) {
+                        set_fail(res, RecoveryStatus::SnapshotCorrupt,
+                                 bs.snapshot_seq, bs.instrument_id,
+                                 "iceberg record without a resting order");
+                        res.books.push_back(bs.report);
+                        wal_tail_ = res.wal_tail;
+                        last_outcome_ = res.outcome();
+                        return res;
+                    }
+                    SnapshotAuxIceberg s{};
+                    s.tmpl = *live;
+                    s.tmpl.qty_units = w.total_qty_units;
+                    s.filled_total_units = w.filled_total_units;
+                    s.display_qty_units = w.display_qty_units;
+                    aux.icebergs.push_back(s);
+                }
+                aux.ocos = ps.ocos;
+                aux.pegs = ps.pegs;
+            } catch (...) {
+                set_fail(res, RecoveryStatus::Io, bs.snapshot_seq,
+                         bs.instrument_id,
+                         "allocation failure adopting snapshot aux rows");
+                res.books.push_back(bs.report);
+                wal_tail_ = res.wal_tail;
+                last_outcome_ = res.outcome();
+                return res;
+            }
+            bs.engine->adopt_aux_state(std::move(aux));
         }
 
         // --- Phase 5: replay --------------------------------------------------
@@ -1592,6 +1700,15 @@ RecoveryResult RecoveryManager::recover(
                     bs.engine->auction_parked_head());
                 ra.parked_count = bs.engine->auction_parked_count();
                 recovered_auctions_[bs.instrument_id] = ra;
+                // v3 aux state — drain the replay engine's side tables
+                // wholesale (pending nodes leave the queue; the live engine
+                // re-enqueues them via adopt_aux_state). Covers both
+                // snapshot-adopted rows and everything WAL replay
+                // re-registered at admission.
+                SnapshotAuxState aux;
+                if (bs.engine->drain_aux_state(aux)) {
+                    recovered_aux_[bs.instrument_id] = std::move(aux);
+                }
             }
         }
         wal_tail_ = res.wal_tail;

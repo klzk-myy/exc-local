@@ -652,10 +652,14 @@ void EnginePump::dispatch(const uint8_t* data, uint32_t len) noexcept {
                     // price is required unless the type derives/lacks a
                     // limit (MARKET, PEG) or never rests at a wire price
                     // (TRAILING_STOP via trailing_offset_unit, FIXING —
-                    // engine rejects it regardless).
+                    // engine rejects it regardless). STOP (wire
+                    // StopMarket) converts to a market taker on trigger —
+                    // its price slot is the trigger price's sibling
+                    // (stop_price), so a zero limit price is legal;
+                    // STOP_LIMIT still needs one.
                     (type != OrderType::MARKET && type != OrderType::PEG &&
-                     type != OrderType::FIXING && trail_unit == 0 &&
-                     m->price() <= 0)) {
+                     type != OrderType::FIXING && type != OrderType::STOP &&
+                     trail_unit == 0 && m->price() <= 0)) {
                     decode_errors_.fetch_add(1, std::memory_order_relaxed);
                     report("DECODE_ERROR", "OrderNew field validation failed; frame rejected");
                     break;

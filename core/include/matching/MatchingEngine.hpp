@@ -49,6 +49,7 @@
 #include "matching/StopOrderTrigger.hpp"
 #include "matching/TradeThroughGuard.hpp"
 #include "matching/WalWriter.hpp"
+#include "recovery/SnapshotStore.hpp"
 #include "utils/MemoryPool.hpp"
 
 namespace exch {
@@ -593,6 +594,32 @@ public:
                              bool awaiting, int64_t last_completed,
                              bool quarantined, const char* quarantine_code,
                              Order* parked_head, uint32_t parked_count) noexcept;
+
+    // --- Snapshot aux state (v3 side-table block) ----------------------------
+    // The book snapshot covers resting orders only; everything else the
+    // engine owns — OrderMeta rows (GTD/DAY expiry re-arms the heap, STP
+    // trade_group, §6.9 amend fence, prevented_qty, conditional trigger
+    // source/instrument), the pending stop queue, iceberg hidden reserves,
+    // OCO links and peg records — crosses restart through these seams:
+    //
+    //   export_aux_state(out) — copy every side-table row into the wire-ready
+    //       SnapshotAuxState for SnapshotStore::serialize_book (v3 blob).
+    //       false on allocation failure — the caller must NOT snapshot, else
+    //       a silently-partial aux + covered-WAL trim loses conditionals.
+    //   drain_aux_state(out)  — export plus detach: pending stop nodes leave
+    //       this engine's queue wholesale (replay→live ownership transfer,
+    //       same contract as adopt_auction_state's parked nodes).
+    //   adopt_aux_state(in)   — install rows into this engine: meta rows are
+    //       applied and expiry re-arms the heap, pending nodes enqueue into
+    //       stops_ (pool ownership moves here), iceberg/oco/peg rows
+    //       re-register. RecoveryManager feeds the replay engine the
+    //       snapshot-parsed aux so journaled post-snapshot mutations update
+    //       it identically to live admission, then drains the post-replay
+    //       result into the live engine — one adoption path covers both
+    //       snapshot-covered and WAL-replayed aux state.
+    [[nodiscard]] bool export_aux_state(SnapshotAuxState& out) const noexcept;
+    [[nodiscard]] bool drain_aux_state(SnapshotAuxState& out) noexcept;
+    void adopt_aux_state(SnapshotAuxState in) noexcept;
     // ORDER_CANCEL reason 6 — execution-collar remainder expiry
     // (EXECUTION_RULE_PRICE_RANGE_EXCEEDED). Continues the kWalCancelReason*
     // family in matching/WalWriter.hpp.

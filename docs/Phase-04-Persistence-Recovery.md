@@ -36,6 +36,8 @@ Implement full persistence and recovery: WAL snapshotting to PostgreSQL, WAL S3 
 5. Snapshot includes `snapshot_seq` (the WAL seq at snapshot time).
 6. After snapshot confirmed: WAL can trim entries up to `snapshot_seq`.
 
+**Format note (2026-10-03, snapshot ext v3):** the blob's extension trailer gained an aux side-block (`WalSnapshotAuxHeader` + meta/pending/iceberg/OCO/peg row families, `SnapshotStore.hpp`) carrying engine-private side tables — pending conditional orders (stop/stop-limit/trailing queue), GTD/DAY expiry heap seeds, iceberg hidden reserves, OCO links, peg records. Without it a snapshot-covered restart dropped pending conditionals outright and un-armed expiry on restored orders. Append-only: `aux == nullptr` emits the v2 shape, v1/v2 blobs still parse, and parsed aux is adopted into the replay engine before WAL replay so journaled tail mutations update it identically to live admission.
+
 **Migration note:** Create migration `023_create_book_snapshots.up.sql` with columns: `snapshot_id`, `shard_id`, `snapshot_seq`, `snapshot_data` (bytea), `created_at`. This table was missing from the original Phase 1 migration list (001–020).
 
 **Definition of Done (Acceptance Criteria):**
