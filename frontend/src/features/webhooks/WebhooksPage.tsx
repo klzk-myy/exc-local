@@ -29,7 +29,9 @@ function SecretReveal({ secret, onClose }: { secret: string; onClose: () => void
     <div className="rounded border border-amber-700/50 bg-amber-950/30 p-3" role="alert">
       <p className="text-xs font-medium text-amber-300">
         Signing secret — shown once. Verify deliveries with{' '}
-        <code>X-Webhook-Signature = hex(HMAC-SHA256(secret, "&lt;X-Webhook-Timestamp&gt;.&lt;body&gt;"))</code>
+        <code>
+          X-Webhook-Signature = hex(HMAC-SHA256(secret, "&lt;X-Webhook-Timestamp&gt;.&lt;body&gt;"))
+        </code>
       </p>
       <div className="mt-2 flex items-center gap-2">
         <code className="flex-1 break-all rounded bg-neutral-950 px-2 py-1 font-mono text-xs text-neutral-200">
@@ -61,9 +63,7 @@ function DeliveriesPanel({ endpointId }: { endpointId: string }) {
         note="The delivery log is temporarily unavailable."
       />
     ) : (
-      <p className="p-3 text-xs text-red-400">
-        {q.error.message}
-      </p>
+      <p className="p-3 text-xs text-red-400">{q.error.message}</p>
     );
   }
   const rows = q.data ?? [];
@@ -99,9 +99,7 @@ function DeliveriesPanel({ endpointId }: { endpointId: string }) {
             </td>
             <td className="px-3 py-1.5 font-mono text-neutral-400">{d.attempts}</td>
             <td className="px-3 py-1.5 font-mono text-neutral-400">{d.lastStatusCode ?? '—'}</td>
-            <td className="max-w-48 truncate px-3 py-1.5 text-neutral-500">
-              {d.lastError ?? '—'}
-            </td>
+            <td className="max-w-48 truncate px-3 py-1.5 text-neutral-500">{d.lastError ?? '—'}</td>
             <td className="px-3 py-1.5 font-mono text-neutral-500">
               {d.deliveredAt
                 ? new Date(d.deliveredAt).toLocaleString('en-US', { hour12: false })
@@ -140,11 +138,7 @@ function EndpointRow({ ep }: { ep: WebhookEndpoint }) {
           <p className="truncate font-mono text-sm text-neutral-200">{ep.url}</p>
           <p className="mt-0.5 text-xs text-neutral-500">
             {ep.events.join(', ')} ·{' '}
-            <span
-              className={
-                ep.status === 'ACTIVE' ? 'text-emerald-400' : 'text-neutral-500'
-              }
-            >
+            <span className={ep.status === 'ACTIVE' ? 'text-emerald-400' : 'text-neutral-500'}>
               {ep.status}
             </span>
           </p>
@@ -191,9 +185,7 @@ function EndpointRow({ ep }: { ep: WebhookEndpoint }) {
           disable.mutate();
         }}
       >
-        <p className="text-sm">
-          Stop deliveries to {ep.url}? Pending deliveries are abandoned.
-        </p>
+        <p className="text-sm">Stop deliveries to {ep.url}? Pending deliveries are abandoned.</p>
       </ConfirmModal>
       <ConfirmModal
         open={confirmRotate}
@@ -267,9 +259,7 @@ function CreateForm({ allowedEvents }: { allowedEvents: string[] }) {
           </label>
         ))}
       </fieldset>
-      {create.error ? (
-        <p className="text-xs text-red-400">{create.error.message}</p>
-      ) : null}
+      {create.error ? <p className="text-xs text-red-400">{create.error.message}</p> : null}
       <button
         type="submit"
         disabled={create.isPending || selected.size === 0}
