@@ -199,9 +199,13 @@ func NewEvaluator(sink Sink, log *slog.Logger, opts ...EvaluatorOption) *Evaluat
 }
 
 // AddThreshold registers a value>threshold rule with a pending window
-// (forDur=0 → fire on first breach).
+// (forDur=0 → fire on first breach). Safe to call concurrently with
+// EvalOnce/Firing — registration may happen after Run starts (e.g.
+// WatchLag binds its rule inside its own goroutine).
 func (e *Evaluator) AddThreshold(id, severity, code, summary string,
 	forDur time.Duration, src Source, above float64) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	e.rules = append(e.rules, &rule{
 		id: id, severity: severity, code: code, summary: summary,
 		forDur: forDur,
@@ -217,6 +221,8 @@ func (e *Evaluator) AddThreshold(id, severity, code, summary string,
 // increased since the previous tick (any new L0 error pages immediately;
 // resolution is automatic on the next flat tick).
 func (e *Evaluator) AddDelta(id, severity, code, summary string, src Source) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	e.rules = append(e.rules, &rule{
 		id: id, severity: severity, code: code, summary: summary,
 		sample: func() (float64, float64) { return src(), 0 },
@@ -237,6 +243,8 @@ func (e *Evaluator) AddDelta(id, severity, code, summary string, src Source) {
 // false positives).
 func (e *Evaluator) AddRatioWindow(id, severity, code, summary string,
 	window time.Duration, num, den Source, above, minDen float64) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	e.rules = append(e.rules, &rule{
 		id: id, severity: severity, code: code, summary: summary,
 		sample: func() (float64, float64) { return num(), den() },
@@ -263,6 +271,8 @@ func (e *Evaluator) AddRatioWindow(id, severity, code, summary string,
 func (e *Evaluator) AddCheck(id, severity, code, summary string,
 	forDur, windowLen time.Duration, src func() (value, aux float64),
 	check func(win []samplePoint) (bool, string)) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	e.rules = append(e.rules, &rule{
 		id: id, severity: severity, code: code, summary: summary,
 		forDur: forDur, windowLen: windowLen,
@@ -272,20 +282,35 @@ func (e *Evaluator) AddCheck(id, severity, code, summary string,
 
 // Firing reports the named rule's current state (tests/health).
 func (e *Evaluator) Firing(id string) bool {
+	e.mu.Lock()
+	var found *rule
 	for _, r := range e.rules {
 		if r.id == id {
-			r.mu.Lock()
-			defer r.mu.Unlock()
-			return r.firing
+			found = r
+			break
 		}
 	}
-	return false
+	e.mu.Unlock()
+	if found == nil {
+		return false
+	}
+	found.mu.Lock()
+	defer found.mu.Unlock()
+	return found.firing
+}
+
+// rulesSnapshot copies the registered rule list under e.mu so EvalOnce
+// and Firing never iterate a slice that an Add* call is appending to.
+func (e *Evaluator) rulesSnapshot() []*rule {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return append([]*rule(nil), e.rules...)
 }
 
 // EvalOnce samples every source and evaluates all rules against a single
 // now — exported for deterministic tests.
 func (e *Evaluator) EvalOnce(now time.Time) {
-	for _, r := range e.rules {
+	for _, r := range e.rulesSnapshot() {
 		v, aux := r.sample()
 		r.mu.Lock()
 		r.window = append(r.window, samplePoint{t: now, value: v, aux: aux})
