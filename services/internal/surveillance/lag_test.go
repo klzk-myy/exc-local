@@ -4,6 +4,7 @@ package surveillance
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -26,8 +27,9 @@ func (p *capPub) Publish(_ context.Context, subj string, _ []byte) error {
 }
 
 func TestWatchLagFiresThenResolves(t *testing.T) {
-	var lag uint64 = 20_000
-	probe := func(context.Context) (uint64, error) { return lag, nil }
+	var lag atomic.Uint64
+	lag.Store(20_000)
+	probe := func(context.Context) (uint64, error) { return lag.Load(), nil }
 	sink := &capSink{alerts: make(chan observability.Alert, 4)}
 	pub := &capPub{msgs: make(chan string, 4)}
 	eval := observability.NewEvaluator(sink, nil)
@@ -54,7 +56,7 @@ func TestWatchLagFiresThenResolves(t *testing.T) {
 		t.Fatal("no autoscale hook")
 	}
 
-	lag = 0 // backlog drained → resolved edge
+	lag.Store(0) // backlog drained → resolved edge
 	select {
 	case a := <-sink.alerts:
 		if a.Status != "resolved" || a.Code != LagWarningCode {
