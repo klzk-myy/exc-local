@@ -119,7 +119,8 @@ BIN_DIR="$REPO/services/bin"
 ENGINE_BIN="$REPO/core/build/matching_engine"
 AERON_BIN="$REPO/core/third_party/aeron/bin/aeronmd"
 
-STOP_GRACE=15          # engines fsync WAL+snapshot on SIGTERM; compose grants them the same 15s
+STOP_GRACE=15          # seconds to wait for a daemon to exit on SIGTERM
+ENGINE_STOP_GRACE="${EXC_DEV_ENGINE_STOP_GRACE:-30}"  # engines checkpoint snapshot + fsync WAL — killing mid-flush forces recovery
 START_GRACE=3          # seconds to wait before declaring a daemon "up"
 FREE_PORTS="${EXC_DEV_FREE_PORTS:-0}"
 VLOG=1
@@ -360,12 +361,29 @@ free_port() { # port name
       warn "  stop the compose service instead of killing it"
       continue
     fi
+    # Data integrity: never SIGKILL a port holder. A datastore or engine
+    # process killed mid-checkpoint corrupts/loses state — and even for
+    # unknown processes, TERM is the only signal a script should send on
+    # the operator's behalf. Refuse instead of escalating.
+    local exe; exe="$(readlink "/proc/$pid/exe" 2>/dev/null)"
+    case "$exe" in
+      *postgres*|*redis-server*|*nats-server*|*clickhouse*|*matching_engine*|*aeronmd*|*trino*)
+        warn "port $port busy (needed by $name) — held by datastore/engine pid $pid: $cmd"
+        warn "  refusing to signal it — stop it properly first"
+        continue ;;
+    esac
     if [[ "$FREE_PORTS" == "1" ]]; then
-      warn "freeing :$port — killing pid $pid ($cmd)"
-      kill -TERM "$pid" 2>/dev/null; sleep 1; kill -KILL "$pid" 2>/dev/null
+      warn "freeing :$port — SIGTERM pid $pid ($cmd)"
+      kill -TERM "$pid" 2>/dev/null
+      for _ in 1 2 3 4 5 6 7 8; do
+        kill -0 "$pid" 2>/dev/null || break; sleep 0.5
+      done
+      if kill -0 "$pid" 2>/dev/null; then
+        warn "pid $pid ignored SIGTERM — leaving it alone (kill manually if safe)"
+      fi
     else
       warn "port $port busy (needed by $name) — pid $pid: $cmd"
-      warn "  re-run with EXC_DEV_FREE_PORTS=1, or stop pid $pid, to free it"
+      warn "  re-run with EXC_DEV_FREE_PORTS=1 (SIGTERM only), or stop pid $pid"
     fi
   done
 }
@@ -495,12 +513,20 @@ stop_one() { # name
     return 0
   fi
   pid="$(pid_of "$n")"
+  # Engines flush WAL + write a snapshot on SIGTERM — give them the
+  # longer checkpoint window (ENGINE_STOP_GRACE) so a dev machine under
+  # load doesn't force a mid-flush SIGKILL and a slow WAL replay on the
+  # next start.
+  local grace="$STOP_GRACE"
+  [[ "$n" == matching-engine* ]] && grace="$ENGINE_STOP_GRACE"
   vlog "$n (pid $pid) ← SIGTERM"
   kill -TERM "$pid" 2>/dev/null
-  while kill -0 "$pid" 2>/dev/null && (( i < STOP_GRACE*4 )); do sleep 0.25; i=$((i+1)); done
+  while kill -0 "$pid" 2>/dev/null && (( i < grace*4 )); do sleep 0.25; i=$((i+1)); done
   if kill -0 "$pid" 2>/dev/null; then
-    warn "$n ignored SIGTERM after ${STOP_GRACE}s — SIGKILL"
+    warn "$n ignored SIGTERM after ${grace}s — SIGKILL"
     kill -KILL "$pid" 2>/dev/null; sleep 0.5
+    [[ "$n" == matching-engine* ]] && \
+      warn "$n killed mid-shutdown — WAL replay will run on next start (recovery is expected, not corruption)"
   fi
   rm -f "$pf"
   ok "$n stopped"
