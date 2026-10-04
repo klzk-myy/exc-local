@@ -5,7 +5,7 @@ A complete implementation of the exchange system defined in
 spot FX, forwards, swaps, NDFs, and vanilla/barrier options on a **firm-liquidity
 central limit order book** — fiat currencies only, no cryptocurrency.
 
-**Status:** implementation-complete — all 30 phases landed. Hosted CI fully green
+**Status:** implementation-complete — all 30 original phases landed (Phase-10.5 console-completion planned). Hosted CI fully green
 (10 CI + 5 security jobs). Spec corpus **543/543 checkpoints bound, 0 pending
 stubs**. Remaining work is environment-gated evidence only (72h soak, staging
 gate, DR drills, live third-party accounts) — see [Current status](#current-status).
@@ -69,7 +69,7 @@ deploy/          k8s/ (28 manifests) · baremetal/ · ansible/ · docker/ (4 Doc
                  storage/ · security/
 infrastructure/  IaC (multi-region data tiering)
 ci/              pipeline support scripts
-docs/            master spec v7.0 + 30 phase plans + runbooks + ops + compliance + openapi
+docs/            master spec v7.0 + 31 phase plans + runbooks + ops + compliance + openapi
 wal/             WAL archives (per-shard)
 ```
 
@@ -350,7 +350,7 @@ CI: `.github/workflows/ci.yml` (10 jobs) + `security.yml` (5 jobs) — currently
 
 ## Current status
 
-- All 30 phases (24 core + 6 buffer) implemented — 479 tasks, 543 checkpoints.
+- All 30 original phases (24 core + 6 buffer) implemented — 479 tasks, 543 checkpoints; Phase-10.5 console-surface completion planned (27 tasks, remediation #46).
 - 215 migration pairs · 419 §24 acceptance criteria · 234 error codes emitted (207 in spec §23 registry + matrix-resident).
 - Canonical counts verified by mechanical audit: §24=419, error codes=234, AC rows=1,079, migrations=001–285, spec checkpoints=543.
 - Open items are **environment-bound evidence gates**, not code gaps:
