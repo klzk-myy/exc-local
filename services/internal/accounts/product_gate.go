@@ -86,9 +86,17 @@ func (g *ProductGateService) AdmitOrder(ctx context.Context, accountID int64,
 	if g.cat == nil {
 		return nil // categorization seam unwired — scope gate stands alone
 	}
-	cat, err := g.cat.Category(ctx, accountID)
-	if err != nil {
-		return err // SERVICE_DEGRADED — unresolvable category never admits
+	// The account join already carried client_category — a second read
+	// would return the same row, so only the category-less paths (the
+	// STANDARD default or a code/id-resolved profile) consult the
+	// categorizer seam.
+	cat := prof.accountCategory
+	if cat == "" {
+		var err error
+		cat, err = g.cat.Category(ctx, accountID)
+		if err != nil {
+			return err // SERVICE_DEGRADED — unresolvable category never admits
+		}
 	}
 	if cat == "RETAIL" {
 		if err := g.retailTargetCheck(ctx, prof, class, symbol, reduceOnly); err != nil {

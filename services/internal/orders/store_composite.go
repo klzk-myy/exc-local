@@ -184,7 +184,7 @@ func (s *PgStore) InsertOrderBracketTx(ctx context.Context, p InsertParams,
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	id, err := insertOrderInTx(ctx, tx, p)
+	o, err := insertOrderInTx(ctx, tx, p)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -203,7 +203,7 @@ func (s *PgStore) InsertOrderBracketTx(ctx context.Context, p InsertParams,
 		     child_sl, child_tp, gtd_expiry)
 		VALUES ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7)
 		RETURNING id`,
-		p.AccountID, p.InstrumentID, id, p.Side, string(slJSON), string(tpJSON), gtd).
+		p.AccountID, p.InstrumentID, o.ID, p.Side, string(slJSON), string(tpJSON), gtd).
 		Scan(&bracketID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("insert bracket group: %w", err)
@@ -211,11 +211,7 @@ func (s *PgStore) InsertOrderBracketTx(ctx context.Context, p InsertParams,
 	if err := tx.Commit(ctx); err != nil {
 		return nil, nil, fmt.Errorf("commit bracket submit: %w", err)
 	}
-	o, err := s.GetOrder(ctx, id)
-	if err != nil {
-		return nil, nil, err
-	}
-	b, err := s.BracketByParent(ctx, id)
+	b, err := s.BracketByParent(ctx, o.ID)
 	return o, b, err
 }
 
@@ -315,11 +311,11 @@ func (s *PgStore) PlaceBracketChildrenTx(ctx context.Context, bracketID, groupID
 	tp.ClientOrderID = tpCOID
 	sl.Quantity = delta
 	tp.Quantity = delta
-	slID, err := insertOrderInTx(ctx, tx, sl)
+	slOrder, err := insertOrderInTx(ctx, tx, sl)
 	if err != nil {
 		return nil, nil, err
 	}
-	tpID, err := insertOrderInTx(ctx, tx, tp)
+	tpOrder, err := insertOrderInTx(ctx, tx, tp)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -328,7 +324,7 @@ func (s *PgStore) PlaceBracketChildrenTx(ctx context.Context, bracketID, groupID
 		INSERT INTO bracket_children
 		    (bracket_id, pair_index, qty, sl_order_id, tp_order_id, oco_group_id)
 		VALUES ($1,$2,$3::numeric,$4,$5,$6)`,
-		bracketID, pairIndex, delta.String(), slID, tpID, groupID); err != nil {
+		bracketID, pairIndex, delta.String(), slOrder.ID, tpOrder.ID, groupID); err != nil {
 		return nil, nil, fmt.Errorf("insert bracket child: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
@@ -341,12 +337,7 @@ func (s *PgStore) PlaceBracketChildrenTx(ctx context.Context, bracketID, groupID
 	if err := tx.Commit(ctx); err != nil {
 		return nil, nil, fmt.Errorf("commit bracket children: %w", err)
 	}
-	slOrder, err := s.GetOrder(ctx, slID)
-	if err != nil {
-		return nil, nil, err
-	}
-	tpOrder, err := s.GetOrder(ctx, tpID)
-	return slOrder, tpOrder, err
+	return slOrder, tpOrder, nil
 }
 
 func (s *PgStore) SetBracketState(ctx context.Context, bracketID int64,
@@ -398,7 +389,7 @@ func (s *PgStore) InsertOrderListTx(ctx context.Context, list *OrderList,
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	workingID, err := insertOrderInTx(ctx, tx, working)
+	o, err := insertOrderInTx(ctx, tx, working)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -410,7 +401,7 @@ func (s *PgStore) InsertOrderListTx(ctx context.Context, list *OrderList,
 		VALUES ($1,$2,$3::contingency_type_enum,$4,NULLIF($5,''))
 		RETURNING id`,
 		list.AccountID, list.InstrumentID, list.ContingencyType,
-		workingID, list.ClientOrderID).Scan(&listID)
+		o.ID, list.ClientOrderID).Scan(&listID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("insert order list: %w", err)
 	}
@@ -429,10 +420,6 @@ func (s *PgStore) InsertOrderListTx(ctx context.Context, list *OrderList,
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, nil, fmt.Errorf("commit order list: %w", err)
-	}
-	o, err := s.GetOrder(ctx, workingID)
-	if err != nil {
-		return nil, nil, err
 	}
 	l, _, err := s.OrderListGet(ctx, listID)
 	return l, o, err
@@ -587,18 +574,19 @@ func (s *PgStore) ActivatePendingTx(ctx context.Context, listID int64,
 	if state != ListStateExecuting {
 		return nil, false, nil // already activated/closed — replay
 	}
-	ids := make([]int64, 0, len(pending))
+	out := make([]*Order, 0, len(pending))
 	for i := range pending {
 		p := pending[i]
 		p.OcoGroupID = ocoGroupID
-		id, err := insertOrderInTx(ctx, tx, p)
+		o, err := insertOrderInTx(ctx, tx, p)
 		if err != nil {
 			return nil, false, err
 		}
-		ids = append(ids, id)
+		out = append(out, o)
 	}
 	// Stamp the pending leg rows (leg_index 1..N — index 0 is WORKING).
-	for i, oid := range ids {
+	for i, o := range out {
+		oid := o.ID
 		tag, err := tx.Exec(ctx, `
 			UPDATE order_list_legs SET order_id=$3, state='PLACED',
 			    updated_at=now()
@@ -619,14 +607,6 @@ func (s *PgStore) ActivatePendingTx(ctx context.Context, listID int64,
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, false, fmt.Errorf("commit pending activation: %w", err)
-	}
-	out := make([]*Order, 0, len(ids))
-	for _, id := range ids {
-		o, err := s.GetOrder(ctx, id)
-		if err != nil {
-			return nil, false, err
-		}
-		out = append(out, o)
 	}
 	return out, true, nil
 }

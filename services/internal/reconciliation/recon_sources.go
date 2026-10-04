@@ -87,6 +87,62 @@ type PgTrade struct {
 }
 
 // ---------------------------------------------------------------------------
+// ACKNOWLEDGMENTS — permanent-gap registry behind wal_vs_pg misses.
+// ---------------------------------------------------------------------------
+
+// AckSource exposes the acknowledgment legs consulted before a missing
+// WAL entity escalates to a halt:
+//   - recon_dead_letters records journaled entities that can never reach
+//     the projection (order rows destroyed, fills unresolvable) — written
+//     by the gateway boot recovery scan.
+//   - processed_trades is the settlement dedup anchor — a journaled fill
+//     present there committed its ledger leg even if the tape row was
+//     later removed; the gap is projection-only, not a settlement hole.
+// Both mean the miss is acknowledged history, not a fresh divergence.
+type AckSource interface {
+	DeadLetters(ctx context.Context, entity string) (map[int64]struct{}, error)
+	ProcessedTradeIDs(ctx context.Context) (map[int64]struct{}, error)
+}
+
+// DeadLetters loads the acknowledged-entity id set for one entity class.
+func (l *PgLegs) DeadLetters(ctx context.Context, entity string) (map[int64]struct{}, error) {
+	rows, err := l.pool.Query(ctx,
+		`SELECT entity_id FROM recon_dead_letters WHERE entity = $1`, entity)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64]struct{}{}
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out[id] = struct{}{}
+	}
+	return out, rows.Err()
+}
+
+// ProcessedTradeIDs loads the settlement dedup anchor — every trade_id
+// whose fill committed its ledger journal, regardless of tape state.
+func (l *PgLegs) ProcessedTradeIDs(ctx context.Context) (map[int64]struct{}, error) {
+	rows, err := l.pool.Query(ctx, `SELECT trade_id FROM processed_trades`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64]struct{}{}
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out[id] = struct{}{}
+	}
+	return out, rows.Err()
+}
+
+// ---------------------------------------------------------------------------
 // POSITIONS / PNL
 // ---------------------------------------------------------------------------
 
@@ -726,8 +782,8 @@ func DefaultCheckers(l *PgLegs, wal walSource, stmt StatementSource) []Checker {
 	return []Checker{
 		BalancesChecker{Src: l},
 		PositionsChecker{Src: l},
-		OrdersChecker{Src: l, Wal: wal},
-		TradesChecker{Src: l, Wal: wal},
+		OrdersChecker{Src: l, Wal: wal, Acks: l},
+		TradesChecker{Src: l, Wal: wal, Acks: l},
 		FundingChecker{Src: l, Statements: stmt},
 		SettlementChecker{Src: l},
 		FeesChecker{Src: l},

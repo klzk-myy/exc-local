@@ -359,7 +359,7 @@ func (s *BalanceService) commitWithRetry(ctx context.Context, trades []ResolvedT
 	if err != nil {
 		return nil, fmt.Errorf("balance: lock token: %w", err)
 	}
-	locked, err := s.lockAccounts(ctx, accounts, token)
+	locked, err := s.lockAccountsWithWait(ctx, accounts, token)
 	if err != nil {
 		return nil, err
 	}
@@ -452,6 +452,39 @@ func (s *BalanceService) commitBatch(ctx context.Context, trades []ResolvedTrade
 		}
 	}
 	return outcomes, nil
+}
+
+// lockAccountsWithWait acquires the account mutexes with a bounded wait
+// for contention. The §5.3 SETNX is fail-fast on purpose for
+// client-facing writers (HTTP 423), but the settlement pump is a
+// background worker — a peer's mutex releases within one canonical
+// lockTTL (10s) or dies with the lease. Wait out a TTL+buffer before
+// failing: treating busy as fatal halts the FillConsumer on every
+// commit that lands beside a concurrent mutation (deposits, transfers,
+// margin runs share the same account:lock namespace).
+func (s *BalanceService) lockAccountsWithWait(ctx context.Context, ids []int64, token string) ([]int64, error) {
+	const waitBudget = 12 * time.Second // canonical lockTTL 10s + buffer
+	deadline := time.Now().Add(waitBudget)
+	delay := 25 * time.Millisecond
+	for {
+		locked, err := s.lockAccounts(ctx, ids, token)
+		if err == nil {
+			return locked, nil
+		}
+		var e *excerrors.Error
+		if !stderrors.As(err, &e) || e.Code != ledger.CodeAccountBusy ||
+			time.Now().After(deadline) {
+			return nil, err
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(delay + jitter(delay)):
+		}
+		if delay < 200*time.Millisecond {
+			delay *= 2
+		}
+	}
 }
 
 func (s *BalanceService) lockAccounts(ctx context.Context, ids []int64, token string) ([]int64, error) {

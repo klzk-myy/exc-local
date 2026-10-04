@@ -23,8 +23,9 @@ import (
 // ACTIVE order with no journal record (phantom) is a MISMATCH; the halt
 // resolves to the affected instrument when resolvable.
 type OrdersChecker struct {
-	Src OrderSource
-	Wal walSource
+	Src  OrderSource
+	Wal  walSource
+	Acks AckSource // nil → every wal_vs_pg miss halts (pre-ack behavior)
 }
 
 func (OrdersChecker) Name() Category { return CatOrders }
@@ -64,11 +65,25 @@ func (c OrdersChecker) Run(ctx context.Context, s Scope) ([]Finding, error) {
 		return "GLOBAL", ""
 	}
 
+	// Lazily loaded on the first wal_vs_pg miss — a clean run must not
+	// pay for the acknowledgment tables.
+	var dead map[int64]struct{}
+	deadN := 0
+
 	// WAL resting order absent / divergent in PG.
 	for id, ro := range walOpen {
 		pg, ok := pgOpen[id]
 		walRem := decimal.NewFromScaled(ro.RemainingQty)
 		if !ok {
+			if c.Acks != nil {
+				if dead == nil {
+					dead, _ = c.Acks.DeadLetters(ctx, "order")
+				}
+				if _, ack := dead[int64(id)]; ack {
+					deadN++
+					continue
+				}
+			}
 			sc, tg := scopeFor(int64(ro.InstrumentID))
 			out = append(out, AmountFinding(CatOrders, orderSubject(id),
 				"wal_vs_pg", walRem, decimal.Zero, UnitQty).
@@ -90,9 +105,21 @@ func (c OrdersChecker) Run(ctx context.Context, s Scope) ([]Finding, error) {
 		}
 	}
 	// PG ACTIVE order with no journal record — phantom resting order.
+	// A dead-lettered order here reached a journaled terminal state the
+	// read model never observed (lost cancel/fill op); it can never
+	// trade again — acknowledged, not a halt.
 	for id, o := range pgOpen {
 		if _, ok := walOpen[id]; ok {
 			continue
+		}
+		if c.Acks != nil {
+			if dead == nil {
+				dead, _ = c.Acks.DeadLetters(ctx, "order")
+			}
+			if _, ack := dead[id]; ack {
+				deadN++
+				continue
+			}
 		}
 		sc, tg := scopeFor(o.InstrumentID)
 		out = append(out, AmountFinding(CatOrders, orderSubject(id),
@@ -103,7 +130,20 @@ func (c OrdersChecker) Run(ctx context.Context, s Scope) ([]Finding, error) {
 				"pg_status":     o.Status,
 			}).WithHalt(sc, tg))
 	}
+	if deadN > 0 {
+		out = append(out, acknowledgedFinding(CatOrders, "dead_letters", deadN))
+	}
 	return out, nil
+}
+
+// acknowledgedFinding reports the count of wal_vs_pg misses absorbed by
+// the acknowledgment registry — visible in the run record, never a halt.
+func acknowledgedFinding(cat Category, kind string, n int) Finding {
+	return Finding{
+		Category: cat, Subject: string(cat), Leg: "acknowledged_gap",
+		Unit: UnitCount, Severity: SevInfo,
+		Detail: map[string]any{kind: n},
+	}
 }
 
 // walReplay runs the journal replay and converts coverage failures into
@@ -115,8 +155,9 @@ func (c OrdersChecker) walReplay(ctx context.Context, s Scope) (*walReplay, *Fin
 // TradesChecker diffs the persisted trade tape against journaled TRADE
 // events.
 type TradesChecker struct {
-	Src TradeSource
-	Wal walSource
+	Src  TradeSource
+	Wal  walSource
+	Acks AckSource // nil → every wal_vs_pg miss halts (pre-ack behavior)
 }
 
 func (TradesChecker) Name() Category { return CatTrades }
@@ -155,10 +196,32 @@ func (c TradesChecker) Run(ctx context.Context, s Scope) ([]Finding, error) {
 		pgByID[t.ID] = t
 	}
 	var out []Finding
+	// Lazily loaded on the first wal_vs_pg miss — a clean run must not
+	// pay for the acknowledgment tables.
+	var dead, settled map[int64]struct{}
+	deadN, settledN := 0, 0
 	for id, wt := range walTrades {
 		walQty := decimal.NewFromScaled(wt.QtyUnits)
 		pgRow, ok := pgByID[int64(id)]
 		if !ok {
+			if c.Acks != nil {
+				if dead == nil {
+					dead, _ = c.Acks.DeadLetters(ctx, "trade")
+					settled, _ = c.Acks.ProcessedTradeIDs(ctx)
+				}
+				if _, ack := dead[int64(id)]; ack {
+					deadN++
+					continue
+				}
+				// The fill committed its ledger journal (dedup anchor)
+				// — the missing tape row is projection damage, not a
+				// settlement hole. Reported below as acknowledged; it
+				// must not re-halt on what settlement already proved.
+				if _, done := settled[int64(id)]; done {
+					settledN++
+					continue
+				}
+			}
 			out = append(out, AmountFinding(CatTrades, tradeSubject(int64(id)),
 				"wal_vs_pg", walQty, decimal.Zero, UnitQty).
 				WithDetail(map[string]any{
@@ -186,6 +249,16 @@ func (c TradesChecker) Run(ctx context.Context, s Scope) ([]Finding, error) {
 				"reason":        "PG trade has no WAL journal record",
 				"instrument_id": t.InstrumentID,
 			}).WithHalt("GLOBAL", ""))
+	}
+	if deadN+settledN > 0 {
+		out = append(out, Finding{
+			Category: CatTrades, Subject: string(CatTrades), Leg: "acknowledged_gap",
+			Unit: UnitCount, Severity: SevInfo,
+			Detail: map[string]any{
+				"dead_letters":         deadN,
+				"settled_unprojected":  settledN,
+			},
+		})
 	}
 	return out, nil
 }

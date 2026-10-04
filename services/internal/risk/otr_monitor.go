@@ -131,7 +131,10 @@ if breached then
   redis.call('SADD', KEYS[4], ARGV[7])
   redis.call('PEXPIRE', KEYS[4], ttl)
 end
-return {e, t, breached}
+-- 4th element: the account-level breach flag AFTER this event counted —
+-- lets the order-admission path fold Event+Admission into one eval.
+local flagged = redis.call('EXISTS', KEYS[3])
+return {e, t, breached, flagged}
 `
 
 // OtrLimitSource resolves the effective OTR ratio + window per
@@ -283,9 +286,11 @@ func pairKeys(accountID int64, symbol string) otrPairKeys {
 
 // evalOne runs the Lua record/eval for one pair. incr is "events",
 // "trades" or "none" (pure re-evaluation). Returns (events, trades,
-// breachedThisPair).
+// breachedThisPair, accountFlagged) — flagged is the account-level
+// breach flag after the increment, which the admission path consumes
+// to skip a second EXISTS round trip.
 func (m *OtrMonitor) evalOne(ctx context.Context, accountID int64,
-	tier, symbol, incr string) (events, trades int64, breached bool, err error) {
+	tier, symbol, incr string) (events, trades int64, breached, flagged bool, err error) {
 	lim := m.limits.EffectiveLimits(accountID, tier, symbol)
 	ratio := DefaultOtrRatio
 	if lim.MaxOrderToTradeRatio != nil && lim.MaxOrderToTradeRatio.IsPositive() {
@@ -316,16 +321,17 @@ func (m *OtrMonitor) evalOne(ctx context.Context, accountID int64,
 		m.now().UnixMilli(), window.Milliseconds(), ratio.String(),
 		ttlMs, symbol, incr, strconv.FormatInt(accountID, 10)).Result()
 	if err != nil {
-		return 0, 0, false, err
+		return 0, 0, false, false, err
 	}
 	arr, ok := res.([]any)
-	if !ok || len(arr) != 3 {
-		return 0, 0, false, fmt.Errorf("otr eval: unexpected lua result %v", res)
+	if !ok || len(arr) != 4 {
+		return 0, 0, false, false, fmt.Errorf("otr eval: unexpected lua result %v", res)
 	}
 	events = toI64(arr[0])
 	trades = toI64(arr[1])
 	breached = toI64(arr[2]) == 1
-	return events, trades, breached, nil
+	flagged = toI64(arr[3]) == 1
+	return events, trades, breached, flagged, nil
 }
 
 func toI64(v any) int64 {
@@ -404,7 +410,7 @@ func (m *OtrMonitor) countFail(op string, accountID int64, err error) {
 // is counted + logged, not returned — Admission fails closed on its own
 // read anyway, and a counter hiccup must not strand the cancel path.
 func (m *OtrMonitor) Event(ctx context.Context, accountID int64, tier, symbol string) {
-	e, t, breached, err := m.evalOne(ctx, accountID, tier, symbol, "events")
+	e, t, breached, _, err := m.evalOne(ctx, accountID, tier, symbol, "events")
 	if err != nil {
 		m.countFail("event", accountID, err)
 		return
@@ -412,11 +418,33 @@ func (m *OtrMonitor) Event(ctx context.Context, accountID int64, tier, symbol st
 	m.recordHit(ctx, accountID, symbol, e, t, breached)
 }
 
+// EventAdmission folds the orders.Service Event+Admission pair into a
+// single Lua eval: the event counts first (breached accounts cannot
+// spam-escape the window), then the script reports the account-level
+// flag — identical ordering to the two-call contract, one round trip.
+// An eval error both marks the monitor degraded and fails closed as
+// SERVICE_DEGRADED, matching Admission's standalone contract.
+func (m *OtrMonitor) EventAdmission(ctx context.Context,
+	accountID int64, tier, symbol string) error {
+	e, t, breached, flagged, err := m.evalOne(ctx, accountID, tier, symbol, "events")
+	if err != nil {
+		m.countFail("event+admission", accountID, err)
+		return excerrors.New("SERVICE_DEGRADED",
+			fmt.Sprintf("otr state unreadable — new orders rejected (fail closed): %v", err))
+	}
+	m.recordHit(ctx, accountID, symbol, e, t, breached)
+	if flagged {
+		return excerrors.New(CodeOtrLimitExceeded,
+			fmt.Sprintf("order-to-trade ratio limit breached for account %d — cancels only", accountID))
+	}
+	return nil
+}
+
 // Fill records one executed trade for the pair. A fill raises the
 // denominator, so an under-limit verdict re-evaluates every active pair
 // and clears the account flag when nothing still breaches.
 func (m *OtrMonitor) Fill(ctx context.Context, accountID int64, tier, symbol string) {
-	e, t, breached, err := m.evalOne(ctx, accountID, tier, symbol, "trades")
+	e, t, breached, _, err := m.evalOne(ctx, accountID, tier, symbol, "trades")
 	if err != nil {
 		m.countFail("fill", accountID, err)
 		return
@@ -471,7 +499,7 @@ func (m *OtrMonitor) reevaluateAccount(ctx context.Context, accountID int64, tie
 		return
 	}
 	for _, sym := range syms {
-		_, _, b, err := m.evalOne(ctx, accountID, tier, sym, "none")
+		_, _, b, _, err := m.evalOne(ctx, accountID, tier, sym, "none")
 		if err != nil {
 			m.countFail("reeval", accountID, err)
 			return // fail closed — do not clear on a partial read

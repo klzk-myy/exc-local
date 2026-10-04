@@ -196,6 +196,32 @@ type RestingOrder struct {
 	InstrumentID uint32
 }
 
+// ReplayOrderIndex replays the WAL dirs through the same folding the
+// ORDERS reconciliation leg uses and returns two order sets: journaled
+// (every order id the journal ever saw) and resting (orders the engine
+// still holds open — uncancelled with remaining qty). A journaled
+// resting order with no PG row is live on the engine's book but can
+// never resolve downstream; a PG resting order in journaled-but-not-
+// resting reached a terminal state the read model can never observe.
+// Both are permanent dead letters — acknowledged, never recovered.
+func ReplayOrderIndex(ctx context.Context, dirs []string) (journaled, resting map[uint64]bool, err error) {
+	r, err := replayWal(ctx, dirs)
+	if err != nil {
+		return nil, nil, err
+	}
+	journaled = make(map[uint64]bool, len(r.origQty))
+	for id := range r.origQty {
+		journaled[id] = true
+	}
+	resting = make(map[uint64]bool, len(r.live))
+	for id := range r.live {
+		if r.origQty[id]-r.filledQty[id] > 0 {
+			resting[id] = true
+		}
+	}
+	return journaled, resting, nil
+}
+
 // RestingOrders returns the replayed open book sorted by order id.
 func (r *walReplay) RestingOrders() []RestingOrder {
 	out := make([]RestingOrder, 0, len(r.live))

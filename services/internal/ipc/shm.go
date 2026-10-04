@@ -261,7 +261,11 @@ func (r *Ring) Peek() []byte {
 	}
 	t := atomic.LoadUint64(r.u64(offTail))
 	h := atomic.LoadUint64(r.u64(offHead))
-	if t == h {
+	// t >= h (not just t == h): if a producer-side race ever rewinds head
+	// behind the committed tail, peeking stale-but-valid slots would let
+	// Consume run the tail away unboundedly — fail closed on the
+	// inversion, same guard as core/include/ipc/ShmRing.hpp.
+	if t >= h {
 		return nil
 	}
 	slot := r.slot(t)

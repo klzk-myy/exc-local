@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -127,6 +128,21 @@ type TradeRepublisher interface {
 	PublishEvent(ctx context.Context, subject, msgID string, payload []byte) error
 }
 
+// AsyncTradeRepublisher is the optional pipelined variant of
+// TradeRepublisher: PublishEventAsync issues without waiting on a
+// per-message ack; FlushEvents bounds the outstanding-ack window
+// (waiting oldest-first once an implementation-defined in-flight cap
+// is exceeded) and returns the first failure seen. republish()
+// prefers it when the bound republisher supports it — 2 synchronous
+// publishes per fill is the out-ring consumer's throughput ceiling
+// otherwise, and draining every outstanding ack per batch pays the
+// slowest ack RTT each flush.
+type AsyncTradeRepublisher interface {
+	TradeRepublisher
+	PublishEventAsync(subject, msgID string, payload []byte) error
+	FlushEvents(ctx context.Context) error
+}
+
 // BacklogFill is one committed fill eligible for the boot-time republish
 // repair — the durable fields needed to re-emit its Event frame under
 // the bridge's subject/msgID contract.
@@ -161,6 +177,11 @@ type FillConsumer struct {
 	shardID  int64
 	batchMax int
 	flush    time.Duration
+	// adoptPayload marks source-delivered buffers as exclusively owned
+	// (settle-queue taps allocate per frame). decodeFragment can adopt
+	// them as Fill.Raw instead of paying a second copy — Aeron sources
+	// must keep the default because their payloads alias the log buffer.
+	adoptPayload bool
 
 	malformed    atomic.Uint64 // undecodable frames (counted, not fatal)
 	nonFill      atomic.Uint64 // non-TradeFill events skipped
@@ -217,6 +238,13 @@ func (c *FillConsumer) WithLogger(l func(format string, args ...any)) *FillConsu
 	return c
 }
 
+// WithOwnedPayloads tells the consumer the source hands it exclusively-
+// owned payload buffers, so Fill.Raw may adopt them without copying.
+func (c *FillConsumer) WithOwnedPayloads() *FillConsumer {
+	c.adoptPayload = true
+	return c
+}
+
 // ConsumerMetrics is a snapshot of the consumer counters.
 type ConsumerMetrics struct {
 	Malformed    uint64
@@ -249,36 +277,177 @@ func (c *FillConsumer) Run(ctx context.Context) error {
 	// fills whose settlement commit landed but whose JetStream publish
 	// never ran. Nats-Msg-Id dedup makes re-emitted frames no-ops, so
 	// scanning a generous lookback is safe; only the gap actually lands.
-	if err := c.republishBacklog(ctx); err != nil {
-		return err
-	}
+	// Backlog repair runs CONCURRENTLY with the pump: a busy restart can
+	// carry tens of thousands of lookback fills, and a synchronous
+	// repair would stall settlement behind them — the settleQueue
+	// backpressures the drain while fresh fills pile up. The republish
+	// is a stream-level no-op for already-published frames, so ordering
+	// vs live batches doesn't matter. An error still fails the consumer
+	// (fail-closed) — checked alongside the worker error in the loop.
+	backlogErr := make(chan error, 1)
+	bctx, bcancel := context.WithCancel(ctx)
+	defer bcancel() // a Run exit must not leave a second backlog publisher alive
+	go func() { backlogErr <- c.republishBacklog(bctx) }()
 	pending := make([]ResolvedTrade, 0, c.batchMax)
+	fillsBuf := make([]EngineFill, 0, c.batchMax)
 	var oldest time.Time // timestamp of pending[0]'s enqueue
 
+	// Flush pipeline: the pump loop hands full/expired batches to one
+	// flush worker so the PG commit + republish wait of batch N overlaps
+	// the pump+resolve of batch N+1. A single worker keeps settlement
+	// order; the bounded channel preserves backpressure (a full queue
+	// stalls the pump → frameTap → ring, same fail-closed contract as
+	// the inline flush it replaces). First worker error propagates and
+	// fails the consumer — restart replays via processed_trades.
+	batchQ := make(chan []ResolvedTrade, 4)
+	workerErr := make(chan error, 1)
+	workerDone := make(chan struct{})
+	// Batch slice pool: each flushed batch hands ownership to the
+	// worker, which returns it — the per-iteration make() churn was
+	// the consumer's dominant allocation under sustained fills.
+	batchPool := &sync.Pool{New: func() any {
+		return make([]ResolvedTrade, 0, c.batchMax)
+	}}
+	// The worker commits with a WithoutCancel context: once a batch is
+	// enqueued it must commit even if Run's ctx is cancelled mid-flight —
+	// a cancelled commit between trades/journal/processed_trades is the
+	// partial-loss window the shutdown drain ordering exists to close
+	// (spec §2.7). The commit's own tx deadlines still bound it.
+	commitCtx := context.WithoutCancel(ctx)
+	go func() {
+		defer close(workerDone)
+		for b := range batchQ {
+			if _, err := c.svc.ProcessFills(commitCtx, b); err != nil {
+				workerErr <- err
+				return
+			}
+			if err := c.republish(commitCtx, b); err != nil {
+				workerErr <- err
+				return
+			}
+			c.flushed.Add(1)
+			batchPool.Put(b[:0])
+		}
+	}()
+	defer func() {
+		close(batchQ)
+		<-workerDone
+	}()
+
+	// flush enqueues the pending batch and re-arms the accumulator. The
+	// worker owns the slice it receives — pending is never reused. No
+	// ctx.Done escape: an enqueued batch commits (WithoutCancel worker)
+	// or the worker is dead and its error propagates — a third "send
+	// abandoned" outcome would strand resolved fills that already left
+	// the settlement queue.
 	flush := func() error {
 		if len(pending) == 0 {
 			return nil
 		}
-		if _, err := c.svc.ProcessFills(ctx, pending); err != nil {
+		// Prioritize a dead worker's error over the send: when both cases
+		// are ready Go picks randomly, and enqueueing behind a dead worker
+		// silently strands the batch (WAL/recon recovers it, but the
+		// error should surface instead of a false success).
+		select {
+		case err := <-workerErr:
 			return err
+		default:
 		}
-		if err := c.republish(ctx, pending); err != nil {
+		select {
+		case err := <-workerErr:
 			return err
+		case batchQ <- pending:
 		}
-		c.flushed.Add(1)
-		pending = pending[:0]
+		pending = batchPool.Get().([]ResolvedTrade)[:0]
 		return nil
+	}
+
+	// shutdownDrain is the ctx-done exit path: keep pumping until the
+	// source runs dry, resolve what was pulled, and flush — frames a
+	// Pump already removed from the settlement queue are owned by this
+	// consumer and die with it, so cancellation must trigger a drain,
+	// not abandonment. Terminates because the producer (out-ring frame
+	// tap) is stopped before this consumer's ctx is cancelled — the
+	// ring_drain → settle_drain → sweepStop ordering — so Pump→0 is
+	// guaranteed. Resolution runs on commitCtx: cancelling mid-resolve
+	// would strand exactly the in-flight window the ordering exists to
+	// protect.
+	shutdownDrain := func() error {
+		// Bound the sweep anyway: a producer that outlives the stop
+		// ordering would feed this loop forever. The budget covers
+		// several times the real in-process queue depth (16K frames,
+		// batchMax windows) — exhausting it means the contract was
+		// violated, which must fail loudly rather than hang shutdown
+		// or silently abandon the tail of a live stream.
+		budget := c.batchMax * 64
+		for budget > 0 {
+			fills := fillsBuf[:0]
+			n := c.source.Pump(c.batchMax, func(payload []byte) {
+				f, ok := c.decodeFragment(payload)
+				if !ok {
+					return
+				}
+				fills = append(fills, f)
+			})
+			if n < 0 {
+				if ferr := flush(); ferr != nil {
+					return ferr
+				}
+				return fmt.Errorf("fill consumer: transport pump error")
+			}
+			if n == 0 {
+				return flush()
+			}
+			budget -= n
+			rts, err := c.resolveFills(commitCtx, fills)
+			if err != nil {
+				if ferr := flush(); ferr != nil {
+					return ferr
+				}
+				return err
+			}
+			pending = append(pending, rts...)
+			if len(pending) >= c.batchMax {
+				if err := flush(); err != nil {
+					return err
+				}
+			}
+		}
+		if ferr := flush(); ferr != nil {
+			return ferr
+		}
+		if c.logf != nil {
+			c.logf("fill consumer: shutdown drain budget exhausted — producer outlived stop ordering, tail abandoned")
+		}
+		return fmt.Errorf("fill consumer: shutdown drain exceeded")
 	}
 
 	for {
 		if err := ctx.Err(); err != nil {
+			// Shutdown: drain the queue and hand every owned fill to the
+			// worker before leaving — the deferred batchQ close lets it
+			// commit them (WithoutCancel), so a graceful stop loses
+			// nothing already pulled from the settlement queue.
+			if derr := shutdownDrain(); derr != nil {
+				return derr
+			}
 			return err
+		}
+		select {
+		case err := <-workerErr:
+			return err
+		case err := <-backlogErr:
+			if err != nil {
+				return err
+			}
+			backlogErr = nil // closed book — repair finished cleanly
+		default:
 		}
 		capHint := c.batchMax - len(pending)
 		if capHint <= 0 {
 			capHint = 1
 		}
-		fills := make([]EngineFill, 0, capHint)
+		fills := fillsBuf[:0]
 		n := c.source.Pump(capHint, func(payload []byte) {
 			f, ok := c.decodeFragment(payload)
 			if !ok {
@@ -287,11 +456,24 @@ func (c *FillConsumer) Run(ctx context.Context) error {
 			fills = append(fills, f)
 		})
 		if n < 0 {
+			// Flush resolved work before failing — a transport halt is no
+			// reason to strand pending fills already out of the queue.
+			if ferr := flush(); ferr != nil {
+				return ferr
+			}
 			return fmt.Errorf("fill consumer: transport pump error")
 		}
 		if len(fills) > 0 {
-			rts, err := c.resolveFills(ctx, fills)
+			// commitCtx, not ctx: pumped frames are owned by this
+			// consumer — a mid-resolve cancellation would strand them.
+			rts, err := c.resolveFills(commitCtx, fills)
 			if err != nil {
+				// Still flush already-resolved pending fills before
+				// failing closed — stranding them is the same loss
+				// window the shutdown ordering exists to close.
+				if ferr := flush(); ferr != nil {
+					return ferr
+				}
 				return err // resolution failure is fail-closed
 			}
 			if len(pending) == 0 && len(rts) > 0 {
@@ -317,6 +499,9 @@ func (c *FillConsumer) Run(ctx context.Context) error {
 			}
 			select {
 			case <-ctx.Done():
+				if derr := shutdownDrain(); derr != nil {
+					return derr
+				}
 				return ctx.Err()
 			case <-time.After(remaining):
 			}
@@ -325,6 +510,9 @@ func (c *FillConsumer) Run(ctx context.Context) error {
 			// adding meaningful latency (fills flush at 10ms anyway).
 			select {
 			case <-ctx.Done():
+				if derr := shutdownDrain(); derr != nil {
+					return derr
+				}
 				return ctx.Err()
 			case <-time.After(time.Millisecond):
 			}
@@ -367,20 +555,47 @@ func (c *FillConsumer) decodeFragment(payload []byte) (fill EngineFill, ok bool)
 		Qty:         decimal.NewFromScaled(tf.Qty()),
 		EngineSeq:   tf.Seq(),
 		ShardID:     c.shardID,
-		// Aeron payloads alias the log buffer — copy so the frame
-		// survives until the post-commit republish.
-		Raw: append([]byte(nil), payload...),
+		// The frame must survive until the post-commit republish:
+		// adopt when the source guarantees ownership, copy otherwise
+		// (Aeron payloads alias the log buffer).
+		Raw: c.rawFor(payload),
 	}, true
+}
+
+// rawFor returns a payload the fill may retain: adopted verbatim when
+// the source guarantees exclusive ownership, defensively copied
+// otherwise.
+func (c *FillConsumer) rawFor(payload []byte) []byte {
+	if c.adoptPayload {
+		return payload
+	}
+	return append([]byte(nil), payload...)
 }
 
 // republish fans the just-committed fills out to the JetStream trades and
 // settlements streams — the bridge routing table for TradeFill. Symbol
 // comes from the resolved trade (PG instruments.symbol, '/'→'-' for the
 // NATS token); msgID mirrors the bridge's "s{shard}-{seq}" so a concurrent
-// bridge relay of the same frame dedups at the stream level.
+// bridge relay of the same frame dedups at the stream level. When the
+// republisher supports AsyncTradeRepublisher the whole batch issues
+// pipelined and a single FlushEvents waits for all acks — the per-fill
+// sync publish was the consumer's throughput ceiling (~300 fills/s).
 func (c *FillConsumer) republish(ctx context.Context, trades []ResolvedTrade) error {
 	if c.repub == nil {
 		return nil
+	}
+	if ar, ok := c.repub.(AsyncTradeRepublisher); ok {
+		for i := range trades {
+			rt := &trades[i]
+			if len(rt.Fill.Raw) == 0 {
+				continue // resolved upstream (tests, non-wire sources)
+			}
+			if err := c.publishFillFrameAsync(ar, int64(rt.Fill.TradeID),
+				rt.Symbol, int64(rt.Fill.EngineSeq), rt.Fill.Raw); err != nil {
+				return err
+			}
+		}
+		return ar.FlushEvents(ctx)
 	}
 	for i := range trades {
 		rt := &trades[i]
@@ -408,6 +623,13 @@ func (c *FillConsumer) republishBacklog(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("fill republish backlog scan: %w", err)
 	}
+	// Sync publishes on purpose: this runs CONCURRENTLY with the pump
+	// loop (see Run), and the async republisher's pending-ack state is
+	// owned by the flush worker — sharing it across goroutines would
+	// interleave ack ownership. Sync publish is an independent
+	// request-reply, safe alongside the pipelined path; the repair rate
+	// is secondary to keeping live fills flowing (the lookback rescan
+	// on the next restart picks up any stragglers).
 	for i := range fills {
 		f := &fills[i]
 		if len(f.Raw) == 0 {
@@ -446,6 +668,30 @@ func (c *FillConsumer) publishFillFrame(ctx context.Context, tradeID int64,
 			continue
 		}
 		if err := c.repub.PublishEvent(ctx, subj, msgID, raw); err != nil {
+			return fmt.Errorf("fill republish %s trade %d: %w", subj, tradeID, err)
+		}
+		c.republished.Add(1)
+	}
+	return nil
+}
+
+// publishFillFrameAsync is the pipelined variant for
+// AsyncTradeRepublisher — identical subject/msgID/dead-letter contract,
+// issues without waiting for the ack (FlushEvents collects them once
+// per batch).
+func (c *FillConsumer) publishFillFrameAsync(ar AsyncTradeRepublisher,
+	tradeID int64, symbol string, engineSeq int64, raw []byte) error {
+	sym := excnats.SymbolToken(symbol)
+	msgID := fmt.Sprintf("s%d-%d", c.shardID, engineSeq)
+	for _, stream := range []string{"trades", "settlements"} {
+		subj, err := excnats.Subject(stream, uint32(c.shardID), sym)
+		if err != nil {
+			c.repubDropped.Add(1)
+			c.logf("fill republish dead-letter trade %d stream %s symbol %q: %v",
+				tradeID, stream, sym, err)
+			continue
+		}
+		if err := ar.PublishEventAsync(subj, msgID, raw); err != nil {
 			return fmt.Errorf("fill republish %s trade %d: %w", subj, tradeID, err)
 		}
 		c.republished.Add(1)

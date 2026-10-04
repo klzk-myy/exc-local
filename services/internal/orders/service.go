@@ -87,6 +87,16 @@ type OtrGate interface {
 	Admission(ctx context.Context, accountID int64) error
 }
 
+// otrEventAdmissionGate is the optional batched OtrGate variant —
+// *risk.OtrMonitor satisfies it: counting the event and reading the
+// breach flag happens in one Lua eval, same ordering as Event then
+// Admission (the event counts before the flag is consulted). Stores
+// without it fall back to the two-call contract.
+type otrEventAdmissionGate interface {
+	EventAdmission(ctx context.Context, accountID int64,
+		kycTier, symbol string) error
+}
+
 // BreakerGate is the Phase-13 five-tier circuit-breaker admission seam
 // (spec §2.6; *risk.CircuitBreakerService satisfies it). Consulted on
 // every new-order admission path AFTER the kill-switch: an OPEN breaker
@@ -689,9 +699,16 @@ func (s *Service) checkAdmission(ctx context.Context, acct *Account,
 	// orders keeps the flag alive rather than decaying out under it.
 	// Cancels never reach this function (cancel-only during breach).
 	if s.otr != nil {
-		s.otr.Event(ctx, acct.ID, acct.KycTier, inst.Symbol)
-		if err := s.otr.Admission(ctx, acct.ID); err != nil {
-			return err // OTR_LIMIT_EXCEEDED (breach) / SERVICE_DEGRADED (unreadable)
+		if ea, ok := s.otr.(otrEventAdmissionGate); ok {
+			if err := ea.EventAdmission(ctx, acct.ID, acct.KycTier,
+				inst.Symbol); err != nil {
+				return err // OTR_LIMIT_EXCEEDED / SERVICE_DEGRADED
+			}
+		} else {
+			s.otr.Event(ctx, acct.ID, acct.KycTier, inst.Symbol)
+			if err := s.otr.Admission(ctx, acct.ID); err != nil {
+				return err // OTR_LIMIT_EXCEEDED (breach) / SERVICE_DEGRADED (unreadable)
+			}
 		}
 	}
 	// Phase-13 five-tier circuit breaker (spec §2.6): OPEN rejects with
@@ -719,7 +736,11 @@ func (s *Service) checkAdmission(ctx context.Context, acct *Account,
 	// SENSITIVE_ROLES reject EMPLOYEE_DEALING_PRECLEARANCE_REQUIRED
 	// (422) without an approved pre-clearance. Covers reduce_only too —
 	// insider restrictions attach to any dealing. nil skips the gate.
-	if s.dealing != nil {
+	// A known non-employee fast-paths here — the gate's own accounts
+	// probe would return !employee anyway (same row, same-request
+	// snapshot semantics); employees and unknown snapshots still take
+	// the full gate path.
+	if s.dealing != nil && (!acct.EmployeeKnown || acct.EmployeeAccount) {
 		if err := s.dealing.AssertOrderEntry(ctx, acct.ID, inst.Symbol); err != nil {
 			return err // EMPLOYEE_DEALING_PRECLEARANCE_REQUIRED / fail-closed
 		}
@@ -806,9 +827,29 @@ func (s *Service) Submit(ctx context.Context, acct *Account, req *SubmitRequest)
 				err != nil && risk.SystemicAdmissionCode(excerrors.CodeOf(err)))
 		}
 	}()
-	inst, err := s.store.InstrumentBySymbol(ctx, sym)
-	if err != nil {
-		return nil, errInternal("instrument lookup", err)
+	// Batched admission lookups when the store supports them: instrument
+	// row + reference price + side-appropriate balance in ONE round trip
+	// (the submit hot path otherwise pays ~6+ sequential PG queries).
+	var (
+		inst       *Instrument
+		ref        *decimal.Decimal
+		balAvail   *decimal.Decimal
+		balFetched bool
+	)
+	if sl, ok := s.store.(interface {
+		SubmitLookups(context.Context, string, int64, bool) (*Instrument, *decimal.Decimal, *decimal.Decimal, error)
+	}); ok {
+		inst, ref, balAvail, err = sl.SubmitLookups(ctx, sym, acct.ID,
+			req.Side == SideBuy)
+		balFetched = true
+		if err != nil {
+			return nil, errInternal("instrument lookup", err)
+		}
+	} else {
+		inst, err = s.store.InstrumentBySymbol(ctx, sym)
+		if err != nil {
+			return nil, errInternal("instrument lookup", err)
+		}
 	}
 	if inst == nil {
 		return nil, codeErr("INVALID_REQUEST", "unknown symbol %q", req.Symbol)
@@ -821,9 +862,11 @@ func (s *Service) Submit(ctx context.Context, acct *Account, req *SubmitRequest)
 	if err := s.checkAlgoCert(ctx, acct, req); err != nil {
 		return nil, err
 	}
-	ref, err := s.store.ReferencePrice(ctx, inst.ID)
-	if err != nil {
-		return nil, errInternal("reference price", err)
+	if !balFetched {
+		ref, err = s.store.ReferencePrice(ctx, inst.ID)
+		if err != nil {
+			return nil, errInternal("reference price", err)
+		}
 	}
 	if err := ValidateSubmit(req, inst, acct, ref, s.now()); err != nil {
 		return nil, err
@@ -886,7 +929,7 @@ func (s *Service) Submit(ctx context.Context, acct *Account, req *SubmitRequest)
 
 	// Balance sufficiency (read-only — the §8.4 layer boundary forbids
 	// gateway writes; engine 2PC owns the atomic reservation).
-	if err := s.checkBalance(ctx, acct, inst, req, ref); err != nil {
+	if err := s.checkBalance(ctx, acct, inst, req, ref, balAvail); err != nil {
 		return nil, err
 	}
 
@@ -1130,7 +1173,8 @@ func sorEligible(req *SubmitRequest) bool {
 // markets). reduce_only skips the check — a reduce-only order is
 // position-backed by definition.
 func (s *Service) checkBalance(ctx context.Context, acct *Account,
-	inst *Instrument, req *SubmitRequest, ref *decimal.Decimal) error {
+	inst *Instrument, req *SubmitRequest, ref *decimal.Decimal,
+	prefAvail *decimal.Decimal) error {
 	if req.ReduceOnly {
 		return nil
 	}
@@ -1159,9 +1203,13 @@ func (s *Service) checkBalance(ctx context.Context, acct *Account,
 			need = req.Quantity.Mul(cap_)
 		}
 	}
-	avail, err := s.store.AvailableBalance(ctx, acct.ID, currency)
-	if err != nil {
-		return errInternal("balance read", err)
+	avail := prefAvail
+	if avail == nil {
+		var err error
+		avail, err = s.store.AvailableBalance(ctx, acct.ID, currency)
+		if err != nil {
+			return errInternal("balance read", err)
+		}
 	}
 	if avail == nil || avail.LessThan(need) {
 		return codeErr("INSUFFICIENT_BALANCE",
@@ -2014,7 +2062,7 @@ func (s *Service) BatchSubmit(ctx context.Context, acct *Account,
 				}
 			}
 			if verr == nil {
-				verr = s.checkBalance(ctx, acct, inst, req, ref)
+				verr = s.checkBalance(ctx, acct, inst, req, ref, nil)
 			}
 			if verr == nil {
 				// Pre-check dedup so a replayed entry is atomic-known
@@ -2568,7 +2616,7 @@ func (s *PgStore) InsertOrderDerivativeTx(ctx context.Context, p InsertParams,
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	id, err := insertOrderInTx(ctx, tx, p)
+	o, err := insertOrderInTx(ctx, tx, p)
 	if err != nil {
 		var c *dedupConflict
 		if stderrors.As(err, &c) {
@@ -2591,7 +2639,7 @@ func (s *PgStore) InsertOrderDerivativeTx(ctx context.Context, p InsertParams,
 		    ndf_fixing_source=NULLIF($13,''),
 		    updated_at=now()
 		WHERE id=$1`,
-		id, decPtrStr(d.Strike), d.OptionType,
+		o.ID, decPtrStr(d.Strike), d.OptionType,
 		d.ExerciseStyle, d.ExpiryAt,
 		d.BarrierType, decPtrStr(d.BarrierLevel),
 		d.ValueDate, d.NearLegValueDate, d.FarLegValueDate,
@@ -2602,8 +2650,8 @@ func (s *PgStore) InsertOrderDerivativeTx(ctx context.Context, p InsertParams,
 	if err := tx.Commit(ctx); err != nil {
 		return nil, nil, fmt.Errorf("commit derivative order insert: %w", err)
 	}
-	o, err := s.GetOrder(ctx, id)
-	return o, nil, err
+	fresh, err := s.GetOrder(ctx, o.ID)
+	return fresh, nil, err
 }
 
 // LoadDerivativeParams selects the migration-039 columns for an Order

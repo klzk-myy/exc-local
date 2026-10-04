@@ -239,8 +239,8 @@ type AutoHaltService struct {
 
 	mu     sync.Mutex
 	halted map[string]*haltEpisode // "SCOPE|sym" → attributed episode
-	lat    map[string][]latSample  // symbol → rolling admission latencies
-	adm    map[string][]admSample  // symbol → rolling admission outcomes
+	lat    map[string]*latWindow   // symbol → rolling admission latencies
+	adm    map[string]*admWindow   // symbol → rolling admission outcomes
 }
 
 // AutoHaltDeps wires the service. CB is required — auto-halt has no halt
@@ -268,8 +268,8 @@ func NewAutoHaltService(d AutoHaltDeps) (*AutoHaltService, error) {
 		notify: d.Notifier, users: d.Users, met: d.Metrics,
 		now: d.Now, logf: d.Logf, cfg: d.Config.normalize(),
 		halted: map[string]*haltEpisode{},
-		lat:    map[string][]latSample{},
-		adm:    map[string][]admSample{},
+		lat:    map[string]*latWindow{},
+		adm:    map[string]*admWindow{},
 	}
 	if s.now == nil {
 		s.now = func() time.Time { return time.Now().UTC() }
@@ -381,9 +381,14 @@ func (a *AutoHaltService) ObserveLatency(ctx context.Context, symbol string, d t
 	}
 	now := a.now()
 	a.mu.Lock()
-	w := append(a.lat[sym], latSample{t: now, d: d})
-	a.lat[sym] = pruneLat(w, now, a.cfg.Window)
-	mean, n := latMean(a.lat[sym])
+	w := a.lat[sym]
+	if w == nil {
+		w = &latWindow{}
+		a.lat[sym] = w
+	}
+	w.push(latSample{t: now, d: d})
+	w.prune(now.Add(-a.cfg.Window))
+	mean, n := w.mean()
 	a.mu.Unlock()
 	var trig map[string]string
 	if n >= a.cfg.MinSamples && mean > a.cfg.LatencySpikeMean {
@@ -420,9 +425,14 @@ func (a *AutoHaltService) ObserveAdmission(ctx context.Context, symbol string,
 	}
 	now := a.now()
 	a.mu.Lock()
-	w := append(a.adm[sym], admSample{t: now, systemic: systemic})
-	a.adm[sym] = pruneAdm(w, now, a.cfg.Window)
-	total, bad := admCount(a.adm[sym])
+	w := a.adm[sym]
+	if w == nil {
+		w = &admWindow{}
+		a.adm[sym] = w
+	}
+	w.push(admSample{t: now, systemic: systemic})
+	w.prune(now.Add(-a.cfg.Window))
+	total, bad := w.count()
 	a.mu.Unlock()
 
 	// Latency leg shares the admission observation (it reconciles
@@ -606,14 +616,20 @@ func (a *AutoHaltService) detectorBreaching(sym, detector string) bool {
 	defer a.mu.Unlock()
 	switch detector {
 	case DetectorLatencySpike:
-		w := pruneLat(a.lat[sym], now, a.cfg.Window)
-		a.lat[sym] = w
-		mean, n := latMean(w)
+		w := a.lat[sym]
+		if w == nil {
+			return false
+		}
+		w.prune(now.Add(-a.cfg.Window))
+		mean, n := w.mean()
 		return n >= a.cfg.MinSamples && mean > a.cfg.LatencySpikeMean
 	case DetectorErrorRateSpike:
-		w := pruneAdm(a.adm[sym], now, a.cfg.Window)
-		a.adm[sym] = w
-		total, bad := admCount(w)
+		w := a.adm[sym]
+		if w == nil {
+			return false
+		}
+		w.prune(now.Add(-a.cfg.Window))
+		total, bad := w.count()
 		return total >= a.cfg.MinSamples &&
 			float64(bad)/float64(total)*100 >= a.cfg.ErrorRatePct
 	}
@@ -679,41 +695,82 @@ func (a *AutoHaltService) sweep(ctx context.Context) {
 // Window helpers
 // ---------------------------------------------------------------------------
 
-func pruneLat(w []latSample, now time.Time, win time.Duration) []latSample {
-	cut := now.Add(-win)
-	i := 0
-	for i < len(w) && w[i].t.Before(cut) {
-		i++
-	}
-	return append([]latSample(nil), w[i:]...)
+// sampleWindow is an amortized O(1) sliding window over time-ordered
+// samples: push appends; prune advances a head offset and returns the
+// evicted samples so callers can decrement running aggregates (the
+// previous full-window copies and per-observation mean/count scans
+// were the gateway's dominant allocation+CPU source under load).
+// Compaction shifts only once the dead prefix exceeds half the buffer.
+type sampleWindow[T any] struct {
+	buf  []T
+	head int
 }
 
-func latMean(w []latSample) (time.Duration, int) {
-	if len(w) == 0 {
+func (w *sampleWindow[T]) push(s T) { w.buf = append(w.buf, s) }
+func (w *sampleWindow[T]) len() int { return len(w.buf) - w.head }
+
+// prune drops samples older than cut (ts extracts the timestamp),
+// returns the evicted prefix for aggregate adjustment, and compacts
+// amortized — O(evicted) typical, O(live) only on compaction.
+func (w *sampleWindow[T]) prune(cut time.Time, ts func(T) time.Time) []T {
+	start := w.head
+	for w.head < len(w.buf) && ts(w.buf[w.head]).Before(cut) {
+		w.head++
+	}
+	evicted := w.buf[start:w.head]
+	if w.head >= 64 && w.head*2 >= len(w.buf) {
+		w.buf = append(w.buf[:0], w.buf[w.head:]...)
+		w.head = 0
+	}
+	return evicted
+}
+
+// latWindow keeps a running duration sum alongside the sample ring so
+// LATENCY_SPIKE's mean is O(1) per observation instead of scanning the
+// window on every submit.
+type latWindow struct {
+	w   sampleWindow[latSample]
+	sum time.Duration
+}
+
+func (l *latWindow) push(s latSample) { l.w.push(s); l.sum += s.d }
+
+func (l *latWindow) prune(cut time.Time) {
+	for _, e := range l.w.prune(cut, func(s latSample) time.Time { return s.t }) {
+		l.sum -= e.d
+	}
+}
+
+func (l *latWindow) mean() (time.Duration, int) {
+	n := l.w.len()
+	if n == 0 {
 		return 0, 0
 	}
-	var sum time.Duration
-	for _, s := range w {
-		sum += s.d
-	}
-	return sum / time.Duration(len(w)), len(w)
+	return l.sum / time.Duration(n), n
 }
 
-func pruneAdm(w []admSample, now time.Time, win time.Duration) []admSample {
-	cut := now.Add(-win)
-	i := 0
-	for i < len(w) && w[i].t.Before(cut) {
-		i++
-	}
-	return append([]admSample(nil), w[i:]...)
+// admWindow keeps a running systemic-failure count so ERROR_RATE_SPIKE's
+// ratio is O(1) per observation.
+type admWindow struct {
+	w        sampleWindow[admSample]
+	systemic int
 }
 
-func admCount(w []admSample) (total, systemic int) {
-	for _, s := range w {
-		total++
-		if s.systemic {
-			systemic++
+func (w *admWindow) push(s admSample) {
+	w.w.push(s)
+	if s.systemic {
+		w.systemic++
+	}
+}
+
+func (w *admWindow) prune(cut time.Time) {
+	for _, e := range w.w.prune(cut, func(s admSample) time.Time { return s.t }) {
+		if e.systemic {
+			w.systemic--
 		}
 	}
-	return total, systemic
+}
+
+func (w *admWindow) count() (total, systemic int) {
+	return w.w.len(), w.systemic
 }

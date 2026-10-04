@@ -238,6 +238,12 @@ const followCols = `follow_id, investor_account_id, strategy_id,
 	allocation_notional::text, currency, safety_mode::text,
 	stop_loss_cap::text, status::text, unfollowed_at, created_at`
 
+// join-qualified variant — every column f.-prefixed so the list is safe
+// inside JOINs where the same names exist on the strategy side.
+const followColsQualified = `f.follow_id, f.investor_account_id, f.strategy_id,
+	f.allocation_notional::text, f.currency, f.safety_mode::text,
+	f.stop_loss_cap::text, f.status::text, f.unfollowed_at, f.created_at`
+
 func scanFollow(row pgx.Row) (*Follow, error) {
 	var f Follow
 	var notional string
@@ -331,9 +337,9 @@ func (s *PgxStore) FollowsByInvestor(ctx context.Context, investorAccountID int6
 		limit = 100
 	}
 	rows, err := s.pool.Query(ctx, `
-		SELECT f.`+followCols+`, st.display_name, st.status::text
+		SELECT `+followColsQualified+`, st.display_name, st.status::text
 		  FROM copy_follows f
-		  JOIN copy_strategies st ON st.strategy_id = f.strategy_id
+		  JOIN strategy_profiles st ON st.strategy_id = f.strategy_id
 		 WHERE f.investor_account_id = $1
 		 ORDER BY f.follow_id DESC
 		 LIMIT $2`, investorAccountID, limit)

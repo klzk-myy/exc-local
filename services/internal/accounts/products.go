@@ -93,6 +93,11 @@ type ProductProfile struct {
 	Status          string          `json:"status"`
 	CreatedAt       time.Time       `json:"created_at"`
 	UpdatedAt       time.Time       `json:"updated_at"`
+	// accountCategory is the owning account's client_category read in
+	// the same join — lets admission gates skip a second accounts-row
+	// round trip. Empty when the profile came from a code/id lookup
+	// (no account row involved).
+	accountCategory string
 }
 
 // InScope reports whether the instrument class is allowlisted.
@@ -238,13 +243,14 @@ func profileForAccount(ctx context.Context, q querier, accountID int64) (*Produc
 	err := q.QueryRow(ctx, `
 		SELECT p.profile_id, p.code, p.pricing_plan, p.instrument_scope,
 		       p.subunit_divisor, p.min_deposit::text, p.status,
-		       p.created_at, p.updated_at, TRUE
+		       p.created_at, p.updated_at, TRUE, a.client_category::text
 		  FROM accounts a
 		  JOIN account_product_profiles p
 		    ON p.profile_id = a.product_profile_id
 		 WHERE a.id = $1`, accountID).
 		Scan(&p.ProfileID, &p.Code, &p.PricingPlan, &scope,
-			&p.SubunitDivisor, &min, &p.Status, &p.CreatedAt, &p.UpdatedAt, &found)
+			&p.SubunitDivisor, &min, &p.Status, &p.CreatedAt, &p.UpdatedAt,
+			&found, &p.accountCategory)
 	if err == pgx.ErrNoRows {
 		// NULL product_profile_id or dangling FK → STANDARD default,
 		// but only when the account itself exists.

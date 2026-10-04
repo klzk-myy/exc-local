@@ -180,7 +180,7 @@ func (s *Service) SubmitOrderList(ctx context.Context, acct *Account,
 	}); err != nil {
 		return nil, err
 	}
-	if err := s.checkBalance(ctx, acct, inst, w, ref); err != nil {
+	if err := s.checkBalance(ctx, acct, inst, w, ref, nil); err != nil {
 		return nil, err
 	}
 	// Structural pending checks only — filters re-run at activation.

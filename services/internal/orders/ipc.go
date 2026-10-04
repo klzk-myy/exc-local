@@ -375,6 +375,16 @@ type ShmSubmitter struct {
 	base string
 	mu   sync.Mutex
 	ch   map[uint16]*ipc.Channel
+	// wmu serializes TryWrite across all producer goroutines: every REST
+	// handler calls Send concurrently, but the shm ring is SPSC — a
+	// check-then-act head (load h, store h+1) loses updates under
+	// parallel writers, and a stale h+1 store rewinds head behind the
+	// consumer's committed tail. The consumer then consumes slots the
+	// producer never committed (tail overshoots head) and the ring
+	// wedges permanently — observed as phantom tail growth + all writes
+	// refused (ENGINE_OVERLOAD). One mutex for all shards: TryWrite is
+	// ~100ns and never spins, so cross-shard serialization is free.
+	wmu sync.Mutex
 }
 
 func NewShmSubmitter(base string) *ShmSubmitter {
@@ -419,7 +429,12 @@ func (s *ShmSubmitter) Send(ctx context.Context, shard uint16, payload []byte) e
 		copy(frame[tracing.AeronTraceHeaderLen:], payload)
 		payload = frame
 	}
-	if !c.Send(payload) {
+	// SPSC discipline: the ring has exactly one logical writer, so the
+	// slot-claim + head-advance must be atomic w.r.t. other handlers.
+	s.wmu.Lock()
+	ok := c.Send(payload)
+	s.wmu.Unlock()
+	if !ok {
 		return codeErr("ENGINE_OVERLOAD",
 			"ingress ring for shard %d is full", shard)
 	}
@@ -534,6 +549,20 @@ type Consumer struct {
 	// pollInterval bounds the drain loop cadence; ~50µs production-tight,
 	// larger in tests is fine.
 	pollInterval time.Duration
+	// batchBuf accumulates decoded read-model ops across a drain pass so
+	// the store applies them as one pipelined batch instead of one PG
+	// round-trip per frame — the single consumer goroutine is the drain
+	// bottleneck otherwise. batchCap bounds the buffer.
+	batchBuf []readModelOp
+	batchCap int
+	// hookQs carry fill/cancel observer firings to dedicated workers
+	// so per-event notification resolution (order→account→user → Notify)
+	// never runs inline on the drain loop. Sharded by orderID so every
+	// op for one order lands on the same worker — per-order fill→cancel
+	// ordering is preserved while unrelated orders parallelize. Created
+	// in Run when any hook is bound; nil → hooks fire synchronously
+	// (tests, FIX path).
+	hookQs []chan hookOp
 	// malformed counts frames dropped by the decode panic-guard in
 	// handle (Phase-13.5 pen-test remediation): a corrupt shm slot must
 	// poison one frame, never the consumer goroutine.
@@ -549,7 +578,39 @@ func NewConsumer(sub Submitter, store Store, pending *pendingConfirms) *Consumer
 	return &Consumer{
 		sub: sub, store: store, pending: pending,
 		bufSize: 64 << 10, pollInterval: 20 * time.Microsecond,
+		batchCap: 512,
 	}
+}
+
+// readModelOpKind selects the deferred orders read-model mutation.
+type readModelOpKind uint8
+
+const (
+	readModelOpFill readModelOpKind = iota
+	readModelOpCancel
+	readModelOpCancelReason
+)
+
+// readModelOp is one decoded out-ring mutation: a fill fold
+// (filled_qty/avg_fill_price/status) or a cancel/expiry status flip.
+// audits piggybacks OCO-sibling audit entries written at flush.
+type readModelOp struct {
+	kind    readModelOpKind
+	orderID int64
+	price   decimal.Decimal
+	qty     decimal.Decimal
+	reason  uint8
+	audits  []AuditEntry
+}
+
+// hookOp defers one observer firing (notification/GSLO/cancel seams) to
+// the hook worker — it always lands after the op's read-model apply.
+type hookOp struct {
+	fill    bool
+	orderID int64
+	price   decimal.Decimal
+	qty     decimal.Decimal
+	reason  uint8
 }
 
 // WithFillHook wires the optional per-fill observer (notification
@@ -621,7 +682,11 @@ func (c *Consumer) fireFrameTap(shard uint16, payload []byte) {
 	c.frameTap(shard, payload)
 }
 
-// Run polls the given shards' out-rings until ctx is cancelled.
+// Run polls the given shards' out-rings until ctx is cancelled. The
+// drain loop decodes frames into readModelOps and flushes them to the
+// store as one pipelined batch per pass (pgx.SendBatch) — observer
+// hooks (notification/GSLO/cancel seams) fire on a dedicated worker so
+// their PG/account lookups never stall the ring drain.
 func (c *Consumer) Run(ctx context.Context, shards []uint16) {
 	type bound struct {
 		shard uint16
@@ -635,10 +700,73 @@ func (c *Consumer) Run(ctx context.Context, shards []uint16) {
 		}
 		chans = append(chans, bound{sh, ch})
 	}
+	if c.hookQs == nil &&
+		(c.onFill != nil || c.onGSLOFill != nil || c.onCancel != nil) {
+		// Bounded queues: a wedged hook pipeline backpressures the drain
+		// rather than dropping observer work — same contract as the
+		// settlement frame tap. 16 workers shard the ~10 sequential
+		// PG/Redis RTTs each fill leg fans out to; orderID-keyed routing
+		// keeps one order's hooks strictly sequential.
+		const workers = 16
+		c.hookQs = make([]chan hookOp, workers)
+		for w := 0; w < workers; w++ {
+			q := make(chan hookOp, 1<<12)
+			c.hookQs[w] = q
+			go func() {
+				for {
+					select {
+					case h := <-q:
+						if h.fill {
+							c.fireFill(h.orderID, h.price, h.qty)
+						} else {
+							c.fireCancel(h.orderID, h.reason)
+						}
+					case <-ctx.Done():
+						return
+					}
+				}
+			}()
+		}
+	}
+	bg := context.Background()
 	buf := make([]byte, c.bufSize)
+	// Flush pipeline: the drain loop hands full op batches to a single
+	// worker so the SendBatch+audit PG waits of batch N overlap the
+	// poll/decode of batch N+1 — previously every flush stalled the
+	// sole ring reader for ~2 round trips and let occupancy spike into
+	// the shed threshold. One worker keeps cross-batch apply ordering
+	// (fill→cancel on the same row stays sequential); the bounded
+	// queue preserves fail-closed backpressure on the drain.
+	flushQ := make(chan []readModelOp, 8)
+	flushPool := &sync.Pool{New: func() any {
+		return make([]readModelOp, 0, c.batchCap)
+	}}
+	flushDone := make(chan struct{})
+	go func() {
+		defer close(flushDone)
+		for ops := range flushQ {
+			c.applyOps(bg, ops)
+			flushPool.Put(ops[:0])
+		}
+	}()
+	defer func() {
+		close(flushQ)
+		<-flushDone
+	}()
+	flush := func(ops []readModelOp) {
+		select {
+		case flushQ <- ops:
+		case <-ctx.Done():
+			c.applyOps(bg, ops) // shutdown: apply inline, never drop
+		}
+	}
 	for {
 		select {
 		case <-ctx.Done():
+			if len(c.batchBuf) > 0 {
+				flush(c.batchBuf)
+				c.batchBuf = c.batchBuf[:0]
+			}
 			return
 		default:
 		}
@@ -653,8 +781,16 @@ func (c *Consumer) Run(ctx context.Context, shards []uint16) {
 				if c.frameTap != nil {
 					c.fireFrameTap(b.shard, buf[:n])
 				}
-				c.handle(buf[:n])
+				c.collect(buf[:n], &c.batchBuf)
+				if len(c.batchBuf) >= c.batchCap {
+					flush(c.batchBuf)
+					c.batchBuf = flushPool.Get().([]readModelOp)[:0]
+				}
 			}
+		}
+		if len(c.batchBuf) > 0 {
+			flush(c.batchBuf)
+			c.batchBuf = flushPool.Get().([]readModelOp)[:0]
 		}
 		if idle {
 			select {
@@ -663,6 +799,79 @@ func (c *Consumer) Run(ctx context.Context, shards []uint16) {
 			case <-time.After(c.pollInterval):
 			}
 		}
+	}
+}
+
+// applyOps applies one op batch — read-model updates and their audit
+// rows go out in a single SendBatch round-trip when the store supports
+// it (PgStore); otherwise it degrades to the per-op calls. Hook
+// firings are handed to the hook worker afterwards (or fired inline
+// when no worker exists — preserving ordering apply → observe).
+func (c *Consumer) applyOps(ctx context.Context, ops []readModelOp) {
+	if len(ops) == 0 {
+		return
+	}
+	var audits []AuditEntry
+	for _, op := range ops {
+		audits = append(audits, op.audits...)
+	}
+	if b, ok := c.store.(interface {
+		applyReadModelOps(context.Context, []readModelOp, []AuditEntry) error
+	}); ok {
+		_ = b.applyReadModelOps(ctx, ops, audits)
+	} else {
+		for _, op := range ops {
+			c.applyOp(ctx, op)
+		}
+		if len(audits) > 0 {
+			_ = c.store.WriteAudit(ctx, audits)
+		}
+	}
+	for _, op := range ops {
+		c.pushHook(hookOp{
+			fill:    op.kind == readModelOpFill,
+			orderID: op.orderID,
+			price:   op.price,
+			qty:     op.qty,
+			reason:  op.reason,
+		})
+	}
+}
+
+// applyOp runs one read-model op through the unbatched store methods —
+// the fallback for stores without the pipelined apply (tests, FIX).
+func (c *Consumer) applyOp(ctx context.Context, op readModelOp) {
+	switch op.kind {
+	case readModelOpFill:
+		_ = c.store.ApplyFill(ctx, op.orderID, op.price, op.qty)
+	case readModelOpCancelReason:
+		if rs, ok := c.store.(interface {
+			ApplyCancelReason(context.Context, int64, uint8) error
+		}); ok {
+			_ = rs.ApplyCancelReason(ctx, op.orderID, op.reason)
+		} else {
+			_ = c.store.ApplyCancel(ctx, op.orderID)
+		}
+	default:
+		_ = c.store.ApplyCancel(ctx, op.orderID)
+	}
+	if len(op.audits) > 0 {
+		_ = c.store.WriteAudit(ctx, op.audits)
+	}
+}
+
+// pushHook hands a firing to the hook worker when one exists, else
+// fires inline — handle()/HandleFragment callers keep the synchronous
+// apply → observe ordering they always had.
+func (c *Consumer) pushHook(h hookOp) {
+	if c.hookQs != nil {
+		c.hookQs[uint64(h.orderID)%uint64(len(c.hookQs))] <- h
+		return
+	}
+	if h.fill {
+		c.fireFill(h.orderID, h.price, h.qty)
+	} else {
+		c.fireCancel(h.orderID, h.reason)
 	}
 }
 
@@ -675,10 +884,30 @@ func (c *Consumer) Malformed() int64 { return c.malformed.Load() }
 // narrow Phase-18 transport seam: the FIX gateway consumes
 // aeron:ipc?alias=orders_out through its own subscription (the shm
 // rings stay the REST gateway's binding) and must not fork this codec.
-// Same inline/panic-guarded contract as the shm drain loop.
+// Applies synchronously (unbatched) — callers get the same ordering
+// they had before the drain-loop batching.
 func (c *Consumer) HandleFragment(payload []byte) { c.handle(payload) }
 
 func (c *Consumer) handle(payload []byte) {
+	var ops []readModelOp
+	c.collect(payload, &ops)
+	for _, op := range ops {
+		c.applyOp(context.Background(), op)
+		c.pushHook(hookOp{
+			fill:    op.kind == readModelOpFill,
+			orderID: op.orderID,
+			price:   op.price,
+			qty:     op.qty,
+			reason:  op.reason,
+		})
+	}
+}
+
+// collect decodes one outbound-engine frame and appends its read-model
+// ops to *ops without touching the store. pending-confirm resolution
+// stays inline — it is an in-memory signal that cancel waiters should
+// never have to wait on a PG flush for.
+func (c *Consumer) collect(payload []byte, ops *[]readModelOp) {
 	// Fail-closed decode guard (Phase-13.5 Task 13.5.3.9 pen-test):
 	// ipc.DecodeEvent roots a FlatBuffers accessor without a verifier —
 	// a corrupt or maliciously malformed shm frame panics on slice bounds
@@ -723,30 +952,28 @@ func (c *Consumer) handle(payload []byte) {
 		oc := &wire.OrderCancel{}
 		oc.Init(t.Bytes, t.Pos)
 		// Spec §27 R8: an engine expiry (GTD/DAY or the 90-day GTC cap)
-		// must surface as EXPIRED in the read model, not CANCELLED.
-		if rs, ok := c.store.(interface {
-			ApplyCancelReason(context.Context, int64, uint8) error
-		}); ok {
-			_ = rs.ApplyCancelReason(context.Background(),
-				int64(oc.OrderId()), oc.Reason())
-		} else {
-			_ = c.store.ApplyCancel(context.Background(), int64(oc.OrderId()))
+		// must surface as EXPIRED in the read model, not CANCELLED — the
+		// reason→status mapping happens at apply (applyOp/batch).
+		op := readModelOp{
+			kind:    readModelOpCancelReason,
+			orderID: int64(oc.OrderId()),
+			reason:  oc.Reason(),
 		}
 		if oc.Reason() == CancelReasonOcoLink {
 			// Phase-14 Task 14.3.1 — OCO sibling cancellation: audit the
 			// engine-driven reason so the order's history distinguishes it
 			// from a user cancel (spec §6.5 terminal notice).
-			_ = c.store.WriteAudit(context.Background(), []AuditEntry{{
+			op.audits = []AuditEntry{{
 				OrderID:    int64(oc.OrderId()),
 				AccountID:  int64(oc.AccountId()),
 				Operation:  "OCO_SIBLING_CANCEL",
 				FieldName:  "status",
 				NewValue:   "CANCELLED",
 				ModifiedBy: "engine",
-			}})
+			}}
 		}
+		*ops = append(*ops, op)
 		c.pending.resolve(oc.OrderId())
-		c.fireCancel(int64(oc.OrderId()), oc.Reason())
 	case wire.EventTypeTradeFill:
 		tf := ipc.EventTradeFill(ev)
 		if tf == nil {
@@ -754,10 +981,11 @@ func (c *Consumer) handle(payload []byte) {
 		}
 		qty := decimal.NewFromScaled(tf.Qty())
 		px := decimal.NewFromScaled(tf.Price())
-		_ = c.store.ApplyFill(context.Background(), int64(tf.BuyOrderId()), px, qty)
-		_ = c.store.ApplyFill(context.Background(), int64(tf.SellOrderId()), px, qty)
-		c.fireFill(int64(tf.BuyOrderId()), px, qty)
-		c.fireFill(int64(tf.SellOrderId()), px, qty)
+		*ops = append(*ops,
+			readModelOp{kind: readModelOpFill, orderID: int64(tf.BuyOrderId()),
+				price: px, qty: qty},
+			readModelOp{kind: readModelOpFill, orderID: int64(tf.SellOrderId()),
+				price: px, qty: qty})
 	case wire.EventTypeBasketResult:
 		// Phase-3 Task 4 — terminal cross-shard basket outcome; project the
 		// OptResult onto the migration-283 ledger row when the store

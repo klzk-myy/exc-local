@@ -330,3 +330,70 @@ func RecLatestVerifiedSnapshot(root string, instrument uint32) (*OrchSnapshotInf
 	}
 	return nil, false, firstErr
 }
+
+// JournaledTrade is one TRADE entry recovered from an engine WAL —
+// the authoritative journal record of a fill whose out-ring emission
+// may never have reached consumers (the emit→commit loss window: shm
+// wipe, unread-ring rebuild, pre-consumer outage). The wire fields are
+// already 1e8-scaled — the same fixed point the TradeFill frame carries.
+type JournaledTrade struct {
+	TradePayload
+	Shard uint16 // segment-header shard (an explicit EXC_WAL_DIRS list can hold foreign shards)
+	Seq   uint64 // journal sequence — per-shard monotone
+	TsNs  uint64 // journal timestamp
+}
+
+// ScanTrades decodes every TRADE entry journaled in dir's *.wal
+// segments, in journal order (numeric {seq}.wal stem). A corrupt or
+// unreadable segment fails closed — a partial journal must never
+// masquerade as complete coverage (same posture as the recon WAL scan).
+func ScanTrades(dir string) ([]JournaledTrade, error) {
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, fmt.Errorf("wal dir %s: %w", dir, err)
+	}
+	type segFile struct {
+		path string
+		base uint64
+	}
+	var files []segFile
+	for _, de := range ents {
+		if de.IsDir() || !strings.HasSuffix(de.Name(), ".wal") {
+			continue
+		}
+		base := ^uint64(0) // unparseable stems sort last
+		if b, perr := strconv.ParseUint(strings.TrimSuffix(de.Name(), ".wal"), 10, 64); perr == nil {
+			base = b
+		}
+		files = append(files, segFile{filepath.Join(dir, de.Name()), base})
+	}
+	sort.Slice(files, func(i, j int) bool { return files[i].base < files[j].base })
+
+	var out []JournaledTrade
+	for _, f := range files {
+		data, err := os.ReadFile(f.path)
+		if err != nil {
+			return nil, fmt.Errorf("wal segment %s: %w", f.path, err)
+		}
+		scan, entries, err := ScanSegment(data)
+		if err != nil {
+			return nil, fmt.Errorf("wal segment %s: %w", f.path, err)
+		}
+		if scan.Corrupt {
+			return nil, fmt.Errorf("wal segment %s corrupt at offset %d", f.path, scan.CorruptOffset)
+		}
+		for _, e := range entries {
+			if e.Type != EvTrade {
+				continue
+			}
+			p, err := DecodeTrade(e.Payload)
+			if err != nil {
+				return nil, fmt.Errorf("wal segment %s seq %d: %w", f.path, e.Seq, err)
+			}
+			out = append(out, JournaledTrade{
+				TradePayload: p, Shard: scan.Shard, Seq: e.Seq, TsNs: e.TimestampNs,
+			})
+		}
+	}
+	return out, nil
+}

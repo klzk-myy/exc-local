@@ -149,6 +149,13 @@ type Account struct {
 	TradeGroupID       *int64
 	DefaultSTPMode     string
 	CancelOnDisconnect bool
+	// Employee-dealing snapshot columns loaded by AccountByID — lets
+	// checkAdmission skip the DealingGate's per-order accounts probe
+	// for known non-employees (the gate still owns the verdict for
+	// employees and for accounts whose snapshot lacked the columns).
+	EmployeeKnown   bool
+	EmployeeAccount bool
+	EmployeeRole    *string
 }
 
 // Order is one orders row plus the pipeline columns of migration 155.

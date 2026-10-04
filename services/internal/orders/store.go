@@ -204,28 +204,43 @@ const instrumentCols = `
 	max_leverage, min_price::text, max_price::text, max_spread_pips::text,
 	max_open_orders`
 
+// instrumentScanBufs holds the decode temporaries for instrumentCols so
+// composite scans (SubmitLookups) can append extra columns after the
+// instrument prefix without duplicating the scan list.
+type instrumentScanBufs struct {
+	tick, lot, minQ, maxQ, minN, up, down string
+	minP, maxP, spread                    *string
+}
+
+func (b *instrumentScanBufs) targets(i *Instrument) []any {
+	return []any{&i.ID, &i.Symbol, &i.BaseCurrency, &i.QuoteCurrency,
+		&i.InstrumentType, &i.Status, &b.tick, &b.lot, &b.minQ, &b.maxQ,
+		&b.minN, &b.up, &b.down, &i.MaxLeverage, &b.minP, &b.maxP,
+		&b.spread, &i.MaxOpenOrders}
+}
+
+func (b *instrumentScanBufs) finish(i *Instrument) {
+	i.TickSize = decimal.RequireFromString(b.tick)
+	i.LotSize = decimal.RequireFromString(b.lot)
+	i.MinOrderQty = decimal.RequireFromString(b.minQ)
+	i.MaxOrderQty = decimal.RequireFromString(b.maxQ)
+	i.MinNotional = decimal.RequireFromString(b.minN)
+	i.PriceBandPctUp = decimal.RequireFromString(b.up)
+	i.PriceBandPctDown = decimal.RequireFromString(b.down)
+	i.MinPrice = mustParseDecPtr(b.minP)
+	i.MaxPrice = mustParseDecPtr(b.maxP)
+	i.MaxSpreadPips = mustParseDecPtr(b.spread)
+}
+
 func scanInstrument(row pgx.Row) (*Instrument, error) {
 	var (
-		i                                     Instrument
-		tick, lot, minQ, maxQ, minN, up, down string
-		minP, maxP, spread                    *string
+		i Instrument
+		b instrumentScanBufs
 	)
-	err := row.Scan(&i.ID, &i.Symbol, &i.BaseCurrency, &i.QuoteCurrency,
-		&i.InstrumentType, &i.Status, &tick, &lot, &minQ, &maxQ, &minN,
-		&up, &down, &i.MaxLeverage, &minP, &maxP, &spread, &i.MaxOpenOrders)
-	if err != nil {
+	if err := row.Scan(b.targets(&i)...); err != nil {
 		return nil, err
 	}
-	i.TickSize = decimal.RequireFromString(tick)
-	i.LotSize = decimal.RequireFromString(lot)
-	i.MinOrderQty = decimal.RequireFromString(minQ)
-	i.MaxOrderQty = decimal.RequireFromString(maxQ)
-	i.MinNotional = decimal.RequireFromString(minN)
-	i.PriceBandPctUp = decimal.RequireFromString(up)
-	i.PriceBandPctDown = decimal.RequireFromString(down)
-	i.MinPrice = mustParseDecPtr(minP)
-	i.MaxPrice = mustParseDecPtr(maxP)
-	i.MaxSpreadPips = mustParseDecPtr(spread)
+	b.finish(&i)
 	return &i, nil
 }
 
@@ -264,17 +279,20 @@ func (s *PgStore) AccountByID(ctx context.Context, id int64) (*Account, error) {
 	err := s.pool.QueryRow(ctx, `
 		SELECT id, user_id, account_type::text, kyc_tier::text, status::text,
 		       client_category::text, nbp,
-		       trade_group_id, default_stp_mode, cancel_on_disconnect
+		       trade_group_id, default_stp_mode, cancel_on_disconnect,
+		       employee_account, employee_role
 		FROM accounts WHERE id = $1`, id).
 		Scan(&a.ID, &a.UserID, &a.Type, &a.KycTier, &a.Status,
 			&a.ClientCategory, &a.NBP,
-			&a.TradeGroupID, &a.DefaultSTPMode, &a.CancelOnDisconnect)
+			&a.TradeGroupID, &a.DefaultSTPMode, &a.CancelOnDisconnect,
+			&a.EmployeeAccount, &a.EmployeeRole)
 	if isNoRows(err) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
+	a.EmployeeKnown = true
 	return a, nil
 }
 
@@ -290,6 +308,40 @@ func (s *PgStore) ReferencePrice(ctx context.Context, instrumentID int64) (*deci
 		return nil, err
 	}
 	return mustParseDecPtr(px), nil
+}
+
+// SubmitLookups is the batched variant of the three sequential
+// admission reads on the REST submit hot path — instrument row, last
+// trade reference price, and the side-appropriate available balance —
+// resolved by correlated subqueries in ONE round trip instead of three.
+// Optional capability: stores without it fall back to the per-call
+// methods (Service.Submit checks the interface).
+func (s *PgStore) SubmitLookups(ctx context.Context, symbol string,
+	accountID int64, buy bool) (*Instrument, *decimal.Decimal, *decimal.Decimal, error) {
+	var (
+		i          Instrument
+		b          instrumentScanBufs
+		ref, avail *string
+	)
+	targets := append(b.targets(&i), &ref, &avail)
+	err := s.pool.QueryRow(ctx, `
+		SELECT `+instrumentCols+`,
+		    (SELECT price::text FROM trades t
+		     WHERE t.instrument_id = i.id ORDER BY t.id DESC LIMIT 1),
+		    (SELECT available::text FROM balances b
+		     WHERE b.account_id = $2 AND b.currency =
+		     CASE WHEN $3 THEN i.quote_currency ELSE i.base_currency END)
+		FROM instruments i WHERE i.symbol = $1`,
+		strings.ToUpper(strings.TrimSpace(symbol)), accountID, buy).
+		Scan(targets...)
+	if isNoRows(err) {
+		return nil, nil, nil, nil
+	}
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	b.finish(&i)
+	return &i, mustParseDecPtr(ref), mustParseDecPtr(avail), nil
 }
 
 func (s *PgStore) AvailableBalance(ctx context.Context, accountID int64, currency string) (*decimal.Decimal, error) {
@@ -533,25 +585,27 @@ func dedupLookupTx(ctx context.Context, tx pgx.Tx, accountID int64,
 // and InsertOcoPairTx: dedup fast-path → orders insert → dedup row. On a
 // unique-constraint race it returns the colliding row via dedupConflict so
 // the caller can replay or reject deterministically.
-func insertOrderInTx(ctx context.Context, tx pgx.Tx, p InsertParams) (int64, error) {
+func insertOrderInTx(ctx context.Context, tx pgx.Tx, p InsertParams) (*Order, error) {
 	if p.ClientOrderID != "" {
 		dup, err := dedupLookupTx(ctx, tx, p.AccountID, p.ClientOrderID)
 		if err != nil {
-			return 0, fmt.Errorf("dedup lookup: %w", err)
+			return nil, fmt.Errorf("dedup lookup: %w", err)
 		}
 		if dup != nil {
-			return 0, &dedupConflict{row: dup}
+			return nil, &dedupConflict{row: dup}
 		}
 	}
 
-	var id int64
 	var algoParams any
 	if len(p.AlgoParams) > 0 {
 		// string — never []byte: under simple-protocol transports a
 		// []byte arg encodes as bytea and the ::jsonb cast fails.
 		algoParams = string(p.AlgoParams)
 	}
-	err := tx.QueryRow(ctx, `
+	// RETURNING the full orderCols row removes the post-commit GetOrder
+	// re-read — one fewer round trip on the REST submit hot path. The
+	// returned row reflects exactly what committed (defaults applied).
+	o, err := scanOrder(tx.QueryRow(ctx, `
 		INSERT INTO orders (account_id, instrument_id, client_order_id,
 		    side, order_type, quantity, quote_quantity, price, stop_price,
 		    display_qty, time_in_force, status, shard_id, order_seq,
@@ -566,7 +620,7 @@ func insertOrderInTx(ctx context.Context, tx pgx.Tx, p InsertParams) (int64, err
 		        COALESCE(NULLIF($22,''),'LAST_PRICE'),$23,$24,
 		        NULLIF($25,''),NULLIF($26,''),$27::jsonb,$28,
 		        COALESCE($29::numeric,0),$30)
-		RETURNING id`,
+		RETURNING `+orderCols,
 		p.AccountID, p.InstrumentID, p.ClientOrderID, p.Side, p.OrderType,
 		p.Quantity.String(), decPtrStr(p.QuoteQuantity), decPtrStr(p.Price),
 		decPtrStr(p.StopPrice), decPtrStr(p.DisplayQty), p.TimeInForce,
@@ -575,8 +629,7 @@ func insertOrderInTx(ctx context.Context, tx pgx.Tx, p InsertParams) (int64, err
 		p.PegMode, decPtrStr(p.PegOffset), decPtrStr(p.PegLimit),
 		p.TriggerSource, p.Hidden, p.GSLO,
 		p.FixingBenchmark, p.AlgoType, algoParams, p.CoDExempt,
-		decPtrStr(p.DiscretionaryOffsetPips), p.GTDExpiry).
-		Scan(&id)
+		decPtrStr(p.DiscretionaryOffsetPips), p.GTDExpiry))
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if stderrors.As(err, &pgErr) && pgErr.Code == pgUniqueViolation &&
@@ -586,57 +639,114 @@ func insertOrderInTx(ctx context.Context, tx pgx.Tx, p InsertParams) (int64, err
 			// the caller still replays/rejects deterministically.
 			row, lerr := dedupLookupTx(ctx, tx, p.AccountID, p.ClientOrderID)
 			if lerr != nil || row == nil {
-				return 0, fmt.Errorf("insert order: %w", err)
+				return nil, fmt.Errorf("insert order: %w", err)
 			}
-			return 0, &dedupConflict{row: row}
+			return nil, &dedupConflict{row: row}
 		}
-		return 0, fmt.Errorf("insert order: %w", err)
+		return nil, fmt.Errorf("insert order: %w", err)
 	}
 	if p.ClientOrderID != "" {
 		_, err = tx.Exec(ctx, `
 			INSERT INTO client_order_id_dedup
 			    (account_id, client_order_id, order_id, request_hash)
 			VALUES ($1,$2,$3,$4)`,
-			p.AccountID, p.ClientOrderID, id, p.RequestHash)
+			p.AccountID, p.ClientOrderID, o.ID, p.RequestHash)
 		if err != nil {
 			var pgErr *pgconn.PgError
 			if stderrors.As(err, &pgErr) && pgErr.Code == pgUniqueViolation {
 				row, lerr := dedupLookupTx(ctx, tx, p.AccountID, p.ClientOrderID)
 				if lerr != nil || row == nil {
-					return 0, fmt.Errorf("dedup insert: %w", err)
+					return nil, fmt.Errorf("dedup insert: %w", err)
 				}
-				return 0, &dedupConflict{row: row}
+				return nil, &dedupConflict{row: row}
 			}
-			return 0, fmt.Errorf("dedup insert: %w", err)
+			return nil, fmt.Errorf("dedup insert: %w", err)
 		}
 	}
-	return id, nil
+	return o, nil
 }
 
-// InsertOrderTx inserts the dedup row and the order in one transaction —
-// dedup first so a 23505 on it means "already submitted" (the orders
-// table's own partial unique index on (account_id, client_order_id) is
-// the backstop for pre-dedup rows).
-func (s *PgStore) InsertOrderTx(ctx context.Context, p InsertParams) (*Order, *DedupRow, error) {
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
+// insertOrderAtomicSQL is the REST submit fast path: dedup check, orders
+// insert and dedup row land in ONE statement — a single round trip and
+// atomic by definition, so no explicit transaction. The dedup NOT EXISTS
+// guard plus the orders table's partial unique index on
+// (account_id, client_order_id) preserve §8.7 semantics: the loser of a
+// same-key race gets 23505 → dedupConflict resolution, exactly as the
+// transactional path. Composite inserts (OCO/bracket/list) keep
+// insertOrderInTx because their multiple writes must share one tx.
+const insertOrderAtomicSQL = `
+WITH ins AS (
+    INSERT INTO orders (account_id, instrument_id, client_order_id,
+        side, order_type, quantity, quote_quantity, price, stop_price,
+        display_qty, time_in_force, status, shard_id, order_seq,
+        post_only, reduce_only, stp_mode, session_id, oco_group_id,
+        peg_mode, peg_offset, peg_limit, trigger_source, hidden, gslo,
+        fixing_benchmark, algo_type, algo_params, cod_exempt,
+        discretionary_offset_pips, gtd_expire_at)
+    SELECT $1,$2,NULLIF($3,''),$4,$5,$6::numeric,$7::numeric,$8::numeric,
+           $9::numeric,$10::numeric,$11,'PENDING',$12,$13,$14,$15,
+           NULLIF($16,''),NULLIF($17,''),$18,
+           NULLIF($19,''),$20::numeric,$21::numeric,
+           COALESCE(NULLIF($22,''),'LAST_PRICE'),$23,$24,
+           NULLIF($25,''),NULLIF($26,''),$27::jsonb,$28,
+           COALESCE($29::numeric,0),$30
+    WHERE NULLIF($3,'') IS NULL
+       OR NOT EXISTS (SELECT 1 FROM client_order_id_dedup
+                      WHERE account_id = $1 AND client_order_id = $3)
+    RETURNING *
+), dins AS (
+    INSERT INTO client_order_id_dedup
+        (account_id, client_order_id, order_id, request_hash)
+    SELECT $1, $3, id, $31 FROM ins WHERE NULLIF($3,'') IS NOT NULL
+)
+SELECT ` + orderCols + ` FROM ins`
 
-	id, err := insertOrderInTx(ctx, tx, p)
-	if err != nil {
-		var c *dedupConflict
-		if stderrors.As(err, &c) {
-			return nil, c.row, err
+// InsertOrderTx persists the order + dedup row in one atomic statement
+// (see insertOrderAtomicSQL). A conflict resolves the stored dedup row
+// so the caller can replay or reject deterministically — same contract
+// as the former BEGIN/dedup/insert/commit sequence.
+func (s *PgStore) InsertOrderTx(ctx context.Context, p InsertParams) (*Order, *DedupRow, error) {
+	var algoParams any
+	if len(p.AlgoParams) > 0 {
+		// string — never []byte: under simple-protocol transports a
+		// []byte arg encodes as bytea and the ::jsonb cast fails.
+		algoParams = string(p.AlgoParams)
+	}
+	o, err := scanOrder(s.pool.QueryRow(ctx, insertOrderAtomicSQL,
+		p.AccountID, p.InstrumentID, p.ClientOrderID, p.Side, p.OrderType,
+		p.Quantity.String(), decPtrStr(p.QuoteQuantity), decPtrStr(p.Price),
+		decPtrStr(p.StopPrice), decPtrStr(p.DisplayQty), p.TimeInForce,
+		p.ShardID, p.OrderSeq, p.PostOnly, p.ReduceOnly, p.STPMode,
+		p.SessionID, p.OcoGroupID,
+		p.PegMode, decPtrStr(p.PegOffset), decPtrStr(p.PegLimit),
+		p.TriggerSource, p.Hidden, p.GSLO,
+		p.FixingBenchmark, p.AlgoType, algoParams, p.CoDExempt,
+		decPtrStr(p.DiscretionaryOffsetPips), p.GTDExpiry,
+		p.RequestHash))
+	if isNoRows(err) {
+		// Zero-row result = the NOT EXISTS dedup guard tripped.
+		row, lerr := s.DedupLookup(ctx, p.AccountID, p.ClientOrderID)
+		if lerr != nil {
+			return nil, nil, fmt.Errorf("dedup resolve: %w", lerr)
 		}
-		return nil, nil, err
+		if row == nil {
+			return nil, nil, fmt.Errorf("insert order: dedup guard without dedup row")
+		}
+		return nil, row, &dedupConflict{row: row}
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, nil, fmt.Errorf("commit order insert: %w", err)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if stderrors.As(err, &pgErr) && pgErr.Code == pgUniqueViolation &&
+			p.ClientOrderID != "" {
+			row, lerr := s.DedupLookup(ctx, p.AccountID, p.ClientOrderID)
+			if lerr != nil || row == nil {
+				return nil, nil, fmt.Errorf("insert order: %w", err)
+			}
+			return nil, row, &dedupConflict{row: row}
+		}
+		return nil, nil, fmt.Errorf("insert order: %w", err)
 	}
-	o, err := s.GetOrder(ctx, id)
-	return o, nil, err
+	return o, nil, nil
 }
 
 // InsertOcoPairTx persists both OCO legs + their shared oco_group_id in
@@ -655,24 +765,16 @@ func (s *PgStore) InsertOcoPairTx(ctx context.Context, groupID int64,
 
 	a.OcoGroupID = &groupID
 	b.OcoGroupID = &groupID
-	ida, err := insertOrderInTx(ctx, tx, a)
+	oa, err := insertOrderInTx(ctx, tx, a)
 	if err != nil {
 		return nil, nil, err
 	}
-	idb, err := insertOrderInTx(ctx, tx, b)
+	ob, err := insertOrderInTx(ctx, tx, b)
 	if err != nil {
 		return nil, nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, nil, fmt.Errorf("commit oco pair insert: %w", err)
-	}
-	oa, err := s.GetOrder(ctx, ida)
-	if err != nil {
-		return nil, nil, err
-	}
-	ob, err := s.GetOrder(ctx, idb)
-	if err != nil {
-		return nil, nil, err
 	}
 	return oa, ob, nil
 }
@@ -812,13 +914,19 @@ func (s *PgStore) OpenOrders(ctx context.Context, scope MassCancelScope) ([]Orde
 	return out, rows.Err()
 }
 
+const applyCancelSQL = `
+		UPDATE orders SET status='CANCELLED', updated_at=now()
+		WHERE id=$1 AND status = ANY($2)`
+
+const applyCancelReasonSQL = `
+		UPDATE orders SET status=$3::order_status_enum, updated_at=now()
+		WHERE id=$1 AND status = ANY($2)`
+
 // ApplyCancel marks an open order CANCELLED; terminal orders are left
 // untouched (racing fills win — the engine's single-thread order decides
 // truth, the read model follows).
 func (s *PgStore) ApplyCancel(ctx context.Context, orderID int64) error {
-	_, err := s.pool.Exec(ctx, `
-		UPDATE orders SET status='CANCELLED', updated_at=now()
-		WHERE id=$1 AND status = ANY($2)`, orderID, OpenStatuses)
+	_, err := s.pool.Exec(ctx, applyCancelSQL, orderID, OpenStatuses)
 	return err
 }
 
@@ -832,17 +940,15 @@ func (s *PgStore) ApplyCancelReason(ctx context.Context, orderID int64,
 	if reason == CancelReasonExpired {
 		status = "EXPIRED"
 	}
-	_, err := s.pool.Exec(ctx, `
-		UPDATE orders SET status=$3::order_status_enum, updated_at=now()
-		WHERE id=$1 AND status = ANY($2)`, orderID, OpenStatuses, status)
+	_, err := s.pool.Exec(ctx, applyCancelReasonSQL,
+		orderID, OpenStatuses, status)
 	return err
 }
 
 // ApplyFill folds an engine TradeFill into the read model: filled_qty
 // accumulates, avg_fill_price becomes the volume-weighted average, and
 // status flips to PARTIALLY_FILLED / FILLED.
-func (s *PgStore) ApplyFill(ctx context.Context, orderID int64, price, qty decimal.Decimal) error {
-	_, err := s.pool.Exec(ctx, `
+const applyFillSQL = `
 		UPDATE orders SET
 		    filled_qty = filled_qty + $2::numeric,
 		    avg_fill_price = (
@@ -852,9 +958,50 @@ func (s *PgStore) ApplyFill(ctx context.Context, orderID int64, price, qty decim
 		        WHEN filled_qty + $2::numeric >= quantity THEN 'FILLED'
 		        ELSE 'PARTIALLY_FILLED' END)::order_status_enum,
 		    updated_at = now()
-		WHERE id = $1 AND status <> 'FILLED'`,
+		WHERE id = $1 AND status <> 'FILLED'`
+
+func (s *PgStore) ApplyFill(ctx context.Context, orderID int64, price, qty decimal.Decimal) error {
+	_, err := s.pool.Exec(ctx, applyFillSQL,
 		orderID, qty.String(), price.String())
 	return err
+}
+
+// applyReadModelOps pipelines a drained batch of fills/cancels into one
+// SendBatch — the out-ring consumer's bulk path. Statement order is
+// preserved on a single connection, so repeated fills on the same order
+// fold identically to the per-row calls (avg_fill_price stays a correct
+// running weighted average). Terminal-state guards stay in SQL.
+func (s *PgStore) applyReadModelOps(ctx context.Context, ops []readModelOp,
+	audits []AuditEntry) error {
+	if len(ops) == 0 && len(audits) == 0 {
+		return nil
+	}
+	b := &pgx.Batch{}
+	for _, op := range ops {
+		switch op.kind {
+		case readModelOpFill:
+			b.Queue(applyFillSQL, op.orderID, op.qty.String(), op.price.String())
+		case readModelOpCancelReason:
+			status := "CANCELLED"
+			if op.reason == CancelReasonExpired {
+				status = "EXPIRED"
+			}
+			b.Queue(applyCancelReasonSQL, op.orderID, OpenStatuses, status)
+		default:
+			b.Queue(applyCancelSQL, op.orderID, OpenStatuses)
+		}
+	}
+	for _, e := range audits {
+		b.Queue(`
+			INSERT INTO order_audit (order_id, account_id, operation,
+			    field_name, old_value, new_value, modified_by, request_id,
+			    ip_address)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,NULLIF($8,''),NULLIF($9,''))`,
+			e.OrderID, e.AccountID, e.Operation, e.FieldName,
+			nilIfEmpty(e.OldValue), nilIfEmpty(e.NewValue), e.ModifiedBy,
+			e.RequestID, e.IPAddress)
+	}
+	return s.pool.SendBatch(ctx, b).Close()
 }
 
 func (s *PgStore) WriteAudit(ctx context.Context, entries []AuditEntry) error {

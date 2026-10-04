@@ -119,6 +119,7 @@ func (t *fakeBalanceTx) PostJournal(_ context.Context, j ledger.Journal) (ledger
 
 type fakeLocker struct {
 	busy        bool
+	busyTimes   int
 	err         error
 	lockCalls   int
 	unlockCalls int
@@ -129,6 +130,10 @@ func (l *fakeLocker) LockAccounts(_ context.Context, ids []int64, _ string) ([]i
 	l.lockCalls++
 	if l.err != nil {
 		return nil, l.err
+	}
+	if l.busyTimes > 0 {
+		l.busyTimes--
+		return nil, excerrors.New(ledger.CodeAccountBusy, "account mutex held")
 	}
 	if l.busy {
 		return nil, excerrors.New(ledger.CodeAccountBusy, "account mutex held")
@@ -934,5 +939,49 @@ func TestConsumerResolutionFailureHalts(t *testing.T) {
 	requireCodeT(t, err, CodeTradeFillUnresolvable)
 	if store.calls != 0 {
 		t.Fatalf("unresolvable fill must never reach a tx (calls=%d)", store.calls)
+	}
+}
+
+func TestLockAccountsWithWaitRetriesBusy(t *testing.T) {
+	locker := &fakeLocker{busyTimes: 3}
+	svc := newBalanceServiceForTest(newFakeStore(), locker, &fakeDispatcher{}, &fakeManagedPoster{}, &fakeAlerter{})
+	locked, err := svc.lockAccountsWithWait(context.Background(), []int64{1, 2}, "tok")
+	if err != nil {
+		t.Fatalf("transient ACCOUNT_BUSY must be waited out: %v", err)
+	}
+	if locker.lockCalls != 4 || len(locked) != 2 {
+		t.Fatalf("calls=%d locked=%v", locker.lockCalls, locked)
+	}
+}
+
+func TestLockAccountsWithWaitNonBusyFailsFast(t *testing.T) {
+	sentinel := excerrors.New(ledger.CodeLedgerLockUnavailable, "redis down")
+	locker := &fakeLocker{err: sentinel}
+	svc := newBalanceServiceForTest(newFakeStore(), locker, &fakeDispatcher{}, &fakeManagedPoster{}, &fakeAlerter{})
+	_, err := svc.lockAccountsWithWait(context.Background(), []int64{1}, "tok")
+	if err != sentinel || locker.lockCalls != 1 {
+		t.Fatalf("non-busy lock error must fail closed immediately: err=%v calls=%d", err, locker.lockCalls)
+	}
+}
+
+func TestLockAccountsWithWaitRespectsCancel(t *testing.T) {
+	locker := &fakeLocker{busy: true}
+	svc := newBalanceServiceForTest(newFakeStore(), locker, &fakeDispatcher{}, &fakeManagedPoster{}, &fakeAlerter{})
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	_, err := svc.lockAccountsWithWait(ctx, []int64{1}, "tok")
+	if err == nil || time.Since(start) > 5*time.Second {
+		t.Fatalf("cancel must interrupt the wait, not run the 12s budget: err=%v", err)
+	}
+}
+
+func TestLockAccountsFailFastUnchanged(t *testing.T) {
+	locker := &fakeLocker{busy: true}
+	svc := newBalanceServiceForTest(newFakeStore(), locker, &fakeDispatcher{}, &fakeManagedPoster{}, &fakeAlerter{})
+	_, err := svc.lockAccounts(context.Background(), []int64{1}, "tok")
+	var e *excerrors.Error
+	if err == nil || !stderrors.As(err, &e) || e.Code != ledger.CodeAccountBusy || locker.lockCalls != 1 {
+		t.Fatalf("client-facing lock path must stay fail-fast: err=%v calls=%d", err, locker.lockCalls)
 	}
 }

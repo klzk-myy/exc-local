@@ -171,7 +171,7 @@ func (s *Service) SubmitOCO(ctx context.Context, acct *Account,
 		}); err != nil {
 			return nil, err
 		}
-		if err := s.checkBalance(ctx, acct, inst, leg, ref); err != nil {
+		if err := s.checkBalance(ctx, acct, inst, leg, ref, nil); err != nil {
 			return nil, err
 		}
 	}

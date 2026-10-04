@@ -266,7 +266,10 @@ public:
             return nullptr;
         const uint64_t t = tail().load(std::memory_order_relaxed);
         const uint64_t h = head().load(std::memory_order_acquire);
-        if (t == h)
+        // t >= h (not just t == h): if a second consumer ever races this
+        // ring and drives tail past head, spin on garbage slots would
+        // advance tail unboundedly — fail closed on the inversion instead.
+        if (t >= h)
             return nullptr;
         const uint8_t* slot = slot_ptr(t);
         const uint32_t len = read_slot_u32(slot, kOffSlotLen);

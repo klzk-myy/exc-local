@@ -118,7 +118,11 @@ func (f *fakeOtrRedis) Eval(_ context.Context, _ string,
 	if breached {
 		b = 1
 	}
-	return goredis.NewCmdResult([]interface{}{e, tr, b}, nil)
+	var flag int64
+	if f.breach[keys[2]] {
+		flag = 1
+	}
+	return goredis.NewCmdResult([]interface{}{e, tr, b, flag}, nil)
 }
 
 func (f *fakeOtrRedis) Exists(_ context.Context, keys ...string) *goredis.IntCmd {

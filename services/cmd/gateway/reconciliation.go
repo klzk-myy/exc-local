@@ -76,6 +76,22 @@ func walDirsForSymbol(shardMap *config.ShardMap, symbol string) []string {
 	return []string{root + "/" + strconv.Itoa(shardMap.GetShard(symbol))}
 }
 
+// walDirsForShard resolves the WAL dir(s) for one shard id — the
+// per-shard analog of walDirsForSymbol for the boot-time missing-fill
+// recovery. Under the EXC_WAL_ROOT convention it is exactly
+// root/<shard>; the explicit EXC_WAL_DIRS list returns the full set and
+// the segment-header shard filter picks the matching dir.
+func walDirsForShard(shardMap *config.ShardMap, shard uint16) []string {
+	if strings.TrimSpace(os.Getenv("EXC_WAL_DIRS")) != "" {
+		return reconciliationWalDirs(shardMap)
+	}
+	root := strings.TrimSpace(os.Getenv("EXC_WAL_ROOT"))
+	if root == "" {
+		root = "/wal"
+	}
+	return []string{root + "/" + strconv.Itoa(int(shard))}
+}
+
 // reconciliationInterval reads EXC_RECON_INTERVAL (default 1h).
 func reconciliationInterval() time.Duration {
 	if raw := strings.TrimSpace(os.Getenv("EXC_RECON_INTERVAL")); raw != "" {

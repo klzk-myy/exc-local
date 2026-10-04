@@ -16,6 +16,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/http/pprof"
 	"net/url"
 	"os"
 	"sort"
@@ -145,6 +146,16 @@ func run() error {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", api.Health)
+
+	// Profiling endpoints (dev/diagnostics): /debug/pprof/*.
+	if os.Getenv("EXC_PPROF") == "1" {
+		mux.HandleFunc("/debug/pprof/", pprof.Index)
+		mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+		mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+		mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+		mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+		log.Info("pprof enabled", "path", "/debug/pprof/")
+	}
 
 	// Task 7.3.4: Prometheus /metrics on the same listener — the 15s
 	// scrape cadence (deploy/prometheus/prometheus.yml) is far below the
@@ -1648,10 +1659,19 @@ func run() error {
 	// error rate via orders.Service's observer seam. A missing PG pool
 	// piece fails closed at construction only for the breaker itself —
 	// nil seams degrade to logged skips, mirroring BreakerDeps.
+	// Dev/benchmark knob: raise the LATENCY_SPIKE mean threshold when
+	// load-testing on contended hardware — without it a legitimately
+	// saturated box trips the instrument breaker mid-run. Unset → spec
+	// default (250ms).
+	var ahCfg risk.AutoHaltConfig
+	if ms, _ := strconv.Atoi(os.Getenv("EXC_AUTOHALT_LATENCY_MEAN_MS")); ms > 0 {
+		ahCfg.LatencySpikeMean = time.Duration(ms) * time.Millisecond
+	}
 	autoHaltSvc, err := risk.NewAutoHaltService(risk.AutoHaltDeps{
 		CB:      breakerSvc,
 		Events:  risk.NewPgAutoHaltEventStore(pool),
 		Metrics: risk.NewAutoHaltMetrics(metReg),
+		Config:  ahCfg,
 		Alerter: func(ctx context.Context, severity, code, summary string) error {
 			if opsAlerter == nil {
 				return nil
@@ -2318,6 +2338,8 @@ func run() error {
 	}
 	settleQueues := make(map[uint16]chan []byte)
 	var fillConsumers []*settlement.FillConsumer
+	var fcWG sync.WaitGroup
+	var recoveredTradeIDs []int64
 	for _, sh := range shardIDs(shardMap) {
 		q := make(chan []byte, 1<<14)
 		settleQueues[sh] = q
@@ -2335,16 +2357,19 @@ func run() error {
 			return n
 		})
 		fc, ferr := settlement.NewFillConsumer(balanceSvc,
-			tradeResolver, src, int64(sh), 0, 0)
+			tradeResolver, src, int64(sh), 1000, 0)
 		if ferr != nil {
 			return fmt.Errorf("fill consumer shard %d: %w", sh, ferr)
 		}
+		// The frame tap enqueues freshly-allocated buffers — the
+		// consumer may adopt them as Fill.Raw without a second copy.
+		fc.WithOwnedPayloads()
 		// Post-commit fill republish: in the shm-only topology there is no
 		// Aeron bridge, so trades/settlements JetStream consumers starve
 		// without this fan-out. Same subject + Nats-Msg-Id contract as the
 		// bridge — coexistence dedups at the stream level.
 		if natsClient != nil {
-			fc.WithRepublisher(jetstreamFillPublisher{js: natsClient.JetStream()}).
+			fc.WithRepublisher(&jetstreamFillPublisher{js: natsClient.JetStream()}).
 				WithLogger(func(f string, a ...any) { log.Error(fmt.Sprintf("settlement: "+f, a...)) })
 		} else {
 			log.Warn("nats unavailable — fill republish disabled; "+
@@ -2352,7 +2377,9 @@ func run() error {
 				"shard", sh)
 		}
 		fillConsumers = append(fillConsumers, fc)
+		fcWG.Add(1)
 		go func() {
+			defer fcWG.Done()
 			// Fail-closed halt + restart-with-backoff: the queue survives
 			// a consumer instance (undelivered frames are re-pumped), so
 			// a transient halt drains through. Note the dev caveat: a
@@ -2374,6 +2401,98 @@ func run() error {
 				}
 			}
 		}()
+		// Boot-time emit→commit repair (spec §2.7): fills journaled in
+		// the engine WAL but never committed — unread out-ring events
+		// stranded by a shm wipe/ring rebuild — are re-injected through
+		// this shard's queue as identical TradeFill frames, riding the
+		// exact live pipeline. processed_trades dedup makes overlap with
+		// in-flight frames a no-op. Best-effort scan: an error is logged
+		// loudly and recon's TradesChecker still flags the residual gap
+		// (fail-closed detection, never silent). Injection runs inline —
+		// not in a background goroutine — so the read-model heal below
+		// completes before the out-ring drain starts and can re-project
+		// with no live fill ops in flight.
+		inj, err := recoverJournaledFills(sweepCtx, pool,
+			walDirsForShard(shardMap, sh), sh, q, log)
+		if err != nil {
+			log.Error("settlement: journaled-fill recovery scan failed — "+
+				"recon TradesChecker covers the gap", "shard", sh, "err", err)
+		} else if len(inj) > 0 {
+			log.Warn("settlement: recovered journaled fills into settlement queue",
+				"shard", sh, "fills", len(inj))
+			recoveredTradeIDs = append(recoveredTradeIDs, inj...)
+		}
+	}
+	// Wait for injected fills to commit, then re-project the orders read
+	// model from the tape. A recovered fill has no read-model op — the
+	// frame that carried it was lost — so without this heal every
+	// recovered trade leaves orders.filled_qty permanently behind.
+	// Strictly before the out-ring drain starts: with no live ops in
+	// flight the set-based re-projection cannot double-count a pending
+	// applyFill.
+	if len(recoveredTradeIDs) > 0 {
+		got, werr := waitRecoveredSettlements(sweepCtx, pool, recoveredTradeIDs)
+		switch {
+		case werr != nil:
+			log.Error("settlement: recovery commit wait interrupted — "+
+				"residual fills surface via recon TradesChecker",
+				"committed", got, "injected", len(recoveredTradeIDs), "err", werr)
+		case got < len(recoveredTradeIDs):
+			log.Error("settlement: recovered fills still uncommitted after "+
+				"wait budget — residual fills surface via recon TradesChecker",
+				"committed", got, "injected", len(recoveredTradeIDs))
+		}
+	}
+	if healed, herr := healSettledAheadOrders(sweepCtx, pool); herr != nil {
+		log.Error("settlement: read-model heal failed — orders lagging "+
+			"committed legs stay stale until next restart", "err", herr)
+	} else if healed > 0 {
+		log.Warn("settlement: re-projected orders whose committed tape "+
+			"outran the read model", "orders", healed)
+	}
+	// WAL order index — replayed once, shared by the dead-letter
+	// scan and the unjournaled-order replay below.
+	journaled, walResting, ierr := reconciliation.ReplayOrderIndex(
+		sweepCtx, reconciliationWalDirs(shardMap))
+	if ierr != nil {
+		log.Error("settlement: wal order replay failed — "+
+			"dead-letter scan + order replay skipped this boot", "err", ierr)
+	} else {
+		// Dead-letter resting orders whose PG rows are gone — they
+		// remain live on the engine's book but can never resolve
+		// downstream, so any fill they take becomes an unresolvable
+		// poison frame. Recording them lets recon count the gap once
+		// instead of re-halting forever.
+		if _, derr := recoverDeadOrders(sweepCtx, pool,
+			journaled, walResting, log); derr != nil {
+			log.Error("settlement: dead-order scan failed — "+
+				"recon keeps halting on unresolvable resting orders", "err", derr)
+		}
+		// Replay admitted-but-never-journaled orders through the live
+		// submit path — PG-resting rows the engine never saw (in-ring
+		// loss after REST persist) ride the exact OrderNew wire frame
+		// onto their shard's book. Still before the out-ring drain:
+		// replayed fills ride the normal pipeline.
+		if sent, failed, rerr := orderSvc.RecoverUnjournaledOrders(
+			sweepCtx, journaled, log); rerr != nil {
+			log.Error("settlement: unjournaled-order replay failed — "+
+				"recon keeps halting on pg_vs_wal order gaps", "err", rerr)
+		} else if sent > 0 || failed > 0 {
+			log.Warn("settlement: unjournaled orders replayed to engine",
+				"sent", sent, "failed", failed)
+		}
+		// Orders journaled+resting but stuck PENDING/RESERVED in PG —
+		// the MarkActive op was lost with its frame. Engine truth is
+		// the journal, so the status re-projects straight to ACTIVE.
+		if healedP, herr := healPendingRestedOrders(sweepCtx, pool,
+			walResting); herr != nil {
+			log.Error("settlement: pending-order heal failed — "+
+				"journaled resting orders stay PENDING until next boot",
+				"err", herr)
+		} else if healedP > 0 {
+			log.Warn("settlement: re-activated orders journaled resting "+
+				"but stuck PENDING", "orders", healedP)
+		}
 	}
 	// Per-shard consumer counters → /metrics. RepubDropped is the
 	// dead-letter signal: a nonzero value means committed fills could
@@ -2418,298 +2537,321 @@ func run() error {
 	// read model; without it pending confirms only time out. The fill
 	// hook is the order_filled emitter (Task 12.3.5) — order→account→user
 	// resolution then Notify, best-effort, panic-guarded by the consumer.
-	go orders.NewConsumer(orderSubmitter, orderStore, orderSvc.Pending()).
-		WithFrameTap(func(sh uint16, p []byte) {
-			// Copy: the drain buffer is reused by the consumer loop.
-			// Blocking send is the backpressure contract — a settlement
-			// queue >16K frames deep means settlement has halted and the
-			// read-model drain stalls rather than silently dropping fills.
-			// The settlement push runs before the opportunistic SOR mirror
-			// decode below: a decode panic there is recovered by
-			// fireFrameTap and must never starve the settlement leg.
-			if q := settleQueues[sh]; q != nil {
+	// It runs on its own drainCtx so the shutdown sequence can stop the
+	// ring drain before settlement: frames committed by Ring.Poll are
+	// always handed to settleQueues while a consumer is still pumping
+	// (ring_drain → settle_drain → sweepStop, below).
+	drainCtx, drainStop := context.WithCancel(context.Background())
+	defer drainStop()
+	drainDone := make(chan struct{})
+	go func() {
+		defer close(drainDone)
+		orders.NewConsumer(orderSubmitter, orderStore, orderSvc.Pending()).
+			WithFrameTap(func(sh uint16, p []byte) {
+				// Copy: the drain buffer is reused by the consumer loop.
+				// The send is unconditional: Ring.Poll already committed the
+				// tail cursor before this tap runs, so a frame skipped here is
+				// lost forever — the read-model op below would still apply,
+				// leaving orders FILLED with no settled trade leg (spec §2.7
+				// zero-loss). A blocking send is also the backpressure
+				// contract — a settlement queue >16K frames deep means
+				// settlement has halted and the drain stalls rather than
+				// silently dropping fills. Shutdown stays safe because the
+				// drain is cancelled before settlement (ring_drain →
+				// settle_drain order), so the queue is always being consumed
+				// while this tap can run.
+				// The settlement push runs before the opportunistic SOR mirror
+				// decode below: a decode panic there is recovered by
+				// fireFrameTap and must never starve the settlement leg.
+				var cp []byte
+				if q := settleQueues[sh]; q != nil {
+					cp = append([]byte(nil), p...)
+					q <- cp
+				}
+				// Mirror raw frames into the public-market-data feed
+				// (WireTradeSource decodes TradeFill here; its admission
+				// index is fed from the _in side by dispatchMirror since the
+				// engine never echoes OrderNew on _out). Drop-on-full:
+				// lagging WS consumers must never stall the order path.
+				// Reuse the settlement copy when the tap just made one —
+				// every consumer treats the payload as read-only; p itself
+				// aliases the reused drain buffer and must never be sent.
+				if cp == nil {
+					cp = append([]byte(nil), p...)
+				}
 				select {
-				case q <- append([]byte(nil), p...):
-				case <-sweepCtx.Done():
+				case l2RawCh <- cp:
+				default:
 				}
-			}
-			// Mirror raw frames into the public-market-data feed
-			// (WireTradeSource decodes TradeFill here; its admission
-			// index is fed from the _in side by dispatchMirror since the
-			// engine never echoes OrderNew on _out). Drop-on-full:
-			// lagging WS consumers must never stall the order path.
-			select {
-			case l2RawCh <- append([]byte(nil), p...):
-			default:
-			}
-			// Phase-3 Task 4 — feed the SOR book view from the same sole
-			// reader (decode is allocation-cheap and infallible here:
-			// unresolvable/non-snapshot frames return false). The engine
-			// echoes the 64B EXCTRACE block verbatim on frames answering
-			// a traced command (Task 9.3.11); strip it first — the raw
-			// prefix decodes as a bogus FlatBuffers uoffset and panics.
-			body, _, _ := tracing.StripAeronTrace(p)
-			switch ev := ipc.DecodeEvent(body); {
-			case ev != nil && ev.TypeType() == wire.EventTypeBookSnapshot &&
-				sorBookCache != nil:
-				if d, ok := marketdata.DecodeBookDeltaFrame(body, sorResolver); ok {
-					bids := make([]sor.Level, len(d.Bids))
-					for i, lv := range d.Bids {
-						bids[i] = sor.Level{Price: lv.Price, Qty: lv.Qty, Count: lv.Count}
-					}
-					asks := make([]sor.Level, len(d.Asks))
-					for i, lv := range d.Asks {
-						asks[i] = sor.Level{Price: lv.Price, Qty: lv.Qty, Count: lv.Count}
-					}
-					sorBookCache.Observe(d.Symbol, bids, asks)
-					if gc := l2Fanout.Load(); gc != nil {
-						gc.Push(d)
-					}
-					select {
-					case l2DeltaCh <- d:
-					default:
-					}
-					// Bridge-role republish: BookSnapshot → analytics
-					// (marketdata's JetStreamDeltaSource + ch-etl tick
-					// capture). Raw frame, bridge subject/msgID contract.
-					repubQ.enqueue(sh, "s", ev.Seq(),
-						nats.SymbolToken(d.Symbol), p,
-						bridge.StreamsForEvent(ev.TypeType())...)
-				}
-			case ev != nil && ev.TypeType() == wire.EventTypeOrderCancel:
-				// Engine terminal notices route to the order-lifecycle
-				// streams per the bridge table (expiry/reject surfaces
-				// as OrderCancel on _out — the only place it exists).
-				var t flatbuffers.Table
-				if ev.Type(&t) {
-					oc := &wire.OrderCancel{}
-					oc.Init(t.Bytes, t.Pos)
-					tok := bridge.UnknownSymbol
-					if s, ok := orderSyms.Get(oc.OrderId()); ok {
-						tok = s
-					}
-					repubQ.enqueue(sh, "s", ev.Seq(), tok, p,
-						bridge.StreamsForEvent(ev.TypeType())...)
-				}
-			}
-		}).
-		WithFillHook(func(orderID int64, px, qty decimal.Decimal) {
-			ctx := context.Background()
-			// Phase-16 composite/auction lifecycle: bracket parent fills
-			// place proportional SL/TP OCO children; order-list fills
-			// activate pending legs; auction fills emit order.auction_fill.
-			orderSvc.OnFill(ctx, orderID, px, qty)
-			// Task 16.3.19: grid children observe their own fills through
-			// this same consumer path — a non-grid order ID resolves to
-			// no grid_bot_orders row and returns immediately. Errors are
-			// logged, never mask the read-model drain.
-			if err := gridEngine.OnFill(ctx, orderID, px, qty); err != nil {
-				log.Warn("grid fill hook failed", "order_id", orderID, "err", err)
-			}
-			o, oerr := orderStore.GetOrder(ctx, orderID)
-			if oerr != nil || o == nil {
-				return
-			}
-			// Phase-19: every engine fill feeds the mark placeholder —
-			// the last-trade price IS the mark until Phase-19.5's oracle
-			// takes over the same seam.
-			if inst, ierr := orderStore.InstrumentByID(ctx, o.InstrumentID); ierr == nil && inst != nil {
-				markProv.Observe(inst.Symbol, px, time.Now())
-				// Publish the mark delta (SET mark:{symbol} + PUBLISH)
-				// — the margin engine's RedisMarkSource consumes it.
-				// Best-effort: a publish failure must not stall the
-				// read-model drain; the 2s scanner remains authoritative.
-				if err := markCache.PublishMarkDelta(ctx, inst.Symbol, px, time.Now()); err != nil {
-					log.Warn("mark delta publish", "symbol", inst.Symbol, "err", err)
-				}
-			}
-			// Phase-19 liquidation fills reconcile through RecordFill:
-			// liq-{position_id}-{ms} direct closes, auc-{auction_id}-{ms}
-			// auction legs, auc-fc-{auction_id}-{ms} force-cash legs.
-			// The position's side inverts the close order's side.
-			// ADL force-close fills reconcile against their directive:
-			// adl-{adl_seq} — the store's CompleteADLFill resolves the
-			// counterparty position and writes both event rows atomically.
-			// The liquidated-side context isn't persisted on the
-			// directive (migration 230) — LiquidatedAccountID=0 skips the
-			// supplementary event; the liquidated side already carries
-			// its own liquidation_events rows from the original close.
-			if adlStore != nil {
-				if seq, isADL := parseADLClientID(o.ClientOrderID); isADL {
-					mark := decimal.Zero
-					if inst, ierr := orderStore.InstrumentByID(ctx, o.InstrumentID); ierr == nil && inst != nil {
-						if m, merr := markProv.GetMarkPrice(inst.Symbol); merr == nil {
-							mark = m
+				// Phase-3 Task 4 — feed the SOR book view from the same sole
+				// reader (decode is allocation-cheap and infallible here:
+				// unresolvable/non-snapshot frames return false). The engine
+				// echoes the 64B EXCTRACE block verbatim on frames answering
+				// a traced command (Task 9.3.11); strip it first — the raw
+				// prefix decodes as a bogus FlatBuffers uoffset and panics.
+				body, _, _ := tracing.StripAeronTrace(p)
+				switch ev := ipc.DecodeEvent(body); {
+				case ev != nil && ev.TypeType() == wire.EventTypeBookSnapshot &&
+					sorBookCache != nil:
+					if d, ok := marketdata.DecodeBookDeltaFrame(body, sorResolver); ok {
+						bids := make([]sor.Level, len(d.Bids))
+						for i, lv := range d.Bids {
+							bids[i] = sor.Level{Price: lv.Price, Qty: lv.Qty, Count: lv.Count}
 						}
+						asks := make([]sor.Level, len(d.Asks))
+						for i, lv := range d.Asks {
+							asks[i] = sor.Level{Price: lv.Price, Qty: lv.Qty, Count: lv.Count}
+						}
+						sorBookCache.Observe(d.Symbol, bids, asks)
+						if gc := l2Fanout.Load(); gc != nil {
+							gc.Push(d)
+						}
+						select {
+						case l2DeltaCh <- d:
+						default:
+						}
+						// Bridge-role republish: BookSnapshot → analytics
+						// (marketdata's JetStreamDeltaSource + ch-etl tick
+						// capture). Raw frame, bridge subject/msgID contract.
+						repubQ.enqueue(sh, "s", ev.Seq(),
+							nats.SymbolToken(d.Symbol), p,
+							bridge.StreamsForEvent(ev.TypeType())...)
 					}
-					if _, err := adlStore.CompleteADLFill(ctx, risk.ADLFillReport{
-						AdlSeq: seq, FilledQty: qty, FillPrice: px, MarkPrice: mark,
-					}); err != nil {
-						log.Error("adl fill reconcile failed — ops reconcile required",
-							"order_id", orderID, "client_order_id", o.ClientOrderID, "err", err)
+				case ev != nil && ev.TypeType() == wire.EventTypeOrderCancel:
+					// Engine terminal notices route to the order-lifecycle
+					// streams per the bridge table (expiry/reject surfaces
+					// as OrderCancel on _out — the only place it exists).
+					var t flatbuffers.Table
+					if ev.Type(&t) {
+						oc := &wire.OrderCancel{}
+						oc.Init(t.Bytes, t.Pos)
+						tok := bridge.UnknownSymbol
+						if s, ok := orderSyms.Get(oc.OrderId()); ok {
+							tok = s
+						}
+						repubQ.enqueue(sh, "s", ev.Seq(), tok, p,
+							bridge.StreamsForEvent(ev.TypeType())...)
 					}
 				}
-			}
-			if liqSvc != nil && liqStore != nil {
-				posID, auctionID, isAuction, isFC, isLiq := parseLiquidationClientID(o.ClientOrderID)
-				if isLiq {
-					mark := decimal.Zero
-					if inst, ierr := orderStore.InstrumentByID(ctx, o.InstrumentID); ierr == nil && inst != nil {
-						if m, merr := markProv.GetMarkPrice(inst.Symbol); merr == nil {
-							mark = m
-						}
+			}).
+			WithFillHook(func(orderID int64, px, qty decimal.Decimal) {
+				ctx := context.Background()
+				// Phase-16 composite/auction lifecycle: bracket parent fills
+				// place proportional SL/TP OCO children; order-list fills
+				// activate pending legs; auction fills emit order.auction_fill.
+				orderSvc.OnFill(ctx, orderID, px, qty)
+				// Task 16.3.19: grid children observe their own fills through
+				// this same consumer path — a non-grid order ID resolves to
+				// no grid_bot_orders row and returns immediately. Errors are
+				// logged, never mask the read-model drain.
+				if err := gridEngine.OnFill(ctx, orderID, px, qty); err != nil {
+					log.Warn("grid fill hook failed", "order_id", orderID, "err", err)
+				}
+				o, oerr := orderStore.GetOrder(ctx, orderID)
+				if oerr != nil || o == nil {
+					return
+				}
+				// Phase-19: every engine fill feeds the mark placeholder —
+				// the last-trade price IS the mark until Phase-19.5's oracle
+				// takes over the same seam.
+				if inst, ierr := orderStore.InstrumentByID(ctx, o.InstrumentID); ierr == nil && inst != nil {
+					markProv.Observe(inst.Symbol, px, time.Now())
+					// Publish the mark delta (SET mark:{symbol} + PUBLISH)
+					// — the margin engine's RedisMarkSource consumes it.
+					// Best-effort: a publish failure must not stall the
+					// read-model drain; the 2s scanner remains authoritative.
+					if err := markCache.PublishMarkDelta(ctx, inst.Symbol, px, time.Now()); err != nil {
+						log.Warn("mark delta publish", "symbol", inst.Symbol, "err", err)
 					}
-					if isAuction && auctionID > 0 {
-						if row, rerr := liqStore.AuctionByID(ctx, auctionID); rerr == nil && row != nil {
-							posID = row.PositionID
+				}
+				// Phase-19 liquidation fills reconcile through RecordFill:
+				// liq-{position_id}-{ms} direct closes, auc-{auction_id}-{ms}
+				// auction legs, auc-fc-{auction_id}-{ms} force-cash legs.
+				// The position's side inverts the close order's side.
+				// ADL force-close fills reconcile against their directive:
+				// adl-{adl_seq} — the store's CompleteADLFill resolves the
+				// counterparty position and writes both event rows atomically.
+				// The liquidated-side context isn't persisted on the
+				// directive (migration 230) — LiquidatedAccountID=0 skips the
+				// supplementary event; the liquidated side already carries
+				// its own liquidation_events rows from the original close.
+				if adlStore != nil {
+					if seq, isADL := parseADLClientID(o.ClientOrderID); isADL {
+						mark := decimal.Zero
+						if inst, ierr := orderStore.InstrumentByID(ctx, o.InstrumentID); ierr == nil && inst != nil {
+							if m, merr := markProv.GetMarkPrice(inst.Symbol); merr == nil {
+								mark = m
+							}
 						}
-					}
-					if posID > 0 {
-						side := "LONG"
-						if o.Side == "BUY" {
-							side = "SHORT"
-						}
-						f := risk.LiquidationFill{
-							PositionID: posID, AccountID: o.AccountID,
-							InstrumentID: o.InstrumentID, Side: side,
-							Qty: qty, Price: px, MarkPrice: mark,
-							IsAuction: isAuction, IsForceCash: isFC,
-						}
-						if isAuction {
-							f.AuctionID = &auctionID
-						}
-						if err := liqSvc.RecordFill(ctx, f); err != nil {
-							log.Error("liquidation fill reconcile failed — ops reconcile required",
+						if _, err := adlStore.CompleteADLFill(ctx, risk.ADLFillReport{
+							AdlSeq: seq, FilledQty: qty, FillPrice: px, MarkPrice: mark,
+						}); err != nil {
+							log.Error("adl fill reconcile failed — ops reconcile required",
 								"order_id", orderID, "client_order_id", o.ClientOrderID, "err", err)
-						} else if natsClient != nil {
-							// Phase-3 Task 5 — produce the margin-events
-							// record the liquidations@/auctions@ feeds
-							// consume (subject margin-events.{shard}.{SYM-BOL},
-							// JSON type=liquidation; is_auction selects the
-							// auctions@ projection downstream).
-							if linst, lerr := orderStore.InstrumentByID(ctx,
-								o.InstrumentID); lerr == nil && linst != nil {
-								ev, _ := json.Marshal(struct {
-									Type      string `json:"type"`
-									Side      string `json:"side"`
-									OrderType string `json:"order_type"`
-									Price     string `json:"price"`
-									Qty       string `json:"qty"`
-									IsAuction bool   `json:"is_auction"`
-									TsMs      int64  `json:"ts_ms"`
-								}{"liquidation", o.Side, "MARKET",
-									px.String(), qty.String(),
-									isAuction || isFC, time.Now().UnixMilli()})
-								if _, perr := natsClient.Publish(ctx,
-									"margin-events", uint32(liqShard(o)),
-									strings.ReplaceAll(linst.Symbol, "/", "-"),
-									ev); perr != nil {
-									log.Warn("margin-events publish",
-										"order_id", orderID, "err", perr)
+						}
+					}
+				}
+				if liqSvc != nil && liqStore != nil {
+					posID, auctionID, isAuction, isFC, isLiq := parseLiquidationClientID(o.ClientOrderID)
+					if isLiq {
+						mark := decimal.Zero
+						if inst, ierr := orderStore.InstrumentByID(ctx, o.InstrumentID); ierr == nil && inst != nil {
+							if m, merr := markProv.GetMarkPrice(inst.Symbol); merr == nil {
+								mark = m
+							}
+						}
+						if isAuction && auctionID > 0 {
+							if row, rerr := liqStore.AuctionByID(ctx, auctionID); rerr == nil && row != nil {
+								posID = row.PositionID
+							}
+						}
+						if posID > 0 {
+							side := "LONG"
+							if o.Side == "BUY" {
+								side = "SHORT"
+							}
+							f := risk.LiquidationFill{
+								PositionID: posID, AccountID: o.AccountID,
+								InstrumentID: o.InstrumentID, Side: side,
+								Qty: qty, Price: px, MarkPrice: mark,
+								IsAuction: isAuction, IsForceCash: isFC,
+							}
+							if isAuction {
+								f.AuctionID = &auctionID
+							}
+							if err := liqSvc.RecordFill(ctx, f); err != nil {
+								log.Error("liquidation fill reconcile failed — ops reconcile required",
+									"order_id", orderID, "client_order_id", o.ClientOrderID, "err", err)
+							} else if natsClient != nil {
+								// Phase-3 Task 5 — produce the margin-events
+								// record the liquidations@/auctions@ feeds
+								// consume (subject margin-events.{shard}.{SYM-BOL},
+								// JSON type=liquidation; is_auction selects the
+								// auctions@ projection downstream).
+								if linst, lerr := orderStore.InstrumentByID(ctx,
+									o.InstrumentID); lerr == nil && linst != nil {
+									ev, _ := json.Marshal(struct {
+										Type      string `json:"type"`
+										Side      string `json:"side"`
+										OrderType string `json:"order_type"`
+										Price     string `json:"price"`
+										Qty       string `json:"qty"`
+										IsAuction bool   `json:"is_auction"`
+										TsMs      int64  `json:"ts_ms"`
+									}{"liquidation", o.Side, "MARKET",
+										px.String(), qty.String(),
+										isAuction || isFC, time.Now().UnixMilli()})
+									if _, perr := natsClient.Publish(ctx,
+										"margin-events", uint32(liqShard(o)),
+										strings.ReplaceAll(linst.Symbol, "/", "-"),
+										ev); perr != nil {
+										log.Warn("margin-events publish",
+											"order_id", orderID, "err", perr)
+									}
 								}
 							}
 						}
 					}
 				}
-			}
-			// Task 19.3.10: every fill consumes the order's bilateral
-			// credit reservation pro-rata (quote-ccy notional → USD).
-			// No reservation row = no-op, so ordinary flow is untouched;
-			// engine-reserved matches reconcile here.
-			if bilatSvc != nil {
+				// Task 19.3.10: every fill consumes the order's bilateral
+				// credit reservation pro-rata (quote-ccy notional → USD).
+				// No reservation row = no-op, so ordinary flow is untouched;
+				// engine-reserved matches reconcile here.
+				if bilatSvc != nil {
+					if inst, ierr := orderStore.InstrumentByID(ctx, o.InstrumentID); ierr == nil && inst != nil {
+						if err := bilatSvc.ConsumeFill(ctx, o.ID, inst.QuoteCurrency, px.Mul(qty)); err != nil {
+							log.Warn("bilateral credit consume", "order_id", orderID, "err", err)
+						}
+					}
+				}
+				// Phase-13 circuit-breaker feeds: last-trade price →
+				// INSTRUMENT move window + MARKET_WIDE aggregate; fill
+				// notional → VOLUME_SPIKE minute buckets. Routed through the
+				// Phase-14 auto-halt layer, which forwards to the canonical
+				// breaker detectors and performs the P1 page + user
+				// notification + audit duties on fresh suspensions.
+				// Best-effort: a feed error is logged inside the service,
+				// never masks the fill notification path.
 				if inst, ierr := orderStore.InstrumentByID(ctx, o.InstrumentID); ierr == nil && inst != nil {
-					if err := bilatSvc.ConsumeFill(ctx, o.ID, inst.QuoteCurrency, px.Mul(qty)); err != nil {
-						log.Warn("bilateral credit consume", "order_id", orderID, "err", err)
+					autoHaltSvc.ObservePrice(ctx, inst.Symbol, px)
+					autoHaltSvc.ObserveTrade(ctx, inst.Symbol, px.Mul(qty))
+					// Task 13.3.6: the fill counts in the account's OTR
+					// trades window (denominator); an under-limit verdict
+					// re-evaluates the breach flag.
+					otrMon.Fill(ctx, o.AccountID, "", inst.Symbol)
+					// Phase-18 Task 18.3.10: quote-sourced fills (mq:*
+					// client_order_id attribution from the FIX mass-quote
+					// path) count in the MMP sliding window and accrue the
+					// maker rebate. Both degrade to no-ops when no ACTIVE
+					// program covers the account/instrument; errors log,
+					// never mask the read-model drain.
+					if strings.HasPrefix(o.ClientOrderID, "mq:") {
+						if _, err := mmTracker.OnFill(ctx, o.AccountID, o.InstrumentID); err != nil {
+							log.Warn("mmp fill hook failed",
+								"order_id", orderID, "err", err)
+						}
+						if _, err := mmSvc.AccrueRebate(ctx, o.AccountID, o.InstrumentID,
+							fmt.Sprintf("fill:%d:%s:%s", o.ID, px.String(), qty.String()),
+							qty, px); err != nil {
+							log.Warn("mm rebate accrual failed",
+								"order_id", orderID, "err", err)
+						}
 					}
 				}
+				// Task 13.3.4: republish the account's live P&L plus the
+				// mark-update fanout to other holders of the instrument.
+				if pnlSvc != nil {
+					pnlSvc.OnTrade(ctx, o.AccountID, o.InstrumentID)
+				}
+				var userID int64
+				if err := pool.QueryRow(ctx,
+					`SELECT user_id FROM accounts WHERE id = $1`, o.AccountID).Scan(&userID); err != nil {
+					return
+				}
+				_, _ = notifSvc.Notify(ctx, userID, notifications.EventOrderFilled, map[string]any{
+					"order_id":      o.ID,
+					"instrument_id": o.InstrumentID,
+					"side":          o.Side,
+					"price":         px.String(),
+					"quantity":      qty.String(),
+				})
+				// Phase-3 Task 5: fill converts the PB reservation into
+				// realized utilization (pro-rata per fill).
+				if err := pbCreditSvc.OnFill(context.Background(),
+					orderID); err != nil {
+					log.Warn("pb credit consume", "order_id", orderID, "err", err)
+				}
+			}).WithGSLOHook(func(orderID int64, px, qty decimal.Decimal) {
+			// Task 16.3.16: GSLO gap absorption — a fill worse than the
+			// guaranteed stop compensates the client from the insurance
+			// fund. Errors log, never mask the read-model drain.
+			if err := gsloSvc.OnFill(context.Background(), orderID, px, qty); err != nil {
+				log.Warn("gslo gap hook failed", "order_id", orderID, "err", err)
 			}
-			// Phase-13 circuit-breaker feeds: last-trade price →
-			// INSTRUMENT move window + MARKET_WIDE aggregate; fill
-			// notional → VOLUME_SPIKE minute buckets. Routed through the
-			// Phase-14 auto-halt layer, which forwards to the canonical
-			// breaker detectors and performs the P1 page + user
-			// notification + audit duties on fresh suspensions.
-			// Best-effort: a feed error is logged inside the service,
-			// never masks the fill notification path.
-			if inst, ierr := orderStore.InstrumentByID(ctx, o.InstrumentID); ierr == nil && inst != nil {
-				autoHaltSvc.ObservePrice(ctx, inst.Symbol, px)
-				autoHaltSvc.ObserveTrade(ctx, inst.Symbol, px.Mul(qty))
-				// Task 13.3.6: the fill counts in the account's OTR
-				// trades window (denominator); an under-limit verdict
-				// re-evaluates the breach flag.
-				otrMon.Fill(ctx, o.AccountID, "", inst.Symbol)
-				// Phase-18 Task 18.3.10: quote-sourced fills (mq:*
-				// client_order_id attribution from the FIX mass-quote
-				// path) count in the MMP sliding window and accrue the
-				// maker rebate. Both degrade to no-ops when no ACTIVE
-				// program covers the account/instrument; errors log,
-				// never mask the read-model drain.
-				if strings.HasPrefix(o.ClientOrderID, "mq:") {
-					if _, err := mmTracker.OnFill(ctx, o.AccountID, o.InstrumentID); err != nil {
-						log.Warn("mmp fill hook failed",
-							"order_id", orderID, "err", err)
-					}
-					if _, err := mmSvc.AccrueRebate(ctx, o.AccountID, o.InstrumentID,
-						fmt.Sprintf("fill:%d:%s:%s", o.ID, px.String(), qty.String()),
-						qty, px); err != nil {
-						log.Warn("mm rebate accrual failed",
-							"order_id", orderID, "err", err)
-					}
+		}).WithCancelHook(func(orderID int64, reason uint8) {
+			// Phase-16 composite/auction lifecycle: bracket parent cancels
+			// cascade to children; list leg cancels advance the list;
+			// engine-cancelled MOO/MOC emit order.cancelled; an engine
+			// expiry (GTD/DAY or the R8 90-day cap) emits order.expired /
+			// GTD_EXPIRED.
+			orderSvc.OnCancel(context.Background(), orderID, reason)
+			// Phase-3 Task 5: engine-initiated cancel/expiry returns the
+			// order's PB reservation (idempotent — no row means no-op).
+			if pbCreditSvc != nil {
+				if err := pbCreditSvc.ReleaseHeadroom(context.Background(),
+					orderID); err != nil {
+					log.Warn("pb credit release", "order_id", orderID, "err", err)
 				}
 			}
-			// Task 13.3.4: republish the account's live P&L plus the
-			// mark-update fanout to other holders of the instrument.
-			if pnlSvc != nil {
-				pnlSvc.OnTrade(ctx, o.AccountID, o.InstrumentID)
+			// Task 19.3.10: cancel/reject releases the order's bilateral
+			// credit reservation (idempotent — no row means no-op).
+			if bilatSvc != nil {
+				if err := bilatSvc.ReleaseOrder(context.Background(), orderID); err != nil {
+					log.Warn("bilateral credit release", "order_id", orderID, "err", err)
+				}
 			}
-			var userID int64
-			if err := pool.QueryRow(ctx,
-				`SELECT user_id FROM accounts WHERE id = $1`, o.AccountID).Scan(&userID); err != nil {
-				return
-			}
-			_, _ = notifSvc.Notify(ctx, userID, notifications.EventOrderFilled, map[string]any{
-				"order_id":      o.ID,
-				"instrument_id": o.InstrumentID,
-				"side":          o.Side,
-				"price":         px.String(),
-				"quantity":      qty.String(),
-			})
-			// Phase-3 Task 5: fill converts the PB reservation into
-			// realized utilization (pro-rata per fill).
-			if err := pbCreditSvc.OnFill(context.Background(),
-				orderID); err != nil {
-				log.Warn("pb credit consume", "order_id", orderID, "err", err)
-			}
-		}).WithGSLOHook(func(orderID int64, px, qty decimal.Decimal) {
-		// Task 16.3.16: GSLO gap absorption — a fill worse than the
-		// guaranteed stop compensates the client from the insurance
-		// fund. Errors log, never mask the read-model drain.
-		if err := gsloSvc.OnFill(context.Background(), orderID, px, qty); err != nil {
-			log.Warn("gslo gap hook failed", "order_id", orderID, "err", err)
-		}
-	}).WithCancelHook(func(orderID int64, reason uint8) {
-		// Phase-16 composite/auction lifecycle: bracket parent cancels
-		// cascade to children; list leg cancels advance the list;
-		// engine-cancelled MOO/MOC emit order.cancelled; an engine
-		// expiry (GTD/DAY or the R8 90-day cap) emits order.expired /
-		// GTD_EXPIRED.
-		orderSvc.OnCancel(context.Background(), orderID, reason)
-		// Phase-3 Task 5: engine-initiated cancel/expiry returns the
-		// order's PB reservation (idempotent — no row means no-op).
-		if pbCreditSvc != nil {
-			if err := pbCreditSvc.ReleaseHeadroom(context.Background(),
-				orderID); err != nil {
-				log.Warn("pb credit release", "order_id", orderID, "err", err)
-			}
-		}
-		// Task 19.3.10: cancel/reject releases the order's bilateral
-		// credit reservation (idempotent — no row means no-op).
-		if bilatSvc != nil {
-			if err := bilatSvc.ReleaseOrder(context.Background(), orderID); err != nil {
-				log.Warn("bilateral credit release", "order_id", orderID, "err", err)
-			}
-		}
-	}).WithTracer(tracer).Run(sweepCtx, shardIDs(shardMap))
+		}).WithTracer(tracer).Run(drainCtx, shardIDs(shardMap))
+	}()
 
 	// accounts.OrderDispatcher ← orders.Service (dead-man sweeper,
 	// Task 5.3.33, and close-all, Task 5.3.36, share it). The dispatcher
@@ -7173,8 +7315,54 @@ func run() error {
 				return nil
 			}},
 			{Name: "http_drain", Timeout: 30 * time.Second, Fn: srv.Shutdown},
+			// Task 9.3.23 extension — ordered pipeline drain (spec §2.7
+			// zero-loss): stop the out-ring drain FIRST. Its tap hands
+			// every polled frame to settleQueues unconditionally; while
+			// it runs the settlement consumers must stay alive. Then let
+			// the FillConsumers pump the queues empty before sweepStop
+			// cancels their ctx — each also flushes its pending batch on
+			// ctx-done and the commit worker runs WithoutCancel.
+			{Name: "ring_drain", Timeout: 15 * time.Second, Fn: func(c context.Context) error {
+				drainStop()
+				select {
+				case <-drainDone:
+					return nil
+				case <-c.Done():
+					return c.Err()
+				}
+			}},
+			{Name: "settle_drain", Timeout: 60 * time.Second, Fn: func(c context.Context) error {
+				for {
+					empty := true
+					for _, q := range settleQueues {
+						if len(q) > 0 {
+							empty = false
+							break
+						}
+					}
+					if empty {
+						return nil
+					}
+					select {
+					case <-c.Done():
+						return c.Err()
+					case <-time.After(20 * time.Millisecond):
+					}
+				}
+			}},
 		})
 		sweepStop()
+		// Last leg of the ordered drain: each FillConsumer flushes its
+		// pending batch into the commit worker on ctx-done and Run's
+		// deferred close waits for the worker (WithoutCancel commits) —
+		// give the goroutines a bounded window to finish before exit.
+		fcDone := make(chan struct{})
+		go func() { fcWG.Wait(); close(fcDone) }()
+		select {
+		case <-fcDone:
+		case <-time.After(30 * time.Second):
+			log.Warn("settlement drain timed out — exiting with commits in flight")
+		}
 		return err
 	case err := <-serveErr:
 		return err
@@ -7306,9 +7494,9 @@ func (q repubQueue) enqueue(shard uint16, scope string, seq uint64,
 // idles the drain — frames drop at publish time, counted on the second
 // power-of-two edge to keep the log quiet.
 func (q repubQueue) run(ctx context.Context, nc *nats.Client, log *slog.Logger) {
-	var pub jetstreamFillPublisher
+	pub := &jetstreamFillPublisher{}
 	if nc != nil {
-		pub = jetstreamFillPublisher{js: nc.JetStream()}
+		pub.js = nc.JetStream()
 	}
 	var dropped atomic.Uint64
 	for {
@@ -7433,15 +7621,78 @@ func (m *dispatchMirror) Channel(shard uint16) (*ipc.Channel, error) {
 
 // jetstreamFillPublisher adapts the JetStream context to the
 // settlement.TradeRepublisher seam — publishes with Nats-Msg-Id dedup,
-// the bridge.Publisher contract for TradeFill fan-out.
-type jetstreamFillPublisher struct{ js jetstream.JetStream }
+// the bridge.Publisher contract for TradeFill fan-out. It also
+// implements settlement.AsyncTradeRepublisher: PublishEventAsync
+// pipelines onto PublishAsync and FlushEvents collects every
+// outstanding PubAckFuture — per-fill republish stays synchronous
+// semantically (commit → all acks → next batch) without paying two
+// publish RTTs per fill.
+type jetstreamFillPublisher struct {
+	js      jetstream.JetStream
+	pending []jetstream.PubAckFuture
+}
 
-func (p jetstreamFillPublisher) PublishEvent(ctx context.Context, subject, msgID string, payload []byte) error {
+func (p *jetstreamFillPublisher) PublishEvent(ctx context.Context, subject, msgID string, payload []byte) error {
 	if p.js == nil {
 		return fmt.Errorf("jetstream fill publisher: nil context")
 	}
 	_, err := p.js.Publish(ctx, subject, payload, jetstream.WithMsgID(msgID))
 	return err
+}
+
+func (p *jetstreamFillPublisher) PublishEventAsync(subject, msgID string, payload []byte) error {
+	if p.js == nil {
+		return fmt.Errorf("jetstream fill publisher: nil context")
+	}
+	f, err := p.js.PublishAsync(subject, payload, jetstream.WithMsgID(msgID))
+	if err != nil {
+		return err
+	}
+	p.pending = append(p.pending, f)
+	return nil
+}
+
+func (p *jetstreamFillPublisher) FlushEvents(ctx context.Context) error {
+	// Bounded in-flight: waiting for EVERY outstanding ack each batch
+	// would serialize the fill consumer on the slowest ack RTT per
+	// flush. Block only while more than repubInFlightCap acks are
+	// outstanding — PubAckFutures resolve in publish order on the
+	// single NATS connection, so draining oldest-first preserves the
+	// commit→publish ordering while a slow ack surfaces as real
+	// backlog rather than a per-batch latency tax.
+	const repubInFlightCap = 512
+	var first error
+	// Reap already-resolved acks non-blockingly so failures surface on
+	// the first flush after they land rather than only under backlog.
+	for len(p.pending) > 0 {
+		f := p.pending[0]
+		select {
+		case <-f.Ok():
+			p.pending = p.pending[1:]
+		case err := <-f.Err():
+			if first == nil {
+				first = err
+			}
+			p.pending = p.pending[1:]
+		default:
+			goto reaped
+		}
+	}
+reaped:
+	for len(p.pending) > repubInFlightCap {
+		f := p.pending[0]
+		p.pending = p.pending[1:]
+		select {
+		case <-f.Ok():
+		case err := <-f.Err():
+			if first == nil {
+				first = err
+			}
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return first
 }
 
 // pnlPublisherFunc adapts a closure to risk.PnlPublisher — the ws hub

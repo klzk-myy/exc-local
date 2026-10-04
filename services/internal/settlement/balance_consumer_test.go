@@ -12,6 +12,8 @@ import (
 	"time"
 
 	flatbuffers "github.com/google/flatbuffers/go"
+
+	excerrors "exchange/pkg/errors"
 )
 
 // recordingRepublisher captures every PublishEvent call; commitBefore
@@ -303,6 +305,134 @@ func TestConsumerRepublishBacklog(t *testing.T) {
 		if n != 1 {
 			t.Fatalf("%s published %d times", k, n)
 		}
+	}
+}
+
+// chanSource adapts a buffered channel of frames to FillSource — the
+// same shape the gateway wires over settleQueues.
+func chanSource(q chan []byte) FuncSource {
+	return FuncSource(func(limit int, deliver func([]byte)) int {
+		n := 0
+		for n < limit {
+			select {
+			case p := <-q:
+				deliver(p)
+				n++
+			default:
+				return n
+			}
+		}
+		return n
+	})
+}
+
+// TestConsumerShutdownDrainsQueuedFills — cancellation with frames still
+// queued must drain and commit them, not abandon the tail. Regression:
+// the frame tap stops before the consumer ctx is cancelled (ring_drain
+// → settle_drain → sweepStop), but the queue can still hold frames the
+// pump hasn't reached — a bare ctx.Err() exit strands them (read-model
+// FILLED, no settled leg).
+func TestConsumerShutdownDrainsQueuedFills(t *testing.T) {
+	store := newFakeStore()
+	svc := newBalanceServiceForTest(store, &fakeLocker{}, &fakeDispatcher{}, &fakeManagedPoster{}, &fakeAlerter{})
+	m := map[uint64]ResolvedTrade{}
+	for _, id := range []uint64{50, 51, 52} {
+		rt := resolvedRM(id, 1, 2)
+		rt.Symbol = "EUR/USD"
+		m[id] = rt
+	}
+	q := make(chan []byte, 8)
+	for i, id := range []uint64{50, 51, 52} {
+		fb := flatbuffers.NewBuilder(256)
+		q <- encodeFill(fb, uint64(100+i), id, 101, 202, 125000000, 10000_00000000)
+	}
+	c, err := NewFillConsumer(svc, &fakeResolver{m: m}, chanSource(q), 0, 100, time.Millisecond)
+	if err != nil {
+		t.Fatalf("consumer: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // frames still in the queue when the consumer ctx dies
+	if err := c.Run(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run err=%v, want context.Canceled", err)
+	}
+	if store.committed() == 0 {
+		t.Fatal("queued fills must drain to a commit on shutdown")
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	for _, id := range []int64{50, 51, 52} {
+		if _, ok := store.processed[id]; !ok {
+			t.Fatalf("trade %d not committed on shutdown drain", id)
+		}
+	}
+}
+
+// gatedResolver blocks inside Resolve until released — it honours ctx
+// cancellation like the real PG resolver, so a mid-resolve cancel is
+// observable.
+type gatedResolver struct {
+	m       map[uint64]ResolvedTrade
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (r *gatedResolver) Resolve(ctx context.Context, f EngineFill) (ResolvedTrade, error) {
+	select {
+	case r.entered <- struct{}{}:
+	default:
+	}
+	select {
+	case <-r.release:
+	case <-ctx.Done():
+		return ResolvedTrade{}, ctx.Err()
+	}
+	if err := ctx.Err(); err != nil {
+		return ResolvedTrade{}, err
+	}
+	rt, ok := r.m[f.TradeID]
+	if !ok {
+		return ResolvedTrade{}, excerrors.New(CodeTradeFillUnresolvable, "unknown trade")
+	}
+	rt.Fill = f
+	return rt, nil
+}
+
+// TestConsumerShutdownCompletesInFlightFill — a fill pumped but still
+// resolving when ctx is cancelled must resolve to completion (on the
+// WithoutCancel commit context) and commit. Regression: resolving on the
+// caller ctx stranded the whole pump window — orders FILLED, legs lost.
+func TestConsumerShutdownCompletesInFlightFill(t *testing.T) {
+	store := newFakeStore()
+	svc := newBalanceServiceForTest(store, &fakeLocker{}, &fakeDispatcher{}, &fakeManagedPoster{}, &fakeAlerter{})
+	rt := resolvedRM(60, 1, 2)
+	rt.Symbol = "EUR/USD"
+	resolver := &gatedResolver{
+		m:       map[uint64]ResolvedTrade{60: rt},
+		entered: make(chan struct{}, 1),
+		release: make(chan struct{}),
+	}
+	fb := flatbuffers.NewBuilder(256)
+	q := make(chan []byte, 4)
+	q <- encodeFill(fb, 200, 60, 101, 202, 125000000, 10000_00000000)
+	c, err := NewFillConsumer(svc, resolver, chanSource(q), 0, 1, time.Millisecond)
+	if err != nil {
+		t.Fatalf("consumer: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- c.Run(ctx) }()
+	<-resolver.entered // Resolve is in flight
+	cancel()
+	close(resolver.release)
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run err=%v, want context.Canceled", err)
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if _, ok := store.processed[60]; !ok {
+		t.Fatal("in-flight fill dropped on cancel — must resolve and commit")
 	}
 }
 

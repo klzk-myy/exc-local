@@ -126,7 +126,7 @@ func (s *Service) SubmitBracket(ctx context.Context, acct *Account,
 	}); err != nil {
 		return nil, err
 	}
-	if err := s.checkBalance(ctx, acct, inst, p, ref); err != nil {
+	if err := s.checkBalance(ctx, acct, inst, p, ref, nil); err != nil {
 		return nil, err
 	}
 
