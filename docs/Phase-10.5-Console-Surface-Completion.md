@@ -32,7 +32,7 @@ Non-goals: new backend business logic (existing routes only); the `/api/v1/test/
 
 **Objective:** Single control surface for every fail-safe lever — kill switch, circuit breaker, feature flags, IP bans/allowlist, maintenance windows, mass cancel, manual liquidation.
 
-**File Locations:** `frontend/src/features/admin-ops/` (`routes.ts`, `nav.ts`, `OpsSafetyPage.tsx`, panels).
+**File Locations:** `frontend/src/features/admin-ops/` (`routes.ts`, `nav.ts`, `OpsSafetyPage.tsx`, panels). ✅ Implemented 2026-10 — route `admin/ops-safety`.
 
 **Implementation:**
 1. Kill-switch board — `GET/POST /api/v1/admin/kill-switch`, `POST …/reset`; shows active suspensions (`trading_suspensions`-backed state) with scope (global/instrument/account-class) and dual-control badge.
@@ -44,12 +44,12 @@ Non-goals: new backend business logic (existing routes only); the `/api/v1/test/
 7. All actions land in the admin audit log; every panel renders honest-empty when the backend list is empty.
 
 **DoD (Acceptance Criteria):**
-* [ ] Kill switch, CB tiers, flags, IP bans/allowlist, maintenance windows operable with dual-control UX
-* [ ] Mass-cancel/manual-liquidation/fix-session/cache-warm reachable only with required role + typed confirmation
-* [ ] Audit-log row observable after each action
+* [x] Kill switch, CB tiers, flags, IP bans/allowlist, maintenance windows operable with dual-control UX
+* [x] Mass-cancel/manual-liquidation/fix-session/cache-warm reachable only with required role + typed confirmation
+* [x] Audit-log row observable after each action (server-side audit write; surfaced via the Task 10.3.6 AuditLogPanel)
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: all safety levers reachable, dual-controlled, audit-written — defined first, validated against spec
+- [x] Spec checkpoint: all safety levers reachable, dual-controlled, audit-written — defined first, validated against spec
 
 ---
 
