@@ -14,8 +14,15 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiClient } from '@/app/runtime';
-import type { ApiClient } from '@/lib/api';
-import { fetchReleases, promoteRelease, type Release } from '@/lib/admin/api';
+import { ApiError, type ApiClient } from '@/lib/api';
+import {
+  fetchReleases,
+  parseGates,
+  promoteRelease,
+  registerRelease,
+  type GateResult,
+  type Release,
+} from '@/lib/admin/api';
 import {
   EnvSwitcher,
   EnvWatermark,
@@ -28,10 +35,12 @@ import {
   btnGhost,
   btnPrimary,
   cardCls,
+  hintTextCls,
   inputCls,
   labelCls,
   tableCls,
   tdCls,
+  textareaCls,
   thCls,
   ErrorBox,
   Modal,
@@ -104,12 +113,172 @@ function PromoteModal({
   );
 }
 
+/** Evaluated §19.16.3 gate list — rendered verbatim on both the
+ * EXECUTED and the BLOCKED/FORBIDDEN path so operators see exactly
+ * which interlock fired (deploy window, open incidents, DR standby…). */
+function GateList({ gates }: { gates: GateResult[] }) {
+  if (gates.length === 0) return null;
+  return (
+    <ul className="mb-2 space-y-0.5 text-xs" data-testid="gate-list">
+      {gates.map((g) => (
+        <li key={g.name} className={g.passed ? 'text-emerald-400' : 'text-red-400'}>
+          {g.passed ? '✓' : '✗'} {g.name}
+          {g.detail !== undefined && g.detail !== '' && (
+            <span className="text-neutral-500"> — {g.detail}</span>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function RegisterReleaseForm({
+  adminApi,
+  onRegistered,
+}: {
+  adminApi: BoundAdminApi;
+  onRegistered: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [component, setComponent] = useState('');
+  const [version, setVersion] = useState('');
+  const [artifactHash, setArtifactHash] = useState('');
+  const [gateEvidence, setGateEvidence] = useState('');
+  const [notes, setNotes] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      let evidence: unknown;
+      if (gateEvidence.trim() !== '') {
+        try {
+          evidence = JSON.parse(gateEvidence) as unknown;
+        } catch {
+          setError(new Error('gate_evidence must be valid JSON'));
+          setBusy(false);
+          return;
+        }
+      }
+      await registerRelease(adminApi, {
+        component: component.trim(),
+        version: version.trim(),
+        artifactHash: artifactHash.trim(),
+        gateEvidence: evidence,
+        notes: notes.trim() === '' ? undefined : notes.trim(),
+      });
+      setComponent('');
+      setVersion('');
+      setArtifactHash('');
+      setGateEvidence('');
+      setNotes('');
+      onRegistered();
+    } catch (e) {
+      setError(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <button type="button" className={btnGhost} onClick={() => setOpen(true)}>
+        Register release…
+      </button>
+    );
+  }
+  const valid = component.trim() !== '' && version.trim() !== '' && artifactHash.trim() !== '';
+  return (
+    <div className="mb-3 rounded border border-neutral-700 p-3" data-testid="register-release">
+      <div className="grid gap-2 sm:grid-cols-3">
+        <div>
+          <label className={labelCls} htmlFor="rr-component">
+            Component
+          </label>
+          <input
+            id="rr-component"
+            className={inputCls}
+            value={component}
+            placeholder="gateway"
+            onChange={(e) => setComponent(e.target.value)}
+          />
+        </div>
+        <div>
+          <label className={labelCls} htmlFor="rr-version">
+            Version
+          </label>
+          <input
+            id="rr-version"
+            className={inputCls}
+            value={version}
+            placeholder="1.4.3"
+            onChange={(e) => setVersion(e.target.value)}
+          />
+        </div>
+        <div>
+          <label className={labelCls} htmlFor="rr-hash">
+            Artifact hash
+          </label>
+          <input
+            id="rr-hash"
+            className={inputCls}
+            value={artifactHash}
+            placeholder="sha256…"
+            onChange={(e) => setArtifactHash(e.target.value)}
+          />
+        </div>
+      </div>
+      <div className="mt-2">
+        <label className={labelCls} htmlFor="rr-evidence">
+          Gate evidence (JSON, optional)
+        </label>
+        <textarea
+          id="rr-evidence"
+          className={textareaCls}
+          value={gateEvidence}
+          placeholder='{"soak":{"status":"PASS","age_h":24}}'
+          onChange={(e) => setGateEvidence(e.target.value)}
+        />
+      </div>
+      <div className="mt-2">
+        <label className={labelCls} htmlFor="rr-notes">
+          Notes (optional)
+        </label>
+        <input
+          id="rr-notes"
+          className={inputCls}
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+        />
+      </div>
+      <ErrorBox error={error} onDismiss={() => setError(null)} />
+      <div className="mt-2 flex gap-2">
+        <button
+          type="button"
+          className={btnPrimary}
+          disabled={busy || !valid}
+          onClick={() => void submit()}
+        >
+          {busy ? 'Registering…' : 'Register release'}
+        </button>
+        <button type="button" className={btnGhost} onClick={() => setOpen(false)}>
+          Close
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function ReleasesTable({ adminApi, role }: { adminApi: BoundAdminApi; role: string | null }) {
   const qc = useQueryClient();
   const [promoting, setPromoting] = useState<Release | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [resultGates, setResultGates] = useState<GateResult[]>([]);
+  const [blockedGates, setBlockedGates] = useState<GateResult[]>([]);
 
   const query = useQuery({
     queryKey: ['ops', 'releases', adminApi.env],
@@ -129,12 +298,21 @@ function ReleasesTable({ adminApi, role }: { adminApi: BoundAdminApi; role: stri
     setBusy(true);
     setError(null);
     setNotice(null);
+    setResultGates([]);
+    setBlockedGates([]);
     try {
-      await promoteRelease(adminApi, release.id, { toEnv, reason, approverId });
-      setNotice(`Promote requested for ${release.component} ${release.version} → ${toEnv}`);
+      const res = await promoteRelease(adminApi, release.id, { toEnv, reason, approverId });
+      setNotice(
+        `Promote ${res.status} for ${release.component} ${release.version} → ${toEnv}` +
+          (res.promotionId !== undefined ? ` (promotion #${res.promotionId})` : ''),
+      );
+      setResultGates(res.gates);
       setPromoting(null);
       await qc.invalidateQueries({ queryKey: ['ops', 'releases'] });
     } catch (e) {
+      // A blocked attempt returns FORBIDDEN with details.gates — the
+      // §19.16.3 evaluation snapshot. Render it verbatim under the error.
+      if (e instanceof ApiError) setBlockedGates(parseGates(e.details?.['gates']));
       setError(e);
     } finally {
       setBusy(false);
@@ -149,10 +327,23 @@ function ReleasesTable({ adminApi, role }: { adminApi: BoundAdminApi; role: stri
       )}
       {query.error !== null && !isAccessDenied(query.error) && <ErrorBox error={query.error} />}
       <ErrorBox error={error} onDismiss={() => setError(null)} />
+      {blockedGates.length > 0 && (
+        <div className="mb-2">
+          <p className={hintTextCls}>Promotion blocked — evaluated gates:</p>
+          <GateList gates={blockedGates} />
+        </div>
+      )}
       {notice !== null && (
         <p className="mb-2 text-xs text-emerald-400" role="status">
           {notice}
         </p>
+      )}
+      <GateList gates={resultGates} />
+      {canPromote && (
+        <RegisterReleaseForm
+          adminApi={adminApi}
+          onRegistered={() => void qc.invalidateQueries({ queryKey: ['ops', 'releases'] })}
+        />
       )}
       {query.error === null && (
         <table className={tableCls}>

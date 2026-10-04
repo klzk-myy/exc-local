@@ -853,16 +853,76 @@ export async function fetchReleases(
   return out;
 }
 
+/** POST /api/v1/admin/releases — register an artifact; dev releases
+ * land DEPLOYED (dev auto-deploys, §19.16.3). */
+export async function registerRelease(
+  api: BoundAdminApi,
+  input: {
+    component: string;
+    version: string;
+    artifactHash: string;
+    gateEvidence?: unknown;
+    notes?: string;
+  },
+): Promise<Release> {
+  const raw = await api.post<unknown>('/admin/releases', {
+    component: input.component,
+    version: input.version,
+    artifact_hash: input.artifactHash,
+    gate_evidence: input.gateEvidence,
+    notes: input.notes,
+  });
+  const rel = isRecord(raw) ? parseRelease(raw['release']) : null;
+  if (rel === null) throw malformed('release create');
+  return rel;
+}
+
+/** One evaluated §19.16.3 promotion gate (server: fleet.GateResult). */
+export interface GateResult {
+  name: string;
+  passed: boolean;
+  detail?: string;
+}
+
+/** Parse a gates array — arrives both in the 200 {promotion, gates}
+ * body and inside error.details.gates on a FORBIDDEN/BLOCKED attempt. */
+export function parseGates(v: unknown): GateResult[] {
+  if (!Array.isArray(v)) return [];
+  const out: GateResult[] = [];
+  for (const g of v) {
+    if (!isRecord(g)) continue;
+    const name = str(g['name']);
+    if (name === undefined) continue;
+    out.push({ name, passed: g['passed'] === true, detail: str(g['detail']) });
+  }
+  return out;
+}
+
+export interface PromoteResult {
+  promotionId?: number;
+  status: string;
+  gates: GateResult[];
+}
+
 /** POST /api/v1/admin/releases/{id}/promote — {to_env, reason,
- * approver_id}; prod promotes are dual-control + §19.16.3 gated. */
+ * approver_id}; prod promotes are dual-control + §19.16.3 gated.
+ * Returns the evaluated gate list verbatim — the UI renders it
+ * whether the promotion EXECUTED or the request came back BLOCKED. */
 export async function promoteRelease(
   api: BoundAdminApi,
   releaseId: number,
   input: { toEnv: string; reason?: string; approverId?: number },
-): Promise<unknown> {
-  return api.post<unknown>(`/admin/releases/${releaseId}/promote`, {
+): Promise<PromoteResult> {
+  const raw = await api.post<unknown>(`/admin/releases/${releaseId}/promote`, {
     to_env: input.toEnv,
     reason: input.reason,
     approver_id: input.approverId,
   });
+  if (!isRecord(raw)) throw malformed('promotion response');
+  const promo = isRecord(raw['promotion']) ? raw['promotion'] : {};
+  return {
+    promotionId: num(promo['id']),
+    status: str(promo['status']) ?? 'PENDING',
+    gates: parseGates(raw['gates']),
+  };
 }

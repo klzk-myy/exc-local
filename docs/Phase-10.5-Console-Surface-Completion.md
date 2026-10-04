@@ -63,10 +63,10 @@ Non-goals: new backend business logic (existing routes only); the `/api/v1/test/
 3. Env-guard carried over unchanged (Task 10.3.20): staging context never calls prod.
 
 **DoD:**
-* [ ] Host cordon/drain/decommission + release promote callable from UI with dual-control + env guard
+* [x] Host cordon/drain/decommission + release promote callable from UI with dual-control + env guard (host actions pre-existed Task 10.3.20; this task added lifecycle state preview, release registration, and verbatim §19.16.3 gate-evidence rendering on both EXECUTED and FORBIDDEN/BLOCKED paths)
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: fleet mutations reach backend through context-bound client — defined first, validated against spec
+- [x] Spec checkpoint: fleet mutations reach backend through context-bound client — defined first, validated against spec
 
 ---
 

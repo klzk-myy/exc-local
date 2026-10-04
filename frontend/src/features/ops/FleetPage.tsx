@@ -49,6 +49,15 @@ import { isAccessDenied, useAdminRole } from '@/features/admin/adminRole';
 const HOST_ACTIONS = ['drain', 'cordon', 'decommission'] as const;
 type HostAction = (typeof HOST_ACTIONS)[number];
 
+/** §19.16.2 lifecycle preview shown in the confirm modal — drain:
+ * ACTIVE→DRAINING, cordon: →MAINTENANCE, decommission: →DECOMMISSIONED
+ * (terminal). */
+const ACTION_PREVIEW: Record<HostAction, string> = {
+  drain: 'ACTIVE → DRAINING — new work stops landing; the host drains then idles for maintenance.',
+  cordon: '→ MAINTENANCE — the host is fenced off for service; reactivate returns it to ACTIVE.',
+  decommission: '→ DECOMMISSIONED — terminal. The host leaves the fleet inventory permanently.',
+};
+
 function HostActionModal({
   host,
   action,
@@ -81,6 +90,9 @@ function HostActionModal({
           {action} is a dual-controlled fleet action
           {prod ? ' — production requires a distinct approver id' : ''}. The server enforces the
           interlock; this form only collects the evidence it needs.
+        </p>
+        <p className="mb-3 text-sm text-amber-300" data-testid="action-preview">
+          Resulting state: {ACTION_PREVIEW[action]}
         </p>
         <label className={labelCls} htmlFor="ha-reason">
           Reason (required)

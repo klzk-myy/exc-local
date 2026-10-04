@@ -171,6 +171,20 @@ describe('FleetPage', () => {
       reason: 'maintenance window',
     });
   });
+
+  it('previews the resulting lifecycle state in the action modal', async () => {
+    signInForTests({ roles: ['Super Admin'] });
+    installFetchMock({
+      'GET /api/v1/admin/fleet/hosts': { body: HOSTS },
+      'GET /api/v1/admin/fleet/topology': { body: TOPOLOGY },
+    });
+    renderApp(<FleetPage />);
+    await waitFor(() => expect(screen.getByText('dev-matcher-0')).toBeInTheDocument());
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'decommission' }));
+    expect(screen.getByTestId('action-preview')).toHaveTextContent('DECOMMISSIONED');
+    expect(screen.getByTestId('action-preview')).toHaveTextContent(/terminal/i);
+  });
 });
 
 describe('ReleasesPage', () => {
@@ -188,11 +202,111 @@ describe('ReleasesPage', () => {
     await user.click(screen.getByRole('button', { name: '→ staging' }));
     await user.type(screen.getByLabelText('Reason'), 'qa soak passed');
     await user.click(screen.getByRole('button', { name: 'Promote to staging' }));
-    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Promote requested'));
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Promote PENDING'));
     const post = calls.find((c) => c.method === 'POST');
     expect(JSON.parse(typeof post?.init?.body === 'string' ? post.init.body : '')).toMatchObject({
       to_env: 'staging',
     });
+  });
+
+  it('registers a release with component/version/hash + JSON gate evidence', async () => {
+    signInForTests({ roles: ['Super Admin'] });
+    const calls = installFetchMock({
+      'GET /api/v1/admin/releases': { body: RELEASES },
+      'POST /api/v1/admin/releases': {
+        status: 201,
+        body: {
+          release: {
+            id: 4,
+            component: 'gateway',
+            version: '1.5.0',
+            artifact_hash: 'deadbeef',
+            env: 'dev',
+            status: 'DEPLOYED',
+            created_by: 5,
+            created_at: '2026-01-02T00:00:00Z',
+            updated_at: '2026-01-02T00:00:00Z',
+          },
+        },
+      },
+    });
+    renderApp(<ReleasesPage />);
+    const user = userEvent.setup();
+    await waitFor(() => expect(screen.getByText('matcher')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: 'Register release…' }));
+    await user.type(screen.getByLabelText('Component'), 'gateway');
+    await user.type(screen.getByLabelText('Version'), '1.5.0');
+    await user.type(screen.getByLabelText('Artifact hash'), 'deadbeef');
+    await user.click(screen.getByLabelText(/Gate evidence/));
+    await user.paste('{"soak":{"status":"PASS"}}');
+    await user.click(screen.getByRole('button', { name: 'Register release' }));
+
+    await waitFor(() => {
+      const post = calls.find(
+        (c) => c.method === 'POST' && c.url.endsWith('/api/v1/admin/releases'),
+      );
+      expect(post).toBeDefined();
+      expect(JSON.parse(post?.init?.body as string)).toEqual({
+        component: 'gateway',
+        version: '1.5.0',
+        artifact_hash: 'deadbeef',
+        gate_evidence: { soak: { status: 'PASS' } },
+      });
+      expect(new Headers(post?.init?.headers).get('X-Admin-Env')).toBe('dev');
+    });
+  });
+
+  it('renders the evaluated gate list verbatim when a promote is blocked', async () => {
+    signInForTests({ roles: ['Super Admin'] });
+    installFetchMock({
+      'GET /api/v1/admin/releases': { body: RELEASES },
+      'POST /api/v1/admin/releases/3/promote': {
+        status: 403,
+        body: {
+          type: 'error',
+          error: 'FORBIDDEN',
+          message: 'promotion blocked by gates',
+          status: 403,
+          details: {
+            gates: [
+              { name: 'approval', passed: true, detail: 'approver verified' },
+              { name: 'deploy_window_open', passed: false, detail: 'no open window' },
+            ],
+          },
+        },
+      },
+    });
+    renderApp(<ReleasesPage />);
+    const user = userEvent.setup();
+    await waitFor(() => expect(screen.getByText('matcher')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: '→ staging' }));
+    await user.click(screen.getByRole('button', { name: 'Promote to staging' }));
+    await waitFor(() => expect(screen.getByTestId('gate-list')).toBeInTheDocument());
+    expect(screen.getByText(/deploy_window_open/)).toBeInTheDocument();
+    expect(screen.getByText(/no open window/)).toBeInTheDocument();
+    expect(screen.getByText(/promotion blocked by gates/)).toBeInTheDocument();
+  });
+
+  it('renders the gate list on a successful promote', async () => {
+    signInForTests({ roles: ['Super Admin'] });
+    installFetchMock({
+      'GET /api/v1/admin/releases': { body: RELEASES },
+      'POST /api/v1/admin/releases/3/promote': {
+        body: {
+          promotion: { id: 9, status: 'EXECUTED' },
+          gates: [{ name: 'approval', passed: true }],
+        },
+      },
+    });
+    renderApp(<ReleasesPage />);
+    const user = userEvent.setup();
+    await waitFor(() => expect(screen.getByText('matcher')).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: '→ staging' }));
+    await user.click(screen.getByRole('button', { name: 'Promote to staging' }));
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('EXECUTED'));
+    expect(screen.getByTestId('gate-list')).toHaveTextContent('approval');
   });
 
   it('hides promote controls from non-Super-Admin roles', async () => {
