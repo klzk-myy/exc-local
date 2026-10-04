@@ -119,7 +119,7 @@ export async function createTicket(
     subject: input.subject,
     body: input.body,
     priority: input.priority,
-    origin_channel: 'web',
+    origin_channel: 'PORTAL',
     urgency_justification: input.urgencyJustification,
     attachments: input.attachments,
   });

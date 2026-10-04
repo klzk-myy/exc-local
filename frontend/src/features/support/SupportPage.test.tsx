@@ -82,7 +82,7 @@ describe('SupportPage', () => {
         category: 'TECHNICAL',
         subject: 'Wire not credited',
         priority: 'NORMAL',
-        origin_channel: 'web',
+        origin_channel: 'PORTAL',
       });
     });
     expect(await screen.findByText('Your report')).toBeInTheDocument();
