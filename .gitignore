@@ -202,3 +202,13 @@ docs/incidents/drills/*/evidence/chaos/
 # DR drill per-leg workdirs (staged WAL copies, restored segments — bulk,
 # regenerable; reports + results.jsonl + small logs stay committed)
 docs/incidents/drills/*/evidence/d[0-9]*/
+
+# Agent-tooling scratch dirs and audit artifacts (not project source)
+/.gemini/
+/.impeccable/
+/.playwright-mcp/
+/.github/agents/
+/.github/hooks/
+/.github/skills/
+/snapshots.bak-*/
+/*.png
