@@ -167,8 +167,14 @@ func bootRegCluster(sweepCtx context.Context, pool *pgxpool.Pool,
 	if natsClient != nil {
 		execCons, errc := regreport.NewExecutionConsumer(regSvc)
 		if errc == nil {
-			if cons, cerr := natsClient.EnsureConsumer(context.Background(), "trades",
-				regreport.DurableTrades, nats.WithFilterSubject("trades.>")); cerr != nil {
+			// Bounded attach retry: streams were EnsureStreams'd upstream;
+			// the bound preserves fail-operational boot if the stream is
+			// permanently absent.
+			attachCtx, attachCancel := context.WithTimeout(context.Background(), 90*time.Second)
+			cons, cerr := natsClient.EnsureConsumerRetry(attachCtx, "trades",
+				regreport.DurableTrades, nats.WithFilterSubject("trades.>"))
+			attachCancel()
+			if cerr != nil {
 				log.Warn("regulatory trades consumer unavailable", "err", cerr)
 			} else {
 				go func() {
@@ -182,8 +188,11 @@ func bootRegCluster(sweepCtx context.Context, pool *pgxpool.Pool,
 		}
 		settleCons, errs := regreport.NewSettlementConsumer(regSvc)
 		if errs == nil {
-			if cons, cerr := natsClient.EnsureConsumer(context.Background(), "settlements",
-				regreport.DurableSettlements, nats.WithFilterSubject("settlements.>")); cerr != nil {
+			attachCtx, attachCancel := context.WithTimeout(context.Background(), 90*time.Second)
+			cons, cerr := natsClient.EnsureConsumerRetry(attachCtx, "settlements",
+				regreport.DurableSettlements, nats.WithFilterSubject("settlements.>"))
+			attachCancel()
+			if cerr != nil {
 				log.Warn("regulatory settlements consumer unavailable", "err", cerr)
 			} else {
 				go func() {

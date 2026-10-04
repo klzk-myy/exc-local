@@ -298,7 +298,7 @@ func JetStreamDeltaSource(nc *excnats.Client, stream, durable, filter string,
 		if filter != "" {
 			opts = append(opts, excnats.WithFilterSubject(filter))
 		}
-		cons, err := nc.EnsureConsumer(ctx, stream, durable, opts...)
+		cons, err := nc.EnsureConsumerRetry(ctx, stream, durable, opts...)
 		if err != nil {
 			return nil, fmt.Errorf("marketdata: jetstream consumer: %w", err)
 		}

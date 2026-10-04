@@ -25,7 +25,7 @@ import (
 //
 // Orchestrator binding:
 //
-//	cons, _ := natsClient.EnsureConsumer(ctx, "trades",
+//	cons, _ := natsClient.EnsureConsumerRetry(ctx, "trades",
 //	    "reporting_confirmations", excnats.WithFilterSubject("trades.>"))
 //	go consumer.Consume(ctx, cons)
 // ---------------------------------------------------------------------------

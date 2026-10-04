@@ -1098,9 +1098,15 @@ func run() error {
 	// read-model row. Durable consumer on settlements.*.sorfill —
 	// at-least-once, sor_fill_dedup already won upstream.
 	if natsClient != nil {
-		if cons, cerr := natsClient.EnsureConsumer(context.Background(), "settlements",
+		// Bounded retry: gateway EnsureStreams'd upstream, so a healthy
+		// stack attaches instantly; the bound keeps the old
+		// fail-operational fallback if the stream stays absent.
+		sorAttachCtx, sorAttachCancel := context.WithTimeout(context.Background(), 90*time.Second)
+		cons, cerr := natsClient.EnsureConsumerRetry(sorAttachCtx, "settlements",
 			"sor_fill_bridge",
-			nats.WithFilterSubject("settlements.*."+sor.FillBridgeSubjectToken)); cerr != nil {
+			nats.WithFilterSubject("settlements.*."+sor.FillBridgeSubjectToken))
+		sorAttachCancel()
+		if cerr != nil {
 			log.Warn("sor fill-bridge consumer unavailable", "err", cerr)
 		} else {
 			go func() {
@@ -1301,8 +1307,10 @@ func run() error {
 		if ferr != nil {
 			return fmt.Errorf("trades fanout: %w", ferr)
 		}
-		cons, cerr := natsClient.EnsureConsumer(context.Background(), "trades",
+		pammAttachCtx, pammAttachCancel := context.WithTimeout(context.Background(), 90*time.Second)
+		cons, cerr := natsClient.EnsureConsumerRetry(pammAttachCtx, "trades",
 			"pamm_copy_fanout", nats.WithFilterSubject("trades.>"))
+		pammAttachCancel()
 		if cerr != nil {
 			// Consumer provisioning failure degrades copying only —
 			// orders/settlement are unaffected (fail-operational, NATS
@@ -1336,8 +1344,10 @@ func run() error {
 	volTracker := algo.NewTradeVolumeTracker(time.Hour)
 	var volSrc algo.VolumeSource = algo.NewPgVolumeSource(pool)
 	if natsClient != nil {
-		volCons, verr := natsClient.EnsureConsumer(context.Background(),
+		volAttachCtx, volAttachCancel := context.WithTimeout(context.Background(), 90*time.Second)
+		volCons, verr := natsClient.EnsureConsumerRetry(volAttachCtx,
 			"trades", "algo_vp_volume", nats.WithFilterSubject("trades.>"))
+		volAttachCancel()
 		if verr != nil {
 			log.Warn("algo VP volume consumer unavailable — tape fallback",
 				"err", verr)
@@ -1879,18 +1889,23 @@ func run() error {
 		// generation writes durable PG rows before the ack).
 		if confConsumer, cerr := reporting.NewConfirmationConsumer(confEngine); cerr != nil {
 			log.Warn("confirmation consumer init failed", "err", cerr)
-		} else if cons, cerr := natsClient.EnsureConsumer(context.Background(), "trades",
-			"confirmations_delivery", nats.WithFilterSubject("trades.>")); cerr != nil {
-			log.Warn("confirmation consumer unavailable", "err", cerr)
 		} else {
-			go func() {
-				if cerr := confConsumer.Consume(sweepCtx, cons); cerr != nil &&
-					!errors.Is(cerr, context.Canceled) {
-					log.Error("confirmation consumer stopped", "err", cerr)
-				}
-			}()
-			log.Info("confirmation delivery consuming", "stream", "trades",
-				"durable", "confirmations_delivery")
+			confAttachCtx, confAttachCancel := context.WithTimeout(context.Background(), 90*time.Second)
+			cons, cerr := natsClient.EnsureConsumerRetry(confAttachCtx, "trades",
+				"confirmations_delivery", nats.WithFilterSubject("trades.>"))
+			confAttachCancel()
+			if cerr != nil {
+				log.Warn("confirmation consumer unavailable", "err", cerr)
+			} else {
+				go func() {
+					if cerr := confConsumer.Consume(sweepCtx, cons); cerr != nil &&
+						!errors.Is(cerr, context.Canceled) {
+						log.Error("confirmation consumer stopped", "err", cerr)
+					}
+				}()
+				log.Info("confirmation delivery consuming", "stream", "trades",
+					"durable", "confirmations_delivery")
+			}
 		}
 	}
 
@@ -1912,21 +1927,26 @@ func run() error {
 			analytics.NewPgTCAOrderSource(pool),
 			analytics.NewPgTCASymbolSource(pool)); terr != nil {
 			log.Warn("TCA consumer init failed", "err", terr)
-		} else if cons, cerr := natsClient.EnsureConsumer(context.Background(),
-			"trades", "tca_fills", nats.WithFilterSubject("trades.>")); cerr != nil {
-			log.Warn("TCA consumer unavailable", "err", cerr)
 		} else {
-			stop, serr := natsClient.Subscribe(cons, func(m jetstream.Msg) {
-				if err := tcaCons.HandleMsg(sweepCtx, m); err != nil {
-					log.Warn("TCA fill failed", "err", err)
-				}
-			})
-			if serr != nil {
-				log.Warn("TCA subscribe failed", "err", serr)
+			tcaAttachCtx, tcaAttachCancel := context.WithTimeout(context.Background(), 90*time.Second)
+			cons, cerr := natsClient.EnsureConsumerRetry(tcaAttachCtx,
+				"trades", "tca_fills", nats.WithFilterSubject("trades.>"))
+			tcaAttachCancel()
+			if cerr != nil {
+				log.Warn("TCA consumer unavailable", "err", cerr)
 			} else {
-				go func() { <-sweepCtx.Done(); stop() }()
-				log.Info("TCA fill consumer running", "stream", "trades",
-					"durable", "tca_fills")
+				stop, serr := natsClient.Subscribe(cons, func(m jetstream.Msg) {
+					if err := tcaCons.HandleMsg(sweepCtx, m); err != nil {
+						log.Warn("TCA fill failed", "err", err)
+					}
+				})
+				if serr != nil {
+					log.Warn("TCA subscribe failed", "err", serr)
+				} else {
+					go func() { <-sweepCtx.Done(); stop() }()
+					log.Info("TCA fill consumer running", "stream", "trades",
+						"durable", "tca_fills")
+				}
 			}
 		}
 		if j, jerr := analytics.NewRTS28SummaryJob(tcaReports,

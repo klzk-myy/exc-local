@@ -330,7 +330,7 @@ func JetStreamMsgSource(nc *excnats.Client, stream, durable, filter string,
 		if filter != "" {
 			opts = append(opts, excnats.WithFilterSubject(filter))
 		}
-		cons, err := nc.EnsureConsumer(ctx, stream, durable, opts...)
+		cons, err := nc.EnsureConsumerRetry(ctx, stream, durable, opts...)
 		if err != nil {
 			return nil, fmt.Errorf("marketdata: jetstream consumer: %w", err)
 		}
@@ -583,7 +583,7 @@ func (s *JetStreamTradeSource) decode(m RawMsg) (TradeEvent, bool) {
 	if !ok {
 		// Subject routing failed — fall back to the admission index
 		// before giving up (the index resolves via instrument map).
-		if t, takerID, makerID, side, ok2 := resolveFill(s.idx, 
+		if t, takerID, makerID, side, ok2 := resolveFill(s.idx,
 			tf.BuyOrderId(), tf.SellOrderId()); ok2 {
 			e.Symbol, e.TakerOrderID, e.MakerOrderID, e.TakerSide =
 				t, takerID, makerID, side
@@ -598,7 +598,7 @@ func (s *JetStreamTradeSource) decode(m RawMsg) (TradeEvent, bool) {
 	}
 	e.Symbol = sym
 	// Aggressor via admission index when available.
-	if _, takerID, makerID, side, ok2 := resolveFill(s.idx, 
+	if _, takerID, makerID, side, ok2 := resolveFill(s.idx,
 		tf.BuyOrderId(), tf.SellOrderId()); ok2 {
 		e.TakerOrderID, e.MakerOrderID, e.TakerSide = takerID, makerID, side
 	}

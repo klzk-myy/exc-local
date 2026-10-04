@@ -489,10 +489,10 @@ Non-goals: new backend business logic (existing routes only); the `/api/v1/test/
 2. Owner seam: NATS backbone = Phase-01 Task 1.3.11 / graceful degradation Phase-09; implemented in `internal/nats` shared helper — no per-service duplication.
 
 **DoD:**
-* [ ] Kill-order test: bring a consumer up before its stream exists → it attaches once the stream appears (no restart)
+* [x] Kill-order test: bring a consumer up before its stream exists → it attaches once the stream appears (no restart) — `EnsureConsumerRetry` shared helper in `internal/nats/consumer.go` (exponential 500ms→15s backoff until ctx cancel, Info→Warn escalation at 6 attempts, opportunistic canonical-stream re-ensure); 12 call sites switched (marketdata ×2 sources, analytics, compliance sar-signals, webhooks ingest, gateway ×5, boot_regreport ×2 — gateway sites bounded to 90s preserving fail-operational fallbacks); live `TestIntegrationEnsureConsumerRetryStreamLate` deletes `l3` mid-attach → self-heals on attempt 2 in 0.63s; `...CtxCancel` honours deadline
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: consumers self-heal across stream provisioning order — defined first, validated against spec
+- [x] Spec checkpoint: consumers self-heal across stream provisioning order — defined first, validated against spec
 
 ---
 

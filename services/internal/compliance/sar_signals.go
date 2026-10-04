@@ -99,7 +99,7 @@ func (j *SARSignalIngest) Run(ctx context.Context) error {
 	if _, err := j.nc.EnsureStream(ctx, j.stream); err != nil {
 		return err
 	}
-	cons, err := j.nc.EnsureConsumer(ctx, j.stream, j.durable,
+	cons, err := j.nc.EnsureConsumerRetry(ctx, j.stream, j.durable,
 		excnats.WithFilterSubject(j.subject))
 	if err != nil {
 		return err

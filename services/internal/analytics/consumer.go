@@ -154,7 +154,7 @@ func NewConsumer(nc *excnats.Client, ing *Ingester, opts ConsumerOptions, m *Ing
 // stream's full subject space — one consumer owns the whole stream
 // (work-queue semantics forbid overlapping filters anyway).
 func (c *Consumer) RunStream(ctx context.Context, stream, durable string) error {
-	cons, err := c.nats.EnsureConsumer(ctx, stream, durable,
+	cons, err := c.nats.EnsureConsumerRetry(ctx, stream, durable,
 		excnats.WithFilterSubject(stream+".>"))
 	if err != nil {
 		return err

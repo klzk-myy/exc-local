@@ -72,7 +72,7 @@ func (j *JetStreamIngest) Run(ctx context.Context) error {
 	if _, err := j.nc.EnsureStream(ctx, IngestStream); err != nil {
 		return err
 	}
-	cons, err := j.nc.EnsureConsumer(ctx, IngestStream, IngestDurable,
+	cons, err := j.nc.EnsureConsumerRetry(ctx, IngestStream, IngestDurable,
 		excnats.WithFilterSubject(IngestStream+".>"))
 	if err != nil {
 		return err

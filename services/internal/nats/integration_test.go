@@ -10,6 +10,7 @@ package nats
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -280,5 +281,60 @@ func TestIntegrationHealth(t *testing.T) {
 	for _, s := range rep.Streams {
 		fmt.Fprintf(os.Stderr, "  %-14s msgs=%-4d replicas=%d consumers=%d\n",
 			s.Name, s.Messages, s.Replicas, len(s.Consumers))
+	}
+}
+
+// TestIntegrationEnsureConsumerRetryStreamLate proves the boot-order
+// self-heal (Task 10.5.3.25): a consumer attaching while its stream is
+// absent must keep retrying and attach once the stream exists — no
+// process restart, no permanent goroutine loss. The retry path
+// opportunistically re-ensures canonical streams, so deleting a
+// canonical stream exercises exactly the observed race.
+func TestIntegrationEnsureConsumerRetryStreamLate(t *testing.T) {
+	c, ctx := natsTestClient(t)
+	if _, err := c.EnsureStreams(ctx); err != nil {
+		t.Fatalf("EnsureStreams: %v", err)
+	}
+
+	// Delete the "l3" stream so the durable has nothing to attach to.
+	if err := c.JetStream().DeleteStream(ctx, "l3"); err != nil {
+		t.Fatalf("DeleteStream l3: %v", err)
+	}
+	t.Cleanup(func() { _, _ = c.EnsureStream(context.Background(), "l3") })
+
+	durable := fmt.Sprintf("itest-retry-%d", time.Now().UnixNano())
+	done := make(chan error, 1)
+	go func() {
+		cons, err := c.EnsureConsumerRetry(ctx, "l3", durable,
+			WithFilterSubject("l3.>"))
+		if err == nil {
+			_, err = cons.Info(ctx)
+		}
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("EnsureConsumerRetry did not self-heal: %v", err)
+		}
+	case <-time.After(45 * time.Second):
+		t.Fatal("EnsureConsumerRetry did not attach within 45s of stream absence")
+	}
+}
+
+// TestIntegrationEnsureConsumerRetryCtxCancel proves the retry loop
+// honours cancellation — a never-attaching consumer (non-canonical
+// stream that nobody provisions) unwinds on ctx.Done, not on its own.
+func TestIntegrationEnsureConsumerRetryCtxCancel(t *testing.T) {
+	c, _ := natsTestClient(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	_, err := c.EnsureConsumerRetry(ctx, "itest-no-such-stream", "itest-retry-cancel")
+	if err == nil {
+		t.Fatal("expected ctx-cancel error, got attached consumer")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("want context.DeadlineExceeded, got %v", err)
 	}
 }
