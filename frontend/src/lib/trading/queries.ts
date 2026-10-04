@@ -5,6 +5,8 @@
  */
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 
+import { useSessionStore } from '@/lib/auth/session';
+
 import { scopeAccountId, useAccountScope } from './accountScope';
 import {
   fetchBalances,
@@ -29,6 +31,12 @@ export function useScopeKey(): string {
   return useAccountScope((s) => s.scopeKey);
 }
 
+/** Pages mount these hooks outside the RequireAuth gate — without a
+ * session the request can only 401, so stay idle until one exists. */
+export function useAuthed(): boolean {
+  return useSessionStore((s) => s.accessToken !== null);
+}
+
 export function useInstruments(): UseQueryResult<Instrument[]> {
   return useQuery({
     queryKey: ['instruments'],
@@ -44,25 +52,31 @@ export function useInstrument(symbol: string | undefined): Instrument | undefine
 
 export function useBalances(): UseQueryResult<Balance[]> {
   const scope = useScopeKey();
+  const authed = useAuthed();
   return useQuery({
     queryKey: ['balances', scope],
     queryFn: () => fetchBalances({ accountId: scopeAccountId(scope) }),
+    enabled: authed,
   });
 }
 
 export function usePositions(): UseQueryResult<Position[]> {
   const scope = useScopeKey();
+  const authed = useAuthed();
   return useQuery({
     queryKey: ['positions', scope],
     queryFn: () => fetchPositions({ accountId: scopeAccountId(scope) }),
+    enabled: authed,
     refetchInterval: 15_000, // WS private:positions overlays; REST reconciles
   });
 }
 
 export function useSubAccounts(): UseQueryResult<SubAccount[]> {
+  const authed = useAuthed();
   return useQuery({
     queryKey: ['sub-accounts'],
     queryFn: () => fetchSubAccounts(),
+    enabled: authed,
     retry: 1,
   });
 }
@@ -73,6 +87,7 @@ export function useOrders(filters: {
   limit?: number;
 }): UseQueryResult<{ orders: Order[]; nextCursor: string | null }> {
   const scope = useScopeKey();
+  const authed = useAuthed();
   return useQuery({
     queryKey: ['orders', scope, filters.symbol ?? '', filters.status ?? '', filters.limit ?? 100],
     queryFn: () =>
@@ -80,6 +95,7 @@ export function useOrders(filters: {
         { symbol: filters.symbol, status: filters.status, limit: filters.limit },
         { accountId: scopeAccountId(scope) },
       ),
+    enabled: authed,
     refetchInterval: 15_000,
   });
 }

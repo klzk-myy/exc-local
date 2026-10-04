@@ -44,7 +44,7 @@ function DownloadCard({
 }) {
   return (
     <div className={cardCls}>
-      <h3 className="text-sm font-semibold text-neutral-100">{title}</h3>
+      <h2 className="text-sm font-semibold text-neutral-100">{title}</h2>
       <p className="mt-1 text-xs text-neutral-500">{desc}</p>
       {children}
       <div className="mt-3 flex items-center gap-2">

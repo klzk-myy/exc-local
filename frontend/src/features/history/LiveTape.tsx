@@ -222,7 +222,7 @@ export function LiveTape() {
           Waiting for aggTrades@{sym ?? '…'} / liquidations@all events…
         </p>
       ) : (
-        <ul className="mt-1 max-h-64 overflow-y-auto font-mono text-xs" aria-label="Tape">
+        <ul className="mt-1 max-h-64 overflow-y-auto font-mono text-xs" aria-label="Tape" tabIndex={0}>
           {rows.map((r, i) => (
             <li key={`${r.seq}-${i}`} className="flex gap-3 border-b border-neutral-800/40 py-0.5">
               <span className="text-neutral-500">{r.kind}</span>

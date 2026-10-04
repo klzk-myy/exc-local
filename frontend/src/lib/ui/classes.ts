@@ -5,7 +5,7 @@
  * repeats a third time.
  */
 export const inputCls =
-  'w-full rounded border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-neutral-100 placeholder:text-neutral-600 focus:border-sky-600 focus:outline-none disabled:opacity-50';
+  'w-full min-w-0 rounded border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-neutral-100 placeholder:text-neutral-600 focus:border-sky-600 focus:outline-none disabled:opacity-50';
 
 export const selectCls = inputCls;
 
@@ -13,7 +13,7 @@ export const selectCls = inputCls;
  * w-full, tight padding. Appending `w-auto`/`py-0.5` to selectCls loses
  * the cascade against its baked-in `w-full`/`py-2`. */
 export const selectCompactCls =
-  'rounded border border-neutral-700 bg-neutral-950 px-2 py-0.5 text-xs text-neutral-100 focus:border-sky-600 focus:outline-none disabled:opacity-50';
+  'rounded border border-neutral-700 bg-neutral-950 px-2 py-1 text-xs text-neutral-100 focus:border-sky-600 focus:outline-none disabled:opacity-50';
 
 export const textareaCls = `${inputCls} min-h-28`;
 

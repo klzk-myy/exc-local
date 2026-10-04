@@ -59,15 +59,19 @@ export interface WorkspaceLayout {
 export const GRID_COLS = 12;
 export const ROW_H = 64;
 
-/** Binance spot-classic three-zone arrangement: book column left,
- * chart-over-ticket center, trades-over-depth right, blotter strip
- * along the bottom with balances beside it. */
+/** Binance spot-classic arrangement, mapped onto the 12-col grid:
+ * full-height order-book column left, chart-over-ticket center,
+ * full-height market-trades column right, and the orders/positions
+ * blotter strip along the bottom with balances beside it. Binance
+ * renders market depth as a chart-mode tab rather than a separate
+ * panel — our chart has no depth mode, so the depth panel ships
+ * hidden and is one "show panel…" pick away. */
 export const PRO_DEFAULT: Placements = {
   book: { x: 0, y: 0, w: 2, h: 20, visible: true },
-  chart: { x: 2, y: 0, w: 7, h: 12, visible: true },
-  order: { x: 2, y: 12, w: 7, h: 8, visible: true },
-  tape: { x: 9, y: 0, w: 3, h: 11, visible: true },
-  depth: { x: 9, y: 11, w: 3, h: 9, visible: true },
+  chart: { x: 2, y: 0, w: 7, h: 13, visible: true },
+  order: { x: 2, y: 13, w: 7, h: 7, visible: true },
+  tape: { x: 9, y: 0, w: 3, h: 20, visible: true },
+  depth: { x: 9, y: 13, w: 3, h: 7, visible: false },
   positions: { x: 0, y: 20, w: 9, h: 8, visible: true },
   balances: { x: 9, y: 20, w: 3, h: 8, visible: true },
 };
@@ -85,6 +89,13 @@ export const LITE_DEFAULT: Placements = {
 export function defaultPlacements(mode: UiMode): Placements {
   const src = mode === 'lite' ? LITE_DEFAULT : PRO_DEFAULT;
   return structuredClone(src);
+}
+
+/** Name of the shipped default per mode. 'def' is the canonical Pro
+ * default — it shows in the layout picker and is what loads with
+ * nothing saved; a stored layout of the same name overrides it. */
+export function builtinLayoutName(mode: UiMode): string {
+  return mode === 'lite' ? 'Lite default' : 'def';
 }
 
 // -- persistence ---------------------------------------------------------------
@@ -147,8 +158,14 @@ function writeStore(scopeKey: string, store: WorkspaceStoreShape, storage: Stora
   }
 }
 
-export function listLayouts(scopeKey: string, storage: Storage = localStorage): string[] {
-  return Object.keys(readStore(scopeKey, storage).layouts).sort();
+export function listLayouts(
+  scopeKey: string,
+  mode: UiMode,
+  storage: Storage = localStorage,
+): string[] {
+  const builtin = builtinLayoutName(mode);
+  const stored = Object.keys(readStore(scopeKey, storage).layouts).sort();
+  return [builtin, ...stored.filter((n) => n !== builtin)];
 }
 
 /** Load named layout; falls back to the mode default (never fabricates
@@ -163,7 +180,7 @@ export function loadLayout(
   const want = name ?? store.activeName;
   const stored = store.layouts[want];
   return {
-    name: stored ? want : `${mode === 'lite' ? 'Lite' : 'Pro'} default`,
+    name: stored ? want : builtinLayoutName(mode),
     mode,
     placements: stored ? mergeWithDefaults(stored, mode) : defaultPlacements(mode),
   };
@@ -188,6 +205,19 @@ export function saveLayout(
 ): void {
   const store = readStore(scopeKey, storage);
   store.layouts[name] = structuredClone(placements);
+  store.activeName = name;
+  writeStore(scopeKey, store, storage);
+}
+
+/** Mark a layout as the default for this scope — the name resolves
+ * through the normal chain (stored layout wins, otherwise the builtin
+ * of that name falls back to the mode default). */
+export function setActiveLayout(
+  scopeKey: string,
+  name: string,
+  storage: Storage = localStorage,
+): void {
+  const store = readStore(scopeKey, storage);
   store.activeName = name;
   writeStore(scopeKey, store, storage);
 }

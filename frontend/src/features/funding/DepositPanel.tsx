@@ -148,7 +148,7 @@ export default function DepositPanel() {
       </div>
 
       <div className={cardCls}>
-        <h3 className="mb-2 text-sm font-semibold">Pending deposits</h3>
+        <h2 className="mb-2 text-sm font-semibold">Pending deposits</h2>
         {(pending.data?.data ?? []).filter((r) => r.status === 'PENDING').length === 0 ? (
           <p className="text-sm text-neutral-400">No deposits awaiting settlement.</p>
         ) : (

@@ -66,6 +66,7 @@ export function SessionList() {
         <p className="text-sm text-neutral-500">No active sessions.</p>
       )}
       {sessions.data !== undefined && sessions.data.length > 0 && (
+        <div className="relative overflow-x-auto" tabIndex={0}>
         <table className={tableCls}>
           <thead>
             <tr>
@@ -73,7 +74,7 @@ export function SessionList() {
               <th className={thCls}>IP</th>
               <th className={thCls}>Location</th>
               <th className={thCls}>Last active</th>
-              <th className={thCls}></th>
+              <th className={thCls}><span className="sr-only">Actions</span></th>
             </tr>
           </thead>
           <tbody>
@@ -111,6 +112,7 @@ export function SessionList() {
             ))}
           </tbody>
         </table>
+        </div>
       )}
 
       <ConfirmModal

@@ -154,7 +154,7 @@ export default function DiscoveryPage({
         </span>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <section className={`${cardCls} lg:col-span-2`} aria-label="Instrument browser">
           <div className="mb-3 grid grid-cols-2 gap-2 md:grid-cols-4">
             <input
@@ -187,7 +187,7 @@ export default function DiscoveryPage({
             />
             <label className="flex items-center gap-2 text-xs text-neutral-400">
               <input
-                type="checkbox"
+                type="checkbox" className="h-6 w-6"
                 checked={sessionOnly}
                 onChange={(e) => setSessionOnly(e.target.checked)}
               />
@@ -196,17 +196,18 @@ export default function DiscoveryPage({
           </div>
           <label className="mb-2 flex items-center gap-2 text-xs text-neutral-400">
             <input
-              type="checkbox"
+              type="checkbox" className="h-6 w-6"
               checked={watchlistOnly}
               onChange={(e) => setWatchlistOnly(e.target.checked)}
             />
             Watchlist only
           </label>
           <ErrorBox error={instruments.error} />
+          <div className="relative overflow-x-auto" tabIndex={0}>
           <table className={tableCls}>
             <thead>
               <tr>
-                <th className={thCls}></th>
+                <th className={thCls}><span className="sr-only">Watchlist</span></th>
                 <th className={thCls}>Symbol</th>
                 <th className={thCls}>Type</th>
                 <th className={thCls}>Status</th>
@@ -222,7 +223,7 @@ export default function DiscoveryPage({
                     <button
                       type="button"
                       aria-label={`${watchlist.includes(i.symbol) ? 'Remove' : 'Add'} ${i.symbol} ${watchlist.includes(i.symbol) ? 'from' : 'to'} watchlist`}
-                      className="text-amber-400"
+                      className="inline-flex min-h-6 min-w-6 items-center justify-center text-amber-400"
                       onClick={() => watchlistStore.getState().toggle(accountId, i.symbol)}
                     >
                       {watchlist.includes(i.symbol) ? '★' : '☆'}
@@ -247,6 +248,7 @@ export default function DiscoveryPage({
               )}
             </tbody>
           </table>
+          </div>
         </section>
 
         <div className="space-y-4">

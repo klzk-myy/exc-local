@@ -6,7 +6,7 @@
  * the chart — TradingChart's useLwcChart deps already recreate the
  * canvas and resubscribe `kline@{symbol}_{interval}`.
  */
-import { lazy, useState } from 'react';
+import { lazy, useEffect, useRef, useState } from 'react';
 
 import {
   KLINE_INTERVAL_SET,
@@ -33,6 +33,21 @@ function loadInterval(): KlineInterval {
 
 export function ChartPanel({ symbol }: { symbol: string }) {
   const [interval, setInterval] = useState<KlineInterval>(loadInterval);
+  // Fill the panel box — the chart canvas measures its flex-1 slot
+  // rather than rendering a fixed-height strip inside the tile (the
+  // panel frame owns the outer height; h×ROW_H ≈ 830px for the default
+  // 13-row chart panel).
+  const boxRef = useRef<HTMLDivElement | null>(null);
+  const [boxH, setBoxH] = useState<number | null>(null);
+  useEffect(() => {
+    const el = boxRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => {
+      if (el.clientHeight > 0) setBoxH(el.clientHeight);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   const pick = (i: KlineInterval) => {
     setInterval(i);
     try {
@@ -42,7 +57,7 @@ export function ChartPanel({ symbol }: { symbol: string }) {
     }
   };
   return (
-    <div className="space-y-1">
+    <div className="flex h-full min-h-0 flex-col gap-1">
       <div className="flex gap-1" role="group" aria-label="Chart interval">
         {INTERVALS.map((i) => (
           <button
@@ -60,7 +75,9 @@ export function ChartPanel({ symbol }: { symbol: string }) {
           </button>
         ))}
       </div>
-      <TradingChart symbol={symbol} interval={interval} />
+      <div ref={boxRef} className="min-h-0 flex-1">
+        <TradingChart symbol={symbol} interval={interval} height={boxH ?? 320} />
+      </div>
     </div>
   );
 }

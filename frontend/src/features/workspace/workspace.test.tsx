@@ -4,7 +4,7 @@
  * hide/show + safety-critical warning, Lite dashboard render + order
  * form validation.
  */
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -84,16 +84,16 @@ describe('workspace layout persistence', () => {
     placements.order = { ...placements.order, x: 2, w: 5 };
     saveLayout('master', 'desk-a', placements);
 
-    expect(listLayouts('master')).toEqual(['desk-a']);
+    expect(listLayouts('master', 'pro')).toEqual(['def', 'desk-a']);
     const loaded = loadLayout('master', 'pro', 'desk-a');
     expect(loaded.placements.order.x).toBe(2);
     expect(loaded.placements.order.w).toBe(5);
 
-    // other scope is isolated
-    expect(listLayouts('sub-42')).toEqual([]);
+    // other scope is isolated (the builtin 'def' is not stored data)
+    expect(listLayouts('sub-42', 'pro')).toEqual(['def']);
 
     resetLayouts('master');
-    expect(listLayouts('master')).toEqual([]);
+    expect(listLayouts('master', 'pro')).toEqual(['def']);
     expect(localStorage.getItem(workspaceStorageKey('master'))).toBeNull();
   });
 
@@ -124,19 +124,20 @@ describe('workspace layout persistence', () => {
 });
 
 describe('WorkspacePage (pro mode)', () => {
-  it('renders the seven panels of the Pro default layout', async () => {
+  it('renders the six visible panels of the Binance-style Pro default (depth ships hidden)', async () => {
     installFetchMock(EMPTY_FETCH);
     renderApp(<WorkspacePage />);
     expect(await screen.findByLabelText('Order ticket panel')).toBeInTheDocument();
     expect(screen.getByLabelText('Order book panel')).toBeInTheDocument();
     expect(await screen.findByLabelText('Blotter (positions/orders/history) panel')).toBeInTheDocument();
     expect(screen.getByLabelText('Chart & overlays panel')).toBeInTheDocument();
-    expect(screen.getByLabelText('Market depth panel')).toBeInTheDocument();
     expect(await screen.findByLabelText('Market trades panel')).toBeInTheDocument();
     // balances are cockpit-visible in the Pro default (MT5-style status row)
     expect(await screen.findByLabelText('Balances panel')).toBeInTheDocument();
-    // every panel visible → no "show hidden" affordance
-    expect(screen.queryByLabelText(/Show a hidden panel/)).not.toBeInTheDocument();
+    // Binance renders depth as a chart-mode tab — our panel ships
+    // hidden and stays one "show panel…" pick away.
+    expect(screen.queryByLabelText('Market depth panel')).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/Show a hidden panel/)).toBeInTheDocument();
   });
 
   it('safety-critical panels warn before hiding; others hide directly', async () => {
@@ -144,9 +145,9 @@ describe('WorkspacePage (pro mode)', () => {
     renderApp(<WorkspacePage />);
 
     // non-critical: hide straight away
-    const depthPanel = await screen.findByLabelText('Market depth panel');
-    await userEvent.click(screen.getByRole('button', { name: 'Hide Market depth panel' }));
-    expect(depthPanel).not.toBeInTheDocument();
+    const tapePanel = await screen.findByLabelText('Market trades panel');
+    await userEvent.click(screen.getByRole('button', { name: 'Hide Market trades panel' }));
+    expect(tapePanel).not.toBeInTheDocument();
 
     // safety-critical: confirmation modal required
     await userEvent.click(screen.getByRole('button', { name: 'Hide Order ticket panel' }));
@@ -166,8 +167,9 @@ describe('WorkspacePage (pro mode)', () => {
     await screen.findByLabelText('Order ticket panel');
 
     await userEvent.click(screen.getByRole('button', { name: 'Save as…' }));
-    await userEvent.type(screen.getByLabelText('Layout name'), 'scalp desk');
-    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    const saveDialog = await screen.findByRole('dialog');
+    await userEvent.type(within(saveDialog).getByLabelText('Layout name'), 'scalp desk');
+    await userEvent.click(within(saveDialog).getByRole('button', { name: 'Save' }));
     expect(localStorage.getItem(workspaceStorageKey('master'))).toContain('scalp desk');
 
     // Reset restores the default arrangement but never destroys saved
@@ -203,12 +205,13 @@ describe('WorkspacePage (lite mode)', () => {
     await screen.findByRole('form', { name: 'Simple order form' });
 
     await userEvent.click(screen.getByRole('button', { name: /^pro/ }));
-    // The Pro default shows the five trading panels — a lite-initialized
+    // The Pro default shows the trading panels — a lite-initialized
     // placements state would instead render order/positions/balances only.
+    // (Market depth ships hidden in the Binance-style default.)
     expect(await screen.findByLabelText('Order ticket panel')).toBeInTheDocument();
     expect(screen.getByLabelText('Order book panel')).toBeInTheDocument();
     expect(screen.getByLabelText('Chart & overlays panel')).toBeInTheDocument();
-    expect(screen.getByLabelText('Market depth panel')).toBeInTheDocument();
+    expect(screen.getByLabelText('Market trades panel')).toBeInTheDocument();
     expect(await screen.findByLabelText('Blotter (positions/orders/history) panel')).toBeInTheDocument();
     expect(await screen.findByLabelText('Balances panel')).toBeInTheDocument();
   });

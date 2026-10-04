@@ -86,7 +86,7 @@ export function ActiveBotsPanel({ onCount }: { onCount?: (n: number) => void }) 
       {bots.length === 0 ? (
         <p className="text-sm text-neutral-500">No active grid bots.</p>
       ) : (
-        <div className="overflow-x-auto">
+        <div className="relative overflow-x-auto" tabIndex={0}>
           <table className={tableCls}>
             <thead>
               <tr>
@@ -193,6 +193,7 @@ export function ActiveBotsPanel({ onCount }: { onCount?: (n: number) => void }) 
         <label className="flex items-center gap-2 text-sm">
           <input
             type="checkbox"
+            className="h-6 w-6 accent-sky-500"
             checked={closePositions}
             onChange={(e) => {
               setClosePositions(e.target.checked);

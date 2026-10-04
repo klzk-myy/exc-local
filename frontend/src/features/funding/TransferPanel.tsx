@@ -120,7 +120,7 @@ export default function TransferPanel() {
   return (
     <div className="space-y-4">
       <div className={cardCls}>
-        <h3 className="mb-1 text-sm font-semibold">Internal transfer</h3>
+        <h2 className="mb-1 text-sm font-semibold">Internal transfer</h2>
         <p className="mb-3 text-xs text-neutral-400">
           Instant, fee-free movement between your main account and sub-accounts — posted
           double-entry to the ledger.
@@ -239,7 +239,7 @@ export default function TransferPanel() {
       </div>
 
       <div className={cardCls}>
-        <h3 className="mb-2 text-sm font-semibold">Transfer history</h3>
+        <h2 className="mb-2 text-sm font-semibold">Transfer history</h2>
         {history.isPending ? (
           <p className="text-sm text-neutral-400">Loading…</p>
         ) : (history.data?.data ?? []).length === 0 ? (

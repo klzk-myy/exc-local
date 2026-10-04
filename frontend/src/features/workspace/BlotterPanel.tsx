@@ -123,7 +123,8 @@ export function BlotterPanel() {
         ))}
       </div>
       <div
-        className="overflow-x-auto"
+        className="relative overflow-x-auto"
+        tabIndex={0}
         role="tabpanel"
         id={`blotter-panel-${tab}`}
         aria-labelledby={`blotter-tab-${tab}`}

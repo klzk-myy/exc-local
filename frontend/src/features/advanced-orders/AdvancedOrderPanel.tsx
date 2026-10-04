@@ -6,16 +6,26 @@
  * (§6.2a), GTD expiry picker, post_only/reduce_only flags, and the
  * Task 10.3.11 percentage slider.
  *
+ * Layout mirrors the classic spot ticket (Binance-style): a Buy column
+ * and a Sell column rendered side by side, each carrying its own
+ * price/quantity slice, per-side availability, percent slider, and a
+ * coloured submit button. Kind-specific parameters (stop trigger,
+ * iceberg slice, trailing distance, bracket legs, TIF/GTD, trigger
+ * source, flags) are side-agnostic and stay shared above the two
+ * columns. OCO keeps a single-column form — its legs already encode
+ * both prices and the side applies to the pair as a unit.
+ *
  * Safety contract:
  *   - order entry locks outside AUTHENTICATED/STALE (Task 10.3.19) —
- *     the submit button is disabled and explains why;
+ *     the submit buttons are disabled and explain why;
  *   - every submission carries `client_order_id` + Idempotency-Key
  *     (spec §8.8);
- *   - field errors surface inline (aria-invalid + describedby);
+ *   - field errors surface inline per column (aria-invalid +
+ *     describedby);
  *   - MARKET orders disclose that fills are at best available price.
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { lazy, Suspense, useEffect, useState, type FormEvent } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { apiClient, wsClient } from '@/app/runtime';
 import { useWsStatus, type WsClient } from '@/lib/ws';
@@ -50,7 +60,7 @@ import { useWatchlist } from '@/lib/alerts';
 import { useSessionStore } from '@/lib/auth/session';
 import { isFxMarketOpen } from '@/lib/market/tradingHours';
 import { useBbo } from '@/lib/trading/marketStore';
-import { qtyConstraints, splitPair } from '@/lib/trading/fx';
+import { parseInput, qtyConstraints, splitPair } from '@/lib/trading/fx';
 
 import { PercentSlider } from './PercentSlider';
 import {
@@ -59,6 +69,7 @@ import {
   TIF_FOR_KIND,
   TRIGGER_SOURCES,
   EMPTY_FORM,
+  type FieldErrors,
   type OrderFormState,
   type OrderKind,
   type Tif,
@@ -87,6 +98,17 @@ export interface AdvancedOrderPanelProps {
   api?: Api;
 }
 
+type Side = 'BUY' | 'SELL';
+
+/** Per-column ticket slice — the only fields that differ between the
+ * Binance-style Buy and Sell columns. All kind-specific parameters are
+ * shared (a stop trigger or iceberg slice applies regardless of which
+ * side submits). */
+interface SideSlice {
+  price: string;
+  quantity: string;
+}
+
 export function AdvancedOrderPanel({
   client = wsClient,
   api = apiClient,
@@ -107,32 +129,57 @@ export function AdvancedOrderPanel({
     price: draft.price,
     quantity: draft.quantity,
   }));
+  const [sides, setSides] = useState<Record<Side, SideSlice>>(() => ({
+    BUY: { price: draft.price, quantity: draft.quantity },
+    SELL: { price: '', quantity: '' },
+  }));
+  /** Which column's button triggered the in-flight form submission —
+   * resolved in the button's click handler so onSubmit never guesses. */
+  const pendingSide = useRef<Side>('BUY');
 
   // Cross-panel prefill: depth-chart / chart-overlay clicks write the
-  // draft store; mirror price/qty/symbol into the form when they change.
+  // draft store; mirror symbol into the form and price/qty into the
+  // column named by draft.side (book ask click → Buy column, bid →
+  // Sell column). `form.price`/`form.quantity` also mirror the draft so
+  // the single-column OCO path prefills identically.
   useEffect(() => {
+    const tgt: Side = draft.side === 'SELL' ? 'SELL' : 'BUY';
     setForm((f) => ({
       ...f,
       symbol: draft.symbol !== '' ? draft.symbol : f.symbol,
       price: draft.price !== '' ? draft.price : f.price,
       quantity: draft.quantity !== '' ? draft.quantity : f.quantity,
     }));
-  }, [draft.symbol, draft.price, draft.quantity]);
+    setSides((s) => ({
+      ...s,
+      [tgt]: {
+        price: draft.price !== '' ? draft.price : s[tgt].price,
+        quantity: draft.quantity !== '' ? draft.quantity : s[tgt].quantity,
+      },
+    }));
+  }, [draft.symbol, draft.price, draft.quantity, draft.side]);
 
   const patch = (p: Partial<OrderFormState>) => setForm((f) => ({ ...f, ...p }));
+  const patchSide = (side: Side, p: Partial<SideSlice>) =>
+    setSides((s) => ({ ...s, [side]: { ...s[side], ...p } }));
 
   const instrument = useInstrument(form.symbol || undefined);
   const bbo = useBbo(form.symbol || undefined);
-  const markPrice = form.side === 'BUY' ? bbo?.ask : bbo?.bid; // aggressive side for sizing
   const leverage = Dec.of(instrument?.maxLeverage ?? 1);
 
-  // Margin basis: available balance in the pair's QUOTE currency — the
-  // disclosed basis for % sizing (disclosed next to the slider label).
+  // Availability disclosure per column: Buy spends the pair's QUOTE
+  // currency, Sell spends the BASE currency the account already holds.
   const balances = useBalances();
-  const quoteCcy = splitPair(form.symbol)?.quote;
-  const freeMargin =
+  const pair = splitPair(form.symbol);
+  const baseCcy = pair?.base;
+  const quoteCcy = pair?.quote;
+  const quoteAvail =
     quoteCcy !== undefined
       ? (balances.data?.find((b) => b.currency === quoteCcy)?.available ?? Dec.ZERO)
+      : Dec.ZERO;
+  const baseAvail =
+    baseCcy !== undefined
+      ? (balances.data?.find((b) => b.currency === baseCcy)?.available ?? Dec.ZERO)
       : Dec.ZERO;
 
   const submit = useMutation({
@@ -175,6 +222,9 @@ export function AdvancedOrderPanel({
   const [calcOpen, setCalcOpen] = useState(false);
   const [touched, setTouched] = useState<Partial<Record<string, true>>>({});
   const [submitTried, setSubmitTried] = useState(false);
+  /** Column whose submit was attempted — a failed Buy never flags the
+   * untouched Sell column (and vice versa). */
+  const [triedSide, setTriedSide] = useState<Side | null>(null);
 
   // Default instrument: first ACTIVE listing, once — the placeholder-only
   // value read as "rejected input" next to validation chrome. Never
@@ -199,22 +249,56 @@ export function AdvancedOrderPanel({
     }
   }, [instruments.data, watchlist, form.symbol, touched, setDraft]);
 
-  const built = buildOrderPayload(form);
-  const fieldErrors = built.errors;
+  /** OCO carries its own two legs — it stays a single-column form. Every
+   * other kind is directional and gets the dual Buy|Sell columns. */
+  const dual = form.kind !== 'OCO';
+
+  /** Merge the shared form with one column's price/quantity slice. */
+  const sideForm = (s: Side): OrderFormState => ({
+    ...form,
+    side: s,
+    price: sides[s].price,
+    quantity: sides[s].quantity,
+  });
+
+  // One builder run per column keeps each column's inline errors
+  // independent (typing a bad price in Buy never flags Sell).
+  const builtByColumn: Record<Side, ReturnType<typeof buildOrderPayload>> = {
+    BUY: buildOrderPayload(sideForm('BUY')),
+    SELL: buildOrderPayload(sideForm('SELL')),
+  };
+  const built = buildOrderPayload(form); // OCO single-column path
+  // Shared-field errors (stop trigger, iceberg slice, bracket legs, GTD,
+  // symbol) merge both columns — a side-dependent rule like "buy bracket:
+  // SL below TP" must surface even when only the Sell column trips it.
+  // price/quantity keys stay per-column via colErr.
+  const fieldErrors: FieldErrors = dual
+    ? { ...builtByColumn.SELL.errors, ...builtByColumn.BUY.errors }
+    : built.errors;
   // Validation surfaces on blur/submit, not on mount — a pristine ticket
   // should not announce errors for fields the user has not reached yet.
   const showErr = (k: string): string | undefined =>
-    touched[k] === true || submitTried ? fieldErrors[k] : undefined;
+    touched[k] === true || submitTried || triedSide !== null ? fieldErrors[k] : undefined;
   const touch = (k: string) => () => setTouched((t) => (t[k] === true ? t : { ...t, [k]: true }));
   const constraints = qtyConstraints(instrument);
+  const qtyHint =
+    constraints.step.isPositive()
+      ? `lot step ${constraints.step.toDisplay()}${
+          constraints.minQty.isPositive() ? ` · min ${constraints.minQty.toDisplay()}` : ''
+        }`
+      : undefined;
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
     setSubmitError(null);
     setLastResult(null);
-    setSubmitTried(true);
-    if (Object.keys(fieldErrors).length > 0) return; // inline errors shown
-    submit.mutate(form);
+    const s = pendingSide.current;
+    if (dual) setTriedSide(s);
+    else setSubmitTried(true);
+    const f = dual ? sideForm(s) : form;
+    const errs = dual ? builtByColumn[s].errors : fieldErrors;
+    if (Object.keys(errs).length > 0) return; // inline errors shown
+    submit.mutate(f);
   };
 
   const tifs = TIF_FOR_KIND[form.kind];
@@ -226,6 +310,134 @@ export function AdvancedOrderPanel({
   const showStop = form.kind === 'STOP' || form.kind === 'STOP_LIMIT' || form.kind === 'OCO';
   const showTif = tifs.length > 0;
   const conditional = ['STOP', 'STOP_LIMIT', 'TRAILING_STOP', 'BRACKET', 'OCO'].includes(form.kind);
+
+  /** One Binance-style side column: availability, price (or a greyed
+   * "Market" row for MARKET), quantity, % slider, estimated total, and
+   * the coloured submit. */
+  const renderColumn = (s: Side) => {
+    const isBuy = s === 'BUY';
+    const slice = sides[s];
+    const col = builtByColumn[s];
+    const colErr = (k: keyof FieldErrors): string | undefined =>
+      touched[`${s}.${k}`] === true || triedSide === s ? col.errors[k] : undefined;
+    const touchCol = (k: string) => touch(`${s}.${k}`);
+    // Aggressive-side BBO for sizing + total estimate.
+    const mark = isBuy ? bbo?.ask : bbo?.bid;
+    // Sell-side slider sizes off BASE holdings converted at bid so the
+    // usual margin→qty formula yields exactly avail×pct.
+    const sliderMargin = isBuy
+      ? quoteAvail
+      : mark?.isPositive() === true
+        ? baseAvail.mul(mark)
+        : Dec.ZERO;
+    const sliderLeverage = isBuy ? leverage : Dec.ONE;
+    const avail = isBuy ? quoteAvail : baseAvail;
+    const availCcy = isBuy ? quoteCcy : baseCcy;
+    const qty = parseInput(slice.quantity);
+    const effPrice = parseInput(slice.price) ?? mark;
+    const total =
+      qty !== undefined && effPrice !== undefined ? qty.mul(effPrice) : undefined;
+    return (
+      <div
+        key={s}
+        aria-label={`${isBuy ? 'Buy' : 'Sell'} ticket`}
+        className={`rounded border p-2 ${isBuy ? 'border-emerald-800/60' : 'border-red-800/60'}`}
+      >
+        <div className="mb-2 flex items-baseline justify-between text-xs">
+          <span className="text-neutral-500">Avail</span>
+          <span className="font-medium text-neutral-300">
+            {availCcy !== undefined ? `${avail.toDisplay(2)} ${availCcy}` : '—'}
+          </span>
+        </div>
+
+        {showPrice ? (
+          <Field
+            label={form.kind === 'BRACKET' ? 'Entry price (empty = market entry)' : 'Price'}
+            error={colErr('price') ?? null}
+            required={form.kind !== 'BRACKET'}
+            hint={instrument !== undefined ? `tick ${instrument.tickSize.toDisplay()}` : undefined}
+          >
+            {(id, describedBy, invalid) => (
+              <input
+                id={id}
+                inputMode="decimal"
+                value={slice.price}
+                onChange={(e) => patchSide(s, { price: e.target.value })}
+                onBlur={touchCol('price')}
+                placeholder="0.00000"
+                aria-invalid={invalid}
+                aria-describedby={describedBy}
+                className={inputCls}
+              />
+            )}
+          </Field>
+        ) : (
+          form.kind === 'MARKET' && (
+            <div className="mb-4">
+              <span className={labelCls}>Price</span>
+              <input value="Market" disabled readOnly className={`${inputCls} opacity-60`} />
+            </div>
+          )
+        )}
+
+        <Field label="Quantity" error={colErr('quantity') ?? null} required hint={qtyHint}>
+          {(id, describedBy, invalid) => (
+            <input
+              id={id}
+              inputMode="decimal"
+              value={slice.quantity}
+              onChange={(e) => {
+                patchSide(s, { quantity: e.target.value });
+                setDraft({ quantity: e.target.value, side: s });
+              }}
+              onBlur={touchCol('quantity')}
+              aria-invalid={invalid}
+              aria-describedby={describedBy}
+              className={inputCls}
+            />
+          )}
+        </Field>
+
+        <div className="mb-3">
+          <PercentSlider
+            instrument={instrument}
+            price={mark}
+            freeMargin={sliderMargin}
+            leverage={sliderLeverage}
+            onSize={(q) => {
+              patchSide(s, { quantity: q });
+              setDraft({ quantity: q, side: s });
+            }}
+            disabled={!ws.orderEntryEnabled}
+          />
+        </div>
+
+        <div className="mb-3 flex items-baseline justify-between text-xs">
+          <span className="text-neutral-500">Total</span>
+          <span className="font-medium text-neutral-300">
+            {total !== undefined && quoteCcy !== undefined
+              ? `≈ ${total.toDisplay(2)} ${quoteCcy}`
+              : '—'}
+          </span>
+        </div>
+
+        <button
+          type="submit"
+          disabled={!ws.orderEntryEnabled || submit.isPending}
+          onClick={() => {
+            pendingSide.current = s;
+          }}
+          className={`w-full rounded py-1.5 text-sm font-semibold text-white focus-visible:ring-2 focus-visible:ring-sky-500 disabled:cursor-not-allowed disabled:opacity-50 ${
+            isBuy ? 'bg-emerald-700 hover:bg-emerald-600' : 'bg-red-700 hover:bg-red-600'
+          }`}
+        >
+          {submit.isPending && pendingSide.current === s
+            ? 'Submitting…'
+            : `${isBuy ? 'Buy' : 'Sell'} ${baseCcy ?? ''}`}
+        </button>
+      </div>
+    );
+  };
 
   return (
     <form
@@ -262,104 +474,87 @@ export function AdvancedOrderPanel({
         </Suspense>
       </Modal>
 
-      {/* Side */}
-      <div className="mb-3 grid grid-cols-2 gap-1" role="group" aria-label="Order side">
-        {(['BUY', 'SELL'] as const).map((s) => (
-          <button
-            key={s}
-            type="button"
-            aria-pressed={form.side === s}
-            onClick={() => patch({ side: s })}
-            className={`rounded py-1.5 text-sm font-semibold focus-visible:ring-2 focus-visible:ring-sky-500 ${
-              form.side === s
-                ? s === 'BUY'
-                  ? 'bg-emerald-700 text-white'
-                  : 'bg-red-700 text-white'
-                : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'
-            }`}
-          >
-            {s}
-          </button>
-        ))}
-      </div>
-
-      {/* Symbol */}
-      <Field label="Instrument" error={showErr('symbol') ?? null} required>
-        {(id, describedBy, invalid) => (
-          <>
-            <input
-              id={id}
-              list="instrument-symbols"
-              value={form.symbol}
-              onChange={(e) => {
-                patch({ symbol: e.target.value.toUpperCase() });
-                setDraft({ symbol: e.target.value.toUpperCase() });
-              }}
-              onBlur={touch('symbol')}
-              placeholder="EUR/USD"
-              aria-invalid={invalid}
-              aria-describedby={describedBy}
-              className={inputCls}
-            />
-            <datalist id="instrument-symbols">
-              {(instruments.data ?? [])
-                .filter((i) => i.status === 'ACTIVE')
-                .map((i) => (
-                  <option key={i.symbol} value={i.symbol} />
-                ))}
-            </datalist>
-          </>
-        )}
-      </Field>
-
-      {/* Order type */}
-      <Field label="Order type">
-        {(id) => (
-          <select
-            id={id}
-            value={form.kind}
-            onChange={(e) => {
-              const kind = e.target.value as OrderKind;
-              const allowed = TIF_FOR_KIND[kind];
-              patch({
-                kind,
-                tif: allowed.includes(form.tif) ? form.tif : (allowed[0] ?? 'GTC'),
-              });
-            }}
-            className={selectCls}
-          >
-            {ORDER_KINDS.map((k) => (
-              <option key={k} value={k}>
-                {KIND_LABEL[k]}
-              </option>
-            ))}
-          </select>
-        )}
-      </Field>
-
-      {/* Price */}
-      {showPrice && (
-        <Field
-          label={form.kind === 'BRACKET' ? 'Entry price (empty = market entry)' : 'Price'}
-          error={showErr('price') ?? null}
-          required={form.kind !== 'BRACKET'}
-          hint={instrument !== undefined ? `tick ${instrument.tickSize.toDisplay()}` : undefined}
-        >
+      {/* Symbol + order type */}
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="Instrument" error={showErr('symbol') ?? null} required>
           {(id, describedBy, invalid) => (
-            <input
-              id={id}
-              inputMode="decimal"
-              value={form.price}
-              onChange={(e) => patch({ price: e.target.value })}
-              onBlur={touch('price')}
-              placeholder="0.00000"
-              aria-invalid={invalid}
-              aria-describedby={describedBy}
-              className={inputCls}
-            />
+            <>
+              <input
+                id={id}
+                list="instrument-symbols"
+                value={form.symbol}
+                onChange={(e) => {
+                  patch({ symbol: e.target.value.toUpperCase() });
+                  setDraft({ symbol: e.target.value.toUpperCase() });
+                }}
+                onBlur={touch('symbol')}
+                placeholder="EUR/USD"
+                aria-invalid={invalid}
+                aria-describedby={describedBy}
+                className={inputCls}
+              />
+              <datalist id="instrument-symbols">
+                {(instruments.data ?? [])
+                  .filter((i) => i.status === 'ACTIVE')
+                  .map((i) => (
+                    <option key={i.symbol} value={i.symbol} />
+                  ))}
+              </datalist>
+            </>
           )}
         </Field>
+
+        <Field label="Order type">
+          {(id) => (
+            <select
+              id={id}
+              value={form.kind}
+              onChange={(e) => {
+                const kind = e.target.value as OrderKind;
+                const allowed = TIF_FOR_KIND[kind];
+                patch({
+                  kind,
+                  tif: allowed.includes(form.tif) ? form.tif : (allowed[0] ?? 'GTC'),
+                });
+              }}
+              className={selectCls}
+            >
+              {ORDER_KINDS.map((k) => (
+                <option key={k} value={k}>
+                  {KIND_LABEL[k]}
+                </option>
+              ))}
+            </select>
+          )}
+        </Field>
+      </div>
+
+      {/* OCO stays single-column — its legs encode both prices and the
+          side applies to the pair as a unit. */}
+      {!dual && (
+        <div className="mb-3 grid grid-cols-2 gap-1" role="group" aria-label="Order side">
+          {(['BUY', 'SELL'] as const).map((s) => (
+            <button
+              key={s}
+              type="button"
+              aria-pressed={form.side === s}
+              onClick={() => patch({ side: s })}
+              className={`rounded py-1.5 text-sm font-semibold focus-visible:ring-2 focus-visible:ring-sky-500 ${
+                form.side === s
+                  ? s === 'BUY'
+                    ? 'bg-emerald-700 text-white'
+                    : 'bg-red-700 text-white'
+                  : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'
+              }`}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
       )}
+
+      {/* Shared kind-specific parameters — a stop trigger, iceberg slice,
+          or trailing distance applies to whichever column submits. */}
 
       {/* Stop price */}
       {showStop && (
@@ -548,49 +743,41 @@ export function AdvancedOrderPanel({
         </div>
       )}
 
-      {/* Quantity + percent slider */}
-      <Field
-        label="Quantity"
-        error={showErr('quantity') ?? null}
-        required
-        hint={
-          constraints.step.isPositive()
-            ? `lot step ${constraints.step.toDisplay()}${
-                constraints.minQty.isPositive() ? ` · min ${constraints.minQty.toDisplay()}` : ''
-              }`
-            : undefined
-        }
-      >
-        {(id, describedBy, invalid) => (
-          <input
-            id={id}
-            inputMode="decimal"
-            value={form.quantity}
-            onChange={(e) => {
-              patch({ quantity: e.target.value });
-              setDraft({ quantity: e.target.value });
-            }}
-            onBlur={touch('quantity')}
-            aria-invalid={invalid}
-            aria-describedby={describedBy}
-            className={inputCls}
-          />
-        )}
-      </Field>
-
-      <div className="mb-4">
-        <PercentSlider
-          instrument={instrument}
-          price={markPrice}
-          freeMargin={freeMargin}
-          leverage={leverage}
-          onSize={(qty) => {
-            patch({ quantity: qty });
-            setDraft({ quantity: qty });
-          }}
-          disabled={!ws.orderEntryEnabled}
-        />
-      </div>
+      {/* OCO single-column quantity + slider */}
+      {!dual && (
+        <>
+          <Field label="Quantity" error={showErr('quantity') ?? null} required hint={qtyHint}>
+            {(id, describedBy, invalid) => (
+              <input
+                id={id}
+                inputMode="decimal"
+                value={form.quantity}
+                onChange={(e) => {
+                  patch({ quantity: e.target.value });
+                  setDraft({ quantity: e.target.value });
+                }}
+                onBlur={touch('quantity')}
+                aria-invalid={invalid}
+                aria-describedby={describedBy}
+                className={inputCls}
+              />
+            )}
+          </Field>
+          <div className="mb-4">
+            <PercentSlider
+              instrument={instrument}
+              price={form.side === 'BUY' ? bbo?.ask : bbo?.bid}
+              freeMargin={quoteAvail}
+              leverage={leverage}
+              onSize={(qty) => {
+                patch({ quantity: qty });
+                setDraft({ quantity: qty });
+              }}
+              disabled={!ws.orderEntryEnabled}
+            />
+          </div>
+        </>
+      )}
 
       {/* Trigger source + flags */}
       {conditional && (
@@ -621,7 +808,7 @@ export function AdvancedOrderPanel({
             type="checkbox"
             checked={form.postOnly}
             onChange={(e) => patch({ postOnly: e.target.checked })}
-            className="accent-sky-500"
+            className="h-6 w-6 accent-sky-500"
           />
           Post-only
         </label>
@@ -630,7 +817,7 @@ export function AdvancedOrderPanel({
             type="checkbox"
             checked={form.reduceOnly}
             onChange={(e) => patch({ reduceOnly: e.target.checked })}
-            className="accent-sky-500"
+            className="h-6 w-6 accent-sky-500"
           />
           Reduce-only
         </label>
@@ -661,13 +848,20 @@ export function AdvancedOrderPanel({
         )}
       </div>
 
-      <button
-        type="submit"
-        disabled={!ws.orderEntryEnabled || submit.isPending}
-        className={`${btnPrimary} w-full`}
-      >
-        {submit.isPending ? 'Submitting…' : `Submit ${KIND_LABEL[form.kind]}`}
-      </button>
+      {dual ? (
+        <div className="grid grid-cols-2 gap-2" role="group" aria-label="Order sides">
+          {renderColumn('BUY')}
+          {renderColumn('SELL')}
+        </div>
+      ) : (
+        <button
+          type="submit"
+          disabled={!ws.orderEntryEnabled || submit.isPending}
+          className={`${btnPrimary} w-full`}
+        >
+          {submit.isPending ? 'Submitting…' : `Submit ${KIND_LABEL[form.kind]}`}
+        </button>
+      )}
     </form>
   );
 }

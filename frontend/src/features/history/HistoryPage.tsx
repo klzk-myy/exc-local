@@ -5,6 +5,8 @@
  */
 import { useState } from 'react';
 
+import { RequireAuth } from '@/features/auth/guards';
+
 import { AlgoPanel } from './AlgoPanel';
 import { DeadmanSwitch } from './DeadmanSwitch';
 import { LiveTape } from './LiveTape';
@@ -25,6 +27,7 @@ type TabId = (typeof TABS)[number]['id'];
 export default function HistoryPage() {
   const [tab, setTab] = useState<TabId>('open');
   return (
+    <RequireAuth>
     <div className="mx-auto max-w-6xl space-y-4 p-4">
       <header>
         <h1 className="text-xl font-semibold text-neutral-100">Orders</h1>
@@ -35,14 +38,14 @@ export default function HistoryPage() {
       <div
         role="tablist"
         aria-label="Order surfaces"
-        className="flex gap-1 border-b border-neutral-800"
+        className="flex gap-1 relative overflow-x-auto border-b border-neutral-800"
       >
         {TABS.map((t) => (
           <button
             key={t.id}
             role="tab"
             aria-selected={tab === t.id}
-            className={`px-3 py-2 text-sm ${
+            className={`whitespace-nowrap px-3 py-2 text-sm ${
               tab === t.id
                 ? 'border-b-2 border-sky-500 text-neutral-100'
                 : 'text-neutral-400 hover:text-neutral-200'
@@ -68,5 +71,6 @@ export default function HistoryPage() {
       ) : null}
       {tab === 'tape' ? <LiveTape /> : null}
     </div>
+    </RequireAuth>
   );
 }

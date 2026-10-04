@@ -213,6 +213,7 @@ function TransitionDialog({
         <label className="mb-4 flex items-center gap-2 text-sm text-neutral-300">
           <input
             type="checkbox"
+            className="h-6 w-6 accent-sky-500"
             checked={skipAuction}
             onChange={(e) => setSkipAuction(e.target.checked)}
           />
@@ -221,7 +222,12 @@ function TransitionDialog({
       )}
       {op === 'resume' && (inst.status === 'RESTRICTED' || inst.status === 'CANCEL_ONLY') && (
         <label className="mb-4 flex items-center gap-2 text-sm text-neutral-300">
-          <input type="checkbox" checked={auction} onChange={(e) => setAuction(e.target.checked)} />
+          <input
+            type="checkbox"
+            className="h-6 w-6 accent-sky-500"
+            checked={auction}
+            onChange={(e) => setAuction(e.target.checked)}
+          />
           Run a reopening CALL auction
         </label>
       )}
@@ -668,7 +674,7 @@ export function InstrumentsPanel({
       )}
 
       {!denied && !stubbed && query.error === null && (
-        <div className="overflow-x-auto">
+        <div className="relative overflow-x-auto" tabIndex={0}>
           <table className={tableCls}>
             <thead>
               <tr>

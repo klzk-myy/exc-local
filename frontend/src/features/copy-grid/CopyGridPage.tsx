@@ -6,6 +6,8 @@
  */
 import { useState } from 'react';
 
+import { RequireAuth } from '@/features/auth/guards';
+
 import { ActiveBotsPanel } from './ActiveBotsPanel';
 import { FollowModal } from './FollowModal';
 import { GridBotWizard } from './GridBotWizard';
@@ -26,6 +28,7 @@ export default function CopyGridPage() {
   const [activeBots, setActiveBots] = useState<number | undefined>(undefined);
 
   return (
+    <RequireAuth>
     <div className="mx-auto max-w-6xl space-y-4 p-4">
       <header>
         <h1 className="text-xl font-semibold text-neutral-100">Copy trading &amp; grid bots</h1>
@@ -84,5 +87,6 @@ export default function CopyGridPage() {
         }}
       />
     </div>
+    </RequireAuth>
   );
 }

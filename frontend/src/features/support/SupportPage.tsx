@@ -10,6 +10,7 @@ import { Link } from 'react-router';
 import { apiClient } from '@/app/runtime';
 import { RequireAuth } from '@/features/auth/guards';
 import { useSessionStore } from '@/lib/auth/session';
+import { useAuthed } from '@/lib/trading/queries';
 import {
   ErrorBox,
   Field,
@@ -88,9 +89,11 @@ export default function SupportPage() {
   const [newTicket, setNewTicket] = useState(false);
   const isSupportAgent = useSessionStore((s) => s.user?.roles?.includes('Support Agent') === true);
 
+  const authed = useAuthed();
   const q = useQuery({
     queryKey: ['support', 'tickets', status, category, cursor],
     queryFn: () => api.listTickets(apiClient, { status, category, cursor }),
+    enabled: authed,
   });
   const tickets = q.data?.data ?? [];
 

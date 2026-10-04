@@ -8,6 +8,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { signInForTests } from '@/test/accountMocks';
+
 import WebhooksPage from './WebhooksPage';
 import { parseDelivery, parseEndpoint } from './api';
 
@@ -45,7 +47,10 @@ const EP = {
   created_at: '2025-01-10T00:00:00Z',
 };
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  signInForTests();
+});
 
 describe('parsers', () => {
   it('parses endpoint + delivery wire shapes', () => {

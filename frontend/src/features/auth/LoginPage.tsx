@@ -141,6 +141,7 @@ export default function LoginPage() {
               <label className="mb-4 flex items-center gap-2 text-sm text-neutral-300">
                 <input
                   type="checkbox"
+                  className="h-6 w-6 accent-sky-500"
                   checked={rememberMe}
                   onChange={(e) => {
                     setRememberMe(e.target.checked);

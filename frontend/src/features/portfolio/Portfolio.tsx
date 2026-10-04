@@ -116,7 +116,7 @@ export function Portfolio(props: PortfolioProps) {
     <div className="grid gap-4 lg:grid-cols-3">
       <section
         aria-label="Open positions"
-        className="rounded-lg border border-neutral-800 bg-neutral-900 lg:col-span-2"
+        className="min-w-0 rounded-lg border border-neutral-800 bg-neutral-900 lg:col-span-2"
       >
         <header className="flex items-center justify-between border-b border-neutral-800 px-3 py-2">
           <h2 className="text-sm font-semibold">Positions</h2>
@@ -149,7 +149,8 @@ export function Portfolio(props: PortfolioProps) {
         ) : positions.length === 0 ? (
           <p className="p-4 text-center text-sm text-neutral-500">No open positions</p>
         ) : (
-          <table className="w-full">
+          <div className="relative overflow-x-auto" tabIndex={0}>
+            <table className="w-full">
             <thead>
               <tr className="border-b border-neutral-800">
                 <th className={thCls}>Symbol</th>
@@ -159,7 +160,7 @@ export function Portfolio(props: PortfolioProps) {
                 <th className={`${thCls} text-right`}>Mark</th>
                 <th className={`${thCls} text-right`}>uPnL</th>
                 <th className={`${thCls} text-right`}>Margin</th>
-                <th className={thCls} aria-label="Actions" />
+                <th className={thCls}><span className="sr-only">Actions</span></th>
               </tr>
             </thead>
             <tbody>
@@ -210,13 +211,14 @@ export function Portfolio(props: PortfolioProps) {
                 );
               })}
             </tbody>
-          </table>
+            </table>
+          </div>
         )}
       </section>
 
       <section
         aria-label="Account balances"
-        className="rounded-lg border border-neutral-800 bg-neutral-900"
+        className="min-w-0 rounded-lg border border-neutral-800 bg-neutral-900"
       >
         <header className="border-b border-neutral-800 px-3 py-2">
           <h2 className="text-sm font-semibold">Balances</h2>
@@ -228,7 +230,8 @@ export function Portfolio(props: PortfolioProps) {
         ) : balances.length === 0 && error === null ? (
           <p className="p-4 text-center text-sm text-neutral-500">No balances</p>
         ) : (
-          <table className="w-full">
+          <div className="relative overflow-x-auto" tabIndex={0}>
+            <table className="w-full">
             <thead>
               <tr className="border-b border-neutral-800">
                 <th className={thCls}>Currency</th>
@@ -249,7 +252,8 @@ export function Portfolio(props: PortfolioProps) {
                 </tr>
               ))}
             </tbody>
-          </table>
+            </table>
+          </div>
         )}
       </section>
     </div>

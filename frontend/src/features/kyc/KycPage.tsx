@@ -7,6 +7,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiClient } from '@/app/runtime';
 import { RequireAuth } from '@/features/auth/guards';
+import { useAuthed } from '@/lib/trading/queries';
 import { ErrorBox, cardCls } from '@/lib/ui';
 
 import * as api from './api';
@@ -15,10 +16,12 @@ import UploadWizard from './UploadWizard';
 
 export default function KycPage() {
   const qc = useQueryClient();
+  const authed = useAuthed();
   const q = useQuery({
     queryKey: ['kyc', 'status'],
     queryFn: () => api.kycStatus(apiClient),
     retry: false,
+    enabled: authed,
   });
 
   const status = q.data;

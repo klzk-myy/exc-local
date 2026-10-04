@@ -29,14 +29,14 @@ export default function ReportsPage() {
       <div
         role="tablist"
         aria-label="Report sections"
-        className="flex gap-1 border-b border-neutral-800"
+        className="flex gap-1 relative overflow-x-auto border-b border-neutral-800"
       >
         {TABS.map((t) => (
           <button
             key={t.id}
             role="tab"
             aria-selected={tab === t.id}
-            className={`px-3 py-2 text-sm ${
+            className={`whitespace-nowrap px-3 py-2 text-sm ${
               tab === t.id
                 ? 'border-b-2 border-sky-500 text-neutral-100'
                 : 'text-neutral-400 hover:text-neutral-200'

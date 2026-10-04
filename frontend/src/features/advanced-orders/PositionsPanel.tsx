@@ -237,7 +237,7 @@ export function PositionsPanel({
         {notice !== null && <p className="mb-2 text-xs text-emerald-400">{notice}</p>}
       </div>
 
-      <div className="overflow-x-auto">
+      <div className="relative overflow-x-auto" tabIndex={0}>
         <table className={tableCls}>
           <thead>
             <tr>

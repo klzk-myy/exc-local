@@ -48,7 +48,7 @@ export default function HistoryPanel() {
     <div className="space-y-4">
       <FeeEstimator />
       <div className={cardCls}>
-        <h3 className="mb-2 text-sm font-semibold">Funding history</h3>
+        <h2 className="mb-2 text-sm font-semibold">Funding history</h2>
         <div className="mb-3 grid grid-cols-3 gap-3">
           <Field label="Type">
             {(id, describedBy, invalid) => (

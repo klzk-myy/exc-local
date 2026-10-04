@@ -193,7 +193,7 @@ describe('OrderBook', () => {
     const onPriceClick = vi.fn();
     renderApp(<OrderBook symbol="EUR/USD" api={h.api} ws={h.ws} onPriceClick={onPriceClick} />);
     await waitFor(() => expect(screen.getByText('1.08500')).toBeInTheDocument());
-    await userEvent.click(screen.getByRole('button', { name: 'bid 1.08500' }));
+    await userEvent.click(screen.getByRole('row', { name: 'bid 1.08500' }));
     expect(onPriceClick).toHaveBeenCalledWith('1.08500', 'bid');
   });
 

@@ -268,7 +268,7 @@ function CloseAccountCard() {
             <label key={c} className="flex items-start gap-2 text-sm text-neutral-200">
               <input
                 type="checkbox"
-                className="mt-0.5"
+                className="h-6 w-6 mt-0.5"
                 checked={checked[i] === true}
                 onChange={(e) => {
                   setChecked((prev) => prev.map((v, j) => (j === i ? e.target.checked : v)));

@@ -186,8 +186,8 @@ function OrderLine({
         strokeWidth={1.5}
         strokeDasharray={isTrigger ? '6 3' : '2 2'}
       />
-      {/* fat hit area */}
-      <line x1={0} x2={geom.paneW} y1={y} y2={y} stroke="transparent" strokeWidth={10} />
+      {/* fat hit area — ≥24px tall for pointer targets */}
+      <line x1={0} x2={geom.paneW} y1={y} y2={y} stroke="transparent" strokeWidth={24} />
       <rect x={4} y={y - 9} width={76} height={16} rx={3} fill="#171717" stroke={stroke} strokeWidth={0.75} />
       <text x={8} y={y + 3} fontSize={9} fill={stroke} className="select-none">
         {order.side === 'BUY' ? 'B' : 'S'} {order.type.slice(0, 3)} {price.toString()}
@@ -235,7 +235,7 @@ export function ChartOverlays({
 
   return (
     <>
-      <svg className="pointer-events-none absolute inset-0 h-full w-full" role="img" aria-label={`${symbol} order and position overlays`}>
+      <svg className="pointer-events-none absolute inset-0 h-full w-full" role="group" aria-label={`${symbol} order and position overlays`}>
         {position !== undefined &&
           (() => {
             const y = geom.priceToY(position.entryPrice);

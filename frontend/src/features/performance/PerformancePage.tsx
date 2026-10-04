@@ -16,8 +16,10 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { lazy, Suspense, useRef } from 'react';
 
 import { apiClient, wsClient } from '@/app/runtime';
+import { RequireAuth } from '@/features/auth/guards';
 import type { ApiClient } from '@/lib/api';
 import { fetchPositions } from '@/lib/market/api';
+import { useAuthed } from '@/lib/trading/queries';
 import { PRIVATE_CHANNELS } from '@/lib/market/channels';
 import { formatPnl } from '@/lib/market/format';
 import { useChannel, useWsStatus, type WsClient } from '@/lib/ws';
@@ -76,6 +78,7 @@ function Stat({ label, value, badge }: { label: string; value: string; badge?: b
 /** Probe a reporting endpoint; "available" means a 2xx parse, anything
  * else renders as unavailable. */
 function useReportingProbe(api: ApiClient, path: string, label: string) {
+  const authed = useAuthed();
   return useQuery({
     queryKey: ['performance', 'probe', path],
     queryFn: async () => {
@@ -88,6 +91,7 @@ function useReportingProbe(api: ApiClient, path: string, label: string) {
     },
     retry: false,
     staleTime: 300_000,
+    enabled: authed,
   });
 }
 
@@ -100,16 +104,19 @@ export default function PerformancePage({
 }) {
   const wsStatus = useWsStatus(ws);
   const live = wsStatus.state === 'AUTHENTICATED';
+  const authed = useAuthed();
   const positions = useQuery({
     queryKey: ['performance', 'positions'],
     queryFn: () => fetchPositions(api),
     retry: false,
     refetchInterval: 30_000,
+    enabled: authed,
   });
   const orders = useQuery({
     queryKey: ['performance', 'orders'],
     queryFn: () => fetchOrderHistory(api, { limit: 200, pages: 3 }),
     retry: false,
+    enabled: authed,
   });
   const pnlProbe = useReportingProbe(api, '/account/pnl', '/account/pnl');
   const incomeProbe = useReportingProbe(api, '/account/income', '/account/income');
@@ -127,6 +134,9 @@ export default function PerformancePage({
   );
   const unavailable = probes.filter((p) => !p.available);
 
+  if (!authed) {
+    return <RequireAuth>{null}</RequireAuth>;
+  }
   return (
     <div className="mx-auto max-w-6xl p-6">
       <PrivateFeed ws={ws} />
@@ -165,6 +175,7 @@ export default function PerformancePage({
             <h2 className="mb-2 text-sm font-medium text-neutral-400">
               Per-pair breakdown <DerivedBadge />
             </h2>
+            <div className="relative overflow-x-auto" tabIndex={0}>
             <table className={tableCls}>
               <thead>
                 <tr>
@@ -204,10 +215,12 @@ export default function PerformancePage({
                 )}
               </tbody>
             </table>
+            </div>
           </section>
 
           <section className={`${cardCls} mt-4`} aria-label="Open positions">
             <h2 className="mb-2 text-sm font-medium text-neutral-400">Open positions</h2>
+            <div className="relative overflow-x-auto" tabIndex={0}>
             <table className={tableCls}>
               <thead>
                 <tr>
@@ -239,6 +252,7 @@ export default function PerformancePage({
                 )}
               </tbody>
             </table>
+            </div>
           </section>
         </>
       )}

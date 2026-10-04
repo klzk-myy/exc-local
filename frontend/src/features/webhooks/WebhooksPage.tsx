@@ -9,6 +9,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiClient } from '@/app/runtime';
 import { ApiError } from '@/lib/api';
+import { RequireAuth } from '@/features/auth/guards';
+import { useAuthed } from '@/lib/trading/queries';
 import { ConfirmModal, UnavailablePanel } from '@/lib/input-helpers';
 
 import {
@@ -233,7 +235,11 @@ function CreateForm({ allowedEvents }: { allowedEvents: string[] }) {
     >
       <h2 className="text-sm font-medium text-neutral-200">Register endpoint</h2>
       {secret ? <SecretReveal secret={secret} onClose={() => setSecret(null)} /> : null}
+      <label htmlFor="webhook-url" className="mb-1 block text-xs text-neutral-400">
+        Endpoint URL
+      </label>
       <input
+        id="webhook-url"
         type="url"
         required
         value={url}
@@ -246,7 +252,7 @@ function CreateForm({ allowedEvents }: { allowedEvents: string[] }) {
         {allowedEvents.map((ev) => (
           <label key={ev} className="flex items-center gap-1.5 text-xs text-neutral-400">
             <input
-              type="checkbox"
+              type="checkbox" className="h-6 w-6"
               checked={selected.has(ev)}
               onChange={(e) => {
                 const next = new Set(selected);
@@ -272,8 +278,16 @@ function CreateForm({ allowedEvents }: { allowedEvents: string[] }) {
 }
 
 export default function WebhooksPage() {
-  const q = useQuery({ queryKey: ['webhooks', 'list'], queryFn: () => listWebhooks(apiClient) });
+  const authed = useAuthed();
+  const q = useQuery({
+    queryKey: ['webhooks', 'list'],
+    queryFn: () => listWebhooks(apiClient),
+    enabled: authed,
+  });
 
+  if (!authed) {
+    return <RequireAuth>{null}</RequireAuth>;
+  }
   if (q.isLoading) {
     return <p className="p-4 text-sm text-neutral-500">Loading webhooks…</p>;
   }

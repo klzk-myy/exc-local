@@ -107,12 +107,15 @@ export default function TicketDetailPage() {
         <Link to="/support" className="text-sm text-sky-400 hover:underline">
           ← All tickets
         </Link>
+        <h1 className="mt-4 text-2xl font-semibold">
+          {t !== undefined ? t.subject : `Ticket ${id}`}
+        </h1>
         {q.isPending && <p className="mt-4 text-sm text-neutral-400">Loading…</p>}
         {q.isError && <ErrorBox error={q.error} />}
         {t !== undefined && (
           <div className={`${cardCls} mt-4`}>
             <div className="mb-2 flex items-start justify-between">
-              <h1 className="text-lg font-semibold">{t.subject}</h1>
+              <h2 className="text-lg font-semibold">Details</h2>
               <StatusBadge value={t.status} />
             </div>
             <StatusTimeline status={t.status} />

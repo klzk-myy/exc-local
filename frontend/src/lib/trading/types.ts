@@ -295,6 +295,22 @@ function parseLevels(v: unknown): BookLevel[] {
   return out;
 }
 
+/** Wire order is not guaranteed (conflated WS frames arrive in emission
+ * order, not price order) — normalize to canonical best-first with
+ * same-price levels merged, the order every consumer assumes. */
+function normalizeLevels(levels: BookLevel[], side: 'BID' | 'ASK'): BookLevel[] {
+  const sorted = [...levels].sort((a, b) =>
+    side === 'BID' ? b.price.cmp(a.price) : a.price.cmp(b.price),
+  );
+  const out: BookLevel[] = [];
+  for (const lvl of sorted) {
+    const last = out.at(-1);
+    if (last?.price.eq(lvl.price) === true) last.qty = last.qty.add(lvl.qty);
+    else out.push({ price: lvl.price, qty: lvl.qty });
+  }
+  return out;
+}
+
 export function parseBookSnapshot(v: unknown): BookSnapshot | null {
   if (!isRecord(v)) return null;
   const symbol = str(v['symbol']);
@@ -302,8 +318,8 @@ export function parseBookSnapshot(v: unknown): BookSnapshot | null {
   return {
     symbol,
     seq: num(v['seq']) ?? 0,
-    bids: parseLevels(v['bids']),
-    asks: parseLevels(v['asks']),
+    bids: normalizeLevels(parseLevels(v['bids']), 'BID'),
+    asks: normalizeLevels(parseLevels(v['asks']), 'ASK'),
     updatedAtMs: num(v['updated_at_ms']) ?? 0,
   };
 }

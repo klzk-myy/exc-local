@@ -5,9 +5,9 @@
  */
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { installFetchMock, renderApp } from '@/test/accountMocks';
+import { installFetchMock, renderApp, signInForTests } from '@/test/accountMocks';
 import { connectWs, makeWsHarness, pushEvent } from '@/lib/trading/testkit';
 
 // Late-bound fetch singletons so installFetchMock intercepts queries.
@@ -64,6 +64,10 @@ function setupFetch() {
 }
 
 describe('PositionsPanel', () => {
+  beforeEach(() => {
+    signInForTests();
+  });
+
   it('renders positions with ADL rank and n/a fallbacks', async () => {
     const h = makeWsHarness();
     setupFetch();

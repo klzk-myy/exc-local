@@ -138,7 +138,7 @@ export function StrategyBrowser({ onFollow }: { onFollow: (s: CopyStrategy) => v
       {rows.length === 0 ? (
         <p className="text-sm text-neutral-500">No strategies match the current filters.</p>
       ) : view === 'table' ? (
-        <div className="overflow-x-auto">
+        <div className="relative overflow-x-auto" tabIndex={0}>
           <table className={tableCls}>
             <thead>
               <tr>

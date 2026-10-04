@@ -145,5 +145,17 @@ export function useLwcChart({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [theme, ...deps]);
 
+  // Height applies in place — recreating the canvas on every panel
+  // resize would reset the trader's pan/zoom mid-gesture. Width is
+  // handled by the ResizeObserver; height via applyOptions (callers may
+  // leave `height` out of `deps`).
+  useEffect(() => {
+    try {
+      chart?.applyOptions({ height });
+    } catch {
+      /* disposed */
+    }
+  }, [chart, height]);
+
   return { containerRef, chart };
 }

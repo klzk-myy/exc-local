@@ -19,7 +19,7 @@ export function BalancesPanel({ bare = false }: { bare?: boolean }) {
         <h2 className="mb-3 text-sm font-semibold text-neutral-200">Balances</h2>
       )}
       <ErrorBox error={balances.isError ? balances.error : null} />
-      <div className="overflow-x-auto">
+      <div className="relative overflow-x-auto" tabIndex={0}>
         <table className={tableCls}>
           <thead>
             <tr>

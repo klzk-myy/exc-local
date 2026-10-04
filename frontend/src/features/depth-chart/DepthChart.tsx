@@ -155,7 +155,15 @@ export function DepthChart({ symbol, client = wsClient, bare = false }: DepthCha
     const onClick = (param: MouseEventParams) => {
       const t = param.time;
       if (typeof t === 'number') {
-        setDraft({ symbol, price: timeToPrice(t).toFixed(decimalsRef.current) });
+        const p = timeToPrice(t);
+        // Clicking left of mid targets the Buy column, right of mid the
+        // Sell column — the dual ticket routes the draft by side.
+        const mid = geomRef.current?.mid;
+        setDraft({
+          symbol,
+          price: p.toFixed(decimalsRef.current),
+          ...(mid !== undefined ? { side: p.lte(mid) ? ('BUY' as const) : ('SELL' as const) } : {}),
+        });
       }
     };
     const onRange = () => {
@@ -198,17 +206,26 @@ export function DepthChart({ symbol, client = wsClient, bare = false }: DepthCha
     const askData = toPoints(geom?.askPts ?? []);
     if (geom !== null) {
       // cumulate() walks best→worst, so [0] is the best level — the
-      // shallowest cum — which is what the curve shows AT mid.
+      // shallowest cum — which is what the curve shows AT mid. A crossed
+      // or locked book puts mid inside the levels, so merge by time —
+      // never blind push/unshift, lwc demands strict ascending order.
       const bidMid = { time: midT, value: geom.bidPts[0]?.cumQty.toNumber() ?? 0 };
       const askMid = { time: midT, value: geom.askPts[0]?.cumQty.toNumber() ?? 0 };
-      if (bidData.at(-1)?.time === midT) bidData[bidData.length - 1] = bidMid;
-      else bidData.push(bidMid);
-      if (askData[0]?.time === midT) askData[0] = askMid;
-      else askData.unshift(askMid);
+      bidData.push(bidMid);
+      askData.push(askMid);
     }
-    bid.setData(bidData);
-    ask.setData(askData);
-    chart.timeScale().fitContent();
+    bidData.sort((a, b) => a.time - b.time);
+    askData.sort((a, b) => a.time - b.time);
+    // Keep only finite points — lwc throws "Value is null" on null/NaN
+    // values (e.g. a level whose cumQty failed to parse upstream).
+    const finite = (p: { time: number; value: number }) =>
+      Number.isFinite(p.time) && Number.isFinite(p.value);
+    const bids = bidData.filter((p, i, a) => finite(p) && p.time !== a[i + 1]?.time);
+    const asks = askData.filter((p, i, a) => finite(p) && p.time !== a[i + 1]?.time);
+    bid.setData(bids);
+    ask.setData(asks);
+    // fitContent on an empty series hits lwc's ensureNotNull path.
+    if (bids.length > 0 || asks.length > 0) chart.timeScale().fitContent();
     setMidX(geom === null ? null : chart.timeScale().timeToCoordinate(midT));
   }, [chart, geom]);
 
@@ -246,7 +263,7 @@ export function DepthChart({ symbol, client = wsClient, bare = false }: DepthCha
             type="button"
             aria-label="Zoom in"
             onClick={() => setZoom((z) => Math.max(0.05, z / 1.4))}
-            className="rounded border border-neutral-700 px-2 py-0.5 text-sm hover:bg-neutral-800 focus-visible:ring-2 focus-visible:ring-sky-500"
+            className="rounded border border-neutral-700 px-2 py-1 text-sm hover:bg-neutral-800 focus-visible:ring-2 focus-visible:ring-sky-500"
           >
             +
           </button>
@@ -254,14 +271,14 @@ export function DepthChart({ symbol, client = wsClient, bare = false }: DepthCha
             type="button"
             aria-label="Zoom out"
             onClick={() => setZoom((z) => Math.min(1, z * 1.4))}
-            className="rounded border border-neutral-700 px-2 py-0.5 text-sm hover:bg-neutral-800 focus-visible:ring-2 focus-visible:ring-sky-500"
+            className="rounded border border-neutral-700 px-2 py-1 text-sm hover:bg-neutral-800 focus-visible:ring-2 focus-visible:ring-sky-500"
           >
             −
           </button>
           <button
             type="button"
             onClick={() => setZoom(1)}
-            className="rounded border border-neutral-700 px-2 py-0.5 text-xs hover:bg-neutral-800 focus-visible:ring-2 focus-visible:ring-sky-500"
+            className="rounded border border-neutral-700 px-2 py-1 text-xs hover:bg-neutral-800 focus-visible:ring-2 focus-visible:ring-sky-500"
           >
             Reset
           </button>

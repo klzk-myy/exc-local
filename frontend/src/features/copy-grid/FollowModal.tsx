@@ -115,11 +115,11 @@ export function FollowModal({
                 <input
                   id="fm-risk-accept"
                   type="checkbox"
+                  className="mt-1 h-6 w-6 accent-sky-500"
                   checked={riskAccepted}
                   onChange={(e) => {
                     setRiskAccepted(e.target.checked);
                   }}
-                  className="mt-1"
                 />
                 <span>
                   I have read and accept the copy-trading risk disclosure.

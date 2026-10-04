@@ -50,7 +50,7 @@ export default function FeeEstimator() {
 
   return (
     <div className="rounded border border-neutral-800 p-3">
-      <h4 className="mb-2 text-sm font-semibold">Fee &amp; arrival estimate</h4>
+      <h2 className="mb-2 text-sm font-semibold">Fee &amp; arrival estimate</h2>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Amount" error={amount.error}>
           {(id, describedBy) => (

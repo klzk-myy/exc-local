@@ -14,7 +14,7 @@ function Timeline({ status }: { status: string }) {
   const rejected = status === 'REJECTED';
   const expired = status === 'EXPIRED';
   return (
-    <ol className="mb-4 flex items-center gap-0" aria-label="Verification progress">
+    <ol className="mb-4 flex flex-wrap items-center gap-y-2" aria-label="Verification progress">
       {STEPS.map((s, i) => {
         const reached =
           status === 'APPROVED'
@@ -40,7 +40,7 @@ function Timeline({ status }: { status: string }) {
               {failedHere ? status : s === 'PENDING' ? 'IN REVIEW' : s}
             </span>
             {i < STEPS.length - 1 && (
-              <span className="mx-2 h-px w-8 bg-neutral-700" aria-hidden="true" />
+              <span className="mx-2 h-px w-4 bg-neutral-700 sm:w-8" aria-hidden="true" />
             )}
           </li>
         );

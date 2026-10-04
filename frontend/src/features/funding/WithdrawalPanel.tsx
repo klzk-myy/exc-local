@@ -181,7 +181,7 @@ export default function WithdrawalPanel() {
   return (
     <div className="space-y-4">
       <div className={cardCls}>
-        <h3 className="mb-1 text-sm font-semibold">New withdrawal</h3>
+        <h2 className="mb-1 text-sm font-semibold">New withdrawal</h2>
         <p className="mb-3 text-xs text-neutral-400">
           Withdrawals require confirmation within <strong>15 minutes</strong> or they auto-cancel
           and release the hold. Review tiers: under $10K automatic · $10K–$50K standard screening ·
@@ -324,7 +324,7 @@ export default function WithdrawalPanel() {
       </div>
 
       <div className={cardCls}>
-        <h3 className="mb-2 text-sm font-semibold">Awaiting your confirmation</h3>
+        <h2 className="mb-2 text-sm font-semibold">Awaiting your confirmation</h2>
         {(pending.data?.data ?? []).filter((r) => r.status === 'PENDING').length === 0 ? (
           <p className="text-sm text-neutral-400">No withdrawals awaiting confirmation.</p>
         ) : (

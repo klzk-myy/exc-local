@@ -42,6 +42,7 @@ import {
   listLayouts,
   loadLayout,
   saveLayout,
+  setActiveLayout,
   type PanelId,
   type PanelPlacement,
   type Placements,
@@ -256,13 +257,15 @@ export default function WorkspacePage() {
   useMarketFeed(symbol, wsClient, { depth: true });
   usePrivatePositionsFeed(wsClient);
 
-  const [layoutName, setLayoutName] = useState('');
-  const [placements, setPlacements] = useState<Placements>(() => {
-    if (typeof window === 'undefined') return defaultPlacements(mode);
-    return loadLayout(scope, mode).placements;
-  });
+  const [initialLayout] = useState(() =>
+    typeof window === 'undefined' ? null : loadLayout(scope, mode),
+  );
+  const [layoutName, setLayoutName] = useState(initialLayout?.name ?? '');
+  const [placements, setPlacements] = useState<Placements>(
+    () => initialLayout?.placements ?? defaultPlacements(mode),
+  );
   const [savedLayouts, setSavedLayouts] = useState<string[]>(() =>
-    typeof window === 'undefined' ? [] : listLayouts(scope),
+    typeof window === 'undefined' ? [] : listLayouts(scope, mode),
   );
   const [hideWarn, setHideWarn] = useState<PanelId | null>(null);
   const [deleteWarn, setDeleteWarn] = useState<string | null>(null);
@@ -280,7 +283,7 @@ export default function WorkspacePage() {
     const loaded = loadLayout(scope, mode);
     setPlacements(loaded.placements);
     setLayoutName(loaded.name);
-    setSavedLayouts(listLayouts(scope));
+    setSavedLayouts(listLayouts(scope, mode));
   }
 
   const move = (id: PanelId, p: PanelPlacement) => setPlacements((prev) => ({ ...prev, [id]: p }));
@@ -338,13 +341,18 @@ export default function WorkspacePage() {
             const name = e.target.value;
             if (name === '') return;
             const l = loadLayout(scope, mode, name);
+            setActiveLayout(scope, name); // selection persists as the default
             setPlacements(l.placements);
             setLayoutName(l.name === name ? name : l.name);
             setNotice(`Layout "${name}" loaded`);
           }}
           className={selectCompactCls}
         >
-          <option value="">{layoutName !== '' ? layoutName : '— layouts —'}</option>
+          <option value="">
+            {layoutName !== '' && !savedLayouts.includes(layoutName)
+              ? layoutName
+              : '— layouts —'}
+          </option>
           {savedLayouts.map((n) => (
             <option key={n} value={n}>
               {n}
@@ -511,7 +519,7 @@ export default function WorkspacePage() {
           onConfirm={() => {
             if (deleteWarn) {
               deleteLayout(scope, deleteWarn);
-              setSavedLayouts(listLayouts(scope));
+              setSavedLayouts(listLayouts(scope, mode));
               setLayoutName('');
               setNotice(`Layout "${deleteWarn}" deleted`);
             }
@@ -544,7 +552,7 @@ export default function WorkspacePage() {
             onClick={() => {
               const name = newName.trim();
               saveLayout(scope, name, placements);
-              setSavedLayouts(listLayouts(scope));
+              setSavedLayouts(listLayouts(scope, mode));
               setLayoutName(name);
               setSaveAs(false);
               setNotice(`Layout "${name}" saved on this device`);

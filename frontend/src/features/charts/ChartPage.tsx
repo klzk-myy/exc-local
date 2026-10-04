@@ -27,7 +27,7 @@ export default function ChartPage() {
               type="button"
               aria-pressed={interval === tf}
               onClick={() => setInterval(tf)}
-              className={`rounded px-2 py-0.5 text-xs font-medium ${
+              className={`rounded px-2 py-1 text-xs font-medium ${
                 interval === tf
                   ? 'bg-neutral-700 text-white'
                   : 'text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200'

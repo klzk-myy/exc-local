@@ -204,7 +204,7 @@ export default function RegisterPage() {
           <label className="mb-4 flex items-start gap-2 text-sm text-neutral-300">
             <input
               type="checkbox"
-              className="mt-1"
+              className="mt-1 h-6 w-6 accent-sky-500"
               checked={acceptTerms}
               onChange={(e) => {
                 setAcceptTerms(e.target.checked);

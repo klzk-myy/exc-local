@@ -81,7 +81,7 @@ export default function TradingChart(props: TradingChartProps) {
     options: {
       timeScale: { timeVisible: true, secondsVisible: interval === '1s' },
     },
-    deps: [symbol, interval, height],
+    deps: [symbol, interval], // height applies in place — no recreate
     onResize: bump,
   });
 
@@ -112,8 +112,13 @@ export default function TradingChart(props: TradingChartProps) {
     getBars(api, symbol, interval, { limit: 500 })
       .then((history) => {
         if (!live) return;
+        // Drop malformed bars — lwc throws "Value is null"/NaN on
+        // non-finite data rather than skipping it.
+        const clean = history.filter((b) =>
+          [b.time, b.open, b.high, b.low, b.close, b.volume].every(Number.isFinite),
+        );
         candles.setData(
-          history.map((b): CandlestickData<UTCTimestamp> => ({
+          clean.map((b): CandlestickData<UTCTimestamp> => ({
             time: b.time as UTCTimestamp,
             open: b.open,
             high: b.high,
@@ -122,14 +127,15 @@ export default function TradingChart(props: TradingChartProps) {
           })),
         );
         volume.setData(
-          history.map((b): HistogramData<UTCTimestamp> => ({
+          clean.map((b): HistogramData<UTCTimestamp> => ({
             time: b.time as UTCTimestamp,
             value: b.volume,
             color: b.close >= b.open ? '#10b98155' : '#ef444455',
           })),
         );
-        setBars(history.map((b) => ({ openTimeMs: b.time * 1000, time: b.time as UTCTimestamp })));
-        chart.timeScale().fitContent();
+        setBars(clean.map((b) => ({ openTimeMs: b.time * 1000, time: b.time as UTCTimestamp })));
+        // fitContent on an empty series hits lwc's ensureNotNull path.
+        if (clean.length > 0) chart.timeScale().fitContent();
       })
       .catch(() => {
         /* history unavailable — the live channel still feeds the chart */
@@ -153,6 +159,10 @@ export default function TradingChart(props: TradingChartProps) {
     // rejects frames that positively identify a different symbol.
     if (!k || (k.symbol !== undefined && k.symbol !== symbol)) return;
     const bar = liveKlineToBar(k);
+    // Closed-market and heartbeat frames can carry non-finite values —
+    // lwc throws "Value is null" on them instead of ignoring the frame.
+    if (![bar.time, bar.open, bar.high, bar.low, bar.close, bar.volume].every(Number.isFinite))
+      return;
     const time = bar.time as UTCTimestamp;
     candleRef.current?.update({
       time,

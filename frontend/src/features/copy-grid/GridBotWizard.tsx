@@ -234,11 +234,11 @@ export function GridBotWizard({
         <input
           id="gb-risk-accept"
           type="checkbox"
+          className="mt-1 h-6 w-6 accent-sky-500"
           checked={riskAccepted}
           onChange={(e) => {
             setRiskAccepted(e.target.checked);
           }}
-          className="mt-1"
         />
         <span>I accept the grid-bot risk disclosure.</span>
       </label>

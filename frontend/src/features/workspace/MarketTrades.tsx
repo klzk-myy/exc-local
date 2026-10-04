@@ -61,14 +61,14 @@ export function MarketTrades({ symbol, client = wsClient }: { symbol: string; cl
   });
 
   return (
-    <div className="h-full overflow-y-auto" role="log" aria-label={`${symbol} recent trades`}>
+    <div className="h-full overflow-y-auto" role="log" tabIndex={0} aria-label={`${symbol} recent trades`}>
       <table className={tableCls}>
         <thead className="sticky top-0 bg-neutral-900">
           <tr>
-            <th className={thCls}>Time</th>
-            <th className={thCls}>Side</th>
             <th className={thCls}>Price</th>
             <th className={thCls}>Qty</th>
+            <th className={thCls}>Side</th>
+            <th className={thCls}>Time</th>
           </tr>
         </thead>
         <tbody>
@@ -76,14 +76,16 @@ export function MarketTrades({ symbol, client = wsClient }: { symbol: string; cl
             const buy = t.side === 'BUY';
             return (
               <tr key={t.tradeId}>
-                <td className={`${tdCls} font-mono text-neutral-400`}>
-                  {t.tsMs > 0 ? new Date(t.tsMs).toLocaleTimeString() : '—'}
+                <td className={`${tdCls} font-mono ${buy ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {formatPrice(meta, t.price)}
                 </td>
+                <td className={`${tdCls} font-mono`}>{t.quantity}</td>
                 <td className={`${tdCls} font-mono ${buy ? 'text-emerald-400' : 'text-red-400'}`}>
                   {t.side}
                 </td>
-                <td className={`${tdCls} font-mono`}>{formatPrice(meta, t.price)}</td>
-                <td className={`${tdCls} font-mono`}>{t.quantity}</td>
+                <td className={`${tdCls} font-mono text-neutral-400`}>
+                  {t.tsMs > 0 ? new Date(t.tsMs).toLocaleTimeString() : '—'}
+                </td>
               </tr>
             );
           })}

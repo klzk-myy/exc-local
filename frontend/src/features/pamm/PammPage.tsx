@@ -9,6 +9,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiClient } from '@/app/runtime';
 import { ApiError } from '@/lib/api';
+import { RequireAuth } from '@/features/auth/guards';
+import { useAuthed } from '@/lib/trading/queries';
 import { UnavailablePanel } from '@/lib/input-helpers';
 import { btnGhost, btnPrimary, inputCls, labelCls, tableCls, tdCls, thCls } from '@/lib/ui';
 import { ErrorBox } from '@/lib/ui';
@@ -240,8 +242,16 @@ function PoolRow({ pool, onSelect }: { pool: PammPool; onSelect: () => void }) {
 
 export default function PammPage() {
   const [selected, setSelected] = useState<number | null>(null);
-  const q = useQuery({ queryKey: ['pamm', 'pools'], queryFn: () => listPools(apiClient) });
+  const authed = useAuthed();
+  const q = useQuery({
+    queryKey: ['pamm', 'pools'],
+    queryFn: () => listPools(apiClient),
+    enabled: authed,
+  });
 
+  if (!authed) {
+    return <RequireAuth>{null}</RequireAuth>;
+  }
   if (q.error) {
     return isUnavailable(q.error) ? (
       <UnavailablePanel

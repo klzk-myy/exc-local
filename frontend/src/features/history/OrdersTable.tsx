@@ -253,7 +253,7 @@ export function OrdersTable({ openOnly }: { openOnly: boolean }) {
       {orders.length === 0 ? (
         <p className="text-sm text-neutral-500">No orders match.</p>
       ) : (
-        <div className="overflow-x-auto">
+        <div className="relative overflow-x-auto" tabIndex={0}>
           <table className={tableCls}>
             <thead>
               <tr>
@@ -265,7 +265,7 @@ export function OrdersTable({ openOnly }: { openOnly: boolean }) {
                 <th className={thCls}>Price</th>
                 <th className={thCls}>Filled</th>
                 <th className={thCls}>Status</th>
-                <th className={thCls} />
+                <th className={thCls}><span className="sr-only">Actions</span></th>
               </tr>
             </thead>
             <tbody>

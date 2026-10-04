@@ -10,7 +10,7 @@
  *   - stale/resync surfaces from the ws health registry (Task 10.3.19)
  *   - clicking a level emits onPriceClick (quick-order prefill, 10.3.3)
  */
-import { useMemo, useState, type UIEvent } from 'react';
+import { useMemo, useState, type KeyboardEvent, type UIEvent } from 'react';
 
 import { apiClient, wsClient } from '@/app/runtime';
 import type { ApiClient } from '@/lib/api';
@@ -130,29 +130,47 @@ function DepthRow(props: {
           isBid ? 'bg-emerald-500/10' : 'bg-red-500/10'
         }`}
       />
-      <span className={`relative z-10 font-mono ${isBid ? 'text-emerald-400' : 'text-red-400'}`}>
+      <span
+        role="gridcell"
+        className={`relative z-10 font-mono ${isBid ? 'text-emerald-400' : 'text-red-400'}`}
+      >
         {formatDecimal(row.price, props.tickDecimals)}
       </span>
-      <span className="relative z-10 font-mono text-neutral-200">
+      <span role="gridcell" className="relative z-10 font-mono text-neutral-200">
         {formatDecimal(row.qty, props.lotDecimals)}
       </span>
-      <span className="relative z-10 font-mono text-neutral-400">
+      <span role="gridcell" className="relative z-10 font-mono text-neutral-400">
         {formatDecimal(row.total, props.lotDecimals)}
       </span>
     </>
   );
   const cls = `relative grid h-6 w-full grid-cols-3 items-center px-2 text-right text-xs transition-colors duration-300 ${flashCls}`;
-  return props.onClick ? (
-    <button
-      type="button"
-      className={`${cls} hover:bg-neutral-800/60`}
-      onClick={() => props.onClick?.(row)}
-      aria-label={`${isBid ? 'bid' : 'ask'} ${row.price}`}
+  // Grid semantics: the row keeps role="row" in both modes so the
+  // rowgroup's required owned elements hold; interactive rows are
+  // keyboard-focusable with Enter/Space activation (quick-order prefill).
+  const interactive = props.onClick !== undefined;
+  return (
+    <div
+      className={
+        interactive
+          ? `${cls} cursor-pointer hover:bg-neutral-800/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-sky-500`
+          : cls
+      }
+      role="row"
+      {...(interactive
+        ? {
+            tabIndex: 0,
+            'aria-label': `${isBid ? 'bid' : 'ask'} ${row.price}`,
+            onClick: () => props.onClick?.(row),
+            onKeyDown: (e: KeyboardEvent) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                props.onClick?.(row);
+              }
+            },
+          }
+        : {})}
     >
-      {body}
-    </button>
-  ) : (
-    <div className={cls} role="row">
       {body}
     </div>
   );
@@ -190,6 +208,9 @@ function BookSide(props: {
       data-testid={`book-${props.label}`}
       role="rowgroup"
       aria-label={`${props.label} depth`}
+      // Keyboard scrolling for the virtualized window (scrollable-region-
+      // focusable): the rowgroup takes focus, then rows/cells take it.
+      tabIndex={0}
     >
       <div className={hClass(range.topPad)} aria-hidden />
       {rows.slice(range.start, range.end).map((r) => (
@@ -204,7 +225,11 @@ function BookSide(props: {
       ))}
       <div className={hClass(range.bottomPad)} aria-hidden />
       {rows.length === 0 && (
-        <p className="px-2 py-3 text-center text-xs text-neutral-500">No {props.label}</p>
+        <div role="row" className="px-2 py-3 text-center text-xs text-neutral-500">
+          <span role="gridcell" className="col-span-3">
+            No {props.label}
+          </span>
+        </div>
       )}
     </div>
   );
@@ -279,7 +304,7 @@ export function OrderBook(props: OrderBookProps) {
               type="button"
               aria-pressed={levels === n}
               onClick={() => setLevels(n)}
-              className={`rounded px-2 py-0.5 text-xs font-medium ${
+              className={`rounded px-2 py-1 text-xs font-medium ${
                 levels === n
                   ? 'bg-neutral-700 text-white'
                   : 'text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200'
@@ -290,12 +315,6 @@ export function OrderBook(props: OrderBookProps) {
           ))}
         </div>
       </header>
-
-      <div className="grid grid-cols-3 px-2 pt-2 text-right text-[10px] font-medium uppercase tracking-wide text-neutral-500">
-        <span>Price</span>
-        <span>Qty</span>
-        <span>Total</span>
-      </div>
 
       {error !== null ? (
         <div className="p-4 text-center">
@@ -315,7 +334,15 @@ export function OrderBook(props: OrderBookProps) {
           Loading book…
         </p>
       ) : (
-        <>
+        <div role="grid" aria-label={`${props.symbol} order book levels`}>
+          <div
+            role="row"
+            className="grid grid-cols-3 px-2 pt-2 text-right text-[10px] font-medium uppercase tracking-wide text-neutral-500"
+          >
+            <span role="columnheader">Price</span>
+            <span role="columnheader">Qty</span>
+            <span role="columnheader">Total</span>
+          </div>
           <BookSide
             label="asks"
             rows={asksReversed}
@@ -328,21 +355,24 @@ export function OrderBook(props: OrderBookProps) {
             }
           />
           <div
-            className="flex items-center justify-between border-y border-neutral-800 px-3 py-1.5"
+            role="row"
+            className="grid grid-cols-3 border-y border-neutral-800 px-3 py-1.5"
             data-testid="book-spread"
           >
-            <span className="text-xs text-neutral-400">
-              Spread{' '}
-              <span className="font-mono text-neutral-200">
-                {view.spread ? view.spread.toFixed(tickDecimals) : '—'}
+            <div role="gridcell" aria-colspan={3} className="col-span-3 flex items-center justify-between">
+              <span className="text-xs text-neutral-400">
+                Spread{' '}
+                <span className="font-mono text-neutral-200">
+                  {view.spread ? view.spread.toFixed(tickDecimals) : '—'}
+                </span>
               </span>
-            </span>
-            <span className="text-xs text-neutral-400">
-              Mid{' '}
-              <span className="font-mono text-neutral-200">
-                {view.mid ? view.mid.toFixed(tickDecimals) : '—'}
+              <span className="text-xs text-neutral-400">
+                Mid{' '}
+                <span className="font-mono text-neutral-200">
+                  {view.mid ? view.mid.toFixed(tickDecimals) : '—'}
+                </span>
               </span>
-            </span>
+            </div>
           </div>
           <BookSide
             label="bids"
@@ -355,7 +385,7 @@ export function OrderBook(props: OrderBookProps) {
               props.onPriceClick ? (r) => props.onPriceClick?.(r.price, 'bid') : undefined
             }
           />
-        </>
+        </div>
       )}
     </section>
   );

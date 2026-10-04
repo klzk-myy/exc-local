@@ -162,7 +162,7 @@ describe('DepthChart', () => {
     expect(screen.getByText(/ask depth/)).toBeInTheDocument();
   });
 
-  it('click writes the order ticket draft', async () => {
+  it('click writes the order ticket draft routed by side of mid', async () => {
     const h = makeWsHarness();
     setup();
     fake.charts.length = 0;
@@ -170,10 +170,19 @@ describe('DepthChart', () => {
     renderApp(<DepthChart symbol="EUR/USD" client={h.client} />);
     await screen.findByRole('img', { name: /mid 1\.10000/ });
     const chart = fake.charts.at(-1)!;
+    // Right of mid (1.10010 > 1.10) → Sell column.
     act(() => chart.clicks.forEach((fn) => fn({ time: 110010000 })));
     expect(useOrderDraft.getState().draft).toMatchObject({
       symbol: 'EUR/USD',
       price: '1.10010',
+      side: 'SELL',
+    });
+    // Left of mid → Buy column.
+    act(() => chart.clicks.forEach((fn) => fn({ time: 109990000 })));
+    expect(useOrderDraft.getState().draft).toMatchObject({
+      symbol: 'EUR/USD',
+      price: '1.09990',
+      side: 'BUY',
     });
   });
 });

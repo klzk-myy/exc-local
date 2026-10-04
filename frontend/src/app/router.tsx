@@ -42,10 +42,12 @@ function toRouteObject(route: FeatureRoute): RouteObject {
 
 function NotFound() {
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-2">
-      <p className="text-2xl font-semibold">404</p>
-      <p className="text-neutral-400">Page not found.</p>
-    </div>
+    <RouteTitle title="Not found">
+      <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
+        <h1 className="text-2xl font-semibold">404</h1>
+        <p className="text-neutral-400">Page not found.</p>
+      </div>
+    </RouteTitle>
   );
 }
 

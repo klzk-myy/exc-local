@@ -58,9 +58,10 @@ function AccountSnapshot() {
       </div>
       <ErrorBox error={queryError} />
       <div className="grid gap-4 md:grid-cols-3">
-        <div>
+        <div className="min-w-0">
           <h3 className="mb-1 text-xs font-medium text-neutral-500">Balances</h3>
-          <table className={tableCls}>
+          <div className="relative overflow-x-auto" tabIndex={0}>
+            <table className={tableCls}>
             <thead>
               <tr>
                 <th className={thCls}>CCY</th>
@@ -86,11 +87,13 @@ function AccountSnapshot() {
                 </tr>
               )}
             </tbody>
-          </table>
+            </table>
+          </div>
         </div>
-        <div>
+        <div className="min-w-0">
           <h3 className="mb-1 text-xs font-medium text-neutral-500">Open positions</h3>
-          <table className={tableCls}>
+          <div className="relative overflow-x-auto" tabIndex={0}>
+            <table className={tableCls}>
             <thead>
               <tr>
                 <th className={thCls}>Symbol</th>
@@ -123,9 +126,10 @@ function AccountSnapshot() {
                 </tr>
               )}
             </tbody>
-          </table>
+            </table>
+          </div>
         </div>
-        <div>
+        <div className="min-w-0">
           <h3 className="mb-1 text-xs font-medium text-neutral-500">Open orders</h3>
           <p className="text-2xl font-semibold">{openOrders.length}</p>
           {openOrders.length > 0 && (

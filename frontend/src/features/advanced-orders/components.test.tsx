@@ -11,7 +11,7 @@ import { ApiClient } from '@/lib/api';
 import { dec } from '@/lib/decimal/decimal';
 import { useAccountScope, MASTER_ACCOUNT_KEY } from '@/lib/trading/accountScope';
 import type { Instrument, Order } from '@/lib/trading/types';
-import { installFetchMock, renderApp } from '@/test/accountMocks';
+import { installFetchMock, renderApp, signInForTests } from '@/test/accountMocks';
 
 // Late-bound fetch singletons so installFetchMock intercepts queries.
 vi.mock('@/app/runtime', () => import('@/test/accountMocks').then((m) => m.runtimeModule()));
@@ -263,6 +263,7 @@ describe('OrderInspectModal', () => {
 
 describe('SubAccountSwitcher', () => {
   beforeEach(() => {
+    signInForTests();
     useAccountScope.setState({ scopeKey: MASTER_ACCOUNT_KEY, scopeLabel: 'Master account' });
   });
 
