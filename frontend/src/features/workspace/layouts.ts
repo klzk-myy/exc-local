@@ -12,14 +12,7 @@
  */
 import type { UiMode } from './liteMode';
 
-export type PanelId =
-  | 'order'
-  | 'book'
-  | 'positions'
-  | 'chart'
-  | 'depth'
-  | 'balances'
-  | 'tape';
+export type PanelId = 'order' | 'book' | 'positions' | 'chart' | 'depth' | 'balances' | 'tape';
 
 export interface PanelMeta {
   id: PanelId;

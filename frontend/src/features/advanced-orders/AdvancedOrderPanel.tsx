@@ -281,12 +281,11 @@ export function AdvancedOrderPanel({
     touched[k] === true || submitTried || triedSide !== null ? fieldErrors[k] : undefined;
   const touch = (k: string) => () => setTouched((t) => (t[k] === true ? t : { ...t, [k]: true }));
   const constraints = qtyConstraints(instrument);
-  const qtyHint =
-    constraints.step.isPositive()
-      ? `lot step ${constraints.step.toDisplay()}${
-          constraints.minQty.isPositive() ? ` · min ${constraints.minQty.toDisplay()}` : ''
-        }`
-      : undefined;
+  const qtyHint = constraints.step.isPositive()
+    ? `lot step ${constraints.step.toDisplay()}${
+        constraints.minQty.isPositive() ? ` · min ${constraints.minQty.toDisplay()}` : ''
+      }`
+    : undefined;
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -335,8 +334,7 @@ export function AdvancedOrderPanel({
     const availCcy = isBuy ? quoteCcy : baseCcy;
     const qty = parseInput(slice.quantity);
     const effPrice = parseInput(slice.price) ?? mark;
-    const total =
-      qty !== undefined && effPrice !== undefined ? qty.mul(effPrice) : undefined;
+    const total = qty !== undefined && effPrice !== undefined ? qty.mul(effPrice) : undefined;
     return (
       <div
         key={s}
@@ -440,11 +438,7 @@ export function AdvancedOrderPanel({
   };
 
   return (
-    <form
-      onSubmit={onSubmit}
-      aria-label="Advanced order entry"
-      className="p-1"
-    >
+    <form onSubmit={onSubmit} aria-label="Advanced order entry" className="p-1">
       <div className="mb-3 flex items-center justify-end">
         <div className="flex items-center gap-2">
           <button
@@ -834,8 +828,8 @@ export function AdvancedOrderPanel({
           role="status"
           className="mb-3 rounded border border-amber-700/50 bg-amber-950/30 px-2 py-1.5 text-xs text-amber-300"
         >
-          FX market is closed (24/5). New orders are rejected until the Sunday 21:00
-          UTC open — cancels still go through.
+          FX market is closed (24/5). New orders are rejected until the Sunday 21:00 UTC open —
+          cancels still go through.
         </p>
       )}
 

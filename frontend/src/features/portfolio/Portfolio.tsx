@@ -151,66 +151,68 @@ export function Portfolio(props: PortfolioProps) {
         ) : (
           <div className="relative overflow-x-auto" tabIndex={0}>
             <table className="w-full">
-            <thead>
-              <tr className="border-b border-neutral-800">
-                <th className={thCls}>Symbol</th>
-                <th className={thCls}>Side</th>
-                <th className={`${thCls} text-right`}>Qty</th>
-                <th className={`${thCls} text-right`}>Entry</th>
-                <th className={`${thCls} text-right`}>Mark</th>
-                <th className={`${thCls} text-right`}>uPnL</th>
-                <th className={`${thCls} text-right`}>Margin</th>
-                <th className={thCls}><span className="sr-only">Actions</span></th>
-              </tr>
-            </thead>
-            <tbody>
-              {positions.map((p) => {
-                const inst = bySymbol.get(p.symbol);
-                const pnl = p.unrealizedPnl;
-                const pnlCls = pnl.startsWith('-')
-                  ? 'text-red-400'
-                  : pnl === '0'
-                    ? 'text-neutral-400'
-                    : 'text-emerald-400';
-                return (
-                  <tr
-                    key={`${p.positionId}-${p.symbol}-${p.side}`}
-                    className="border-b border-neutral-800/60"
-                  >
-                    <td className={`${tdCls} text-neutral-100`}>{p.symbol}</td>
-                    <td className={tdCls}>
-                      <span
-                        className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
-                          p.side === 'LONG'
-                            ? 'bg-emerald-500/15 text-emerald-400'
-                            : 'bg-red-500/15 text-red-400'
-                        }`}
-                      >
-                        {p.side}
-                      </span>
-                    </td>
-                    <td className={`${tdCls} text-right`}>
-                      {inst ? formatQty(p.quantity, inst) : p.quantity}
-                    </td>
-                    <td className={`${tdCls} text-right`}>
-                      {inst ? formatPrice(p.entryPrice, inst) : p.entryPrice}
-                    </td>
-                    <td className={`${tdCls} text-right`}>
-                      {p.markPrice !== undefined
-                        ? inst
-                          ? formatPrice(p.markPrice, inst)
-                          : p.markPrice
-                        : '—'}
-                    </td>
-                    <td className={`${tdCls} text-right ${pnlCls}`}>{formatPnl(pnl)}</td>
-                    <td className={`${tdCls} text-right`}>{formatCurrency(p.marginUsed)}</td>
-                    <td className={`${tdCls} text-right`}>
-                      <CloseButton position={p} api={api} disabled={!status.orderEntryEnabled} />
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
+              <thead>
+                <tr className="border-b border-neutral-800">
+                  <th className={thCls}>Symbol</th>
+                  <th className={thCls}>Side</th>
+                  <th className={`${thCls} text-right`}>Qty</th>
+                  <th className={`${thCls} text-right`}>Entry</th>
+                  <th className={`${thCls} text-right`}>Mark</th>
+                  <th className={`${thCls} text-right`}>uPnL</th>
+                  <th className={`${thCls} text-right`}>Margin</th>
+                  <th className={thCls}>
+                    <span className="sr-only">Actions</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {positions.map((p) => {
+                  const inst = bySymbol.get(p.symbol);
+                  const pnl = p.unrealizedPnl;
+                  const pnlCls = pnl.startsWith('-')
+                    ? 'text-red-400'
+                    : pnl === '0'
+                      ? 'text-neutral-400'
+                      : 'text-emerald-400';
+                  return (
+                    <tr
+                      key={`${p.positionId}-${p.symbol}-${p.side}`}
+                      className="border-b border-neutral-800/60"
+                    >
+                      <td className={`${tdCls} text-neutral-100`}>{p.symbol}</td>
+                      <td className={tdCls}>
+                        <span
+                          className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                            p.side === 'LONG'
+                              ? 'bg-emerald-500/15 text-emerald-400'
+                              : 'bg-red-500/15 text-red-400'
+                          }`}
+                        >
+                          {p.side}
+                        </span>
+                      </td>
+                      <td className={`${tdCls} text-right`}>
+                        {inst ? formatQty(p.quantity, inst) : p.quantity}
+                      </td>
+                      <td className={`${tdCls} text-right`}>
+                        {inst ? formatPrice(p.entryPrice, inst) : p.entryPrice}
+                      </td>
+                      <td className={`${tdCls} text-right`}>
+                        {p.markPrice !== undefined
+                          ? inst
+                            ? formatPrice(p.markPrice, inst)
+                            : p.markPrice
+                          : '—'}
+                      </td>
+                      <td className={`${tdCls} text-right ${pnlCls}`}>{formatPnl(pnl)}</td>
+                      <td className={`${tdCls} text-right`}>{formatCurrency(p.marginUsed)}</td>
+                      <td className={`${tdCls} text-right`}>
+                        <CloseButton position={p} api={api} disabled={!status.orderEntryEnabled} />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
             </table>
           </div>
         )}
@@ -232,26 +234,26 @@ export function Portfolio(props: PortfolioProps) {
         ) : (
           <div className="relative overflow-x-auto" tabIndex={0}>
             <table className="w-full">
-            <thead>
-              <tr className="border-b border-neutral-800">
-                <th className={thCls}>Currency</th>
-                <th className={`${thCls} text-right`}>Free</th>
-                <th className={`${thCls} text-right`}>Used</th>
-                <th className={`${thCls} text-right`}>Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {balances.map((b) => (
-                <tr key={b.currency} className="border-b border-neutral-800/60">
-                  <td className={`${tdCls} text-neutral-100`}>{b.currency}</td>
-                  <td className={`${tdCls} text-right`}>{formatCurrency(b.available)}</td>
-                  <td className={`${tdCls} text-right text-neutral-400`}>
-                    {formatDecimal(b.locked, 2)}
-                  </td>
-                  <td className={`${tdCls} text-right`}>{formatCurrency(b.total)}</td>
+              <thead>
+                <tr className="border-b border-neutral-800">
+                  <th className={thCls}>Currency</th>
+                  <th className={`${thCls} text-right`}>Free</th>
+                  <th className={`${thCls} text-right`}>Used</th>
+                  <th className={`${thCls} text-right`}>Total</th>
                 </tr>
-              ))}
-            </tbody>
+              </thead>
+              <tbody>
+                {balances.map((b) => (
+                  <tr key={b.currency} className="border-b border-neutral-800/60">
+                    <td className={`${tdCls} text-neutral-100`}>{b.currency}</td>
+                    <td className={`${tdCls} text-right`}>{formatCurrency(b.available)}</td>
+                    <td className={`${tdCls} text-right text-neutral-400`}>
+                      {formatDecimal(b.locked, 2)}
+                    </td>
+                    <td className={`${tdCls} text-right`}>{formatCurrency(b.total)}</td>
+                  </tr>
+                ))}
+              </tbody>
             </table>
           </div>
         )}

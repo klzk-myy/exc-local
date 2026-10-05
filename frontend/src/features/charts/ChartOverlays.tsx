@@ -19,11 +19,7 @@
  * re-enable hit testing via the pointer-events presentation attribute.
  */
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
-import type {
-  IChartApi,
-  ISeriesApi,
-  UTCTimestamp,
-} from 'lightweight-charts';
+import type { IChartApi, ISeriesApi, UTCTimestamp } from 'lightweight-charts';
 
 import type { KlineInterval } from '@/lib/market/channels';
 import { formatCountdown, useNow } from '@/lib/ui';
@@ -188,7 +184,16 @@ function OrderLine({
       />
       {/* fat hit area — ≥24px tall for pointer targets */}
       <line x1={0} x2={geom.paneW} y1={y} y2={y} stroke="transparent" strokeWidth={24} />
-      <rect x={4} y={y - 9} width={76} height={16} rx={3} fill="#171717" stroke={stroke} strokeWidth={0.75} />
+      <rect
+        x={4}
+        y={y - 9}
+        width={76}
+        height={16}
+        rx={3}
+        fill="#171717"
+        stroke={stroke}
+        strokeWidth={0.75}
+      />
       <text x={8} y={y + 3} fontSize={9} fill={stroke} className="select-none">
         {order.side === 'BUY' ? 'B' : 'S'} {order.type.slice(0, 3)} {price.toString()}
       </text>
@@ -235,7 +240,11 @@ export function ChartOverlays({
 
   return (
     <>
-      <svg className="pointer-events-none absolute inset-0 h-full w-full" role="group" aria-label={`${symbol} order and position overlays`}>
+      <svg
+        className="pointer-events-none absolute inset-0 h-full w-full"
+        role="group"
+        aria-label={`${symbol} order and position overlays`}
+      >
         {position !== undefined &&
           (() => {
             const y = geom.priceToY(position.entryPrice);

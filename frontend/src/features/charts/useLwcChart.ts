@@ -73,12 +73,7 @@ export interface UseLwcChartArgs {
   onResize?: () => void;
 }
 
-export function useLwcChart({
-  height,
-  options,
-  deps,
-  onResize,
-}: UseLwcChartArgs): {
+export function useLwcChart({ height, options, deps, onResize }: UseLwcChartArgs): {
   containerRef: MutableRefObject<HTMLDivElement | null>;
   chart: IChartApi | null;
 } {

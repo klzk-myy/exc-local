@@ -349,9 +349,7 @@ export default function WorkspacePage() {
           className={selectCompactCls}
         >
           <option value="">
-            {layoutName !== '' && !savedLayouts.includes(layoutName)
-              ? layoutName
-              : '— layouts —'}
+            {layoutName !== '' && !savedLayouts.includes(layoutName) ? layoutName : '— layouts —'}
           </option>
           {savedLayouts.map((n) => (
             <option key={n} value={n}>

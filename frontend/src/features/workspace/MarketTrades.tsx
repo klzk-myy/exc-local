@@ -61,7 +61,12 @@ export function MarketTrades({ symbol, client = wsClient }: { symbol: string; cl
   });
 
   return (
-    <div className="h-full overflow-y-auto" role="log" tabIndex={0} aria-label={`${symbol} recent trades`}>
+    <div
+      className="h-full overflow-y-auto"
+      role="log"
+      tabIndex={0}
+      aria-label={`${symbol} recent trades`}
+    >
       <table className={tableCls}>
         <thead className="sticky top-0 bg-neutral-900">
           <tr>

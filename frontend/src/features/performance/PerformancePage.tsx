@@ -176,82 +176,82 @@ export default function PerformancePage({
               Per-pair breakdown <DerivedBadge />
             </h2>
             <div className="relative overflow-x-auto" tabIndex={0}>
-            <table className={tableCls}>
-              <thead>
-                <tr>
-                  <th className={thCls}>Symbol</th>
-                  <th className={thCls}>Bought</th>
-                  <th className={thCls}>Sold</th>
-                  <th className={thCls}>Notional</th>
-                  <th className={thCls}>Realized</th>
-                  <th className={thCls}>Unrealized</th>
-                </tr>
-              </thead>
-              <tbody>
-                {summary.perPair.map((p) => (
-                  <tr key={p.symbol}>
-                    <td className={tdCls}>{p.symbol}</td>
-                    <td className={tdCls}>{p.filledBuyQty.toFixed(2)}</td>
-                    <td className={tdCls}>{p.filledSellQty.toFixed(2)}</td>
-                    <td className={tdCls}>{p.notional.toFixed(2)}</td>
-                    <td
-                      className={`${tdCls} ${p.realizedPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}
-                    >
-                      {formatPnl(String(p.realizedPnl))}
-                    </td>
-                    <td
-                      className={`${tdCls} ${p.unrealizedPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}
-                    >
-                      {formatPnl(String(p.unrealizedPnl))}
-                    </td>
-                  </tr>
-                ))}
-                {summary.perPair.length === 0 && (
+              <table className={tableCls}>
+                <thead>
                   <tr>
-                    <td className={tdCls} colSpan={6}>
-                      No fills or positions yet.
-                    </td>
+                    <th className={thCls}>Symbol</th>
+                    <th className={thCls}>Bought</th>
+                    <th className={thCls}>Sold</th>
+                    <th className={thCls}>Notional</th>
+                    <th className={thCls}>Realized</th>
+                    <th className={thCls}>Unrealized</th>
                   </tr>
-                )}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {summary.perPair.map((p) => (
+                    <tr key={p.symbol}>
+                      <td className={tdCls}>{p.symbol}</td>
+                      <td className={tdCls}>{p.filledBuyQty.toFixed(2)}</td>
+                      <td className={tdCls}>{p.filledSellQty.toFixed(2)}</td>
+                      <td className={tdCls}>{p.notional.toFixed(2)}</td>
+                      <td
+                        className={`${tdCls} ${p.realizedPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}
+                      >
+                        {formatPnl(String(p.realizedPnl))}
+                      </td>
+                      <td
+                        className={`${tdCls} ${p.unrealizedPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}
+                      >
+                        {formatPnl(String(p.unrealizedPnl))}
+                      </td>
+                    </tr>
+                  ))}
+                  {summary.perPair.length === 0 && (
+                    <tr>
+                      <td className={tdCls} colSpan={6}>
+                        No fills or positions yet.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             </div>
           </section>
 
           <section className={`${cardCls} mt-4`} aria-label="Open positions">
             <h2 className="mb-2 text-sm font-medium text-neutral-400">Open positions</h2>
             <div className="relative overflow-x-auto" tabIndex={0}>
-            <table className={tableCls}>
-              <thead>
-                <tr>
-                  <th className={thCls}>Symbol</th>
-                  <th className={thCls}>Side</th>
-                  <th className={thCls}>Qty</th>
-                  <th className={thCls}>Entry</th>
-                  <th className={thCls}>Unrealized</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(positions.data ?? []).map((p) => (
-                  <tr key={p.positionId}>
-                    <td className={tdCls}>{p.symbol}</td>
-                    <td className={tdCls}>
-                      <StatusBadge value={p.side} />
-                    </td>
-                    <td className={tdCls}>{p.quantity}</td>
-                    <td className={tdCls}>{p.entryPrice}</td>
-                    <td className={tdCls}>{formatPnl(p.unrealizedPnl)}</td>
-                  </tr>
-                ))}
-                {(positions.data ?? []).length === 0 && (
+              <table className={tableCls}>
+                <thead>
                   <tr>
-                    <td className={tdCls} colSpan={5}>
-                      No open positions.
-                    </td>
+                    <th className={thCls}>Symbol</th>
+                    <th className={thCls}>Side</th>
+                    <th className={thCls}>Qty</th>
+                    <th className={thCls}>Entry</th>
+                    <th className={thCls}>Unrealized</th>
                   </tr>
-                )}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {(positions.data ?? []).map((p) => (
+                    <tr key={p.positionId}>
+                      <td className={tdCls}>{p.symbol}</td>
+                      <td className={tdCls}>
+                        <StatusBadge value={p.side} />
+                      </td>
+                      <td className={tdCls}>{p.quantity}</td>
+                      <td className={tdCls}>{p.entryPrice}</td>
+                      <td className={tdCls}>{formatPnl(p.unrealizedPnl)}</td>
+                    </tr>
+                  ))}
+                  {(positions.data ?? []).length === 0 && (
+                    <tr>
+                      <td className={tdCls} colSpan={5}>
+                        No open positions.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             </div>
           </section>
         </>

@@ -67,10 +67,7 @@ function installRoutes(posts?: { body: Record<string, unknown> }) {
     'POST /api/v1/orders': {
       handler: (_url, init) => {
         if (posts !== undefined)
-          Object.assign(
-            posts.body,
-            typeof init?.body === 'string' ? JSON.parse(init.body) : {},
-          );
+          Object.assign(posts.body, typeof init?.body === 'string' ? JSON.parse(init.body) : {});
         return { status: 200, body: { order_id: '1' } };
       },
     },
@@ -179,9 +176,7 @@ describe('AdvancedOrderPanel — Binance-style dual columns', () => {
     // flag errors inside the Buy column only.
     await userEvent.click(within(buyColumn()).getByRole('button', { name: 'Buy EUR' }));
     expect(calls.filter((c) => c.method === 'POST')).toHaveLength(0);
-    expect(
-      within(buyColumn()).getAllByRole('alert').length,
-    ).toBeGreaterThan(0);
+    expect(within(buyColumn()).getAllByRole('alert').length).toBeGreaterThan(0);
     expect(within(sellColumn()).queryAllByRole('alert')).toHaveLength(0);
   });
 

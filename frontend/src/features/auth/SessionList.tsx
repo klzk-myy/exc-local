@@ -67,51 +67,53 @@ export function SessionList() {
       )}
       {sessions.data !== undefined && sessions.data.length > 0 && (
         <div className="relative overflow-x-auto" tabIndex={0}>
-        <table className={tableCls}>
-          <thead>
-            <tr>
-              <th className={thCls}>Device</th>
-              <th className={thCls}>IP</th>
-              <th className={thCls}>Location</th>
-              <th className={thCls}>Last active</th>
-              <th className={thCls}><span className="sr-only">Actions</span></th>
-            </tr>
-          </thead>
-          <tbody>
-            {sessions.data.map((s) => (
-              <tr key={s.id}>
-                <td className={tdCls}>
-                  {deviceLabel(s)}
-                  {s.current === true && (
-                    <span className="ml-2 rounded bg-emerald-500/20 px-1.5 py-0.5 text-xs text-emerald-400">
-                      current
-                    </span>
-                  )}
-                </td>
-                <td className={tdCls}>{s.ip ?? '—'}</td>
-                <td className={tdCls}>
-                  {[s.geo_city, s.geo_country]
-                    .filter((v): v is string => v !== undefined)
-                    .join(', ') || '—'}
-                </td>
-                <td className={tdCls}>{new Date(s.last_active_at).toLocaleString('en-US')}</td>
-                <td className={tdCls}>
-                  {s.current !== true && (
-                    <button
-                      type="button"
-                      className={btnGhost}
-                      onClick={() => {
-                        setRevoking(s);
-                      }}
-                    >
-                      Revoke
-                    </button>
-                  )}
-                </td>
+          <table className={tableCls}>
+            <thead>
+              <tr>
+                <th className={thCls}>Device</th>
+                <th className={thCls}>IP</th>
+                <th className={thCls}>Location</th>
+                <th className={thCls}>Last active</th>
+                <th className={thCls}>
+                  <span className="sr-only">Actions</span>
+                </th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {sessions.data.map((s) => (
+                <tr key={s.id}>
+                  <td className={tdCls}>
+                    {deviceLabel(s)}
+                    {s.current === true && (
+                      <span className="ml-2 rounded bg-emerald-500/20 px-1.5 py-0.5 text-xs text-emerald-400">
+                        current
+                      </span>
+                    )}
+                  </td>
+                  <td className={tdCls}>{s.ip ?? '—'}</td>
+                  <td className={tdCls}>
+                    {[s.geo_city, s.geo_country]
+                      .filter((v): v is string => v !== undefined)
+                      .join(', ') || '—'}
+                  </td>
+                  <td className={tdCls}>{new Date(s.last_active_at).toLocaleString('en-US')}</td>
+                  <td className={tdCls}>
+                    {s.current !== true && (
+                      <button
+                        type="button"
+                        className={btnGhost}
+                        onClick={() => {
+                          setRevoking(s);
+                        }}
+                      >
+                        Revoke
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 

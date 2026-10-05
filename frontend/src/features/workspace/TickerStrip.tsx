@@ -58,13 +58,7 @@ function SessionChip() {
   );
 }
 
-export function TickerStrip({
-  symbol,
-  client = wsClient,
-}: {
-  symbol: string;
-  client?: WsClient;
-}) {
+export function TickerStrip({ symbol, client = wsClient }: { symbol: string; client?: WsClient }) {
   const accountId = useSessionStore((s) => s.user?.accountId ?? null);
   const setSymbol = useOrderDraft((s) => s.setSymbol);
   const { instruments } = useInstruments();
@@ -151,18 +145,8 @@ export function TickerStrip({
       </span>
       <Stat label="24h High" value={ticker?.high ? formatPrice(meta, ticker.high) : '—'} />
       <Stat label="24h Low" value={ticker?.low ? formatPrice(meta, ticker.low) : '—'} />
-      <Stat
-        label="24h Vol"
-        value={ticker?.volume ? Number(ticker.volume).toLocaleString() : '—'}
-      />
-      <Stat
-        label="Spread"
-        value={
-          spread !== null
-            ? formatPrice(meta, spread)
-            : '—'
-        }
-      />
+      <Stat label="24h Vol" value={ticker?.volume ? Number(ticker.volume).toLocaleString() : '—'} />
+      <Stat label="Spread" value={spread !== null ? formatPrice(meta, spread) : '—'} />
       {twoSided && (
         <span className="font-mono text-xs text-neutral-400">
           {formatPrice(meta, bid.toString())} / {formatPrice(meta, ask.toString())}

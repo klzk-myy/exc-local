@@ -198,13 +198,12 @@ export default function TradingChart(props: TradingChartProps) {
   const workingOrders = useMemo(
     () =>
       all
-        .filter((o: Order) => isOpenOrder(o) && (o.price !== undefined || o.stopPrice !== undefined))
+        .filter(
+          (o: Order) => isOpenOrder(o) && (o.price !== undefined || o.stopPrice !== undefined),
+        )
         .map((o: Order) => ({
           order: o,
-          price:
-            o.type === 'STOP' || o.type === 'STOP_LIMIT'
-              ? (o.stopPrice ?? o.price)
-              : o.price,
+          price: o.type === 'STOP' || o.type === 'STOP_LIMIT' ? (o.stopPrice ?? o.price) : o.price,
         }))
         .filter((w): w is { order: Order; price: Dec } => w.price !== undefined),
     [all],

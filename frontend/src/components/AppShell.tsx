@@ -165,7 +165,12 @@ export function AppShell() {
       </header>
       <div className="flex min-h-0 flex-1">
         {navOpen && (
-          <div className="fixed inset-0 z-40 lg:hidden" role="dialog" aria-modal="true" aria-label="Navigation">
+          <div
+            className="fixed inset-0 z-40 lg:hidden"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Navigation"
+          >
             <div
               className="absolute inset-0 bg-black/60"
               aria-hidden="true"

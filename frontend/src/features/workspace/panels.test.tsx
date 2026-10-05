@@ -144,9 +144,7 @@ describe('TickerStrip', () => {
     signInForTests({ accountId: 7 });
     renderApp(<TickerStrip symbol="EUR/USD" client={h.client} />);
 
-    await userEvent.click(
-      await screen.findByRole('button', { name: 'Add EUR/USD to watchlist' }),
-    );
+    await userEvent.click(await screen.findByRole('button', { name: 'Add EUR/USD to watchlist' }));
     expect(useWatchlistStore.getState().lists['7']).toContain('EUR/USD');
   });
 });
@@ -239,9 +237,7 @@ describe('BlotterPanel', () => {
 
     // cancel → ConfirmAction modal → DELETE via cancelOrder
     await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-    await userEvent.click(
-      await screen.findByRole('button', { name: 'Cancel order' }),
-    );
+    await userEvent.click(await screen.findByRole('button', { name: 'Cancel order' }));
     await waitFor(() =>
       expect(calls).toContainEqual(
         expect.objectContaining({ method: 'DELETE', url: '/api/v1/orders/41' }),

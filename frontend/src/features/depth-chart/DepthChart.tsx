@@ -345,7 +345,9 @@ export function DepthChart({ symbol, client = wsClient, bare = false }: DepthCha
             depth {hoverDepth.ask.qty.toDisplay(2)} ({hoverDepth.ask.notional.toDisplay(0)} quote)
           </span>
         ) : (
-          <span>Hover for cumulative depth · click to prefill the order ticket · scroll to zoom</span>
+          <span>
+            Hover for cumulative depth · click to prefill the order ticket · scroll to zoom
+          </span>
         )}
         <span className="text-neutral-600">zoom {(zoom * 100).toFixed(0)}%</span>
       </div>

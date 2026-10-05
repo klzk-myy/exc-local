@@ -252,7 +252,8 @@ function CreateForm({ allowedEvents }: { allowedEvents: string[] }) {
         {allowedEvents.map((ev) => (
           <label key={ev} className="flex items-center gap-1.5 text-xs text-neutral-400">
             <input
-              type="checkbox" className="h-6 w-6"
+              type="checkbox"
+              className="h-6 w-6"
               checked={selected.has(ev)}
               onChange={(e) => {
                 const next = new Set(selected);

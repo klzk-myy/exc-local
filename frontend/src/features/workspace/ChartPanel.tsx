@@ -8,10 +8,7 @@
  */
 import { lazy, useEffect, useRef, useState } from 'react';
 
-import {
-  KLINE_INTERVAL_SET,
-  type KlineInterval,
-} from '@/lib/market/channels';
+import { KLINE_INTERVAL_SET, type KlineInterval } from '@/lib/market/channels';
 
 const TradingChart = lazy(() => import('@/features/charts/TradingChart'));
 

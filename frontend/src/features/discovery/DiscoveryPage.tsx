@@ -187,7 +187,8 @@ export default function DiscoveryPage({
             />
             <label className="flex items-center gap-2 text-xs text-neutral-400">
               <input
-                type="checkbox" className="h-6 w-6"
+                type="checkbox"
+                className="h-6 w-6"
                 checked={sessionOnly}
                 onChange={(e) => setSessionOnly(e.target.checked)}
               />
@@ -196,7 +197,8 @@ export default function DiscoveryPage({
           </div>
           <label className="mb-2 flex items-center gap-2 text-xs text-neutral-400">
             <input
-              type="checkbox" className="h-6 w-6"
+              type="checkbox"
+              className="h-6 w-6"
               checked={watchlistOnly}
               onChange={(e) => setWatchlistOnly(e.target.checked)}
             />
@@ -204,50 +206,52 @@ export default function DiscoveryPage({
           </label>
           <ErrorBox error={instruments.error} />
           <div className="relative overflow-x-auto" tabIndex={0}>
-          <table className={tableCls}>
-            <thead>
-              <tr>
-                <th className={thCls}><span className="sr-only">Watchlist</span></th>
-                <th className={thCls}>Symbol</th>
-                <th className={thCls}>Type</th>
-                <th className={thCls}>Status</th>
-                <th className={thCls}>Spread cap (pips)</th>
-                <th className={thCls}>Max lev</th>
-                <th className={thCls}>Settles</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((i) => (
-                <tr key={i.symbol}>
-                  <td className={tdCls}>
-                    <button
-                      type="button"
-                      aria-label={`${watchlist.includes(i.symbol) ? 'Remove' : 'Add'} ${i.symbol} ${watchlist.includes(i.symbol) ? 'from' : 'to'} watchlist`}
-                      className="inline-flex min-h-6 min-w-6 items-center justify-center text-amber-400"
-                      onClick={() => watchlistStore.getState().toggle(accountId, i.symbol)}
-                    >
-                      {watchlist.includes(i.symbol) ? '★' : '☆'}
-                    </button>
-                  </td>
-                  <td className={tdCls}>{i.symbol}</td>
-                  <td className={tdCls}>{i.instrumentType}</td>
-                  <td className={tdCls}>
-                    <StatusBadge value={i.status} />
-                  </td>
-                  <td className={tdCls}>{i.maxSpreadPips ?? '—'}</td>
-                  <td className={tdCls}>{i.maxLeverage > 0 ? `${i.maxLeverage}×` : '—'}</td>
-                  <td className={tdCls}>{i.settlement}</td>
-                </tr>
-              ))}
-              {filtered.length === 0 && !instruments.isLoading && (
+            <table className={tableCls}>
+              <thead>
                 <tr>
-                  <td className={tdCls} colSpan={7}>
-                    No instruments match the current filters.
-                  </td>
+                  <th className={thCls}>
+                    <span className="sr-only">Watchlist</span>
+                  </th>
+                  <th className={thCls}>Symbol</th>
+                  <th className={thCls}>Type</th>
+                  <th className={thCls}>Status</th>
+                  <th className={thCls}>Spread cap (pips)</th>
+                  <th className={thCls}>Max lev</th>
+                  <th className={thCls}>Settles</th>
                 </tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {filtered.map((i) => (
+                  <tr key={i.symbol}>
+                    <td className={tdCls}>
+                      <button
+                        type="button"
+                        aria-label={`${watchlist.includes(i.symbol) ? 'Remove' : 'Add'} ${i.symbol} ${watchlist.includes(i.symbol) ? 'from' : 'to'} watchlist`}
+                        className="inline-flex min-h-6 min-w-6 items-center justify-center text-amber-400"
+                        onClick={() => watchlistStore.getState().toggle(accountId, i.symbol)}
+                      >
+                        {watchlist.includes(i.symbol) ? '★' : '☆'}
+                      </button>
+                    </td>
+                    <td className={tdCls}>{i.symbol}</td>
+                    <td className={tdCls}>{i.instrumentType}</td>
+                    <td className={tdCls}>
+                      <StatusBadge value={i.status} />
+                    </td>
+                    <td className={tdCls}>{i.maxSpreadPips ?? '—'}</td>
+                    <td className={tdCls}>{i.maxLeverage > 0 ? `${i.maxLeverage}×` : '—'}</td>
+                    <td className={tdCls}>{i.settlement}</td>
+                  </tr>
+                ))}
+                {filtered.length === 0 && !instruments.isLoading && (
+                  <tr>
+                    <td className={tdCls} colSpan={7}>
+                      No instruments match the current filters.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
         </section>
 

@@ -41,10 +41,7 @@ function parseBucket(v: unknown): TcaBucket | null {
   return {
     bucket_start: str(v['bucket_start']),
     symbol: str(v['symbol']),
-    fills:
-      typeof v['fills'] === 'number' && Number.isFinite(v['fills'])
-        ? (v['fills'])
-        : undefined,
+    fills: typeof v['fills'] === 'number' && Number.isFinite(v['fills']) ? v['fills'] : undefined,
     avg_slip_arrival_bps: str(v['avg_slip_arrival_bps']),
     avg_slip_vwap_bps: str(v['avg_slip_vwap_bps']),
     avg_slip_fix_bps: str(v['avg_slip_fix_bps']),

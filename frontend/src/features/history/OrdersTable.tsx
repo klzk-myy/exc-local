@@ -265,7 +265,9 @@ export function OrdersTable({ openOnly }: { openOnly: boolean }) {
                 <th className={thCls}>Price</th>
                 <th className={thCls}>Filled</th>
                 <th className={thCls}>Status</th>
-                <th className={thCls}><span className="sr-only">Actions</span></th>
+                <th className={thCls}>
+                  <span className="sr-only">Actions</span>
+                </th>
               </tr>
             </thead>
             <tbody>

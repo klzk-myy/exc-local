@@ -5,7 +5,8 @@ test('polish: embedded panels, no console errors, dark + light', async ({ page }
   const errors = watchErrors(page);
   await uiLogin(page, TAKER.email, TAKER.password);
   await page.evaluate(() =>
-    localStorage.setItem('exc.ui-mode.v1', JSON.stringify({ state: { mode: 'pro' }, version: 0 })));
+    localStorage.setItem('exc.ui-mode.v1', JSON.stringify({ state: { mode: 'pro' }, version: 0 })),
+  );
   await page.goto('/workspace');
   await page.waitForSelector('[role="application"]', { timeout: 15000 });
   await page.waitForTimeout(800);
@@ -13,7 +14,8 @@ test('polish: embedded panels, no console errors, dark + light', async ({ page }
 
   // light theme round-trip
   await page.evaluate(() =>
-    localStorage.setItem('exc.theme.v1', JSON.stringify({ state: { theme: 'light' }, version: 0 })));
+    localStorage.setItem('exc.theme.v1', JSON.stringify({ state: { theme: 'light' }, version: 0 })),
+  );
   await page.reload();
   await page.waitForSelector('[role="application"]', { timeout: 15000 });
   await page.waitForTimeout(800);

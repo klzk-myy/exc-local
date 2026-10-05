@@ -271,9 +271,7 @@ export function OrderBook(props: OrderBookProps) {
     <section
       aria-label={`Order book ${props.symbol}`}
       className={
-        props.bare
-          ? 'w-full'
-          : 'w-full rounded-lg border border-neutral-800 bg-neutral-900'
+        props.bare ? 'w-full' : 'w-full rounded-lg border border-neutral-800 bg-neutral-900'
       }
     >
       <header className="flex items-center justify-between border-b border-neutral-800 px-3 py-2">
@@ -359,7 +357,11 @@ export function OrderBook(props: OrderBookProps) {
             className="grid grid-cols-3 border-y border-neutral-800 px-3 py-1.5"
             data-testid="book-spread"
           >
-            <div role="gridcell" aria-colspan={3} className="col-span-3 flex items-center justify-between">
+            <div
+              role="gridcell"
+              aria-colspan={3}
+              className="col-span-3 flex items-center justify-between"
+            >
               <span className="text-xs text-neutral-400">
                 Spread{' '}
                 <span className="font-mono text-neutral-200">

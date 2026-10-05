@@ -129,7 +129,9 @@ describe('WorkspacePage (pro mode)', () => {
     renderApp(<WorkspacePage />);
     expect(await screen.findByLabelText('Order ticket panel')).toBeInTheDocument();
     expect(screen.getByLabelText('Order book panel')).toBeInTheDocument();
-    expect(await screen.findByLabelText('Blotter (positions/orders/history) panel')).toBeInTheDocument();
+    expect(
+      await screen.findByLabelText('Blotter (positions/orders/history) panel'),
+    ).toBeInTheDocument();
     expect(screen.getByLabelText('Chart & overlays panel')).toBeInTheDocument();
     expect(await screen.findByLabelText('Market trades panel')).toBeInTheDocument();
     // balances are cockpit-visible in the Pro default (MT5-style status row)
@@ -180,9 +182,7 @@ describe('WorkspacePage (pro mode)', () => {
     // Re-loading the saved layout surfaces the delete affordance, and
     // deletion goes through a confirmation dialog.
     await userEvent.selectOptions(screen.getByLabelText('Layout'), 'scalp desk');
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Delete saved layout scalp desk' }),
-    );
+    await userEvent.click(screen.getByRole('button', { name: 'Delete saved layout scalp desk' }));
     await userEvent.click(screen.getByRole('button', { name: 'Delete layout' }));
     expect(localStorage.getItem(workspaceStorageKey('master'))).not.toContain('scalp desk');
   });
@@ -212,7 +212,9 @@ describe('WorkspacePage (lite mode)', () => {
     expect(screen.getByLabelText('Order book panel')).toBeInTheDocument();
     expect(screen.getByLabelText('Chart & overlays panel')).toBeInTheDocument();
     expect(screen.getByLabelText('Market trades panel')).toBeInTheDocument();
-    expect(await screen.findByLabelText('Blotter (positions/orders/history) panel')).toBeInTheDocument();
+    expect(
+      await screen.findByLabelText('Blotter (positions/orders/history) panel'),
+    ).toBeInTheDocument();
     expect(await screen.findByLabelText('Balances panel')).toBeInTheDocument();
   });
 });

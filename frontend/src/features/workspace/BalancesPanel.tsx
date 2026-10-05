@@ -15,9 +15,7 @@ export function BalancesPanel({ bare = false }: { bare?: boolean }) {
       aria-label="Balances"
       className={bare ? '' : 'rounded-lg border border-neutral-800 bg-neutral-900 p-4'}
     >
-      {bare ? null : (
-        <h2 className="mb-3 text-sm font-semibold text-neutral-200">Balances</h2>
-      )}
+      {bare ? null : <h2 className="mb-3 text-sm font-semibold text-neutral-200">Balances</h2>}
       <ErrorBox error={balances.isError ? balances.error : null} />
       <div className="relative overflow-x-auto" tabIndex={0}>
         <table className={tableCls}>
