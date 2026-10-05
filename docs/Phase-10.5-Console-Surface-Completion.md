@@ -274,10 +274,12 @@ Non-goals: new backend business logic (existing routes only); the `/api/v1/test/
 3. Algo certification — `GET/POST /api/v1/admin/algo-certifications`, `POST …/{id}/transition`; RTS 6 self-assessments `GET/POST /api/v1/admin/rts6/self-assessments`.
 
 **DoD:**
-* [ ] MM program CRUD/compliance/rebates, DEA controls, algo-cert transitions, RTS6 self-assessment all functional
+* [x] MM program CRUD/compliance/rebates, DEA controls, algo-cert transitions, RTS6 self-assessment all functional
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: algo-trading governance surfaces complete — defined first, validated against spec
+- [x] Spec checkpoint: algo-trading governance surfaces complete — defined first, validated against spec
+
+**Execution record (2026-10-07):** `frontend/src/features/admin-marketmaking/` — `MarketMakingPage` (`/admin/market-making`) + `api.ts` + 2 panels: `MMProgramsPanel` (account/status-filtered register, enroll/update form w/ full quota-term contract, suspend/resume + §24 #139 MMP reset, per-program compliance sampling + rebate accruals, monthly GL sweep reporting partial_error honestly), `AlgoDeaPanel` (cert register w/ status filter + kill-button intake + CERTIFIED|SUSPENDED|REVOKED transitions — the only legal targets server-side; DEA per-session read/upsert/suspend; RTS6 self-assessment register + filing). Zero backend changes. 6 component tests; 689/689 suite green.
 
 ---
 
