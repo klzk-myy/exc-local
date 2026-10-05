@@ -513,11 +513,18 @@ function parseTicket(v: unknown): SupportTicket | null {
 
 export async function fetchSupportTickets(
   api: BoundAdminApi,
-  q: { status?: string; queue?: string; cursor?: string; limit?: number } = {},
+  q: {
+    status?: string;
+    queue?: string;
+    accountId?: number;
+    cursor?: string;
+    limit?: number;
+  } = {},
 ): Promise<ListPage<SupportTicket>> {
   const raw = await api.get<unknown>('/admin/support/tickets', {
     status: q.status,
     queue: q.queue,
+    account_id: q.accountId,
     cursor: q.cursor,
     limit: q.limit ?? 50,
   });

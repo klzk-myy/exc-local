@@ -6062,6 +6062,11 @@ func run() error {
 		"GET /api/v1/admin/kyc/pending":       http.HandlerFunc(api.KYCPendingHandler(lifecycleSvc, true)),
 		"POST /api/v1/admin/kyc/{id}/approve": http.HandlerFunc(api.KYCApproveHandler(lifecycleSvc, true)),
 		"POST /api/v1/admin/kyc/{id}/reject":  http.HandlerFunc(api.KYCRejectHandler(lifecycleSvc, true)),
+		// Phase-10.5 Task 10.5.3.4 — officer self-certification review
+		// (the client route is user-scoped; this is the account-
+		// parameterized seam for the admin KYC card, audit-logged).
+		"GET /api/v1/admin/accounts/{id}/self-certifications": http.HandlerFunc(
+			api.AdminSelfCertList(kycSvc, pool, adminRoleResolver, true)),
 		// Phase-14 Task 14.3.7 — MiFID II categorization: client
 		// appropriateness assessment + admin category assignment.
 		"POST /api/v1/account/appropriateness":            http.HandlerFunc(api.AppropriatenessSubmit(catSvc)),

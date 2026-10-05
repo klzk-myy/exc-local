@@ -58,7 +58,7 @@ Non-goals: new backend business logic (existing routes only); the `/api/v1/test/
 **Objective:** Complete the fleet pages with the mutation actions the backend already exposes.
 
 **Implementation:**
-1. Host actions — `POST /api/v1/admin/fleet/hosts/{id}/{cordon|decommission|drain}` wired into the fleet grid rows with state preview.
+1. Host actions — `POST /api/v1/admin/fleet/hosts/{id}/{cordon,decommission,drain}` wired into the fleet grid rows with state preview.
 2. Release pipeline actions — promote/rollback buttons calling the existing `POST /api/v1/admin/releases/{id}/promote` family with gate-evidence display.
 3. Env-guard carried over unchanged (Task 10.3.20): staging context never calls prod.
 
@@ -101,16 +101,18 @@ Non-goals: new backend business logic (existing routes only); the `/api/v1/test/
 
 **Implementation:**
 1. Customer 360 — keyed by account id/email search (reuses `UserLookupPanel` query): profile, KYC tier + submission history, balances/positions snapshot, recent orders, open support tickets, active holds/flags, audit excerpt.
-2. Lifecycle actions — `POST /api/v1/admin/accounts/{id}/{freeze|unfreeze|close|jurisdiction}`, `PUT …/sub-account-limit` — each shows precondition checks (open positions, pending withdrawals) before submit; all dual-control + audit-written.
+2. Lifecycle actions — `POST /api/v1/admin/accounts/{id}/{freeze,unfreeze,close,jurisdiction}`, `PUT …/sub-account-limit` — each shows precondition checks (open positions, pending withdrawals) before submit; all dual-control + audit-written.
 3. Support desk integration — `GET /api/v1/admin/support/tickets/{id}`, `POST …/notes`, `GET …/complaints/register`; agent reply/notes panel.
-4. KYC desk completion — pending queue (exists) + `GET/POST /api/v1/kyc/self-certification` review surface wired into the admin KYC card.
+4. KYC desk completion — pending queue (exists) + self-certification review surface wired into the admin KYC card (backend seam added: `GET /api/v1/admin/accounts/{id}/self-certifications` — the client route is user-scoped; audit-logged officer read, Compliance Officer|Support Agent|Super Admin).
+
+**Implemented:** `frontend/src/features/admin-crm/` — `Customer360Page.tsx` (route `/admin/customers`), `DossierPanel.tsx`, `LifecyclePanel.tsx`, `SupportDeskPanel.tsx`, `KycDeskPanel.tsx`, `api.ts`, `routes.ts`, `nav.ts`, `Customer360Page.test.tsx`; backend seam `api.AdminSelfCertList` mounted + registered (routes_v1.go, openapi regenerated — 663 operations).
 
 **DoD:**
-* [ ] Search → 360 view renders profile/KYC/holdings/activity; freeze/unfreeze/close/jurisdiction/sub-account-limit all functional with preconditions + dual control
-* [ ] Support notes + complaints register visible per customer
+* [x] Search → 360 view renders profile/KYC/holdings/activity; freeze/unfreeze/close/jurisdiction/sub-account-limit all functional with preconditions + dual control
+* [x] Support notes + complaints register visible per customer
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: customer lifecycle is fully operable from one surface — defined first, validated against spec
+- [x] Spec checkpoint: customer lifecycle is fully operable from one surface — defined first, validated against spec
 
 ---
 
@@ -138,7 +140,7 @@ Non-goals: new backend business logic (existing routes only); the `/api/v1/test/
 **Objective:** The Phase-17→21 signal-to-case pipeline UI — alert triage, case management, SAR lifecycle, AML program artifacts, sanctions ops, comms retrieval.
 
 **Implementation:**
-1. Surveillance — `GET /api/v1/admin/surveillance/{summary,cases,cases/{id}}`, `POST …/cases/{id}/{assign|disposition|evidence}` — case SLA timers + immutable evidence upload.
+1. Surveillance — `GET /api/v1/admin/surveillance/{summary,cases}`, `GET /api/v1/admin/surveillance/cases/{id}`, `POST …/cases/{id}/{assign,disposition,evidence}` — case SLA timers + immutable evidence upload.
 2. SAR — `GET/POST /api/v1/admin/sar`, `GET …/{id}`, `POST …/{id}/{approve|reject|file}` — DRAFT→UNDER_REVIEW→APPROVED→FILED four-eyes flow; `GET /api/v1/admin/ctr` report view.
 3. AML program — `GET /api/v1/admin/aml/{program,monitoring,artifacts}` + `POST …/artifacts`.
 4. Sanctions ops — `GET /api/v1/admin/sanctions/status`, `POST …/refresh`, `POST …/queue/replay` (provider-down replay queue).
@@ -160,7 +162,7 @@ Non-goals: new backend business logic (existing routes only); the `/api/v1/test/
 
 **Implementation:**
 1. Deposit ops — `POST /api/v1/admin/funding/deposits`, `POST …/deposits/{id}/{review|confirm}`, `POST …/inbound-wires`, `POST …/returns`; tiered anti-fraud badges (<$10K auto / $10K–50K / >$50K PENDING_REVIEW+4h).
-2. Withdrawal approvals — `POST /api/v1/admin/withdrawals/{id}/{approve|reject}` with whitelist/beneficiary/velocity context per request.
+2. Withdrawal approvals — `POST /api/v1/admin/withdrawals/{id}/{approve,reject}` with whitelist/beneficiary/velocity context per request.
 3. Quarantine — `GET /api/v1/admin/funding/quarantine`, `POST …/{id}/resolve` (DepositGuard suspense routing surfaced).
 4. Bank accounts — `GET /api/v1/admin/funding/bank-accounts`, `POST …/{id}/{verify|reject}`.
 5. Funding alerts rail — `GET /api/v1/admin/funding/ops-alerts`.
@@ -200,7 +202,7 @@ Non-goals: new backend business logic (existing routes only); the `/api/v1/test/
 1. CLS PvP — `POST /api/v1/admin/settlement/cls/instructions[/{id}/{amend|dispatch|finality|pay-in|rescind}]` (24-route family) with instruction state machine display.
 2. Exceptions — `GET /api/v1/admin/settlement-exceptions/{id}`, `POST …/{id}/resolve` (retry/reverse/write-off per authority matrix).
 3. Confirmations — `POST /api/v1/admin/settlement-confirmations`.
-4. Allocations — `GET/POST /api/v1/admin/allocations/{groups,groups/{id}[/allocate|/eligibility|/fills|…]}` + `POST …/escalate` (T+0 escalation incl. LOCKED groups).
+4. Allocations — `GET/POST /api/v1/admin/allocations/groups`, `GET /api/v1/admin/allocations/groups/{id}{/allocate,/eligibility,/fills}` + `POST …/escalate` (T+0 escalation incl. LOCKED groups).
 5. Chargebacks — `GET/POST /api/v1/admin/chargebacks[/{id}]`, `POST …/{id}/{submit|resolve}`.
 
 **DoD:**
@@ -236,7 +238,7 @@ Non-goals: new backend business logic (existing routes only); the `/api/v1/test/
 **Objective:** Full instrument state machine + listing governance + market schedule.
 
 **Implementation:**
-1. Instrument ops — `POST /api/v1/admin/instruments/{id}/{halt|cancel-only|activate|delist}` (extends `InstrumentsPanel`), `GET/PUT …/auction-calendar`, `GET /api/v1/admin/listing-proposals` + `POST …[/{id}/review]`.
+1. Instrument ops — `POST /api/v1/admin/instruments/{id}/{halt,cancel-only,activate,delist}` (extends `InstrumentsPanel`), `GET/PUT …/auction-calendar`, `GET /api/v1/admin/listing-proposals` + `POST …[/{id}/review]`.
 2. Market schedule — `GET /api/v1/admin/market-schedule[/overrides]`, `POST/PUT/DELETE …/overrides[/{id}]` — 24/5 calendar + holiday overrides.
 3. Margin-param changes — `POST /api/v1/admin/margin-param-changes` (`MARGIN_MODEL_UNVALIDATED` gate surfaced); `GET/POST /api/v1/admin/entity-leverage-policy`.
 
@@ -272,8 +274,8 @@ Non-goals: new backend business logic (existing routes only); the `/api/v1/test/
 **Objective:** Submissions lifecycle + RTS 27/28 production + regime reports.
 
 **Implementation:**
-1. Submission queue — `GET /api/v1/admin/regreporting/{queue,events,events/{id}}`, `POST …/{acks,breaks/{id}/resolve,party-identifiers}`; ACK/NACK + repair-resubmit actions.
-2. Best execution — `GET/POST /api/v1/admin/bestexec/{rts27,rts27/generate,rts27/materialize,rts28,…}` — generate→materialize→publish pipeline; `GET /api/v1/admin/{emir-report,mifid-report,basel-report,compliance-report}`.
+1. Submission queue — `GET /api/v1/admin/regreporting/{queue,events,submissions}`, `GET /api/v1/admin/regreporting/events/{id}`, `POST /api/v1/admin/regreporting/{acks,party-identifiers}` + `POST …/breaks/{id}/resolve`; ACK/NACK + repair-resubmit actions.
+2. Best execution — `GET/POST /api/v1/admin/bestexec/{rts27,rts28}`, `POST /api/v1/admin/bestexec/{rts27/generate,rts27/materialize,rts28/generate}` — generate→materialize→publish pipeline; `GET /api/v1/admin/{emir-report,mifid-report,basel-report,compliance-report}`.
 
 **DoD:**
 * [ ] Submission queue, breaks resolution, RTS27/28 generation and regime reports all reachable
@@ -328,7 +330,7 @@ Non-goals: new backend business logic (existing routes only); the `/api/v1/test/
 3. Strategy-template curation — `GET /api/v1/admin/strategy-templates`, `POST …/{id}/{approve,reject}`; copy-strategy suspend `POST /api/v1/admin/copy/strategies/{id}/suspend`.
 4. Break-glass — `POST /api/v1/admin/break-glass`, `POST …/{id}/review`; dual-control approval rows `POST /api/v1/admin/dual-control/{id}/{approve,reject}` (extends `DualControlPanel`); `PUT /api/v1/admin/api-keys/{id}/extend-expiry`.
 5. Liquidity-provider detail — `GET/PUT /api/v1/admin/liquidity-providers/{id}`, `GET …/{id}/alerts` (extends ConsolesPanel which already lists LPs).
-6. Admin webhook management — `GET /api/v1/admin/webhooks` surface for endpoint inspection/disable (user-side register/delete already shipped in `webhooks/`).
+6. Admin webhook management — `GET /api/v1/admin/webhooks/dead-letters` + `POST …/{id}/retransmit` dead-letter review (mounted). Endpoint inspection/disable across accounts is a backend seam gap (the store only lists per-account); if the surface needs it, this task adds the admin route first — register it in routes_v1.go when added (user-side register/delete already shipped in `webhooks/`).
 
 **DoD:**
 * [ ] Content CRUD + promo lifecycle + break-glass review + dual-control queue all functional
@@ -417,7 +419,7 @@ Non-goals: new backend business logic (existing routes only); the `/api/v1/test/
 
 **Implementation:**
 1. Analytics panels — `GET /api/v1/analytics/{open-interest,long-short-ratio,taker-flow}/{symbol}`, `GET …/{pnl,volume,stats}` on the Discovery or new `/analytics` route.
-2. Market intel — `GET /api/v1/market/{depth,open-interest,positioning,taker-volume,performance}`, `GET /api/v1/stats/24h[/{symbol}]`, `GET /api/v1/market-data/{snapshot,l3-snapshot/{symbol}}` (premium-gated rendering with honest 402/403 states).
+2. Market intel — `GET /api/v1/market/{depth,open-interest,positioning,taker-volume,performance}`, `GET /api/v1/stats/24h[/{symbol}]`, `GET /api/v1/market-data/snapshot`, `GET /api/v1/market-data/l3-snapshot/{symbol}` (premium-gated rendering with honest 402/403 states).
 3. Every panel renders the backend's publication-delay/freshness metadata (5-min delay badges per Phase-23).
 
 **DoD:**
@@ -451,7 +453,7 @@ Non-goals: new backend business logic (existing routes only); the `/api/v1/test/
 **Objective:** No-auth public surfaces — RTS 27/28, venue info, security policy, status/incidents, maintenance schedule, API meta.
 
 **Implementation:**
-1. Public reports — `GET /api/v1/venue/{info,best-execution/rts27[/…/csv],best-execution/rts28[/…/csv]}` rendered as the public transparency page set.
+1. Public reports — `GET /api/v1/venue/info`, `GET /api/v1/venue/best-execution/{rts27,rts28}`, `GET /api/v1/venue/best-execution/{rts27,rts28}/{id}/csv` rendered as the public transparency page set.
 2. Status — `GET /api/v1/system/incidents`, `GET /api/v1/maintenance/schedule`, `GET /api/v1/session/status`, `GET /api/v1/meta/{pagination,rate-limits}`, `GET /api/v1/exchange-info` (trading-hours/limits doc page).
 3. Security — `GET /api/v1/security/policy` + `POST /api/v1/security/disclosures` (public vulnerability-disclosure form; admin triage is Task 10.5.3.16's `admin/security/*`).
 

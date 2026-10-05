@@ -5015,6 +5015,57 @@
         "x-weight": 1
       }
     },
+    "/api/v1/admin/accounts/{id}/self-certifications": {
+      "get": {
+        "operationId": "get_api_v1_admin_accounts_id_self_certifications",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": null
+          },
+          {
+            "apiKeyAuth": null
+          },
+          {
+            "oauth2": null
+          }
+        ],
+        "summary": "Tax self-certification review (W-8/W-9 history, audit-logged read)",
+        "tags": [
+          "admin"
+        ],
+        "x-auth": {
+          "methods": null,
+          "required": true,
+          "role": "Compliance Officer",
+          "scopes": null
+        },
+        "x-dual-control": false,
+        "x-env": "",
+        "x-owner": "Phase-10.5 Task 10.5.3.4",
+        "x-rate-tier": "basic",
+        "x-rbac-role": "Compliance Officer",
+        "x-status": "live",
+        "x-weight": 1
+      }
+    },
     "/api/v1/admin/accounts/{id}/sub-account-limit": {
       "put": {
         "operationId": "put_api_v1_admin_accounts_id_sub_account_limit",

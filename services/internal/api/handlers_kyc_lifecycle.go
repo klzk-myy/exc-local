@@ -9,6 +9,10 @@
 //	PUT  /api/v1/admin/accounts/{id}/product-profile — client_category
 //	                                                  assignment (evidence
 //	                                                  required on upgrade)
+//	GET  /api/v1/admin/accounts/{id}/self-certifications — officer read
+//	                                                  of the customer's
+//	                                                  W-8/W-9 history
+//	                                                  (audit-logged)
 //	POST /api/v1/account/appropriateness            — submit assessment
 //	GET  /api/v1/account/appropriateness            — own category, NBP
 //	                                                  flag + assessments
@@ -25,6 +29,9 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"exchange/internal/admin"
 	"exchange/internal/auth"
 	"exchange/internal/compliance"
 	"exchange/internal/gateway"
@@ -271,5 +278,67 @@ func AdminClientCategory(svc *compliance.CategorizationService, trustProxy bool)
 			return
 		}
 		WriteJSON(w, http.StatusOK, ch)
+	}
+}
+
+// AdminSelfCertList serves
+// GET /api/v1/admin/accounts/{id}/self-certifications — the KYC-desk
+// review surface for a customer's tax self-certification history
+// (W-8BEN/W-8BEN-E/W-9). The client route is user-scoped, so the
+// officer view needs its own account-parameterized seam; the read is
+// audit-logged because the payload carries TIN data. Role gate:
+// Compliance Officer, Support Agent or Super Admin — the same roles
+// that can open the support-view dossier / KYC decision surface.
+func AdminSelfCertList(svc *compliance.Service, pool *pgxpool.Pool,
+	resolver AdminRoleResolver, trustProxy bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := kycAdminActor(w, r, trustProxy)
+		if !ok {
+			return
+		}
+		if resolver == nil {
+			WriteError(w, "UNAUTHORIZED_ROLE",
+				"role resolver not configured",
+				gateway.RequestIDFrom(r.Context()), nil)
+			return
+		}
+		role, err := resolver(r.Context(), actor.AdminUserID)
+		if err != nil {
+			WriteError(w, "INTERNAL_ERROR", "role lookup failed",
+				gateway.RequestIDFrom(r.Context()), nil)
+			return
+		}
+		switch role {
+		case "Compliance Officer", "Support Agent", "Super Admin":
+		default:
+			WriteError(w, "UNAUTHORIZED_ROLE",
+				"self-certification review requires Compliance Officer, Support Agent or Super Admin",
+				gateway.RequestIDFrom(r.Context()), nil)
+			return
+		}
+		acct, ok := kycPathID(w, r, "id")
+		if !ok {
+			return
+		}
+		certs, err := svc.ListSelfCerts(r.Context(), acct)
+		if err != nil {
+			writeServiceErr(w, r, err)
+			return
+		}
+		if certs == nil {
+			certs = []compliance.SelfCert{}
+		}
+		if _, _, err := admin.LogAuto(r.Context(), pool, admin.AuditEntry{
+			AdminUserID: actor.AdminUserID,
+			Action:      "kyc.self_cert.view",
+			TargetType:  "account",
+			TargetID:    &acct,
+			IPAddress:   actor.ClientIP,
+		}); err != nil {
+			WriteError(w, "INTERNAL_ERROR", "audit write failed",
+				gateway.RequestIDFrom(r.Context()), nil)
+			return
+		}
+		WriteJSON(w, http.StatusOK, map[string]any{"certifications": certs})
 	}
 }

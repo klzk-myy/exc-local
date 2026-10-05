@@ -1012,6 +1012,8 @@ func SeedRoutes() []Route {
 			"KYC approve — tier assign + re-verification horizon", adminAuth(RoleComplianceOfficer)),
 		v1live(http.MethodPost, "/api/v1/admin/kyc/{id}/reject", TierBasic, "Phase-14 Task 14.3.4",
 			"KYC reject — reason mandatory {reason}", adminAuth(RoleComplianceOfficer)),
+		v1live(http.MethodGet, "/api/v1/admin/accounts/{id}/self-certifications", TierBasic, "Phase-10.5 Task 10.5.3.4",
+			"Tax self-certification review (W-8/W-9 history, audit-logged read)", adminAuth(RoleComplianceOfficer)),
 		// Phase-21 Task 21.3.3 — SAR lifecycle: manual draft, queue, and
 		// the four-eyes review → approve → file chain (§24 #108).
 		v1live(http.MethodPost, "/api/v1/admin/sar", TierBasic, "Phase-21 Task 21.3.3",
