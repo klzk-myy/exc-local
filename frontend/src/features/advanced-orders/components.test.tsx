@@ -257,6 +257,49 @@ describe('OrderInspectModal', () => {
       ),
     );
   });
+
+  it('renders the amendment audit trail (GET /orders/{id}/amendments, PascalCase rows)', async () => {
+    const calls: string[] = [];
+    const api = new ApiClient({
+      baseUrl: '/api/v1',
+      getAuthToken: () => 'tok',
+      fetchImpl: (input) => {
+        const url =
+          typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+        calls.push(url);
+        const body = url.includes('/amendments')
+          ? {
+              order_id: 777,
+              amendments: [
+                {
+                  OrderID: 777,
+                  Operation: 'AMEND',
+                  FieldName: 'Quantity',
+                  OldValue: '100000',
+                  NewValue: '50000',
+                  ModifiedBy: 'trader@example.com',
+                  RequestID: 'req-9',
+                  ModifiedAt: '2026-01-02T00:00:00Z',
+                },
+              ],
+            }
+          : {};
+        return Promise.resolve(
+          new Response(JSON.stringify(body), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        );
+      },
+    });
+    renderApp(<OrderInspectModal order={ORDER} open onClose={() => undefined} api={api} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Amendment history' }));
+    await waitFor(() => {
+      expect(screen.getByText('AMEND')).toBeInTheDocument();
+    });
+    expect(screen.getByText(/Quantity: 100000 → 50000/)).toBeInTheDocument();
+    expect(calls.some((u) => u.includes('/orders/777/amendments'))).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------

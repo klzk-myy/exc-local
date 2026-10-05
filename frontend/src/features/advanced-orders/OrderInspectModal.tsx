@@ -9,10 +9,11 @@
  *     the modal warns that queue position is LOST;
  *   - cancel → `DELETE /orders/{id}`.
  */
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 
 import { apiClient } from '@/app/runtime';
+import { orderAmendments } from '@/features/history/api';
 import { ErrorBox, btnDanger, btnGhost, inputCls, labelCls, Modal } from '@/lib/ui';
 import { tryDec } from '@/lib/decimal/decimal';
 import { useScopeKey } from '@/lib/trading/queries';
@@ -212,8 +213,61 @@ export function OrderInspectModal({
                   : 'Amend (lose priority)'}
             </button>
           </div>
+          <AmendmentLedger orderId={order.id} api={api} />
         </div>
       )}
     </Modal>
+  );
+}
+
+/** GET /orders/{id}/amendments — the amendment audit trail
+ * (Task 10.5.3.20). Rows render verbatim: operation, field, old→new,
+ * actor, request id, timestamp. */
+function AmendmentLedger({ orderId, api }: { orderId: string; api: Api }) {
+  const [show, setShow] = useState(false);
+  const q = useQuery({
+    queryKey: ['history', 'order-amendments', orderId],
+    queryFn: () => orderAmendments(api, orderId),
+    enabled: show,
+  });
+  return (
+    <div className="mt-3 border-t border-neutral-800 pt-2">
+      <button
+        type="button"
+        className={`${btnGhost} text-xs`}
+        onClick={() => {
+          setShow((s) => !s);
+        }}
+      >
+        {show ? 'Hide amendment history' : 'Amendment history'}
+      </button>
+      {show ? (
+        q.isPending ? (
+          <p className="mt-2 text-xs text-neutral-500">Loading amendment history…</p>
+        ) : q.isError ? (
+          <div className="mt-2">
+            <ErrorBox error={q.error} />
+          </div>
+        ) : q.data.length === 0 ? (
+          <p className="mt-2 text-xs text-neutral-500">No amendments recorded.</p>
+        ) : (
+          <ul className="mt-2 space-y-1 text-xs">
+            {q.data.map((a, i) => (
+              <li key={i} className="rounded border border-neutral-800 px-2 py-1">
+                <span className="font-medium text-neutral-200">{a.operation ?? 'AMEND'}</span>{' '}
+                <span className="text-neutral-400">
+                  {a.fieldName ?? ''}: {a.oldValue ?? '—'} → {a.newValue ?? '—'}
+                </span>{' '}
+                <span className="text-neutral-500">
+                  by {a.modifiedBy ?? '—'}
+                  {a.modifiedAt !== undefined ? ` · ${a.modifiedAt}` : ''}
+                  {a.requestId !== undefined ? ` · req ${a.requestId}` : ''}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )
+      ) : null}
+    </div>
   );
 }

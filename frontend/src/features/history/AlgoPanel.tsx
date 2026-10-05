@@ -16,6 +16,7 @@ import { ErrorBox, btnDanger, btnGhost, tableCls, tdCls, thCls } from '@/lib/ui'
 import { UnavailablePanel, isNotImplemented } from '@/lib/input-helpers';
 
 import {
+  cancelAllAlgoOrders,
   cancelAlgoOrder,
   listAlgoOrders,
   pauseAlgoOrder,
@@ -26,6 +27,7 @@ import {
 export function AlgoPanel() {
   const queryClient = useQueryClient();
   const [rowErr, setRowErr] = useState<{ id: string; err: unknown } | null>(null);
+  const [confirmAll, setConfirmAll] = useState(false);
   const q = useQuery({
     queryKey: ['history', 'algo-orders'],
     queryFn: () => listAlgoOrders(apiClient),
@@ -47,6 +49,17 @@ export function AlgoPanel() {
     },
   });
 
+  const cancelAll = useMutation({
+    mutationFn: () => cancelAllAlgoOrders(apiClient),
+    onError: (e) => {
+      setRowErr({ id: '__all__', err: e });
+    },
+    onSuccess: async () => {
+      setConfirmAll(false);
+      await queryClient.invalidateQueries({ queryKey: ['history', 'algo-orders'] });
+    },
+  });
+
   if (q.isPending) return <p className="text-sm text-neutral-500">Loading algo orders…</p>;
   if (q.isError) {
     if (isNotImplemented(q.error)) {
@@ -64,6 +77,35 @@ export function AlgoPanel() {
   const rows = q.data;
   return (
     <section aria-label="Algo orders" className="space-y-2">
+      {rows.length > 0 ? (
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className={`${btnGhost} text-xs text-red-400`}
+            disabled={cancelAll.isPending}
+            onClick={() => {
+              if (confirmAll) {
+                setConfirmAll(false);
+                cancelAll.mutate();
+              } else {
+                setConfirmAll(true);
+              }
+            }}
+          >
+            {confirmAll ? 'Confirm: stop ALL algos' : 'Stop all algos'}
+          </button>
+          {confirmAll ? (
+            <p role="alert" className="text-xs text-red-400">
+              Cancels every running algo and registered bot on the account.
+            </p>
+          ) : null}
+          {rowErr?.id === '__all__' ? (
+            <p className="text-xs text-amber-400">
+              {rowErr.err instanceof Error ? rowErr.err.message : 'error'}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
       {rows.length === 0 ? (
         <p className="text-sm text-neutral-500">No algo orders running.</p>
       ) : (

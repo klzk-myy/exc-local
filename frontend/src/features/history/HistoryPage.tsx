@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { RequireAuth } from '@/features/auth/guards';
 
 import { AlgoPanel } from './AlgoPanel';
+import { BatchOpsPanel, CompositeSubmitPanel } from './CompositeSubmitPanel';
 import { DeadmanSwitch } from './DeadmanSwitch';
 import { LiveTape } from './LiveTape';
 import { OrderListsPanel } from './OrderListsPanel';
@@ -28,49 +29,59 @@ export default function HistoryPage() {
   const [tab, setTab] = useState<TabId>('open');
   return (
     <RequireAuth>
-    <div className="mx-auto max-w-6xl space-y-4 p-4">
-      <header>
-        <h1 className="text-xl font-semibold text-neutral-100">Orders</h1>
-        <p className="text-sm text-neutral-500">
-          Open orders, history, algos, order lists, dead-man switch, order test and the live tape.
-        </p>
-      </header>
-      <div
-        role="tablist"
-        aria-label="Order surfaces"
-        className="flex gap-1 relative overflow-x-auto border-b border-neutral-800"
-      >
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            role="tab"
-            aria-selected={tab === t.id}
-            className={`whitespace-nowrap px-3 py-2 text-sm ${
-              tab === t.id
-                ? 'border-b-2 border-sky-500 text-neutral-100'
-                : 'text-neutral-400 hover:text-neutral-200'
-            }`}
-            onClick={() => {
-              setTab(t.id);
-            }}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      {tab === 'open' ? <OrdersTable openOnly /> : null}
-      {tab === 'history' ? <OrdersTable openOnly={false} /> : null}
-      {tab === 'algo' ? <AlgoPanel /> : null}
-      {tab === 'lists' ? <OrderListsPanel /> : null}
-      {tab === 'safety' ? (
-        <div className="space-y-4">
-          <DeadmanSwitch />
-          <OrderTestPanel />
+      <div className="mx-auto max-w-6xl space-y-4 p-4">
+        <header>
+          <h1 className="text-xl font-semibold text-neutral-100">Orders</h1>
+          <p className="text-sm text-neutral-500">
+            Open orders, history, algos, order lists, dead-man switch, order test and the live tape.
+          </p>
+        </header>
+        <div
+          role="tablist"
+          aria-label="Order surfaces"
+          className="flex gap-1 relative overflow-x-auto border-b border-neutral-800"
+        >
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              role="tab"
+              aria-selected={tab === t.id}
+              className={`whitespace-nowrap px-3 py-2 text-sm ${
+                tab === t.id
+                  ? 'border-b-2 border-sky-500 text-neutral-100'
+                  : 'text-neutral-400 hover:text-neutral-200'
+              }`}
+              onClick={() => {
+                setTab(t.id);
+              }}
+            >
+              {t.label}
+            </button>
+          ))}
         </div>
-      ) : null}
-      {tab === 'tape' ? <LiveTape /> : null}
-    </div>
+
+        {tab === 'open' ? (
+          <div className="space-y-4">
+            <BatchOpsPanel />
+            <OrdersTable openOnly />
+          </div>
+        ) : null}
+        {tab === 'history' ? <OrdersTable openOnly={false} /> : null}
+        {tab === 'algo' ? (
+          <div className="space-y-4">
+            <CompositeSubmitPanel />
+            <AlgoPanel />
+          </div>
+        ) : null}
+        {tab === 'lists' ? <OrderListsPanel /> : null}
+        {tab === 'safety' ? (
+          <div className="space-y-4">
+            <DeadmanSwitch />
+            <OrderTestPanel />
+          </div>
+        ) : null}
+        {tab === 'tape' ? <LiveTape /> : null}
+      </div>
     </RequireAuth>
   );
 }
