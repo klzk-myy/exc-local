@@ -1,6 +1,6 @@
 # PII Inventory — GDPR Art. 30 Record + Encryption/Access Map
 
-**Generated:** 2026-10-03 01:26 UTC by `scripts/security/gen-pii-inventory.py` (Task 13.5.3.2) from 215 `*.up.sql` migrations (363 tables, 4389 columns). Do not hand-edit; update the generator's ANNOTATIONS map and re-run. Companion artifacts: `pii-catalog.csv` (same rows, machine-checkable), `pii-audit-report.md` (verification evidence), `gdpr-erasure-runbook.md` (Art. 17 procedure).
+**Generated:** 2026-10-05 15:10 UTC by `scripts/security/gen-pii-inventory.py` (Task 13.5.3.2) from 216 `*.up.sql` migrations (364 tables, 4394 columns). Do not hand-edit; update the generator's ANNOTATIONS map and re-run. Companion artifacts: `pii-catalog.csv` (same rows, machine-checkable), `pii-audit-report.md` (verification evidence), `gdpr-erasure-runbook.md` (Art. 17 procedure).
 
 PII classes: **DIRECT_ID** (name/address/residency) · **CONTACT** (email/phone) · **GOV_ID** (TIN/ID documents) · **FINANCIAL** (bank identifiers) · **AUTH_SECRET** (credentials — hashed/sealed, tracked for erasure) · **PSEUDONYMOUS** (IP/UA/fingerprint/geo/actor ids) · **LINKAGE** (user_id/account_id re-identification joins) · **FREE_TEXT** (may embed incidental PII) · **ORG_CONTACT** (institutional contacts).
 
@@ -784,7 +784,7 @@ Schema-verified by the generator (no PII-name-pattern column and no curated anno
 `recon_tolerances` `nostro_funding_thresholds` `rail_cutoff_matrix` `rail_failover_queue` `herstatt_exposures`
 `cls_payin_events` `fx_fail_closeouts` `lp_default_events` `nostro_statement_entries` `nostro_recon_runs`
 `lp_accounts` `incidents` `incident_regulator_reports` `incident_remediations` `capacity_reports` `fix_session_bindings`
-`fix_cert_revocations` `baskets` `basket_legs`
+`fix_cert_revocations` `baskets` `basket_legs` `recon_dead_letters`
 
 ## 4. Data-flow summary
 

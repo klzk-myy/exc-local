@@ -344,6 +344,7 @@ NONPII = {
     ("fix_allocations", "reject_reason"): "ops vocabulary",
     ("fix_cert_revocations", "fingerprint"): "SHA-256 hex of DER cert — credential metadata, not personal",
     ("fix_cert_revocations", "reason"): "ops vocabulary",
+    ("recon_dead_letters", "reason"): "enum vocabulary (e.g. 'unresolvable_orders') — no personal data",
     ("ict_providers", "name"): "institutional vendor name — DORA register counterparty, not personal",
     # ---- secrets inventory (migration 089) — metadata ABOUT vault
     # entries; no secret material or personal data is ever stored here
