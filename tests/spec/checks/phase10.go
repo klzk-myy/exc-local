@@ -116,12 +116,17 @@ func ckP10OrderBook(ctx context.Context, env *spec.Env) spec.Result {
 }
 
 func ckP10OrderEntry(ctx context.Context, env *spec.Env) spec.Result {
+	// The standalone order-entry feature was consolidated into the
+	// workspace ticket (8a5b156): AdvancedOrderPanel is the single
+	// Binance-style ticket covering every mounted kind, orderPayload.ts
+	// carries field-level validation, and the workspace owns mount points.
 	return seqf(ctx, env,
 		files(env,
-			"frontend/src/features/order-entry/OrderEntry.tsx",
-			"frontend/src/features/order-entry/routes.ts",
+			"frontend/src/features/advanced-orders/AdvancedOrderPanel.tsx",
+			"frontend/src/features/advanced-orders/orderPayload.ts",
+			"frontend/src/features/workspace/WorkspacePage.tsx",
 		),
-		vitest("src/features/order-entry"),
+		vitest("src/features/advanced-orders"),
 	)
 }
 
@@ -222,10 +227,11 @@ func ckP10Workspace(ctx context.Context, env *spec.Env) spec.Result {
 func ckP10ChartOverlays(ctx context.Context, env *spec.Env) spec.Result {
 	return seqf(ctx, env,
 		files(env,
-			"frontend/src/features/advanced-orders/TradingChart.tsx",
+			"frontend/src/features/charts/TradingChart.tsx",
+			"frontend/src/features/charts/ChartOverlays.tsx",
 			"frontend/src/features/advanced-orders/OrderInspectModal.tsx",
 		),
-		vitest("src/features/advanced-orders/TradingChart.test.tsx"),
+		vitest("src/features/charts/TradingChart.test.tsx"),
 	)
 }
 

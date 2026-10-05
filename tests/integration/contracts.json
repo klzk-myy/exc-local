@@ -6350,7 +6350,7 @@
         },
         {
           "kind": "vitest",
-          "pkg": "src/features/order-entry",
+          "pkg": "src/features/workspace",
           "needs": "frontend"
         }
       ]
@@ -7426,7 +7426,7 @@
         },
         {
           "kind": "vitest",
-          "pkg": "src/features/advanced-orders/TradingChart.test.tsx",
+          "pkg": "src/features/charts/TradingChart.test.tsx",
           "needs": "frontend"
         }
       ]

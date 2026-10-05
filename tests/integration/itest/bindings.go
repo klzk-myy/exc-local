@@ -840,8 +840,10 @@ var CriterionBindings = map[int][]Binding{
 	// EXECUTABLE = the spec files exist and execute; runtime result
 	// recorded separately. Needs "frontend" → node_modules must exist.
 	251: { // advanced order UI: TIF/iceberg/trailing/bracket + sub-account + admin fees
+		// order-entry consolidated into the workspace ticket (8a5b156);
+		// advanced-orders carries the payload/validation leg.
 		{Kind: BindVitest, Pkg: "src/features/advanced-orders", Needs: "frontend"},
-		{Kind: BindVitest, Pkg: "src/features/order-entry", Needs: "frontend"},
+		{Kind: BindVitest, Pkg: "src/features/workspace", Needs: "frontend"},
 	},
 	267: { // calculators: P&L/pip/margin/liq/swap against live marks
 		{Kind: BindVitest, Pkg: "src/features/calculator", Needs: "frontend"},
@@ -860,7 +862,7 @@ var CriterionBindings = map[int][]Binding{
 	},
 	292: { // save/reset layouts, drag orders + overlays with explicit confirm
 		{Kind: BindVitest, Pkg: "src/features/workspace", Needs: "frontend"},
-		{Kind: BindVitest, Pkg: "src/features/advanced-orders/TradingChart.test.tsx", Needs: "frontend"},
+		{Kind: BindVitest, Pkg: "src/features/charts/TradingChart.test.tsx", Needs: "frontend"},
 	},
 	293: { // indicators + sandboxed cost-aware backtests, reproducible
 		{Kind: BindVitest, Pkg: "src/lib/indicators", Needs: "frontend"},
