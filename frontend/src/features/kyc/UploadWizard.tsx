@@ -1,13 +1,14 @@
 /**
- * KYC upload wizard — Task 10.3.24 item 2. Four steps:
- *   1. personal info (name, DOB, nationality, address)
- *   2. government ID (front/back)
- *   3. proof of address
- *   4. questionnaire answers + optional selfie (institutional tier)
+ * KYC upload wizard — Task 10.3.24 item 2, extended by Task 10.5.3.24.
+ * Step 1 is personal info (name, DOB, nationality, address); the document
+ * steps are driven by GET /kyc/requirements (merged ops-matrix rows —
+ * required rows become mandatory slots, optional rows attachable); the
+ * last step is review & submit. When the requirements query is
+ * unavailable the static Task-10.3.24 grid is used with a disclosure.
  * Files validate type + ≤10 MB client-side (DPI ≥200 enforced server-side),
  * then POST /kyc/submit as base64-in-JSON.
  */
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 
 import { apiClient } from '@/app/runtime';
@@ -23,27 +24,75 @@ interface Personal {
   address: string;
 }
 
-interface DocSlot {
+interface DocSlotSpec {
   type: string;
   label: string;
+  required: boolean;
+  hint: string | null;
+}
+
+interface DocSlot {
+  spec: DocSlotSpec;
   file: File | null;
   error: string | null;
 }
 
-const STEP_LABELS = [
-  'Personal details',
-  'Identity document',
-  'Proof of address',
-  'Review & submit',
-];
+function docLabel(t: string): string {
+  return api.DOC_TYPES.find((d) => d.id === t)?.label ?? t.replaceAll('_', ' ');
+}
+
+/** Build the document checklist from the ops-matrix rows
+ * (GET /kyc/requirements). Rows are merged by document_type — any row
+ * marked required makes the slot mandatory. Falls back to the static
+ * Task-10.3.24 grid only when the matrix is unavailable. */
+function buildDocSlots(req: api.KycRequirements | null | undefined): DocSlotSpec[] {
+  if (req == null) {
+    return [
+      {
+        type: 'GOVERNMENT_ID',
+        label: 'Government-issued ID (front or passport)',
+        required: true,
+        hint: null,
+      },
+      { type: 'PROOF_OF_ADDRESS', label: 'Proof of address', required: true, hint: null },
+      { type: 'SELFIE', label: 'Selfie / liveness photo (optional)', required: false, hint: null },
+    ];
+  }
+  const map = new Map<string, DocSlotSpec>();
+  for (const row of req.documents) {
+    const t = row.document_type;
+    const cur = map.get(t);
+    const hint =
+      [
+        row.doc_group !== undefined && row.doc_group !== '' ? `Group ${row.doc_group}` : null,
+        row.max_doc_age_days !== null && row.max_doc_age_days !== undefined
+          ? `issued within ${row.max_doc_age_days} days`
+          : null,
+        row.doc_expiry_lead_days !== null && row.doc_expiry_lead_days !== undefined
+          ? `valid ≥${row.doc_expiry_lead_days} days beyond submission`
+          : null,
+        row.notes ?? null,
+      ]
+        .filter((x) => x !== null)
+        .join(' · ') || null;
+    if (cur === undefined) {
+      map.set(t, { type: t, label: docLabel(t), required: row.required === true, hint });
+    } else {
+      cur.required = cur.required || row.required === true;
+      cur.hint ??= hint;
+    }
+  }
+  return [...map.values()].sort((a, b) => Number(b.required) - Number(a.required));
+}
 
 function DocPicker({ slot, onFile }: { slot: DocSlot; onFile: (f: File | null) => void }) {
+  const baseHint = 'JPEG, PNG, WebP or PDF · max 10 MB · min 200 DPI (checked on review)';
   return (
     <Field
-      label={slot.label}
-      required
+      label={slot.spec.required ? slot.spec.label : `${slot.spec.label} (optional)`}
+      required={slot.spec.required}
       error={slot.error}
-      hint="JPEG, PNG, WebP or PDF · max 10 MB · min 200 DPI (checked on review)"
+      hint={slot.spec.hint !== null ? `${baseHint} · ${slot.spec.hint}` : baseHint}
     >
       {(id, describedBy, invalid) => (
         <input
@@ -65,9 +114,17 @@ function DocPicker({ slot, onFile }: { slot: DocSlot; onFile: (f: File | null) =
 export default function UploadWizard({
   onSubmitted,
   prefill,
+  requirements,
+  requirementsFailed,
 }: {
   onSubmitted?: () => void;
   prefill?: Partial<Personal>;
+  /** Merged ops-matrix from GET /kyc/requirements — undefined while the
+   * query is in flight; the static grid is used when it fails. */
+  requirements?: api.KycRequirements;
+  /** True when the requirements query failed — renders the static grid
+   * plus an explicit "defaults shown" disclosure. */
+  requirementsFailed?: boolean;
 }) {
   const [step, setStep] = useState(0);
   const [personal, setPersonal] = useState<Personal>({
@@ -77,16 +134,21 @@ export default function UploadWizard({
     nationality: prefill?.nationality ?? '',
     address: prefill?.address ?? '',
   });
-  const [docs, setDocs] = useState<[DocSlot, DocSlot, DocSlot]>([
-    {
-      type: 'GOVERNMENT_ID',
-      label: 'Government-issued ID (front or passport)',
-      file: null,
-      error: null,
-    },
-    { type: 'PROOF_OF_ADDRESS', label: 'Proof of address', file: null, error: null },
-    { type: 'SELFIE', label: 'Selfie / liveness photo (optional)', file: null, error: null },
-  ]);
+  const requirementsPending = requirements === undefined && requirementsFailed !== true;
+  const slotSpecs = useMemo(() => buildDocSlots(requirements ?? null), [requirements]);
+  const [docs, setDocs] = useState<DocSlot[]>(() =>
+    slotSpecs.map((spec) => ({ spec, file: null, error: null })),
+  );
+  // Rebuild slots when the matrix resolves (or a different account loads);
+  // already-attached files carry over by document_type.
+  useEffect(() => {
+    setDocs((prev) =>
+      slotSpecs.map((spec) => {
+        const prior = prev.find((d) => d.spec.type === spec.type);
+        return { spec, file: prior?.file ?? null, error: prior?.error ?? null };
+      }),
+    );
+  }, [slotSpecs]);
   const [uploading, setUploading] = useState(false);
 
   const submit = useMutation({
@@ -96,7 +158,7 @@ export default function UploadWizard({
       for (const d of docs) {
         if (d.file === null) continue;
         documents.push({
-          type: d.type,
+          type: d.spec.type,
           filename: d.file.name,
           content_type: d.file.type,
           data_base64: await api.fileToBase64(d.file),
@@ -120,11 +182,12 @@ export default function UploadWizard({
     personal.address !== '';
 
   const requiredDocsPresent = docs
-    .filter((d) => d.type !== 'SELFIE')
+    .filter((d) => d.spec.required)
     .every((d) => d.file !== null && d.error === null);
 
-  // Tuple destructuring yields the fixed doc slots (state is always length-3).
-  const [govIdSlot, poaSlot, selfieSlot] = docs;
+  const stepLabels = ['Personal details', ...docs.map((d) => d.spec.label), 'Review & submit'];
+  const reviewStep = stepLabels.length - 1;
+  const docSlot = step > 0 && step < reviewStep ? docs[step - 1] : undefined;
 
   const setDoc = (i: number, f: File | null) => {
     setDocs((prev) => {
@@ -132,7 +195,7 @@ export default function UploadWizard({
       const d = next[i];
       if (d === undefined) return prev;
       next[i] = { ...d, file: f, error: f === null ? null : api.validateDocFile(f) };
-      return next as [DocSlot, DocSlot, DocSlot];
+      return next;
     });
   };
 
@@ -161,8 +224,8 @@ export default function UploadWizard({
 
   return (
     <div className={cardCls}>
-      <ol className="mb-4 flex gap-2" aria-label="Wizard progress">
-        {STEP_LABELS.map((s, i) => (
+      <ol className="mb-4 flex flex-wrap gap-2" aria-label="Wizard progress">
+        {stepLabels.map((s, i) => (
           <li
             key={s}
             className={`rounded px-2 py-1 text-xs ${
@@ -191,35 +254,44 @@ export default function UploadWizard({
         </div>
       )}
 
-      {step === 1 && (
-        <DocPicker
-          slot={govIdSlot}
-          onFile={(f) => {
-            setDoc(0, f);
-          }}
-        />
-      )}
-      {step === 2 && (
-        <DocPicker
-          slot={poaSlot}
-          onFile={(f) => {
-            setDoc(1, f);
-          }}
-        />
+      {step > 0 && step < reviewStep && (
+        <div>
+          {requirementsPending ? (
+            <p className="text-sm text-neutral-400" role="status">
+              Loading document requirements…
+            </p>
+          ) : (
+            <>
+              {requirementsFailed === true && step === 1 && (
+                <p className="mb-3 text-xs text-amber-400" role="status">
+                  The requirements service is unavailable — showing the default document checklist.
+                </p>
+              )}
+              {docSlot !== undefined && (
+                <DocPicker
+                  slot={docSlot}
+                  onFile={(f) => {
+                    setDoc(step - 1, f);
+                  }}
+                />
+              )}
+              {docs.length === 0 && (
+                <p className="text-sm text-neutral-400">
+                  No documents are required for your tier and jurisdiction.
+                </p>
+              )}
+            </>
+          )}
+        </div>
       )}
 
-      {step === 3 && (
+      {step === reviewStep && (
         <div>
-          <DocPicker
-            slot={selfieSlot}
-            onFile={(f) => {
-              setDoc(2, f);
-            }}
-          />
           <ul className="mb-4 list-inside list-disc text-sm text-neutral-400">
             {docs.map((d) => (
-              <li key={d.type}>
-                {d.label}:{' '}
+              <li key={d.spec.type}>
+                {d.spec.label}
+                {d.spec.required ? '' : ' (optional)'}:{' '}
                 {d.file === null
                   ? 'not attached'
                   : `${d.file.name} (${Math.round(d.file.size / 1024)} KB)`}
@@ -250,11 +322,14 @@ export default function UploadWizard({
         >
           Back
         </button>
-        {step < 3 ? (
+        {step < reviewStep ? (
           <button
             type="button"
             className={btnPrimary}
-            disabled={step === 0 && !personalValid}
+            disabled={
+              (step === 0 && !personalValid) ||
+              (step > 0 && (requirementsPending || docs.length === 0))
+            }
             onClick={() => {
               setStep((s) => s + 1);
             }}

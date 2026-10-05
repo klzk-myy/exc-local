@@ -249,20 +249,36 @@ export interface TotpSetup {
   backupCodes: string[];
 }
 
-export async function totpSetup(api: ApiClient): Promise<TotpSetup> {
-  const res = await api.post<{
-    secret?: string;
-    otpauth_uri?: string;
-    otpauth_url?: string;
-    qr_uri?: string;
-    backup_codes?: string[];
-  }>('/auth/2fa/setup', {});
+function parseTotpSetup(res: {
+  secret?: string;
+  otpauth_uri?: string;
+  otpauth_url?: string;
+  qr_uri?: string;
+  backup_codes?: string[];
+}): TotpSetup {
   const uri = res.otpauth_uri ?? res.otpauth_url ?? res.qr_uri ?? '';
   return {
     secret: res.secret ?? '',
     otpauthUri: uri,
     backupCodes: res.backup_codes ?? [],
   };
+}
+
+/** Re-stage a 2FA candidate secret — POST /auth/2fa/setup. */
+export async function totpSetup(api: ApiClient): Promise<TotpSetup> {
+  return parseTotpSetup(
+    await api.post<Parameters<typeof parseTotpSetup>[0]>('/auth/2fa/setup', {}),
+  );
+}
+
+/** Start a fresh enrollment ceremony — POST /auth/2fa/enroll. The route
+ * registry documents the same stage-a-candidate semantics as /setup
+ * (non-destructive until /verify proves possession); the distinct verb is
+ * used for the initial "enable" action while /setup re-stages a secret. */
+export async function totpEnroll(api: ApiClient): Promise<TotpSetup> {
+  return parseTotpSetup(
+    await api.post<Parameters<typeof parseTotpSetup>[0]>('/auth/2fa/enroll', {}),
+  );
 }
 
 export interface TotpVerifyResult {
@@ -278,4 +294,68 @@ export async function totpVerify(api: ApiClient, code: string): Promise<TotpVeri
 
 export async function totpDisable(api: ApiClient, password: string, code: string): Promise<void> {
   await api.post('/auth/2fa/disable', { password, code });
+}
+
+// ---------------------------------------------------------------------------
+// Email verification + passkey sign-in (Phase-12 Tasks 12.3.5/12.3.7)
+// ---------------------------------------------------------------------------
+
+/** Consume an emailed verification token — POST /auth/verify-email.
+ * The route registry exposes no resend endpoint: an expired or invalid
+ * token surfaces the backend error code verbatim (fail-visible). */
+export async function verifyEmail(
+  api: ApiClient,
+  token: string,
+): Promise<{ userId: number | string | null }> {
+  const res = await api.post<{ user_id?: number | string; email_verified?: boolean }>(
+    '/auth/verify-email',
+    { token },
+  );
+  return { userId: res.user_id ?? null };
+}
+
+export interface PasskeyAssertChallenge {
+  challengeId: string;
+  /** WebAuthn request options; base64 fields converted by
+   * lib/auth/webauthn.toRequestOptions. */
+  publicKey: Record<string, unknown>;
+}
+
+/** Passkey sign-in, step 1 — POST /auth/passkey/assert with no
+ * challenge_id returns a fresh discoverable-credential challenge. */
+export async function passkeyAssertBegin(api: ApiClient): Promise<PasskeyAssertChallenge> {
+  const res = await api.post<{
+    challenge_id?: string;
+    publicKey?: Record<string, unknown>;
+  }>('/auth/passkey/assert', {});
+  if (typeof res.challenge_id !== 'string' || res.challenge_id === '') {
+    throw new Error('passkey challenge missing challenge_id');
+  }
+  return { challengeId: res.challenge_id, publicKey: res.publicKey ?? {} };
+}
+
+/** Passkey sign-in, step 2 — POST /auth/passkey/assert with the
+ * challenge_id + browser assertion. Success issues a full session bundle
+ * (amr ["fido2"], two_factor_verified) — stored here like a login. */
+export async function passkeyAssertFinish(
+  api: ApiClient,
+  challengeId: string,
+  credential: Record<string, unknown>,
+  persistent: boolean,
+): Promise<void> {
+  const res = await api.post<RawLoginResponse>('/auth/passkey/assert', {
+    challenge_id: challengeId,
+    credential,
+  });
+  const accessToken = res.access_token ?? res.token;
+  if (typeof accessToken !== 'string' || accessToken.length === 0) {
+    throw new Error('passkey assertion succeeded without an access token');
+  }
+  useSessionStore.getState().setSession({
+    accessToken,
+    refreshToken: res.refresh_token ?? null,
+    accessTokenExpiresAt: expiresAtMs(res, Date.now()),
+    user: userFrom(res, accessToken),
+    persistent,
+  });
 }

@@ -98,4 +98,73 @@ describe('LoginPage', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Too many login attempts');
     expect(screen.getByRole('alert')).toHaveTextContent('retry after 30s');
   });
+
+  it('disables passkey sign-in when WebAuthn is unsupported', () => {
+    installFetchMock({});
+    renderApp(<LoginPage />);
+    // jsdom exposes no PublicKeyCredential — the control fails closed.
+    expect(screen.getByRole('button', { name: 'Sign in with a passkey' })).toBeDisabled();
+    expect(screen.getByText(/requires a browser with WebAuthn support/)).toBeInTheDocument();
+  });
+
+  it('runs the challenge→assertion passkey flow and stores the session', async () => {
+    const calls = installFetchMock({
+      'POST /api/v1/auth/passkey/assert': {
+        handler: (_url, init) => {
+          const body = JSON.parse(init?.body as string) as { challenge_id?: string };
+          if (body.challenge_id === undefined) {
+            return {
+              body: {
+                challenge_id: 'ch-1',
+                publicKey: { challenge: 'Y2hhbGxlbmdl', rpId: 'exc.local' },
+              },
+            };
+          }
+          return {
+            body: {
+              access_token: 'pk-at',
+              refresh_token: 'pk-rt',
+              expires_in: 900,
+              user_id: 55,
+              account_id: 1001,
+              two_factor: true,
+            },
+          };
+        },
+      },
+    });
+    // Browser surface stubs — jsdom ships neither PublicKeyCredential nor
+    // navigator.credentials.get.
+    vi.stubGlobal('PublicKeyCredential', Object);
+    const getSpy = vi.fn().mockResolvedValue({
+      id: 'cred-1',
+      rawId: new Uint8Array([1, 2, 3]).buffer,
+      type: 'public-key',
+      response: {
+        clientDataJSON: new Uint8Array([9]).buffer,
+        authenticatorData: new Uint8Array([8]).buffer,
+        signature: new Uint8Array([7]).buffer,
+      },
+    });
+    Object.defineProperty(navigator, 'credentials', {
+      value: { get: getSpy },
+      configurable: true,
+    });
+    renderApp(<LoginPage />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Sign in with a passkey' }));
+    await waitFor(() => {
+      expect(useSessionStore.getState().accessToken).toBe('pk-at');
+    });
+    const posts = calls.filter((c) => c.url.includes('/auth/passkey/assert'));
+    expect(posts).toHaveLength(2);
+    const finish = JSON.parse(posts[1]?.init?.body as string) as {
+      challenge_id: string;
+      credential: { id: string };
+    };
+    expect(finish.challenge_id).toBe('ch-1');
+    expect(finish.credential.id).toBe('cred-1');
+    expect(useSessionStore.getState().user?.accountId).toBe(1001);
+    vi.unstubAllGlobals();
+  });
 });

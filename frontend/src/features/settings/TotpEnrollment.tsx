@@ -2,7 +2,8 @@
  * TOTP enrollment card — Task 10.3.22 item (2FA in security center) and
  * Task 10.3.21 item 2 (setup/verify/disable, one-time backup codes).
  * Endpoints (Phase-12 Task 12.3.2):
- *   POST /auth/2fa/setup   → {secret, otpauth_uri}
+ *   POST /auth/2fa/enroll  → {secret, otpauth_uri} — initial ceremony
+ *   POST /auth/2fa/setup   → {secret, otpauth_uri} — re-stage candidate
  *   POST /auth/2fa/verify  → {backup_codes} — displayed exactly once
  *   POST /auth/2fa/disable → {password, code}
  */
@@ -43,6 +44,11 @@ export default function TotpEnrollment() {
   const disableCode = useValidatedField(REQUIRED('totp_code', 'Authenticator code'));
   const [disabling, setDisabling] = useState(false);
 
+  // /2fa/enroll starts the ceremony; /2fa/setup re-stages a new candidate
+  // secret mid-enrollment (same staging semantics — both are wired per
+  // Task 10.5.3.24 and remain non-destructive until /verify proves the
+  // first code).
+  const enroll = useMutation({ mutationFn: () => authApi.totpEnroll(apiClient) });
   const setup = useMutation({ mutationFn: () => authApi.totpSetup(apiClient) });
   const verify = useMutation({
     mutationFn: (c: string) => authApi.totpVerify(apiClient, c),
@@ -71,18 +77,18 @@ export default function TotpEnrollment() {
             Add an authenticator app (TOTP) as a second sign-in factor. Required before setting an
             anti-phishing code.
           </p>
-          <ErrorBox error={setup.error} />
+          <ErrorBox error={enroll.error} />
           <button
             type="button"
             className={btnPrimary}
-            disabled={setup.isPending}
+            disabled={enroll.isPending}
             onClick={() => {
-              void setup.mutateAsync().then((r) => {
+              void enroll.mutateAsync().then((r) => {
                 setPhase({ kind: 'enrolling', secret: r.secret, otpauthUri: r.otpauthUri });
               });
             }}
           >
-            {setup.isPending ? 'Starting…' : 'Set up 2FA'}
+            {enroll.isPending ? 'Starting…' : 'Set up 2FA'}
           </button>
           <button
             type="button"
@@ -109,6 +115,22 @@ export default function TotpEnrollment() {
           <p className="mb-3 flex items-center gap-2 break-all font-mono text-xs text-neutral-300">
             {phase.secret}
             <CopyButton text={phase.secret} label="Copy secret" />
+          </p>
+          <p className="mb-3 text-xs">
+            <ErrorBox error={setup.error} />
+            <button
+              type="button"
+              className="text-sky-400 hover:underline"
+              disabled={setup.isPending}
+              onClick={() => {
+                void setup.mutateAsync().then((r) => {
+                  setPhase({ kind: 'enrolling', secret: r.secret, otpauthUri: r.otpauthUri });
+                  code.reset();
+                });
+              }}
+            >
+              {setup.isPending ? 'Staging…' : 'Get a new secret'}
+            </button>
           </p>
           <ErrorBox error={verify.error} />
           <form

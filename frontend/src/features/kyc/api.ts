@@ -104,6 +104,51 @@ export async function submitKyc(api: ApiClient, sub: KycSubmission): Promise<voi
   await api.post('/kyc/submit', sub);
 }
 
+// ---------------------------------------------------------------------------
+// Requirements matrix — GET /api/v1/kyc/requirements (Phase-12 Task
+// 12.3.13). Called without params: the server resolves the caller's
+// tier + jurisdiction from the session and returns the merged ops-matrix
+// rows ('*' defaults + exact-jurisdiction overlays).
+// ---------------------------------------------------------------------------
+
+export interface KycTierPolicy {
+  tier: string;
+  description?: string;
+  liveness_required?: boolean;
+  biometric_required?: boolean;
+  rescreen_cadence?: string; // NONE | WEEKLY | DAILY
+  reverify_months?: number; // 0 = no periodic re-verification
+  manual_review_sla_hours?: number;
+  step_up_score?: number;
+  decline_score?: number;
+  /** Marshalled decimal; null = negotiated/unlimited. */
+  daily_withdrawal_usd?: string | null;
+  daily_trading_usd?: string | null;
+}
+
+export interface KycRequirementRow {
+  id?: number;
+  tier?: string;
+  jurisdiction?: string;
+  vendor?: string;
+  document_type: string;
+  doc_group?: string;
+  required?: boolean;
+  max_doc_age_days?: number | null;
+  doc_expiry_lead_days?: number | null;
+  notes?: string;
+}
+
+export interface KycRequirements {
+  policy: KycTierPolicy | null;
+  documents: KycRequirementRow[];
+}
+
+export async function kycRequirements(api: ApiClient): Promise<KycRequirements> {
+  const res = await api.get<Partial<KycRequirements>>('/kyc/requirements');
+  return { policy: res.policy ?? null, documents: res.documents ?? [] };
+}
+
 export const DOC_TYPES = [
   { id: 'GOVERNMENT_ID', label: 'Government-issued ID (front/back)' },
   { id: 'PROOF_OF_ADDRESS', label: 'Proof of address (utility bill / bank statement)' },

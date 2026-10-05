@@ -12,8 +12,9 @@ import { useMutation } from '@tanstack/react-query';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 
 import { apiClient } from '@/app/runtime';
+import { credentialToJSON, toRequestOptions, webauthnSupported } from '@/lib/auth/webauthn';
 import { useValidatedField, type FieldRule } from '@/lib/input-helpers';
-import { ErrorBox, Field, btnPrimary, cardCls, inputCls } from '@/lib/ui';
+import { ErrorBox, Field, btnGhost, btnPrimary, cardCls, inputCls } from '@/lib/ui';
 
 import * as api from './api';
 import { safeRedirectTarget } from './redirect';
@@ -65,6 +66,24 @@ export default function LoginPage() {
   });
 
   const totpStep = challenge !== null;
+  const passkeySupported = webauthnSupported();
+
+  // POST /auth/passkey/assert: empty body → {challenge_id, publicKey};
+  // browser assertion → {challenge_id, credential} → session bundle
+  // (amr ["fido2"], two_factor_verified). Task 10.5.3.24.
+  const passkey = useMutation({
+    mutationFn: async () => {
+      const ch = await api.passkeyAssertBegin(apiClient);
+      const cred = await navigator.credentials.get({
+        publicKey: toRequestOptions(ch.publicKey),
+      });
+      if (cred === null) throw new Error('passkey assertion cancelled');
+      await api.passkeyAssertFinish(apiClient, ch.challengeId, credentialToJSON(cred), rememberMe);
+    },
+    onSuccess: () => {
+      void navigate(redirect);
+    },
+  });
 
   return (
     <div className="mx-auto flex min-h-[70vh] max-w-md flex-col justify-center p-6">
@@ -159,9 +178,34 @@ export default function LoginPage() {
             {mut.isPending ? 'Signing in…' : totpStep ? 'Verify code' : 'Sign in'}
           </button>
         </form>
+
+        {!totpStep && (
+          <div className="mt-4 border-t border-neutral-800 pt-4">
+            <ErrorBox error={passkey.error} />
+            <button
+              type="button"
+              className={`${btnGhost} w-full`}
+              disabled={!passkeySupported || passkey.isPending}
+              onClick={() => {
+                passkey.mutate();
+              }}
+            >
+              {passkey.isPending ? 'Waiting for passkey…' : 'Sign in with a passkey'}
+            </button>
+            {!passkeySupported && (
+              <p className="mt-2 text-xs text-neutral-500" role="status">
+                Passkey sign-in requires a browser with WebAuthn support.
+              </p>
+            )}
+          </div>
+        )}
+
         <div className="mt-4 flex justify-between text-sm">
           <Link to="/forgot-password" className="text-sky-400 hover:underline">
             Forgot password?
+          </Link>
+          <Link to="/verify-email" className="text-sky-400 hover:underline">
+            Verify email
           </Link>
           <Link to="/register" className="text-sky-400 hover:underline">
             Create account

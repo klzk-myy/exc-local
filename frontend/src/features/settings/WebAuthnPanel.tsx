@@ -16,6 +16,12 @@ import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 
 import { apiClient } from '@/app/runtime';
+import {
+  credentialToJSON,
+  toCreationOptions,
+  toRequestOptions,
+  webauthnSupported,
+} from '@/lib/auth/webauthn';
 import { ErrorBox, Field, btnGhost, btnPrimary, cardCls, inputCls } from '@/lib/ui';
 
 import * as api from './api';
@@ -47,64 +53,8 @@ function savePasskeys(ks: LocalPasskey[]) {
   }
 }
 
-function bytesToB64(buf: ArrayBuffer): string {
-  return btoa(String.fromCharCode(...new Uint8Array(buf)));
-}
-
-/** Convert the server's creation-options JSON into browser-typed options.
- * Only the fields the platform ceremony needs are coerced; unknown fields
- * pass through untouched. */
-function toCreationOptions(raw: unknown): PublicKeyCredentialCreationOptions {
-  const o = (raw ?? {}) as Record<string, unknown>;
-  const src = (
-    typeof o['publicKey'] === 'object' && o['publicKey'] !== null ? o['publicKey'] : o
-  ) as Record<string, unknown>;
-  const opts = { ...src } as Record<string, unknown>;
-  if (typeof opts['challenge'] === 'string') {
-    opts['challenge'] = Uint8Array.from(atob(opts['challenge']), (c) => c.charCodeAt(0));
-  }
-  const user = opts['user'] as Record<string, unknown> | undefined;
-  if (user !== undefined && typeof user['id'] === 'string') {
-    opts['user'] = {
-      ...user,
-      id: Uint8Array.from(atob(user['id']), (c) => c.charCodeAt(0)),
-    };
-  }
-  const exclude = opts['excludeCredentials'];
-  if (Array.isArray(exclude)) {
-    opts['excludeCredentials'] = exclude.map((c) => ({
-      ...(c as Record<string, unknown>),
-      id: Uint8Array.from(atob(String((c as Record<string, unknown>)['id'])), (ch) =>
-        ch.charCodeAt(0),
-      ),
-    }));
-  }
-  return opts as unknown as PublicKeyCredentialCreationOptions;
-}
-
-/** Serialize a PublicKeyCredential for the finish POST. */
-function credentialToJSON(cred: Credential): Record<string, unknown> {
-  const pk = cred as PublicKeyCredential;
-  const res: Record<string, unknown> = {
-    id: pk.id,
-    rawId: bytesToB64(pk.rawId),
-    type: pk.type,
-  };
-  // Attestation vs assertion response share the ArrayBuffer fields; pull
-  // them dynamically so one serializer serves both ceremonies.
-  const r = pk.response as unknown as Record<string, unknown>;
-  const buf = (v: unknown) => (v instanceof ArrayBuffer ? bytesToB64(v) : undefined);
-  res['response'] = {
-    clientDataJSON: buf(r['clientDataJSON']),
-    attestationObject: buf(r['attestationObject']),
-    authenticatorData: buf(r['authenticatorData']),
-    signature: buf(r['signature']),
-  };
-  return res;
-}
-
 export default function WebAuthnPanel() {
-  const supported = typeof window !== 'undefined' && 'PublicKeyCredential' in window;
+  const supported = webauthnSupported();
   const [name, setName] = useState('');
   const [keys, setKeys] = useState<LocalPasskey[]>(() => loadPasskeys());
   const [status, setStatus] = useState<string | null>(null);
@@ -135,18 +85,9 @@ export default function WebAuthnPanel() {
 
   const authenticate = useMutation({
     mutationFn: async () => {
-      const optsRaw = (await api.webauthnAuthenticateBegin(apiClient)) as Record<string, unknown>;
-      const src = (
-        typeof optsRaw['publicKey'] === 'object' && optsRaw['publicKey'] !== null
-          ? optsRaw['publicKey']
-          : optsRaw
-      ) as Record<string, unknown>;
-      const opts = { ...src } as Record<string, unknown>;
-      if (typeof opts['challenge'] === 'string') {
-        opts['challenge'] = Uint8Array.from(atob(opts['challenge']), (c) => c.charCodeAt(0));
-      }
+      const optsRaw = await api.webauthnAuthenticateBegin(apiClient);
       const cred = await navigator.credentials.get({
-        publicKey: opts as unknown as PublicKeyCredentialRequestOptions,
+        publicKey: toRequestOptions(optsRaw),
       });
       if (cred === null) throw new Error('passkey assertion cancelled');
       return api.webauthnAuthenticateFinish(apiClient, credentialToJSON(cred));
