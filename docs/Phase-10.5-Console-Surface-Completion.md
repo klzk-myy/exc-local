@@ -491,10 +491,12 @@ Non-goals: new backend business logic (existing routes only); the `/api/v1/test/
 3. Security — `GET /api/v1/security/policy` + `POST /api/v1/security/disclosures` (public vulnerability-disclosure form; admin triage is Task 10.5.3.16's `admin/security/*`).
 
 **DoD:**
-* [ ] Public transparency/status/security pages reachable without auth; disclosure intake posts
+* [x] Public transparency/status/security pages reachable without auth; disclosure intake posts
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: public transparency + status surfaces live — defined first, validated against spec
+- [x] Spec checkpoint: public transparency + status surfaces live — defined first, validated against spec
+
+*Execution record (this implementation):* new `features/transparency` — three no-auth routes in a new `Venue` nav section (added to `SECTION_ORDER` between Invest and Account; `manifest.test.tsx` order assertion updated). `/status` (`StatusPage`): `GET /session/status` 24/5 session card (state/market_open/shard_coverage/`consistent:false` badge/next transition/pending_effects), `GET /system/incidents` severity-styled list with postmortem links, `GET /maintenance/schedule` window table — all 30–60s polling, public-safe retry (no retry on 4xx). `/transparency` (`TransparencyPage`): `GET /exchange-info` venue document — 24/5 trading hours, per-symbol directory (tick/lot/min-qty/leverage/settlement T+0..T+2/order-types + `new_orders_allowed:false` disclosure), §13.14 entity leverage ceilings, product profiles; `GET /venue/best-execution/{rts27,rts28}` PUBLISHED-only lists with `zero_activity` badge + `/{id}/csv` artifact download via `downloadFile`; `GET /meta/pagination` (§8.8 envelope shape + sortable/filterable matrix) and `GET /meta/rate-limits` tier table. `/security` (`SecurityPage`): `GET /security/policy` rendered verbatim as markdown (raw fetch — the endpoint is text/markdown, not JSON; `downloadFile`'s Blob.text() isn't jsdom-safe so a plain `res.text()` path is used) + `POST /security/disclosures` intake with title/severity/handle/email/components/reproduction/attribution — the `website` honeypot is visually hidden, tabindex −1 and always POSTed empty; 201 `{report_id, duplicate}` surfaces inline. Zero backend changes. Tests: 3 new (public render without session, RTS27/RTS28 switch + meta tables, disclosure POST contract + honeypot); suite 753/753; `go test ./internal/gateway` green.
 
 ---
 

@@ -77,7 +77,14 @@ export function collectFeatureRoutes(): { feature: string; route: FeatureRoute }
  * Canonical sidebar section order — sections render in this sequence;
  * sections not listed sort alphabetically after the named ones.
  */
-export const SECTION_ORDER: readonly string[] = ['Trade', 'Research', 'Invest', 'Account', 'Admin'];
+export const SECTION_ORDER: readonly string[] = [
+  'Trade',
+  'Research',
+  'Invest',
+  'Venue',
+  'Account',
+  'Admin',
+];
 
 function sectionRank(section: string): number {
   const i = SECTION_ORDER.indexOf(section);

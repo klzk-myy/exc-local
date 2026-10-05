@@ -64,7 +64,14 @@ describe('auto-discovery', () => {
   });
 
   it('renders sections in canonical product order, not alphabetically', () => {
-    expect([...navBySection().keys()]).toEqual(['Trade', 'Research', 'Invest', 'Account', 'Admin']);
+    expect([...navBySection().keys()]).toEqual([
+      'Trade',
+      'Research',
+      'Invest',
+      'Venue',
+      'Account',
+      'Admin',
+    ]);
   });
 
   it('keeps deep-link and redundant pages out of the sidebar', () => {
