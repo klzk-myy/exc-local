@@ -12,30 +12,3 @@ r.Register("P05-T5.3.1-C1", func(ctx context.Context, env *spec.Env) spec.Result
 
 | Checkpoint | Task | Status | Text |
 |---|---|---|---|
-| `P10.5-T10.5.3.1-C1` | 10.5.3.1 (Phase-10.5-Console-Surface-Completion.md:52) | [x] | all safety levers reachable, dual-controlled, audit-written |
-| `P10.5-T10.5.3.2-C1` | 10.5.3.2 (Phase-10.5-Console-Surface-Completion.md:69) | [x] | fleet mutations reach backend through context-bound client |
-| `P10.5-T10.5.3.3-C1` | 10.5.3.3 (Phase-10.5-Console-Surface-Completion.md:90) | [x] | audit/recon/DLQ surfaces show authoritative state with honest-degraded fallbacks |
-| `P10.5-T10.5.3.4-C1` | 10.5.3.4 (Phase-10.5-Console-Surface-Completion.md:115) | [x] | customer lifecycle is fully operable from one surface |
-| `P10.5-T10.5.3.5-C1` | 10.5.3.5 (Phase-10.5-Console-Surface-Completion.md:134) | [x] | client compliance ops executable with evidence capture |
-| `P10.5-T10.5.3.6-C1` | 10.5.3.6 (Phase-10.5-Console-Surface-Completion.md:155) | [x] | surveillance case desk + SAR lifecycle + comms WORM retrieval |
-| `P10.5-T10.5.3.7-C1` | 10.5.3.7 (Phase-10.5-Console-Surface-Completion.md:179) | [x] | funding ops queues enforce review tiers and dual control |
-| `P10.5-T10.5.3.8-C1` | 10.5.3.8 (Phase-10.5-Console-Surface-Completion.md:199) | [x] | segregated-funds state is inspectable and auditable |
-| `P10.5-T10.5.3.9-C1` | 10.5.3.9 (Phase-10.5-Console-Surface-Completion.md:220) | [x] | post-trade ops surfaces expose the full state machines |
-| `P10.5-T10.5.3.10-C1` | 10.5.3.10 (Phase-10.5-Console-Surface-Completion.md:240) | [x] | pricing/finance admin complete with approval flows |
-| `P10.5-T10.5.3.11-C1` | 10.5.3.11 (Phase-10.5-Console-Surface-Completion.md:261) | [x] | instrument lifecycle console covers halt→delist with dual control |
-| `P10.5-T10.5.3.12-C1` | 10.5.3.12 (Phase-10.5-Console-Surface-Completion.md:280) | [x] | algo-trading governance surfaces complete |
-| `P10.5-T10.5.3.13-C1` | 10.5.3.13 (Phase-10.5-Console-Surface-Completion.md:300) | [x] | reg-reporting desk operates the submissions lifecycle |
-| `P10.5-T10.5.3.14-C1` | 10.5.3.14 (Phase-10.5-Console-Surface-Completion.md:319) | [x] | venue governance console covers cases/rulebook/admission/CCO reporting |
-| `P10.5-T10.5.3.15-C1` | 10.5.3.15 (Phase-10.5-Console-Surface-Completion.md:339) | [x] | conduct & DORA consoles complete |
-| `P10.5-T10.5.3.16-C1` | 10.5.3.16 (Phase-10.5-Console-Surface-Completion.md:361) | [x] | content/engagement/emergency-access admin complete |
-| `P10.5-T10.5.3.17-C1` | 10.5.3.17 (Phase-10.5-Console-Surface-Completion.md:384) | [x] | full account self-service surface |
-| `P10.5-T10.5.3.18-C1` | 10.5.3.18 (Phase-10.5-Console-Surface-Completion.md:403) | [x] | funding self-service covers all rails |
-| `P10.5-T10.5.3.19-C1` | 10.5.3.19 (Phase-10.5-Console-Surface-Completion.md:421) | [x] | strategy marketplace user flow complete |
-| `P10.5-T10.5.3.20-C1` | 10.5.3.20 (Phase-10.5-Console-Surface-Completion.md:439) | [x] | order composition UI covers every mounted submit endpoint |
-| `P10.5-T10.5.3.21-C1` | 10.5.3.21 (Phase-10.5-Console-Surface-Completion.md:458) | [x] | market analytics surface complete |
-| `P10.5-T10.5.3.22-C1` | 10.5.3.22 (Phase-10.5-Console-Surface-Completion.md:478) | [x] | history + export center complete |
-| `P10.5-T10.5.3.23-C1` | 10.5.3.23 (Phase-10.5-Console-Surface-Completion.md:497) | [x] | public transparency + status surfaces live |
-| `P10.5-T10.5.3.24-C1` | 10.5.3.24 (Phase-10.5-Console-Surface-Completion.md:516) | [x] | auth flows complete |
-| `P10.5-T10.5.3.25-C1` | 10.5.3.25 (Phase-10.5-Console-Surface-Completion.md:536) | [x] | consumers self-heal across stream provisioning order |
-| `P10.5-T10.5.3.26-C1` | 10.5.3.26 (Phase-10.5-Console-Surface-Completion.md:552) | [x] | positions recon has a verifiable engine leg |
-| `P10.5-T10.5.3.27-C1` | 10.5.3.27 (Phase-10.5-Console-Surface-Completion.md:570) | [x] | route coverage is mechanically enforced |

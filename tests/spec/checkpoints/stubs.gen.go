@@ -5,32 +5,4 @@ package checkpoints
 // PendingStubs lists extracted checkpoint IDs with no registered
 // implementation at generation time — the scaffold the runner reports
 // as pending/missing.
-var PendingStubs = []string{
-	"P10.5-T10.5.3.1-C1",  // Phase-10.5-Console-Surface-Completion.md:52 [all safety levers reachable, dual-controlled, audit-written]
-	"P10.5-T10.5.3.2-C1",  // Phase-10.5-Console-Surface-Completion.md:69 [fleet mutations reach backend through context-bound client]
-	"P10.5-T10.5.3.3-C1",  // Phase-10.5-Console-Surface-Completion.md:90 [audit/recon/DLQ surfaces show authoritative state with hone…]
-	"P10.5-T10.5.3.4-C1",  // Phase-10.5-Console-Surface-Completion.md:115 [customer lifecycle is fully operable from one surface]
-	"P10.5-T10.5.3.5-C1",  // Phase-10.5-Console-Surface-Completion.md:134 [client compliance ops executable with evidence capture]
-	"P10.5-T10.5.3.6-C1",  // Phase-10.5-Console-Surface-Completion.md:155 [surveillance case desk + SAR lifecycle + comms WORM retriev…]
-	"P10.5-T10.5.3.7-C1",  // Phase-10.5-Console-Surface-Completion.md:179 [funding ops queues enforce review tiers and dual control]
-	"P10.5-T10.5.3.8-C1",  // Phase-10.5-Console-Surface-Completion.md:199 [segregated-funds state is inspectable and auditable]
-	"P10.5-T10.5.3.9-C1",  // Phase-10.5-Console-Surface-Completion.md:220 [post-trade ops surfaces expose the full state machines]
-	"P10.5-T10.5.3.10-C1", // Phase-10.5-Console-Surface-Completion.md:240 [pricing/finance admin complete with approval flows]
-	"P10.5-T10.5.3.11-C1", // Phase-10.5-Console-Surface-Completion.md:261 [instrument lifecycle console covers halt→delist with dual c…]
-	"P10.5-T10.5.3.12-C1", // Phase-10.5-Console-Surface-Completion.md:280 [algo-trading governance surfaces complete]
-	"P10.5-T10.5.3.13-C1", // Phase-10.5-Console-Surface-Completion.md:300 [reg-reporting desk operates the submissions lifecycle]
-	"P10.5-T10.5.3.14-C1", // Phase-10.5-Console-Surface-Completion.md:319 [venue governance console covers cases/rulebook/admission/CC…]
-	"P10.5-T10.5.3.15-C1", // Phase-10.5-Console-Surface-Completion.md:339 [conduct & DORA consoles complete]
-	"P10.5-T10.5.3.16-C1", // Phase-10.5-Console-Surface-Completion.md:361 [content/engagement/emergency-access admin complete]
-	"P10.5-T10.5.3.17-C1", // Phase-10.5-Console-Surface-Completion.md:384 [full account self-service surface]
-	"P10.5-T10.5.3.18-C1", // Phase-10.5-Console-Surface-Completion.md:403 [funding self-service covers all rails]
-	"P10.5-T10.5.3.19-C1", // Phase-10.5-Console-Surface-Completion.md:421 [strategy marketplace user flow complete]
-	"P10.5-T10.5.3.20-C1", // Phase-10.5-Console-Surface-Completion.md:439 [order composition UI covers every mounted submit endpoint]
-	"P10.5-T10.5.3.21-C1", // Phase-10.5-Console-Surface-Completion.md:458 [market analytics surface complete]
-	"P10.5-T10.5.3.22-C1", // Phase-10.5-Console-Surface-Completion.md:478 [history + export center complete]
-	"P10.5-T10.5.3.23-C1", // Phase-10.5-Console-Surface-Completion.md:497 [public transparency + status surfaces live]
-	"P10.5-T10.5.3.24-C1", // Phase-10.5-Console-Surface-Completion.md:516 [auth flows complete]
-	"P10.5-T10.5.3.25-C1", // Phase-10.5-Console-Surface-Completion.md:536 [consumers self-heal across stream provisioning order]
-	"P10.5-T10.5.3.26-C1", // Phase-10.5-Console-Surface-Completion.md:552 [positions recon has a verifiable engine leg]
-	"P10.5-T10.5.3.27-C1", // Phase-10.5-Console-Surface-Completion.md:570 [route coverage is mechanically enforced]
-}
+var PendingStubs = []string{}
