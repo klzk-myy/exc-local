@@ -461,10 +461,22 @@ func TestIntegrationTargetMarketGate(t *testing.T) {
 	}
 	// Non-retail categories skip the target check (PROFESSIONAL
 	// completeness rows carry the full class set but the gate does not
-	// consult them for admission).
+	// consult them for admission). Since the account join carries
+	// client_category, the stored row wins over the categorizer seam —
+	// flip the account to PROFESSIONAL to exercise that branch.
+	if _, err := pool.Exec(ctx,
+		`UPDATE accounts SET client_category='PROFESSIONAL' WHERE id=$1`,
+		aid); err != nil {
+		t.Fatalf("promote to PROFESSIONAL: %v", err)
+	}
 	gatePro := NewProductGateService(profiles, targets, fakeCategorizer{"PROFESSIONAL"})
 	if err := gatePro.AdmitOrder(ctx, aid, "EURUSD.OPT", "OPTION", false); err != nil {
 		t.Fatalf("professional admission blocked by retail gate: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`UPDATE accounts SET client_category='RETAIL' WHERE id=$1`,
+		aid); err != nil {
+		t.Fatalf("restore RETAIL: %v", err)
 	}
 	// reduce_only stays admissible on negative-target instruments —
 	// a client can always flatten.
