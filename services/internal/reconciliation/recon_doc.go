@@ -20,14 +20,17 @@
 //	    INCONCLUSIVE, not a halt: the money is provably right.
 //
 //	R2  Positions/Orders core leg — no AdminGetPositions/AdminGetOrders
-//	    query seam exists against the C++ core. ORDERS reconciles PG
-//	    against a WAL replay (the WAL is the core's own journal of the
-//	    resting book — authoritative); POSITIONS reconciles PG against
-//	    the position_fills system-of-record projection and records the
-//	    missing core leg as a permanent INCONCLUSIVE marker. Partial
-//	    journal coverage (lost ranges, corrupt segments, trimmed stream
-//	    base) degrades the affected leg to INCONCLUSIVE — a partial
-//	    journal never produces a financial verdict.
+//	    query seam exists against the C++ core, so both categories
+//	    reconcile PG against a WAL replay (the WAL is the core's own
+//	    journal — authoritative). ORDERS diffs the replayed resting book;
+//	    POSITIONS (Task 10.5.3.26) diffs per-(account, instrument) nets
+//	    derived from journaled ORDER_NEW owners + TRADE fills, alongside
+//	    the position_fills system-of-record leg — the prior standing
+//	    "no core seam" marker fires only when the WAL seam is unwired.
+//	    Partial journal coverage (lost ranges, corrupt segments, trimmed
+//	    stream base, unresolved trade→order refs) degrades the affected
+//	    leg to INCONCLUSIVE — a partial journal never produces a
+//	    financial verdict.
 //
 //	R3  Bank-statement leg — no live bank feed exists. FUNDING runs the
 //	    internal legs that ARE checkable (rail_payments disposition,

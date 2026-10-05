@@ -98,6 +98,7 @@ type PgTrade struct {
 //   - processed_trades is the settlement dedup anchor — a journaled fill
 //     present there committed its ledger leg even if the tape row was
 //     later removed; the gap is projection-only, not a settlement hole.
+//
 // Both mean the miss is acknowledged history, not a fresh divergence.
 type AckSource interface {
 	DeadLetters(ctx context.Context, entity string) (map[int64]struct{}, error)
@@ -152,6 +153,10 @@ type PositionSource interface {
 	// FillNets returns per-(account, instrument) signed net quantity and
 	// realized-P&L sums rebuilt from position_fills (BUY +q, SELL −q).
 	FillNets(ctx context.Context) ([]FillNet, error)
+	// ExcludedAccounts returns accounts the PG leg excludes (integration-
+	// harness test_scoped rows — migration 278). The engine-journal leg
+	// cannot see the flag, so the checker filters its nets by this set.
+	ExcludedAccounts(ctx context.Context) (map[int64]struct{}, error)
 }
 
 type PgPosition struct {
@@ -496,6 +501,25 @@ func (l *PgLegs) Positions(ctx context.Context) ([]PgPosition, error) {
 	return out, rows.Err()
 }
 
+// ExcludedAccounts returns the test_scoped account set the positions leg
+// excludes — used to filter engine-journal nets the WAL cannot flag.
+func (l *PgLegs) ExcludedAccounts(ctx context.Context) (map[int64]struct{}, error) {
+	rows, err := l.pool.Query(ctx, `SELECT id FROM accounts WHERE test_scoped`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64]struct{}{}
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out[id] = struct{}{}
+	}
+	return out, rows.Err()
+}
+
 func (l *PgLegs) FillNets(ctx context.Context) ([]FillNet, error) {
 	rows, err := l.pool.Query(ctx, `
 		SELECT account_id, instrument_id,
@@ -781,7 +805,7 @@ func DefaultCheckers(l *PgLegs, wal walSource, stmt StatementSource) []Checker {
 	}
 	return []Checker{
 		BalancesChecker{Src: l},
-		PositionsChecker{Src: l},
+		PositionsChecker{Src: l, Wal: wal},
 		OrdersChecker{Src: l, Wal: wal, Acks: l},
 		TradesChecker{Src: l, Wal: wal, Acks: l},
 		FundingChecker{Src: l, Statements: stmt},

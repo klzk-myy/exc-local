@@ -255,8 +255,8 @@ func (c TradesChecker) Run(ctx context.Context, s Scope) ([]Finding, error) {
 			Category: CatTrades, Subject: string(CatTrades), Leg: "acknowledged_gap",
 			Unit: UnitCount, Severity: SevInfo,
 			Detail: map[string]any{
-				"dead_letters":         deadN,
-				"settled_unprojected":  settledN,
+				"dead_letters":        deadN,
+				"settled_unprojected": settledN,
 			},
 		})
 	}

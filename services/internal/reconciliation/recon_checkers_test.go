@@ -153,6 +153,9 @@ func (f fakePositions) Positions(context.Context) ([]PgPosition, error) {
 func (f fakePositions) FillNets(context.Context) ([]FillNet, error) {
 	return f.fills, f.err
 }
+func (f fakePositions) ExcludedAccounts(context.Context) (map[int64]struct{}, error) {
+	return map[int64]struct{}{}, nil
+}
 
 func TestPositionsChecker(t *testing.T) {
 	src := fakePositions{
@@ -186,6 +189,91 @@ func TestPositionsChecker(t *testing.T) {
 	}
 	if mism != 2 || incon != 1 {
 		t.Fatalf("mismatch=%d inconclusive=%d: %+v", mism, incon, fs)
+	}
+}
+
+// Task 10.5.3.26 — the WAL replay is the engine-journal leg of
+// POSITIONS: ORDER_NEW account owners + TRADE fills net per
+// (account, instrument), diffed against the PG projection. A complete
+// journal removes the standing core_state marker; a journal-side
+// divergence escalates like any other mismatch.
+func TestPositionsCheckerCoreLeg(t *testing.T) {
+	r := mkReplay()
+	// Orders 100 (acct 5) buys / 101 (acct 6) sells 10 units of instr 1;
+	// orders 102 (acct 7) buys / 103 (acct 8) sells 4 units of instr 2.
+	r.orderAccount[100] = 5
+	r.orderAccount[101] = 6
+	r.orderAccount[102] = 7
+	r.orderAccount[103] = 8
+	r.trades[1] = walTrade{
+		TradeID: 1, BuyOrderID: 100, SellOrderID: 101,
+		QtyUnits: 1000000000, InstrumentID: 1,
+	}
+	r.trades[2] = walTrade{
+		TradeID: 2, BuyOrderID: 102, SellOrderID: 103,
+		QtyUnits: 400000000, InstrumentID: 2,
+	}
+	// PG agrees with the journal everywhere except acct 7 instr 2 —
+	// one wal_vs_pg divergence expected.
+	src := fakePositions{
+		pos: []PgPosition{
+			{AccountID: 5, InstrumentID: 1, Side: "LONG",
+				Quantity: dec(t, "10"), EntryPrice: dec(t, "1.1")},
+			{AccountID: 6, InstrumentID: 1, Side: "SHORT",
+				Quantity: dec(t, "10"), EntryPrice: dec(t, "1.1")},
+			{AccountID: 8, InstrumentID: 2, Side: "SHORT",
+				Quantity: dec(t, "4"), EntryPrice: dec(t, "1.4")},
+		},
+		fills: []FillNet{
+			{AccountID: 5, InstrumentID: 1, NetQty: dec(t, "10")},
+			{AccountID: 6, InstrumentID: 1, NetQty: dec(t, "-10")},
+			{AccountID: 7, InstrumentID: 2, NetQty: dec(t, "4")},
+			{AccountID: 8, InstrumentID: 2, NetQty: dec(t, "-4")},
+		},
+	}
+	c := PositionsChecker{Src: src, Wal: fakeWal{replay: r}}
+	fs, err := c.Run(context.Background(),
+		Scope{WalDirs: []string{"/wal/0"}, Now: time.Now()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mism, incon int
+	for _, f := range fs {
+		switch f.Severity {
+		case SevMismatch:
+			mism++
+			if f.Leg != "wal_vs_pg" && f.Leg != "fills_vs_pg" {
+				t.Fatalf("unexpected mismatch leg %+v", f)
+			}
+		case SevInconclusive:
+			incon++
+		}
+	}
+	// wal_vs_pg (acct 7 instr 2: journal +4, projection 0) +
+	// fills_vs_pg (fill ledger nets 4 with no positions row).
+	if mism != 2 || incon != 0 {
+		t.Fatalf("want 2 mismatches, no standing core_state marker: %+v", fs)
+	}
+}
+
+// A WAL whose TRADE legs reference unjournaled orders degrades the core
+// leg to INCONCLUSIVE — the net would under-count silently otherwise.
+func TestPositionsCheckerCoreLegUnresolved(t *testing.T) {
+	r := mkReplay()
+	r.trades[9] = walTrade{
+		TradeID: 9, BuyOrderID: 900, SellOrderID: 901,
+		QtyUnits: 1, InstrumentID: 1,
+	}
+	src := fakePositions{}
+	c := PositionsChecker{Src: src, Wal: fakeWal{replay: r}}
+	fs, err := c.Run(context.Background(),
+		Scope{WalDirs: []string{"/wal/0"}, Now: time.Now()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fs) != 1 || fs[0].Severity != SevInconclusive ||
+		fs[0].Leg != "core_state" {
+		t.Fatalf("want one core_state inconclusive: %+v", fs)
 	}
 }
 
@@ -268,7 +356,8 @@ func mkReplay() *walReplay {
 	return &walReplay{
 		origQty: map[uint64]int64{}, filledQty: map[uint64]int64{},
 		live: map[uint64]bool{}, orderInstr: map[uint64]uint32{},
-		trades: map[uint64]walTrade{}, complete: true,
+		orderAccount: map[uint64]uint64{}, trades: map[uint64]walTrade{},
+		complete: true,
 	}
 }
 

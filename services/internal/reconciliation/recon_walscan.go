@@ -32,6 +32,9 @@ type walReplay struct {
 	// order_id → instrument_id for every order ever journaled (kept for
 	// halt-scope resolution even after the order leaves the book).
 	orderInstr map[uint64]uint32
+	// order_id → account_id — the engine-journal leg of POSITIONS nets
+	// journaled TRADE fills by the resting order's owner.
+	orderAccount map[uint64]uint64
 	// Trade stream: trade_id → executed legs.
 	trades map[uint64]walTrade
 
@@ -44,6 +47,8 @@ type walReplay struct {
 
 type walTrade struct {
 	TradeID      uint64
+	BuyOrderID   uint64
+	SellOrderID  uint64
 	QtyUnits     int64
 	PxTicks      int64
 	InstrumentID uint32
@@ -65,12 +70,13 @@ func (replayWalSource) Replay(ctx context.Context, dirs []string) (*walReplay, e
 // (assigned by the core's sequencer), so shard streams merge by id.
 func replayWal(ctx context.Context, dirs []string) (*walReplay, error) {
 	r := &walReplay{
-		origQty:    map[uint64]int64{},
-		filledQty:  map[uint64]int64{},
-		live:       map[uint64]bool{},
-		orderInstr: map[uint64]uint32{},
-		trades:     map[uint64]walTrade{},
-		complete:   true,
+		origQty:      map[uint64]int64{},
+		filledQty:    map[uint64]int64{},
+		live:         map[uint64]bool{},
+		orderInstr:   map[uint64]uint32{},
+		orderAccount: map[uint64]uint64{},
+		trades:       map[uint64]walTrade{},
+		complete:     true,
 	}
 	if len(dirs) == 0 {
 		return r, fmt.Errorf("no WAL directories configured")
@@ -160,6 +166,7 @@ func (r *walReplay) replaySegment(path string) error {
 			r.filledQty[ev.OrderID] = 0
 			r.live[ev.OrderID] = true
 			r.orderInstr[ev.OrderID] = ev.InstrumentID
+			r.orderAccount[ev.OrderID] = ev.AccountID
 		case recovery.EvOrderModify:
 			ev, derr := recovery.DecodeOrderModify(e.Payload)
 			if derr != nil {
@@ -178,8 +185,10 @@ func (r *walReplay) replaySegment(path string) error {
 				return derr
 			}
 			r.trades[ev.TradeID] = walTrade{
-				TradeID:  ev.TradeID,
-				QtyUnits: ev.QtyUnits, PxTicks: ev.PriceTicks,
+				TradeID:     ev.TradeID,
+				BuyOrderID:  ev.BuyOrderID,
+				SellOrderID: ev.SellOrderID,
+				QtyUnits:    ev.QtyUnits, PxTicks: ev.PriceTicks,
 				InstrumentID: ev.InstrumentID, TsNs: e.TimestampNs,
 			}
 			r.filledQty[ev.BuyOrderID] += ev.QtyUnits
@@ -220,6 +229,28 @@ func ReplayOrderIndex(ctx context.Context, dirs []string) (journaled, resting ma
 		}
 	}
 	return journaled, resting, nil
+}
+
+// PositionNets derives per-(account, instrument) net signed quantity
+// from journaled TRADE legs — the engine-journal leg of the POSITIONS
+// category (Task 10.5.3.26): the buyer's order owner gains +qty, the
+// seller's loses −qty. A TRADE referencing an order the journal never
+// journaled (trimmed prefix / lost range) leaves its legs unaccounted —
+// unresolved counts them so callers degrade instead of fabricating a
+// clean verdict.
+func (r *walReplay) PositionNets() (nets map[[2]uint64]int64, unresolved int) {
+	nets = map[[2]uint64]int64{}
+	for _, t := range r.trades {
+		buyer, okB := r.orderAccount[t.BuyOrderID]
+		seller, okS := r.orderAccount[t.SellOrderID]
+		if !okB || !okS {
+			unresolved++
+			continue
+		}
+		nets[[2]uint64{buyer, uint64(t.InstrumentID)}] += t.QtyUnits
+		nets[[2]uint64{seller, uint64(t.InstrumentID)}] -= t.QtyUnits
+	}
+	return nets, unresolved
 }
 
 // RestingOrders returns the replayed open book sorted by order id.

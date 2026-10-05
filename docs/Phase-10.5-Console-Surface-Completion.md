@@ -546,10 +546,12 @@ Non-goals: new backend business logic (existing routes only); the `/api/v1/test/
 2. Owner seam: engine-side per Phase-02/Phase-19 (position state) + recon consumer per Phase-24; implementation must not bypass the existing reconciliation findings pipeline.
 
 **DoD:**
-* [ ] Recon POSITIONS leg reports conclusive pass/fail on a clean run — no structural INCONCLUSIVE
+* [x] Recon POSITIONS leg reports conclusive pass/fail on a clean run — no structural INCONCLUSIVE
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: positions recon has a verifiable engine leg — defined first, validated against spec
+- [x] Spec checkpoint: positions recon has a verifiable engine leg — defined first, validated against spec
+
+*Execution record (this implementation):* seam choice — **WAL replay**, not a new Aeron/IPC admin opcode. The WAL is the core's own authoritative journal (same seam the ORDERS and TRADES legs already verify against, per doc.go ruling R2); a live in-path query would add a read surface to the matching loop for no gain over sealed-segment replay. `walReplay` gained `orderAccount` (ORDER_NEW.account_id) and `walTrade` gained buy/sell order ids; new `PositionNets()` derives per-(account, instrument) signed nets — buyer +qty / seller −qty in engine units. `PositionsChecker` gained `Wal walSource`: wired → `coreLeg` replays `s.WalDirs` via the shared `walReplayOrInconclusive` (coverage defects → one targeted INCONCLUSIVE), filters `test_scoped` accounts via the new `PositionSource.ExcludedAccounts` (the WAL cannot see the flag — mirrors the PG read's own `testScopedExclude`), then diffs `decimal.NewFromScaled` nets vs `PgPosition.SignedQty()` → `wal_vs_pg` ACCOUNT-halted mismatches. TRADE legs referencing unjournaled orders degrade the leg to INCONCLUSIVE (partial nets never produce a verdict); `Wal == nil` keeps the standing marker. `DefaultCheckers` wires `Wal: wal` — production picks it up through `Deps.WalDirs`/`reconciliationWalDirs` with zero cmd changes. PNL checker untouched (its legs are projection-side). `recon_doc.go` R2 ruling text updated (supersedes "permanent INCONCLUSIVE marker" wording). Tests: `TestPositionsCheckerCoreLeg` (divergence → mismatch, no standing marker), `TestPositionsCheckerCoreLegUnresolved` (unresolvable trade → INCONCLUSIVE), existing `TestPositionsChecker` unchanged (nil Wal → marker preserved). `go test -count=1 ./internal/reconciliation ./internal/gateway` + `go build ./...` green. Position quantities compare at 8dp — the WAL is the fill source so a clean replay is bit-exact, no tolerance needed.
 
 ---
 
