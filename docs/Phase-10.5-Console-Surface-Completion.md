@@ -452,10 +452,12 @@ Non-goals: new backend business logic (existing routes only); the `/api/v1/test/
 3. Every panel renders the backend's publication-delay/freshness metadata (5-min delay badges per Phase-23).
 
 **DoD:**
-* [ ] Analytics/market intel pages render live data with delay badges and premium gating
+* [x] Analytics/market intel pages render live data with delay badges and premium gating
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: market analytics surface complete — defined first, validated against spec
+- [x] Spec checkpoint: market analytics surface complete — defined first, validated against spec
+
+*Execution record (this implementation):* new `features/analytics` — `AnalyticsPage` (`/analytics`, Research nav order 1, auto-glob-registered) + `api.ts` + 3 panels + page-level cards. `SentimentPanel`: `GET /analytics/open-interest/{symbol}?interval=1h|4h|1d` (current OI/notional/positions + `stale` flag + `insufficient_data`), `GET /analytics/long-short-ratio/{symbol}?period=` and `GET /market/taker-volume?symbol=` — `delayed`/`delay_ms`/`as_of_ms` rendered as a "5-min delayed" badge; below-floor cohort buckets render an explicit "suppressed — cohort below floor" row, never silently dropped. `PositioningCard`: `GET /market/positioning?symbol=` cohort counts/notionals + delayed badge; `insufficient_data` honest empty state. `VenuePanel`: `GET /stats/24h` rolling table (server_time_ms header), `GET /market/performance` status card — `held`/`held_age_ms`/`divergent_metrics` and the venue rollup (fill_rate/uptime) verbatim, `GET /analytics/volume?granularity=1h|1d` with `truncated` disclosure, `GET /analytics/stats` fill-rate table. `DepthPanel`: `GET /market/depth?symbol=&limit=` L2 book (seq + updated_at_ms, 15s refresh) + on-demand `GET /market-data/l3-snapshot/{symbol}` — professional-tier refusal (402/403 coded error) surfaces through ErrorBox verbatim. `MyPnlCard`: `GET /analytics/pnl` rows (realized/unrealized/fees/net per day×symbol) rendered only when signed in — the endpoint is TierBasic and the card is absent without a session (verified by test). Contract notes: `/market-data/snapshot?level=L2` shares the same BookSnapshot seam as `/market/depth` (covered there); `/analytics/taker-flow` path-param variant covered by the query-param `/market/taker-volume` surface (same `serveTakerFlow` handler). Zero backend changes. Tests: 4 new (stats+held+delayed+suppressed render, L3 premium refusal, signed-in P&L, signed-out zero-pnl-calls); suite 743/743. `go test ./internal/gateway` green.
 
 ---
 
