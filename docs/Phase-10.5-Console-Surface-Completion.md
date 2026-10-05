@@ -128,10 +128,12 @@ Non-goals: new backend business logic (existing routes only); the `/api/v1/test/
 5. Enforcement — `GET /api/v1/admin/enforcement`, `POST …/{id}` — WARN→SUSPEND ladder with order-gate effect preview.
 
 **DoD:**
-* [ ] Screening, travel-rule cure, restricted-list edit, pre-clearance decide, enforcement ladder all functional
+* [x] Screening, travel-rule cure, restricted-list edit, pre-clearance decide, enforcement ladder all functional
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: client compliance ops executable with evidence capture — defined first, validated against spec
+- [x] Spec checkpoint: client compliance ops executable with evidence capture — defined first, validated against spec
+
+**Execution record (2026-10-04):** `frontend/src/features/admin-compliance/` — route `/admin/compliance`. Screening: `POST screening/accounts/{id}` outcome card (CLEAN/REVIEW/SANCTIONS HIT/QUARANTINED — never shows a deferred screen as clean) + provider-gate strip from `GET sanctions/status` + adverse-media intake. Travel rule: `?status=` filter defaulting to MISSING_INFO; row select → supply form posting `{originator,beneficiary}` parties to `/{id}/supply`. Restricted lists: create (ALL_STAFF/ROLE/NAMED_ACCOUNTS scopes, RFC3339 window) + retire via `DELETE ?id=` behind ConfirmAction. Employee dealing: `?outcome=` queue, decide posts `{id,approve,note}`, officer-file form, dealing audit tail. Enforcement: `?account_id=` ledger, WARN→THROTTLE→RESTRICT→SUSPEND ladder strip, per-rung order-gate effect preview, `POST /{signal_id}` with action/note/ttl_seconds. Note: restricted-lists DELETE is `?id=` query-form (not `/{id}`); `GET /admin/sanctions/status` added for the fail-closed state display (already mounted). 7 component tests; 647/647 suite green.
 
 ---
 
