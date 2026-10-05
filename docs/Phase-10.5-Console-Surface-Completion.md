@@ -149,10 +149,12 @@ Non-goals: new backend business logic (existing routes only); the `/api/v1/test/
 5. Comms recording (MiFID II taping) — `GET /api/v1/admin/comms-recordings[/{id}]`, `POST …/verify-day`, `POST …/{id}/retrieve` (dual-controlled retrieval with WORM hash display).
 
 **DoD:**
-* [ ] Signal→case→disposition→SAR file path walkable end-to-end in UI; comms retrieval is dual-controlled
+* [x] Signal→case→disposition→SAR file path walkable end-to-end in UI; comms retrieval is dual-controlled
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: surveillance case desk + SAR lifecycle + comms WORM retrieval — defined first, validated against spec
+- [x] Spec checkpoint: surveillance case desk + SAR lifecycle + comms WORM retrieval — defined first, validated against spec
+
+**Execution record (2026-10-04):** `frontend/src/features/admin-surveillance/` — route `/admin/surveillance`. Surveillance: monthly summary strip (`?month=`) + case queue (`?status=`) → workspace (`GET cases/{id}`) with immutable evidence list (kind/body/sha256), linked signals, order-audit refs, assign (`{assignee}`, 0=round-robin), evidence attach, terminal disposition (FALSE_POSITIVE/ESCALATE_SAR/ESCALATE_STR/ESCALATE_ACTION — action verb only shown for ESCALATE_ACTION). SAR: `?status=` queue → per-status actions (review/approve {note}, file {filing_ref}, reject {reason}) — four-eyes enforced server-side; manual draft form (source_ref dedup, 200-vs-201 both surfaced); CTR register below. AML: program compliant/breach badges (MSB_COMPLIANCE_BREACH code shown), artifact register + filing form (6 types), monitoring feed (`?account_id=`). Sanctions ops: shared `fetchSanctionsStatus` from admin-compliance + refresh + queue/replay. Comms: `?account_id=` register with sha256/chain-hash display, `verify-day` → INTACT/VIOLATION, retrieval posts `{approver_id, justification, case_ref}` — approver mandatory in UI, distinctness enforced server-side. 5 component tests; 652/652 suite green.
 
 ---
 
