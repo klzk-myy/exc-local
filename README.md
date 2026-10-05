@@ -6,7 +6,7 @@ spot FX, forwards, swaps, NDFs, and vanilla/barrier options on a **firm-liquidit
 central limit order book** — fiat currencies only, no cryptocurrency.
 
 **Status:** implementation-complete — all 31 phases landed incl. Phase-10.5 console-completion. Hosted CI fully green
-(10 CI + 5 security jobs). Spec corpus **543/543 checkpoints bound, 0 pending
+(10 CI + 5 security jobs). Spec corpus **569/569 checkpoints bound, 0 pending
 stubs**. Remaining work is environment-gated evidence only (72h soak, staging
 gate, DR drills, live third-party accounts) — see [Current status](#current-status).
 
