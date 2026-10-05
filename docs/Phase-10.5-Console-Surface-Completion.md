@@ -81,11 +81,13 @@ Non-goals: new backend business logic (existing routes only); the `/api/v1/test/
 4. DLQ view — `GET /api/v1/admin/dlq` (live post-`natsctl dlq init`; render honest-degraded on 503).
 5. API deprecation dashboard — `GET/POST /api/v1/admin/api-deprecations`, `GET …/usage` (usage sparkline per deprecated route).
 
+**Implemented:** `frontend/src/features/admin-integrity/` — `IntegrityPage.tsx` (route `/admin/integrity`), `AuditIntegrityPanel.tsx`, `ReconPanel.tsx`, `ArchiveDlqPanel.tsx` (records/archive + DLQ), `DeprecationPanel.tsx`, `api.ts`, `routes.ts`, `nav.ts`, `IntegrityPage.test.tsx`.
+
 **DoD:**
-* [ ] Audit chain verify + recon runs + order-record export + DLQ + deprecation usage all render live data
+* [x] Audit chain verify + recon runs + order-record export + DLQ + deprecation usage all render live data
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: audit/recon/DLQ surfaces show authoritative state with honest-degraded fallbacks — defined first, validated against spec
+- [x] Spec checkpoint: audit/recon/DLQ surfaces show authoritative state with honest-degraded fallbacks — defined first, validated against spec
 
 ---
 
