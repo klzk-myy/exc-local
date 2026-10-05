@@ -294,10 +294,12 @@ Non-goals: new backend business logic (existing routes only); the `/api/v1/test/
 2. Best execution — `GET/POST /api/v1/admin/bestexec/{rts27,rts28}`, `POST /api/v1/admin/bestexec/{rts27/generate,rts27/materialize,rts28/generate}` — generate→materialize→publish pipeline; `GET /api/v1/admin/{emir-report,mifid-report,basel-report,compliance-report}`.
 
 **DoD:**
-* [ ] Submission queue, breaks resolution, RTS27/28 generation and regime reports all reachable
+* [x] Submission queue, breaks resolution, RTS27/28 generation and regime reports all reachable
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: reg-reporting desk operates the submissions lifecycle — defined first, validated against spec
+- [x] Spec checkpoint: reg-reporting desk operates the submissions lifecycle — defined first, validated against spec
+
+**Execution record (2026-10-07):** `frontend/src/features/admin-regreport/` — `RegReportingPage` (`/admin/regreporting`) + `api.ts` + 3 panels: `SubmissionsPanel` (merged repair queue — open breaks + NACKED/FAILED transport rows; RESOLVED|WONT_FIX dispositions; submission register + corrected resubmit creating a NEW row while the original stays on record — no silent in-place repair; async ACK/NACK ingest; party-identifier upsert; manual reconcile sweep), `BestExecPanel` (RTS27 materialize-day → generate-quarter → publish pipeline; RTS28 generate-year → publish; DRAFT/PUBLISHED lifecycle badges; zero-activity quarters marked), `RegimePanel` (EMIR-pinned canonical event export via the legacy `/admin/emir-report` mount; Basel III report by period; generic compliance export across MIFID2|EMIR|FINCEN_CTR|FINCEN_SAR|BASEL3|MONTHLY_SUMMARY). `GET /admin/mifid-report`'s combined RTS27+RTS28 view is covered by the dedicated list endpoints (same service seam, strictly richer). Zero backend changes. 6 component tests; 695/695 suite green.
 
 ---
 
