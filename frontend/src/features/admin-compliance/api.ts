@@ -163,6 +163,17 @@ export async function fetchTravelRule(
     .filter((r): r is TravelRuleRecord => r !== null);
 }
 
+/** GET /admin/travel-rule/{id} — record detail (full party fields,
+ * dispatch-hold provenance the list trims). */
+export async function fetchTravelRuleRecord(
+  api: BoundAdminApi,
+  id: number,
+): Promise<Record<string, unknown>> {
+  const raw = await api.get<unknown>(`/admin/travel-rule/${id}`);
+  if (!isRecord(raw)) throw malformed('travel-rule detail');
+  return isRecord(raw['record']) ? raw['record'] : raw;
+}
+
 export async function supplyTravelRule(
   api: BoundAdminApi,
   id: number,

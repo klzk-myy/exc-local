@@ -27,7 +27,15 @@ import {
 
 import { AccessDeniedCard } from '../admin/RequireAdmin';
 import { isAccessDenied } from '../admin/adminRole';
-import { advanceFlag, createFlag, deleteFlag, fetchFlags, toggleFlag } from './api';
+import {
+  advanceFlag,
+  createFlag,
+  deleteFlag,
+  fetchFlag,
+  fetchFlags,
+  toggleFlag,
+  updateFlag,
+} from './api';
 
 export function FlagsPanel({ adminApi }: { adminApi: BoundAdminApi }) {
   const qc = useQueryClient();
@@ -36,6 +44,9 @@ export function FlagsPanel({ adminApi }: { adminApi: BoundAdminApi }) {
   const [actionError, setActionError] = useState<unknown>(null);
   const [busyName, setBusyName] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [editName, setEditName] = useState<string | null>(null);
+  const [editPct, setEditPct] = useState('');
+  const [editDesc, setEditDesc] = useState('');
 
   const query = useQuery({
     queryKey: ['admin-ops', 'flags', adminApi.env],
@@ -173,6 +184,23 @@ export function FlagsPanel({ adminApi }: { adminApi: BoundAdminApi }) {
                         )}
                         <button
                           type="button"
+                          className={btnGhost}
+                          disabled={busyName === f.name}
+                          onClick={() =>
+                            void run(f.name, async () => {
+                              const fresh = await fetchFlag(adminApi, f.name);
+                              setEditName(f.name);
+                              setEditPct(
+                                fresh.rolloutPct !== undefined ? String(fresh.rolloutPct) : '',
+                              );
+                              setEditDesc(fresh.description ?? '');
+                            })
+                          }
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
                           className={btnDanger}
                           disabled={busyName === f.name}
                           onClick={() => setDeleteTarget(f.name)}
@@ -187,6 +215,64 @@ export function FlagsPanel({ adminApi }: { adminApi: BoundAdminApi }) {
             </table>
           </div>
         ))}
+
+      <Modal open={editName !== null} title="Edit flag" onClose={() => setEditName(null)}>
+        {editName !== null && (
+          <form
+            className="space-y-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void run(editName, async () => {
+                await updateFlag(adminApi, editName, {
+                  ...(editPct.trim() !== '' ? { rolloutPct: Number(editPct) } : {}),
+                  description: editDesc.trim() === '' ? undefined : editDesc.trim(),
+                });
+                setEditName(null);
+              });
+            }}
+          >
+            <div>
+              <label className={labelCls} htmlFor="flag-edit-pct">
+                Rollout % (blank = unchanged)
+              </label>
+              <input
+                id="flag-edit-pct"
+                className={inputCls}
+                type="number"
+                min={0}
+                max={100}
+                value={editPct}
+                onChange={(e) => setEditPct(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className={labelCls} htmlFor="flag-edit-desc">
+                Description
+              </label>
+              <input
+                id="flag-edit-desc"
+                className={inputCls}
+                value={editDesc}
+                onChange={(e) => setEditDesc(e.target.value)}
+              />
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className={btnGhost}
+                onClick={() => {
+                  setEditName(null);
+                }}
+              >
+                Cancel
+              </button>
+              <button type="submit" className={btnPrimary} disabled={busyName === editName}>
+                Save
+              </button>
+            </div>
+          </form>
+        )}
+      </Modal>
 
       <Modal open={deleteTarget !== null} title="Delete flag" onClose={() => setDeleteTarget(null)}>
         {deleteTarget !== null && (

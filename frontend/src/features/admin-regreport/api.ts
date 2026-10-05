@@ -339,6 +339,17 @@ export async function publishReport(
   await api.post(`/admin/bestexec/${kind}/${id}/publish`, {});
 }
 
+/** GET /admin/bestexec/{rts27,rts28}/{id} — raw report detail (schema varies by kind). */
+export async function fetchReportDetail(
+  api: BoundAdminApi,
+  kind: 'rts27' | 'rts28',
+  id: number,
+): Promise<Record<string, unknown>> {
+  const raw = await api.get<unknown>(`/admin/bestexec/${kind}/${id}`);
+  if (!isRecord(raw)) throw malformed(`${kind} detail`);
+  return raw;
+}
+
 // ---------------------------------------------------------------------------
 // Regime reports (basel / compliance export).
 // ---------------------------------------------------------------------------

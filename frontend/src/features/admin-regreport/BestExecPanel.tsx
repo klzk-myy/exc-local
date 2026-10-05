@@ -15,6 +15,7 @@ import {
   ErrorBox,
   hintTextCls,
   inputCls,
+  JsonRows,
   selectCls,
   StatusBadge,
   tableCls,
@@ -25,6 +26,7 @@ import {
 import { isAccessDenied } from '../admin/adminRole';
 import { AccessDeniedCard } from '../admin/RequireAdmin';
 import {
+  fetchReportDetail,
   fetchRTS27,
   fetchRTS28,
   generateRTS27,
@@ -40,6 +42,7 @@ export function BestExecPanel({ adminApi }: { adminApi: BoundAdminApi }) {
   const [quarter, setQuarter] = useState('');
   const [year, setYear] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
+  const [detail, setDetail] = useState<{ kind: 'rts27' | 'rts28'; id: number } | null>(null);
 
   const r27 = useQuery({
     queryKey: ['admin-rts27', statusFilter],
@@ -141,26 +144,42 @@ export function BestExecPanel({ adminApi }: { adminApi: BoundAdminApi }) {
                   <StatusBadge value={r.status || 'UNKNOWN'} />
                 </td>
                 <td className={tdCls}>
-                  {r.status !== 'PUBLISHED' ? (
+                  <span className="flex gap-1">
+                    {r.status !== 'PUBLISHED' ? (
+                      <button
+                        type="button"
+                        className={btnPrimary}
+                        disabled={publish.isPending}
+                        onClick={() => {
+                          publish.mutate({ kind: 'rts27', id: r.id });
+                        }}
+                      >
+                        Publish
+                      </button>
+                    ) : (
+                      (r.publishedAt?.slice(0, 10) ?? 'published')
+                    )}
                     <button
                       type="button"
-                      className={btnPrimary}
-                      disabled={publish.isPending}
+                      className={btnGhost}
                       onClick={() => {
-                        publish.mutate({ kind: 'rts27', id: r.id });
+                        setDetail(
+                          detail?.kind === 'rts27' && detail.id === r.id
+                            ? null
+                            : { kind: 'rts27', id: r.id },
+                        );
                       }}
                     >
-                      Publish
+                      Detail
                     </button>
-                  ) : (
-                    (r.publishedAt?.slice(0, 10) ?? 'published')
-                  )}
+                  </span>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       ) : null}
+      {detail?.kind === 'rts27' && <ReportDetail adminApi={adminApi} kind="rts27" id={detail.id} />}
       <div className="mt-2 flex flex-wrap items-end gap-2">
         <input
           aria-label="Materialize day"
@@ -230,26 +249,44 @@ export function BestExecPanel({ adminApi }: { adminApi: BoundAdminApi }) {
                     <StatusBadge value={r.status || 'UNKNOWN'} />
                   </td>
                   <td className={tdCls}>
-                    {r.status !== 'PUBLISHED' ? (
+                    <span className="flex gap-1">
+                      {r.status !== 'PUBLISHED' ? (
+                        <button
+                          type="button"
+                          className={btnPrimary}
+                          disabled={publish.isPending}
+                          onClick={() => {
+                            publish.mutate({ kind: 'rts28', id: r.id });
+                          }}
+                        >
+                          Publish
+                        </button>
+                      ) : (
+                        (r.publishedAt?.slice(0, 10) ?? 'published')
+                      )}
                       <button
                         type="button"
-                        className={btnPrimary}
-                        disabled={publish.isPending}
+                        className={btnGhost}
                         onClick={() => {
-                          publish.mutate({ kind: 'rts28', id: r.id });
+                          setDetail(
+                            detail?.kind === 'rts28' && detail.id === r.id
+                              ? null
+                              : { kind: 'rts28', id: r.id },
+                          );
                         }}
                       >
-                        Publish
+                        Detail
                       </button>
-                    ) : (
-                      (r.publishedAt?.slice(0, 10) ?? 'published')
-                    )}
+                    </span>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         ) : null}
+        {detail?.kind === 'rts28' && (
+          <ReportDetail adminApi={adminApi} kind="rts28" id={detail.id} />
+        )}
         <div className="mt-2 flex flex-wrap items-end gap-2">
           <input
             aria-label="RTS28 year"
@@ -277,5 +314,30 @@ export function BestExecPanel({ adminApi }: { adminApi: BoundAdminApi }) {
       </div>
       {notice !== null ? <p className="mt-2 text-sm">{notice}</p> : null}
     </section>
+  );
+}
+
+function ReportDetail({
+  adminApi,
+  kind,
+  id,
+}: {
+  adminApi: BoundAdminApi;
+  kind: 'rts27' | 'rts28';
+  id: number;
+}) {
+  const q = useQuery({
+    queryKey: ['admin-bestexec-detail', kind, id],
+    queryFn: () => fetchReportDetail(adminApi, kind, id),
+  });
+  if (q.error !== null) return <ErrorBox error={q.error} />;
+  if (q.data === undefined) return <p className="py-2 text-xs text-neutral-500">Loading…</p>;
+  return (
+    <div className="my-2 rounded border border-neutral-800 p-2">
+      <p className="mb-1 text-xs text-neutral-500">
+        {kind.toUpperCase()} report #{id} — raw payload.
+      </p>
+      <JsonRows rows={[q.data]} />
+    </div>
   );
 }

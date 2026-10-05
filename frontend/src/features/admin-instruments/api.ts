@@ -256,6 +256,14 @@ export async function fetchMarketSchedule(api: BoundAdminApi): Promise<MarketSch
   };
 }
 
+/** GET /admin/market-schedule/overrides — dedicated overrides register
+ * (includes expired rows the base schedule document trims). */
+export async function fetchScheduleOverrides(api: BoundAdminApi) {
+  const raw = await api.get<unknown>('/admin/market-schedule/overrides');
+  if (!isRecord(raw)) throw malformed('schedule overrides');
+  return arr(raw['overrides'] ?? raw['items']).map(parseOverride);
+}
+
 export interface OverrideInput {
   date: string;
   closed: boolean;

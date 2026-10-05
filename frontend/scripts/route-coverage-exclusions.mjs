@@ -53,6 +53,10 @@ export const EXCLUSIONS = {
   'GET /api/v1/venue/info': 'ALIAS — registry-declared alias of /api/v1/exchange-info',
   'GET /api/v1/tax/report':
     'ALIAS — superseded spelling; console uses canonical /api/v1/account/tax-report',
+  'POST /api/v1/orders/cancel-all-after':
+    'ALIAS — same handler+contract as /orders/countdown-cancel-all (gateway/main.go:6288)',
+  'GET /api/v1/admin/audit':
+    'ALIAS — registry-declared alias of /admin/audit-log (handlers_audit.go:5); panel spells audit-log',
 };
 
 /**
@@ -87,7 +91,8 @@ export const DISPATCHES = [
   '/admin/withdrawals/${id}/${approve}',
   // admin-crm/api.ts — freeze|unfreeze ternary
   '/admin/accounts/${accountId}/${freeze}',
-  // admin-regreport/api.ts — RTS27/28 publish selector
+  // admin-regreport/api.ts — RTS27/28 detail + publish selectors
+  '/admin/bestexec/${kind}/${id}',
   '/admin/bestexec/${kind}/${id}/publish',
   // history/api.ts — composite order type union (twap|vwap|…)
   '/orders/${type}',
@@ -100,3 +105,64 @@ export const DISPATCHES = [
   // funding/api.ts — whitelist enable|disable ternary
   '/funding/withdrawal-whitelist/${enable}',
 ];
+
+/**
+ * DISPATCH_VERBS — declared typed-union values for a named `${…}`
+ * position in a dispatch template. When the contract spells that
+ * position as a literal segment (a verb, not a `{param}`), the route
+ * is covered only if the literal is in this list — so a new backend
+ * verb fails the gate until the frontend union is extended.
+ * Contract `{param}` segments at the position are data, not verbs,
+ * and are never constrained.
+ */
+export const DISPATCH_VERBS = {
+  '/admin/sar/${id}/${action}': { action: ['review', 'approve', 'file', 'reject'] },
+  '/admin/venue/members/${id}/${action}': {
+    action: [
+      'due-diligence',
+      'agreements',
+      'products',
+      'decision',
+      'suspend',
+      'reinstate',
+      'terminate',
+      'appeals',
+      'appeal-decision',
+      'reviews',
+    ],
+  },
+  '/admin/venue/rulebooks/${id}/${action}': {
+    action: ['file', 'regulator-decision', 'approve', 'activate', 'notices', 'acks'],
+  },
+  '/admin/venue/cco-reports/${id}/${action}': { action: ['sign', 'file'] },
+  '/admin/bestexec/${kind}/${id}': { kind: ['rts27', 'rts28'] },
+  '/admin/settlement/cls/instructions/${ref}/${verb}': {
+    verb: ['dispatch', 'amend', 'rescind', 'pay-in', 'finality', 'status'],
+  },
+  '/admin/allocations/${allocId}/${verb}': { verb: ['claim', 'reject', 'cancel', 'correct'] },
+  '/admin/fx-global-code/assessments/${id}/${action}': {
+    action: ['complete', 'sign', 'publish'],
+  },
+  '/admin/instruments/${id}/${op}': {
+    op: ['activate', 'restrict', 'cancel-only', 'suspend', 'halt', 'resume', 'delist'],
+  },
+  '/admin/tax-reporting/runs/${id}/${verb}': {
+    verb: ['review', 'approve', 'reject', 'submit'],
+  },
+  '/admin/promotions/${id}/${verb}': { verb: ['submit', 'reject', 'withdraw'] },
+  '/admin/strategy-templates/${id}/${approve}': { approve: ['approve', 'reject'] },
+  '/admin/mm-programs/${id}/${verb}': { verb: ['suspend', 'resume', 'mmp-reset'] },
+  '/admin/fleet/hosts/${hostId}/${action}': {
+    action: ['drain', 'cordon', 'decommission'],
+  },
+  '/admin/dual-control/${id}/${approve}': { approve: ['approve', 'reject'] },
+  '/admin/withdrawals/${id}/${approve}': { approve: ['approve', 'reject'] },
+  '/admin/accounts/${accountId}/${freeze}': { freeze: ['freeze', 'unfreeze'] },
+  '/admin/bestexec/${kind}/${id}/publish': { kind: ['rts27', 'rts28'] },
+  '/orders/${type}': { type: ['twap', 'vwap', 'scaled', 'spread'] },
+  '/venue/best-execution/${kind}': { kind: ['rts27', 'rts28'] },
+  '/venue/best-execution/${kind}/${id}': { kind: ['rts27', 'rts28'] },
+  '/venue/best-execution/${kind}/${id}/csv': { kind: ['rts27', 'rts28'] },
+  '/admin/swap-free/${id}/${decision}': { decision: ['approve', 'reject', 'revoke'] },
+  '/funding/withdrawal-whitelist/${enable}': { enable: ['enable', 'disable'] },
+};

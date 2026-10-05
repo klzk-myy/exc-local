@@ -17,6 +17,7 @@ import {
   ErrorBox,
   hintTextCls,
   inputCls,
+  JsonRows,
   labelCls,
   selectCls,
   StatusBadge,
@@ -27,7 +28,7 @@ import {
 
 import { isAccessDenied } from '../admin/adminRole';
 import { AccessDeniedCard } from '../admin/RequireAdmin';
-import { createSarDraft, fetchCtrs, fetchSars, sarAction, type SarReport } from './api';
+import { createSarDraft, fetchCtrs, fetchSar, fetchSars, sarAction, type SarReport } from './api';
 
 const STATUS_FILTERS = ['', 'DRAFT', 'UNDER_REVIEW', 'APPROVED', 'FILED', 'REJECTED'] as const;
 
@@ -44,6 +45,12 @@ export function SarCtrPanel({ adminApi }: { adminApi: BoundAdminApi }) {
   const sars = useQuery({
     queryKey: ['admin-sar', statusFilter],
     queryFn: () => fetchSars(adminApi, statusFilter),
+  });
+  // Filing deadline + lineage live on the {id} detail read, not the list.
+  const detail = useQuery({
+    queryKey: ['admin-sar', 'detail', selected?.id],
+    queryFn: () => fetchSar(adminApi, selected?.id ?? 0),
+    enabled: selected !== null,
   });
   const ctrs = useQuery({ queryKey: ['admin-ctr'], queryFn: () => fetchCtrs(adminApi) });
 
@@ -163,6 +170,13 @@ export function SarCtrPanel({ adminApi }: { adminApi: BoundAdminApi }) {
             SAR <strong>#{selected.id}</strong> <StatusBadge value={selected.status || 'UNKNOWN'} />{' '}
             — {selected.description}
           </p>
+          {detail.isPending ? (
+            <p className="text-xs text-neutral-500">Loading report detail…</p>
+          ) : detail.isError ? (
+            <ErrorBox error={detail.error} />
+          ) : (
+            <JsonRows rows={[detail.data]} />
+          )}
           <div className="flex flex-wrap items-end gap-2">
             <div>
               <label className={labelCls} htmlFor="sar-note">

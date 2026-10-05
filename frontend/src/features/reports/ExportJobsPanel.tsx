@@ -6,17 +6,17 @@
  * exposes a download_url for an expired job, and neither do we.
  */
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiClient } from '@/app/runtime';
 import { downloadFile, saveBlob } from '@/lib/input-helpers';
 import { ErrorBox, btnGhost, tableCls, tdCls, thCls, useNow } from '@/lib/ui';
 
-import { fetchExportJobs, type ExportJob } from '@/features/explorer/api';
+import { fetchExportJob, fetchExportJobs, type ExportJob } from '@/features/explorer/api';
 
 const ACTIVE = new Set(['QUEUED', 'RUNNING', 'PENDING']);
 
-function JobRow({ job }: { job: ExportJob }) {
+function JobRow({ job, onRefresh }: { job: ExportJob; onRefresh: (j: ExportJob) => void }) {
   const now = useNow(1000);
   const [err, setErr] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
@@ -76,7 +76,25 @@ function JobRow({ job }: { job: ExportJob }) {
             Download
           </button>
         ) : active ? (
-          <span className="text-xs text-neutral-500">in progress…</span>
+          <button
+            type="button"
+            className={btnGhost}
+            disabled={busy}
+            onClick={() => {
+              setBusy(true);
+              setErr(null);
+              void fetchExportJob(job.id)
+                .then((j) => {
+                  if (j !== null) onRefresh(j);
+                })
+                .catch(setErr)
+                .finally(() => {
+                  setBusy(false);
+                });
+            }}
+          >
+            Refresh
+          </button>
         ) : null}
         {err !== null ? <ErrorBox error={err} /> : null}
       </td>
@@ -85,6 +103,7 @@ function JobRow({ job }: { job: ExportJob }) {
 }
 
 export function ExportJobsPanel() {
+  const qc = useQueryClient();
   const [pages, setPages] = useState<{ rows: ExportJob[]; next: string | null }[]>([]);
   const [moreErr, setMoreErr] = useState<unknown>(null);
   const q = useQuery({
@@ -134,7 +153,11 @@ export function ExportJobsPanel() {
             </thead>
             <tbody>
               {jobs.map((j) => (
-                <JobRow key={j.id} job={j} />
+                <JobRow
+                  key={j.id}
+                  job={j}
+                  onRefresh={() => void qc.invalidateQueries({ queryKey: ['export-jobs'] })}
+                />
               ))}
             </tbody>
           </table>

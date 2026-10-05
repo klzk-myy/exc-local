@@ -14,6 +14,8 @@ import {
   btnDanger,
   btnGhost,
   cardCls,
+  inputCls,
+  selectCls,
   tableCls,
   tdCls,
   thCls,
@@ -21,6 +23,7 @@ import {
 import { ConfirmModal } from '@/lib/input-helpers';
 
 import {
+  createLP,
   decideKyc,
   escalateHold,
   grantBinding,
@@ -30,7 +33,9 @@ import {
   listKycPending,
   listLPs,
   lpScorecard,
+  placeHold,
   releaseHold,
+  updateLP,
   retransmitDeadLetter,
   revokeBinding,
   type ComplianceHold,
@@ -323,13 +328,20 @@ function ScorecardBlock({ adminApi, lpId }: { adminApi: BoundAdminApi; lpId: num
   );
 }
 
+const LP_STATUSES = ['ONBOARDING', 'ACTIVE', 'SUSPENDED', 'RETIRED'] as const;
+
 function LPScorecards({ adminApi }: { adminApi: BoundAdminApi }) {
+  const qc = useQueryClient();
   const [selected, setSelected] = useState<number | null>(null);
+  const [err, setErr] = useState<unknown>(null);
+  const [create, setCreate] = useState({ name: '', connectionType: 'FIX' });
+  const [edit, setEdit] = useState<{ lpId: number; status: string; reason: string } | null>(null);
   const lps = useQuery({
     queryKey: ['admin', 'lps', adminApi.env],
     queryFn: () => listLPs(adminApi),
     retry: false,
   });
+  const invalidate = () => void qc.invalidateQueries({ queryKey: ['admin', 'lps'] });
 
   if (lps.error) return <PanelError err={lps.error} />;
   const rows = lps.data ?? [];
@@ -340,6 +352,48 @@ function LPScorecards({ adminApi }: { adminApi: BoundAdminApi }) {
         LP inventory; select one for its 1h scorecard (persisted snapshots mark <code>stale</code> —
         never fabricated).
       </p>
+      {err !== null && <ErrorBox error={err} />}
+      <form
+        className="mb-3 flex flex-wrap items-end gap-2"
+        aria-label="Onboard liquidity provider"
+        onSubmit={(e) => {
+          e.preventDefault();
+          setErr(null);
+          createLP(adminApi, { name: create.name.trim(), connectionType: create.connectionType })
+            .then(() => {
+              setCreate({ name: '', connectionType: 'FIX' });
+              invalidate();
+            })
+            .catch(setErr);
+        }}
+      >
+        <label className="text-xs">
+          <span className="text-neutral-500">LP name</span>
+          <input
+            required
+            className={inputCls}
+            value={create.name}
+            onChange={(e) => setCreate({ ...create, name: e.target.value })}
+          />
+        </label>
+        <label className="text-xs">
+          <span className="text-neutral-500">connection_type</span>
+          <select
+            className={selectCls}
+            value={create.connectionType}
+            onChange={(e) => setCreate({ ...create, connectionType: e.target.value })}
+          >
+            {['FIX', 'REST', 'WEBSOCKET'].map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button type="submit" className={btnGhost} disabled={create.name.trim() === ''}>
+          Onboard LP
+        </button>
+      </form>
       {rows.length === 0 ? (
         <p className="py-4 text-center text-xs text-neutral-500">No liquidity providers.</p>
       ) : (
@@ -363,9 +417,18 @@ function LPScorecards({ adminApi }: { adminApi: BoundAdminApi }) {
                 </td>
                 <td className={tdCls}>{lp.connectionType}</td>
                 <td className={tdCls}>
-                  <button type="button" onClick={() => setSelected(lp.lpId)} className={btnGhost}>
-                    Scorecard
-                  </button>
+                  <div className="flex gap-1">
+                    <button type="button" onClick={() => setSelected(lp.lpId)} className={btnGhost}>
+                      Scorecard
+                    </button>
+                    <button
+                      type="button"
+                      className={btnGhost}
+                      onClick={() => setEdit({ lpId: lp.lpId, status: lp.status, reason: '' })}
+                    >
+                      Edit
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -376,6 +439,62 @@ function LPScorecards({ adminApi }: { adminApi: BoundAdminApi }) {
         <div className="mt-3">
           <ScorecardBlock adminApi={adminApi} lpId={selected} />
         </div>
+      )}
+      {edit !== null && (
+        <form
+          className="mt-3 flex flex-wrap items-end gap-2 rounded border border-neutral-800 p-2"
+          aria-label="Update liquidity provider"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setErr(null);
+            updateLP(adminApi, {
+              lpId: edit.lpId,
+              status: edit.status,
+              reason: edit.reason,
+            })
+              .then(() => {
+                setEdit(null);
+                invalidate();
+              })
+              .catch(setErr);
+          }}
+        >
+          <span className="text-xs text-neutral-400">Update LP #{edit.lpId}</span>
+          <label className="text-xs">
+            <span className="text-neutral-500">status</span>
+            <select
+              className={selectCls}
+              value={edit.status}
+              onChange={(e) => setEdit({ ...edit, status: e.target.value })}
+            >
+              {LP_STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-xs">
+            <span className="text-neutral-500">reason (audit)</span>
+            <input
+              className={inputCls}
+              value={edit.reason}
+              onChange={(e) => setEdit({ ...edit, reason: e.target.value })}
+            />
+          </label>
+          <button type="submit" className={btnGhost}>
+            Save
+          </button>
+          <button
+            type="button"
+            className={btnGhost}
+            onClick={() => {
+              setEdit(null);
+            }}
+          >
+            Cancel
+          </button>
+        </form>
       )}
     </section>
   );
@@ -610,6 +729,8 @@ function Holds({ adminApi }: { adminApi: BoundAdminApi }) {
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const [place, setPlace] = useState({ accountId: '', reason: '', evidenceRef: '', slaHours: '' });
+  const [placeOpen, setPlaceOpen] = useState(false);
 
   const q = useQuery({
     queryKey: ['admin', 'holds', adminApi.env],
@@ -660,6 +781,71 @@ function Holds({ adminApi }: { adminApi: BoundAdminApi }) {
       </p>
       {err !== null && <ErrorBox error={err} />}
       {note !== null && <p className="mb-2 text-xs text-amber-300">{note}</p>}
+      {isOfficer && (
+        <div className="mb-3">
+          <button
+            type="button"
+            className={btnGhost}
+            onClick={() => {
+              setPlaceOpen(!placeOpen);
+            }}
+          >
+            {placeOpen ? 'Hide place-hold form' : 'Place hold…'}
+          </button>
+          {placeOpen && (
+            <form
+              className="mt-2 grid gap-2 sm:grid-cols-4"
+              onSubmit={(e) => {
+                e.preventDefault();
+                setBusy(true);
+                setErr(null);
+                placeHold(adminApi, {
+                  accountId: Number(place.accountId),
+                  reason: place.reason,
+                  ...(place.evidenceRef !== '' ? { evidenceRef: place.evidenceRef } : {}),
+                  ...(place.slaHours !== '' ? { slaHours: Number(place.slaHours) } : {}),
+                })
+                  .then(async () => {
+                    setNote('Hold placed — account frozen, resting orders cancelled.');
+                    setPlace({ accountId: '', reason: '', evidenceRef: '', slaHours: '' });
+                    setPlaceOpen(false);
+                    await qc.invalidateQueries({ queryKey: ['admin', 'holds'] });
+                  })
+                  .catch((e: unknown) => setErr(e))
+                  .finally(() => setBusy(false));
+              }}
+            >
+              {(
+                [
+                  ['accountId', 'account_id'],
+                  ['reason', 'reason'],
+                  ['evidenceRef', 'evidence_ref (opt)'],
+                  ['slaHours', 'sla_hours (opt)'],
+                ] as const
+              ).map(([k, label]) => (
+                <label key={k} className="block text-xs">
+                  <span className="text-neutral-500">{label}</span>
+                  <input
+                    required={k === 'accountId' || k === 'reason'}
+                    className={inputCls}
+                    value={place[k]}
+                    onChange={(e) => setPlace({ ...place, [k]: e.target.value })}
+                  />
+                </label>
+              ))}
+              <div className="flex items-end">
+                <button
+                  type="submit"
+                  className={btnDanger}
+                  disabled={busy || Number(place.accountId) <= 0 || place.reason.trim() === ''}
+                >
+                  Place hold
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+      )}
       {rows.length === 0 ? (
         <p className="py-4 text-center text-xs text-neutral-500">No open holds.</p>
       ) : (

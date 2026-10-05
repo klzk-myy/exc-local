@@ -28,7 +28,9 @@ import {
 
 import { AccessDeniedCard } from '../admin/RequireAdmin';
 import { isAccessDenied } from '../admin/adminRole';
+import { fetchProductProfiles } from '../admin-conduct/api';
 import {
+  assignProductProfile,
   closeAccount,
   freezeAccount,
   pinJurisdiction,
@@ -62,6 +64,7 @@ export function LifecyclePanel({
   const [maxSubs, setMaxSubs] = useState('');
   const [category, setCategory] = useState<string>(CATEGORIES[0]);
   const [evidence, setEvidence] = useState('');
+  const [profileCode, setProfileCode] = useState('');
   const [pending, setPending] = useState<PendingConfirm>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
@@ -296,6 +299,29 @@ export function LifecyclePanel({
         </button>
       </div>
 
+      <div className="mt-3 border-t border-neutral-800 pt-3">
+        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-500">
+          Pricing profile
+        </h3>
+        <p className={hintTextCls}>
+          Task 14.3.13 — assigns the account's product-profile (spread/commission plan). Server
+          refuses retired profiles, open exposure, and non-zero balances on divisor-changing
+          switches.
+        </p>
+        <ProfileAssign
+          adminApi={adminApi}
+          disabled={busy}
+          value={profileCode}
+          onChange={setProfileCode}
+          onAssign={() =>
+            void run(async () => {
+              await assignProductProfile(adminApi, accountId, profileCode);
+              return `Pricing profile ${profileCode} assigned.`;
+            })
+          }
+        />
+      </div>
+
       {pending !== null && (
         <ConfirmAction
           message={
@@ -328,5 +354,58 @@ export function LifecyclePanel({
         />
       )}
     </section>
+  );
+}
+
+function ProfileAssign({
+  adminApi,
+  disabled,
+  value,
+  onChange,
+  onAssign,
+}: {
+  adminApi: BoundAdminApi;
+  disabled: boolean;
+  value: string;
+  onChange: (v: string) => void;
+  onAssign: () => void;
+}) {
+  const profiles = useQuery({
+    queryKey: ['admin-product-profiles'],
+    queryFn: () => fetchProductProfiles(adminApi),
+    retry: false,
+  });
+  const active = (profiles.data ?? []).filter((p) => p.status === 'ACTIVE' && p.code !== '');
+  return (
+    <div className="flex flex-wrap items-end gap-2">
+      <div>
+        <label className={labelCls} htmlFor="lc-profile">
+          profile_code
+        </label>
+        <select
+          id="lc-profile"
+          className={selectCls}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+        >
+          <option value="">— select —</option>
+          {active.map((p) => (
+            <option key={p.code} value={p.code}>
+              {p.code}
+              {p.pricingPlan !== '' ? ` (${p.pricingPlan})` : ''}
+            </option>
+          ))}
+        </select>
+      </div>
+      {profiles.error !== null && <ErrorBox error={profiles.error} />}
+      <button
+        type="button"
+        className={btnPrimary}
+        disabled={disabled || value === ''}
+        onClick={onAssign}
+      >
+        Assign profile
+      </button>
+    </div>
   );
 }

@@ -254,6 +254,29 @@ export async function createFlag(
   return f;
 }
 
+/** GET /admin/flags/{name} — single flag row. */
+export async function fetchFlag(api: BoundAdminApi, name: string): Promise<FeatureFlag> {
+  const raw = await api.get<unknown>(`/admin/flags/${encodeURIComponent(name)}`);
+  const f = parseFlag(raw);
+  if (f === null) throw malformed('flag read');
+  return f;
+}
+
+/** PUT /admin/flags/{name} — full-body update (merge semantics on nil). */
+export async function updateFlag(
+  api: BoundAdminApi,
+  name: string,
+  input: { rolloutPct?: number; description?: string },
+): Promise<FeatureFlag> {
+  const raw = await api.put<unknown>(`/admin/flags/${encodeURIComponent(name)}`, {
+    rollout_pct: input.rolloutPct,
+    description: input.description,
+  });
+  const f = parseFlag(raw);
+  if (f === null) throw malformed('flag update');
+  return f;
+}
+
 /** POST /admin/flags/{name} — toggle only {enabled}. */
 export async function toggleFlag(
   api: BoundAdminApi,

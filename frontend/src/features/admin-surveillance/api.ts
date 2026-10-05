@@ -268,6 +268,13 @@ export async function fetchSars(api: BoundAdminApi, status?: string): Promise<Sa
   return (raw['reports'] as unknown[]).map(parseSar).filter((r): r is SarReport => r !== null);
 }
 
+/** GET /admin/sar/{id} — report detail incl. filing deadline + lineage. */
+export async function fetchSar(api: BoundAdminApi, id: number): Promise<Record<string, unknown>> {
+  const raw = await api.get<unknown>(`/admin/sar/${id}`);
+  if (!isRecord(raw)) throw malformed('sar detail');
+  return isRecord(raw['sar']) ? raw['sar'] : raw;
+}
+
 export async function createSarDraft(
   api: BoundAdminApi,
   input: { accountId?: number; subjectRef: string; description: string; sourceRef: string },
@@ -492,6 +499,17 @@ export async function fetchCommsRecordings(
   return (raw['recordings'] as unknown[])
     .map(parseRecording)
     .filter((r): r is CommsRecording => r !== null);
+}
+
+/** GET /admin/comms-recordings/{id} — register-row metadata (content
+ * itself stays behind the dual-control retrieve verb). */
+export async function fetchCommsRecording(
+  api: BoundAdminApi,
+  id: number,
+): Promise<Record<string, unknown>> {
+  const raw = await api.get<unknown>(`/admin/comms-recordings/${id}`);
+  if (!isRecord(raw)) throw malformed('comms recording');
+  return raw;
 }
 
 export interface RetrievedRecording {

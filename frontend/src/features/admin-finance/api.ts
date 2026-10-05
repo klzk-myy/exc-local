@@ -137,6 +137,17 @@ export async function retireFundingFee(api: ApiClient, env: AdminEnv, id: number
   await api.delete(`/admin/funding/fees/${id}`, envOpts(env));
 }
 
+/** GET /admin/funding/fees/{id} — single schedule row detail (full row:
+ * effective date, provenance, audit trail anchors the list trims). */
+export async function fetchFundingFee(
+  api: BoundAdminApi,
+  id: number,
+): Promise<Record<string, unknown>> {
+  const raw = await api.get<unknown>(`/admin/funding/fees/${id}`);
+  if (!isRecord(raw)) throw malformed('fee detail');
+  return raw;
+}
+
 export async function fetchFeeVersions(api: BoundAdminApi, id: number): Promise<FundingFeeTier[]> {
   const raw = await api.get<unknown>(`/admin/funding/fees/${id}/versions`);
   if (!isRecord(raw)) throw malformed('fee versions');
@@ -413,6 +424,17 @@ export async function generateTaxRun(
   });
   if (!isRecord(raw)) throw malformed('tax run');
   return parseTaxRun(raw['run'] ?? raw);
+}
+
+/** GET /admin/tax-reporting/runs/{id} — run detail (submission refs,
+ * approval lineage, artifact hashes the list view trims). */
+export async function fetchTaxRun(
+  api: BoundAdminApi,
+  id: number,
+): Promise<Record<string, unknown>> {
+  const raw = await api.get<unknown>(`/admin/tax-reporting/runs/${id}`);
+  if (!isRecord(raw)) throw malformed('tax run detail');
+  return isRecord(raw['run']) ? raw['run'] : raw;
 }
 
 export async function taxRunTransition(

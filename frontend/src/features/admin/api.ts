@@ -276,3 +276,18 @@ export async function transitionAdminInstrument(
   if (res === null) throw malformed(`instrument ${op}`);
   return res;
 }
+
+/** POST /api/v1/admin/instruments/{id}/uncross-override — Task 15.3.10
+ * crossed-book quarantine release. Dual-controlled like resume but the
+ * server pins auction:true (the re-armed CALL must uncross the residue
+ * before quarantine clears). */
+export async function uncrossOverrideInstrument(
+  api: BoundAdminApi,
+  id: number,
+  reason: string,
+): Promise<InstrumentMutationResult> {
+  const raw = await api.post<unknown>(`/admin/instruments/${id}/uncross-override`, { reason });
+  const res = parseMutationResult(raw);
+  if (res === null) throw malformed('instrument uncross-override');
+  return res;
+}

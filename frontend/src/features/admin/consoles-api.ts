@@ -163,6 +163,41 @@ export async function listLPs(api: BoundAdminApi): Promise<LP[]> {
   return raw.map(parseLP).filter((l): l is LP => l !== null);
 }
 
+/** POST /admin/liquidity-providers — onboard an LP entity (starts ONBOARDING). */
+export async function createLP(
+  api: BoundAdminApi,
+  input: { name: string; connectionType: string; stalenessTimeoutMs?: number },
+): Promise<LP> {
+  const res = await api.post<unknown>('/admin/liquidity-providers', {
+    name: input.name,
+    connection_type: input.connectionType,
+    ...(input.stalenessTimeoutMs !== undefined
+      ? { staleness_timeout_ms: input.stalenessTimeoutMs }
+      : {}),
+  });
+  const lp = parseLP(res);
+  if (!lp) throw malformed('LP create');
+  return lp;
+}
+
+/** PUT /admin/liquidity-providers — collection-update shape (lp_id in body). */
+export async function updateLP(
+  api: BoundAdminApi,
+  input: { lpId: number; status?: string; stalenessTimeoutMs?: number; reason?: string },
+): Promise<LP> {
+  const res = await api.put<unknown>('/admin/liquidity-providers', {
+    lp_id: input.lpId,
+    ...(input.status !== undefined ? { status: input.status } : {}),
+    ...(input.stalenessTimeoutMs !== undefined
+      ? { staleness_timeout_ms: input.stalenessTimeoutMs }
+      : {}),
+    ...(input.reason !== undefined && input.reason !== '' ? { reason: input.reason } : {}),
+  });
+  const lp = parseLP(res);
+  if (!lp) throw malformed('LP update');
+  return lp;
+}
+
 export async function lpScorecard(api: BoundAdminApi, lpId: number, window = '1h') {
   const res = await api.get<unknown>(`/admin/liquidity-providers/${lpId}/scorecard`, { window });
   const sc = parseScorecard(res);
@@ -264,6 +299,30 @@ export async function listHolds(api: BoundAdminApi, status = 'OPEN'): Promise<Co
   const res = await api.get<unknown>('/admin/compliance/holds', { status, limit: '200' });
   const raw = isRecord(res) && Array.isArray(res['holds']) ? res['holds'] : [];
   return raw.map(parseHold).filter((h): h is ComplianceHold => h !== null);
+}
+
+/** POST /admin/compliance/holds — manual officer placement (freezes the account). */
+export async function placeHold(
+  api: BoundAdminApi,
+  input: {
+    accountId: number;
+    trigger?: string;
+    reason: string;
+    evidenceRef?: string;
+    slaHours?: number;
+    highConfidence?: boolean;
+  },
+): Promise<unknown> {
+  return api.post<unknown>('/admin/compliance/holds', {
+    account_id: input.accountId,
+    ...(input.trigger !== undefined && input.trigger !== '' ? { trigger: input.trigger } : {}),
+    reason: input.reason,
+    ...(input.evidenceRef !== undefined && input.evidenceRef !== ''
+      ? { evidence_ref: input.evidenceRef }
+      : {}),
+    ...(input.slaHours !== undefined ? { sla_hours: input.slaHours } : {}),
+    ...(input.highConfidence === true ? { high_confidence: true } : {}),
+  });
 }
 
 export async function releaseHold(

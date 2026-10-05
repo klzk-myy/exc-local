@@ -431,6 +431,16 @@ export async function createChargeback(
   });
 }
 
+/** GET /admin/chargebacks/{id} — case detail + hashed evidence bundle. */
+export async function fetchChargebackDetail(
+  api: BoundAdminApi,
+  id: number,
+): Promise<Record<string, unknown>> {
+  const raw = await api.get<unknown>(`/admin/chargebacks/${id}`);
+  if (!isRecord(raw)) throw malformed('chargeback detail');
+  return raw;
+}
+
 export async function submitChargeback(api: BoundAdminApi, id: number): Promise<unknown> {
   return api.post<unknown>(`/admin/chargebacks/${id}/submit`, {});
 }

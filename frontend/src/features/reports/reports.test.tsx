@@ -153,7 +153,7 @@ describe('AnnouncementsPanel', () => {
 
 describe('ExportJobsPanel', () => {
   it('renders owner jobs with status/expiry and a live download link', async () => {
-    installFetchMock({
+    const calls = installFetchMock({
       'GET /api/v1/export-jobs': {
         status: 200,
         body: {
@@ -178,6 +178,10 @@ describe('ExportJobsPanel', () => {
           ],
         },
       },
+      'GET /api/v1/export-jobs/6': {
+        status: 200,
+        body: { data: { id: 6, kind: 'klines', status: 'RUNNING' } },
+      },
     });
     renderApp(<ExportJobsPanel />);
     expect(await screen.findByText('#5')).toBeInTheDocument();
@@ -185,7 +189,11 @@ describe('ExportJobsPanel', () => {
     expect(screen.getByText('QUEUED')).toBeInTheDocument();
     expect(screen.getByText(/expires in/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Download' })).toBeInTheDocument();
-    expect(screen.getByText('in progress…')).toBeInTheDocument();
+    // QUEUED row exposes per-job refresh — GET /export-jobs/{id}.
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    await waitFor(() => {
+      expect(calls.some((c) => c.method === 'GET' && c.url.includes('/export-jobs/6'))).toBe(true);
+    });
   });
 });
 

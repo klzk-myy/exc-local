@@ -127,6 +127,17 @@ export async function updateMMProgram(
   return p;
 }
 
+/** GET /admin/mm-programs/{id} — program detail (obligations, OTR
+ * allowance and status provenance beyond the list columns). */
+export async function fetchMmProgram(
+  api: BoundAdminApi,
+  id: number,
+): Promise<Record<string, unknown>> {
+  const raw = await api.get<unknown>(`/admin/mm-programs/${id}`);
+  if (!isRecord(raw)) throw malformed('mm program detail');
+  return isRecord(raw['program']) ? raw['program'] : raw;
+}
+
 export async function mmProgramAction(
   api: BoundAdminApi,
   id: number,

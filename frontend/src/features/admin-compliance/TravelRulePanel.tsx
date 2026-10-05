@@ -17,6 +17,7 @@ import {
   ErrorBox,
   hintTextCls,
   inputCls,
+  JsonRows,
   labelCls,
   selectCls,
   StatusBadge,
@@ -27,7 +28,12 @@ import {
 
 import { isAccessDenied } from '../admin/adminRole';
 import { AccessDeniedCard } from '../admin/RequireAdmin';
-import { fetchTravelRule, supplyTravelRule, type TravelRuleRecord } from './api';
+import {
+  fetchTravelRule,
+  fetchTravelRuleRecord,
+  supplyTravelRule,
+  type TravelRuleRecord,
+} from './api';
 
 const STATUS_FILTERS = ['', 'MISSING_INFO', 'COMPLETE', 'REJECTED'] as const;
 
@@ -118,6 +124,12 @@ export function TravelRulePanel({ adminApi }: { adminApi: BoundAdminApi }) {
   const list = useQuery({
     queryKey: ['admin-travel-rule', statusFilter],
     queryFn: () => fetchTravelRule(adminApi, statusFilter),
+  });
+  // Full party fields + dispatch-hold provenance live on the {id} read.
+  const detail = useQuery({
+    queryKey: ['admin-travel-rule', 'detail', selected?.id],
+    queryFn: () => fetchTravelRuleRecord(adminApi, selected?.id ?? 0),
+    enabled: selected !== null,
   });
 
   const supply = useMutation({
@@ -253,6 +265,13 @@ export function TravelRulePanel({ adminApi }: { adminApi: BoundAdminApi }) {
             Cure record <strong>#{selected.id}</strong>{' '}
             <StatusBadge value={selected.status || 'UNKNOWN'} />
           </p>
+          {detail.isPending ? (
+            <p className="text-xs text-neutral-500">Loading record…</p>
+          ) : detail.isError ? (
+            <ErrorBox error={detail.error} />
+          ) : (
+            <JsonRows rows={[detail.data]} />
+          )}
           <PartyFields
             prefix="tr-org"
             title="Originator"

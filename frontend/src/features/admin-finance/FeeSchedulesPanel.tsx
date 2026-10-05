@@ -18,6 +18,7 @@ import {
   ErrorBox,
   hintTextCls,
   inputCls,
+  JsonRows,
   labelCls,
   selectCls,
   StatusBadge,
@@ -31,6 +32,7 @@ import { AccessDeniedCard } from '../admin/RequireAdmin';
 import {
   createFundingFee,
   fetchFeeVersions,
+  fetchFundingFee,
   fetchFundingFees,
   retireFundingFee,
   updateFundingFee,
@@ -62,6 +64,7 @@ export function FeeSchedulesPanel({ adminApi }: { adminApi: BoundAdminApi }) {
   const [succ, setSucc] = useState({ flatFee: '', percentageBps: '', minFee: '', maxFee: '' });
   const [versions, setVersions] = useState<{ forId: number; rows: FundingFeeTier[] } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<number | null>(null);
 
   const list = useQuery({
     queryKey: ['admin-funding-fees', railFilter, includeAll],
@@ -70,6 +73,11 @@ export function FeeSchedulesPanel({ adminApi }: { adminApi: BoundAdminApi }) {
         rail: railFilter === '' ? undefined : railFilter,
         all: includeAll,
       }),
+  });
+  const detail = useQuery({
+    queryKey: ['admin-funding-fees', 'detail', openId],
+    queryFn: () => fetchFundingFee(adminApi, openId ?? 0),
+    enabled: openId !== null,
   });
 
   const invalidate = () => {
@@ -182,10 +190,19 @@ export function FeeSchedulesPanel({ adminApi }: { adminApi: BoundAdminApi }) {
               </tr>
             </thead>
             <tbody>
-              {list.data.map((t) => (
+              {list.data.map((t) => [
                 <tr key={t.id}>
                   <td className={tdCls}>
-                    #{t.id}/v{t.version}
+                    <button
+                      type="button"
+                      className={btnGhost}
+                      aria-expanded={openId === t.id}
+                      onClick={() => {
+                        setOpenId(openId === t.id ? null : t.id);
+                      }}
+                    >
+                      #{t.id}/v{t.version}
+                    </button>
                   </td>
                   <td className={tdCls}>{t.rail}</td>
                   <td className={tdCls}>{t.currency}</td>
@@ -241,8 +258,21 @@ export function FeeSchedulesPanel({ adminApi }: { adminApi: BoundAdminApi }) {
                       ) : null}
                     </div>
                   </td>
-                </tr>
-              ))}
+                </tr>,
+                openId === t.id ? (
+                  <tr key={`${t.id}-detail`}>
+                    <td className={tdCls} colSpan={10}>
+                      {detail.isPending ? (
+                        <p className="text-xs text-neutral-500">Loading detail…</p>
+                      ) : detail.isError ? (
+                        <ErrorBox error={detail.error} />
+                      ) : (
+                        <JsonRows rows={[detail.data]} />
+                      )}
+                    </td>
+                  </tr>
+                ) : null,
+              ])}
             </tbody>
           </table>
         </div>

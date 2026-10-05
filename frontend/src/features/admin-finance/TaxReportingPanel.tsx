@@ -16,6 +16,7 @@ import {
   ErrorBox,
   hintTextCls,
   inputCls,
+  JsonRows,
   selectCls,
   StatusBadge,
   tableCls,
@@ -25,7 +26,7 @@ import {
 
 import { isAccessDenied } from '../admin/adminRole';
 import { AccessDeniedCard } from '../admin/RequireAdmin';
-import { fetchTaxRuns, generateTaxRun, taxRunTransition, type TaxRun } from './api';
+import { fetchTaxRun, fetchTaxRuns, generateTaxRun, taxRunTransition, type TaxRun } from './api';
 
 const LIFE = ['DRAFT', 'UNDER_REVIEW', 'APPROVED', 'SUBMITTED'];
 
@@ -36,10 +37,16 @@ export function TaxReportingPanel({ adminApi }: { adminApi: BoundAdminApi }) {
   const [submitRefs, setSubmitRefs] = useState<Record<number, string>>({});
   const [rejectReasons, setRejectReasons] = useState<Record<number, string>>({});
   const [notice, setNotice] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<number | null>(null);
 
   const runs = useQuery({
     queryKey: ['admin-tax-runs', regimeFilter],
     queryFn: () => fetchTaxRuns(adminApi, regimeFilter === '' ? undefined : regimeFilter),
+  });
+  const detail = useQuery({
+    queryKey: ['admin-tax-runs', 'detail', openId],
+    queryFn: () => fetchTaxRun(adminApi, openId ?? 0),
+    enabled: openId !== null,
   });
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: ['admin-tax-runs'] });
@@ -119,13 +126,17 @@ export function TaxReportingPanel({ adminApi }: { adminApi: BoundAdminApi }) {
               </tr>
             </thead>
             <tbody>
-              {runs.data.map((r) => (
+              {runs.data.map((r) => [
                 <RunRow
                   key={r.id}
                   run={r}
                   pending={transition.isPending}
                   submitRef={submitRefs[r.id] ?? ''}
                   rejectReason={rejectReasons[r.id] ?? ''}
+                  open={openId === r.id}
+                  onToggleDetail={() => {
+                    setOpenId(openId === r.id ? null : r.id);
+                  }}
                   onSubmitRef={(v) => {
                     setSubmitRefs({ ...submitRefs, [r.id]: v });
                   }}
@@ -135,8 +146,21 @@ export function TaxReportingPanel({ adminApi }: { adminApi: BoundAdminApi }) {
                   onTransition={(verb, body) => {
                     transition.mutate({ id: r.id, verb, body });
                   }}
-                />
-              ))}
+                />,
+                openId === r.id ? (
+                  <tr key={`${r.id}-detail`}>
+                    <td className={tdCls} colSpan={8}>
+                      {detail.isPending ? (
+                        <p className="text-xs text-neutral-500">Loading detail…</p>
+                      ) : detail.isError ? (
+                        <ErrorBox error={detail.error} />
+                      ) : (
+                        <JsonRows rows={[detail.data]} />
+                      )}
+                    </td>
+                  </tr>
+                ) : null,
+              ])}
             </tbody>
           </table>
         </div>
@@ -195,6 +219,8 @@ function RunRow({
   pending,
   submitRef,
   rejectReason,
+  open,
+  onToggleDetail,
   onSubmitRef,
   onRejectReason,
   onTransition,
@@ -203,6 +229,8 @@ function RunRow({
   pending: boolean;
   submitRef: string;
   rejectReason: string;
+  open: boolean;
+  onToggleDetail: () => void;
   onSubmitRef: (v: string) => void;
   onRejectReason: (v: string) => void;
   onTransition: (
@@ -214,10 +242,13 @@ function RunRow({
   return (
     <tr>
       <td className={tdCls}>
-        <a className="underline" href={`/api/v1/admin/tax-reporting/runs/${run.id}/xml`}>
+        <button type="button" className={btnGhost} aria-expanded={open} onClick={onToggleDetail}>
           #{run.id}
+        </button>
+        {run.version > 0 ? ` v${run.version}` : ''}{' '}
+        <a className="underline" href={`/api/v1/admin/tax-reporting/runs/${run.id}/xml`}>
+          xml
         </a>
-        {run.version > 0 ? ` v${run.version}` : ''}
       </td>
       <td className={tdCls}>{run.regime}</td>
       <td className={tdCls}>{run.reportYear}</td>

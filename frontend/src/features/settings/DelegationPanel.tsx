@@ -218,6 +218,24 @@ export default function DelegationPanel() {
     },
     onError: onErr,
   });
+  // PUT rewrites role+scope — resend the binding's current scope so a
+  // role-only change does not wipe the existing binding (SCOPE_CHANGED audit).
+  const updateMut = useMutation({
+    mutationFn: ({ u, role }: { u: DelegatedUser; role: string }) =>
+      apiClient.put(`/account/delegated-users/${u.id}`, {
+        role,
+        scope: {
+          account_ids: u.scope?.account_ids ?? [],
+          instruments: u.scope?.instruments ?? [],
+        },
+        ...(u.bindingExpiresAt ? { expires_at: u.bindingExpiresAt } : {}),
+      }),
+    onSuccess: () => {
+      setNotice('Binding role updated.');
+      invalidate();
+    },
+    onError: onErr,
+  });
   const policyMut = useMutation({
     mutationFn: () =>
       apiClient.put('/account/approval-policies', {
@@ -283,7 +301,25 @@ export default function DelegationPanel() {
               <td className={tdCls}>{u.id}</td>
               <td className={tdCls}>{u.userId}</td>
               <td className={tdCls}>{u.displayName}</td>
-              <td className={tdCls}>{u.role ?? '—'}</td>
+              <td className={tdCls}>
+                {u.status === 'ACTIVE' ? (
+                  <select
+                    aria-label={`Role for ${u.displayName}`}
+                    className={selectCls}
+                    value={u.role ?? 'CLIENT_READ_ONLY'}
+                    disabled={updateMut.isPending}
+                    onChange={(e) => updateMut.mutate({ u, role: e.target.value })}
+                  >
+                    {ROLE_OPTIONS.map((r) => (
+                      <option key={r} value={r}>
+                        {r}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  (u.role ?? '—')
+                )}
+              </td>
               <td className={tdCls}>
                 {u.scope?.instruments?.join(', ') || (u.scope?.account_ids?.length ?? 0) > 0
                   ? `${u.scope?.account_ids?.length ?? 0} acct`

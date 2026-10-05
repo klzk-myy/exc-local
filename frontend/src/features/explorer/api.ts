@@ -356,3 +356,11 @@ export function fetchExportJobs(cursor?: string, api: Api = apiClient) {
     .get<unknown>(`/export-jobs${qs({ cursor, limit: 50 })}`)
     .then((v) => parsePage(v, parseJob));
 }
+
+/** GET /export-jobs/{id} — single-job status refresh (the poll seam the
+ * backend exposes for clients that only track one queued export). */
+export function fetchExportJob(id: number, api: Api = apiClient): Promise<ExportJob | null> {
+  return api
+    .get<unknown>(`/export-jobs/${id}`)
+    .then((v) => parseJob(isRecord(v) ? (v['job'] ?? v) : v));
+}

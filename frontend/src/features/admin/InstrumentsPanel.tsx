@@ -45,6 +45,7 @@ import {
   createAdminInstrument,
   listAdminInstruments,
   transitionAdminInstrument,
+  uncrossOverrideInstrument,
   updateAdminInstrument,
   type AdminInstrument,
   type AdminInstrumentCreateInput,
@@ -572,6 +573,8 @@ export function InstrumentsPanel({
   const [dialog, setDialog] = useState<{ inst: AdminInstrument; op: AdminInstrumentOp } | null>(
     null,
   );
+  const [uncrossTarget, setUncrossTarget] = useState<AdminInstrument | null>(null);
+  const [uncrossReason, setUncrossReason] = useState('');
   const [editing, setEditing] = useState<AdminInstrument | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [actionError, setActionError] = useState<unknown>(null);
@@ -609,6 +612,16 @@ export function InstrumentsPanel({
     onSuccess: async (res) => {
       setActionError(null);
       setDialog(null);
+      await reportResult(res);
+    },
+    onError: (e) => setActionError(e),
+  });
+  const uncross = useMutation({
+    mutationFn: (v: { id: number; reason: string }) =>
+      uncrossOverrideInstrument(adminApi, v.id, v.reason),
+    onSuccess: async (res) => {
+      setActionError(null);
+      setUncrossTarget(null);
       await reportResult(res);
     },
     onError: (e) => setActionError(e),
@@ -744,6 +757,19 @@ export function InstrumentsPanel({
                             {OP_META[op].label}
                           </button>
                         ))}
+                        {inst.status === 'HALTED' && permitsAdminRole(role, RISK_MANAGER) && (
+                          <button
+                            type="button"
+                            className={btnGhost}
+                            disabled={uncross.isPending}
+                            onClick={() => {
+                              setUncrossTarget(inst);
+                              setUncrossReason('');
+                            }}
+                          >
+                            Uncross…
+                          </button>
+                        )}
                         {ops.length === 0 && !(canEdit && EDITABLE_STATES.has(inst.status)) && (
                           <span className="text-xs text-neutral-600">—</span>
                         )}
@@ -780,6 +806,56 @@ export function InstrumentsPanel({
           onCancel={() => setDialog(null)}
           onConfirm={(input) => transition.mutate({ id: dialog.inst.id, op: dialog.op, input })}
         />
+      )}
+      {uncrossTarget !== null && (
+        <Modal
+          open
+          title={`Uncross ${uncrossTarget.symbol}`}
+          onClose={() => setUncrossTarget(null)}
+        >
+          <p className="mb-3 text-sm text-neutral-300">
+            Crossed-book quarantine release (Task 15.3.10) — resumes through the dual-control queue
+            with the reopening CALL pinned, so the forensic residue uncrosses at a single clearing
+            price before quarantine clears. A residual crossing re-quarantines.
+          </p>
+          <p className="mb-3 rounded border border-amber-800/50 bg-amber-950/30 px-3 py-2 text-xs text-amber-200">
+            §7.2 four-eyes — submits to the dual-control queue; a distinct approver executes.
+          </p>
+          <ErrorBox error={uncross.error} />
+          <form
+            className="space-y-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (uncrossReason.trim() !== '') {
+                uncross.mutate({ id: uncrossTarget.id, reason: uncrossReason.trim() });
+              }
+            }}
+          >
+            <Field label="Reason" required>
+              {(id, describedBy) => (
+                <input
+                  id={id}
+                  aria-describedby={describedBy}
+                  className={inputCls}
+                  value={uncrossReason}
+                  onChange={(e) => setUncrossReason(e.target.value)}
+                />
+              )}
+            </Field>
+            <div className="flex gap-2">
+              <button type="button" className={btnGhost} onClick={() => setUncrossTarget(null)}>
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className={btnPrimary}
+                disabled={uncross.isPending || uncrossReason.trim() === ''}
+              >
+                {uncross.isPending ? 'Submitting…' : 'Request uncross override'}
+              </button>
+            </div>
+          </form>
+        </Modal>
       )}
       {showCreate && (
         <CreateInstrumentModal

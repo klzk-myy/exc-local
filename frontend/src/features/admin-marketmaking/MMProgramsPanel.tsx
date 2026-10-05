@@ -19,6 +19,7 @@ import {
   ErrorBox,
   hintTextCls,
   inputCls,
+  JsonRows,
   selectCls,
   StatusBadge,
   tableCls,
@@ -33,6 +34,7 @@ import {
   fetchMMCompliance,
   fetchMMPrograms,
   fetchMMRebates,
+  fetchMmProgram,
   mmProgramAction,
   postMMRebates,
   updateMMProgram,
@@ -86,6 +88,11 @@ export function MMProgramsPanel({ adminApi }: { adminApi: BoundAdminApi }) {
       invalidate();
     },
     onError: onErr,
+  });
+  const detailRecord = useQuery({
+    queryKey: ['admin-mm-programs', 'detail', detail?.id],
+    queryFn: () => fetchMmProgram(adminApi, detail?.id ?? 0),
+    enabled: detail !== null,
   });
   const loadCompliance = useMutation({
     mutationFn: (id: number) => fetchMMCompliance(adminApi, id, {}),
@@ -359,6 +366,15 @@ export function MMProgramsPanel({ adminApi }: { adminApi: BoundAdminApi }) {
           <p className="mb-1 text-xs font-semibold">
             Program #{detail.id} — OTR allowance {detail.otrAllowance ?? 'none'}
           </p>
+          {detailRecord.isPending ? (
+            <p className="text-xs text-neutral-500">Loading record…</p>
+          ) : detailRecord.isError ? (
+            <ErrorBox error={detailRecord.error} />
+          ) : (
+            <div className="mb-2">
+              <JsonRows rows={[detailRecord.data]} />
+            </div>
+          )}
           <div className="flex gap-2">
             <button
               type="button"

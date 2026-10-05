@@ -16,6 +16,7 @@ import {
   ErrorBox,
   hintTextCls,
   inputCls,
+  JsonRows,
   labelCls,
   StatusBadge,
   tableCls,
@@ -26,6 +27,7 @@ import {
 import { isAccessDenied } from '../admin/adminRole';
 import { AccessDeniedCard } from '../admin/RequireAdmin';
 import {
+  fetchCommsRecording,
   fetchCommsRecordings,
   retrieveCommsRecording,
   verifyCommsDay,
@@ -48,6 +50,13 @@ export function CommsPanel({ adminApi }: { adminApi: BoundAdminApi }) {
   const list = useQuery({
     queryKey: ['admin-comms', acctFilter],
     queryFn: () => fetchCommsRecordings(adminApi, Number(acctFilter)),
+  });
+  // Register-row metadata for the selected recording — content itself
+  // stays behind the dual-control retrieve verb.
+  const register = useQuery({
+    queryKey: ['admin-comms', 'register', selected],
+    queryFn: () => fetchCommsRecording(adminApi, selected ?? 0),
+    enabled: selected !== null,
   });
 
   const retrieve = useMutation({
@@ -173,6 +182,14 @@ export function CommsPanel({ adminApi }: { adminApi: BoundAdminApi }) {
           </table>
         </div>
       ) : null}
+
+      {selected !== null && register.data !== undefined ? (
+        <div className="mt-2">
+          <h3 className="mb-1 text-xs font-medium text-neutral-400">Register row — #{selected}</h3>
+          <JsonRows rows={[register.data]} />
+        </div>
+      ) : null}
+      {selected !== null && register.isError ? <ErrorBox error={register.error} /> : null}
 
       {selected !== null ? (
         <form

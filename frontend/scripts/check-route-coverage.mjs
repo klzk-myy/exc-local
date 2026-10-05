@@ -25,7 +25,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
-import { DISPATCHES, EXCLUSIONS } from './route-coverage-exclusions.mjs';
+import { DISPATCHES, DISPATCH_VERBS, EXCLUSIONS } from './route-coverage-exclusions.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '..');
@@ -74,8 +74,9 @@ const INTERP = String.raw`\$\{[^}]*\}`;
 /**
  * Literal matcher: contract literal segments must appear verbatim;
  * `{param}` contract segments match interp/concrete runs. Boundary:
- * the char after the path must close the string, start a query or
- * sub-path, open an interpolation (e.g. `${qs({…})}`), or end input.
+ * the char after the path must close the string, start a query, open
+ * an interpolation (e.g. `${qs({…})}` query builders), or end input —
+ * a sub-path (`/x` inside `/x/y`) does NOT cover the parent route.
  */
 function pathMatcher(apiPath) {
   const suffix = apiPath.startsWith('/api/v1') ? apiPath.slice(7) : apiPath;
@@ -83,23 +84,58 @@ function pathMatcher(apiPath) {
     .split('/')
     .map((part) => (part.startsWith('{') && part.endsWith('}') ? PARAM_SEG : esc(part)))
     .join('/');
-  // Prefix: bare suffix, full `/api/v1`, or a base-var interpolation
-  // (`${base}/security/policy` — base resolves to the api origin).
-  return new RegExp(`['"\`](?:/api/v1|\\$\\{[^}]*\\})?${body}(?=['"\`?/$]|$)`);
+  // Prefix: bare suffix, full `/api/v1`, or an api-origin base
+  // interpolation (`${base}/security/policy` — only api/base/origin
+  // names qualify; an arbitrary `${var}` is not an api base).
+  const baseInterp = '\\$\\{[^}]*(?:api|API|Api|base|Base|BASE|origin|Origin|ORIGIN)[^}]*\\}';
+  return new RegExp(`['"\`](?:/api/v1|${baseInterp})?${body}(?=['"\`?$]|$)`, 'g');
+}
+
+/**
+ * Method inference: the callee wrapping the literal decides the verb.
+ * `api.get('/x')` covers GET /x only; a bare `'/x'` literal (nav maps,
+ * config constants) references the resource without a verb and covers
+ * every method on the path. downloadFile/fetch are GET.
+ */
+const VERB_OF = {
+  get: 'GET',
+  post: 'POST',
+  put: 'PUT',
+  patch: 'PATCH',
+  delete: 'DELETE',
+  del: 'DELETE',
+  downloadFile: 'GET',
+  fetch: 'GET',
+};
+const CALL_RE =
+  /\.(get|post|put|patch|delete|del)\s*(?:<[^>]*>)?\s*\(\s*$|\b(downloadFile|fetch)\s*\(\s*$/;
+
+function methodAt(text, quoteIdx) {
+  const tail = text.slice(Math.max(0, quoteIdx - 200), quoteIdx);
+  const m = CALL_RE.exec(tail);
+  return m === null ? 'ANY' : VERB_OF[m[1] ?? m[2]];
 }
 
 /**
  * Dispatch signature: `/admin/sar/${id}/${action}` → match contract
- * paths of the same shape, each `${…}` covering one segment. Both
- * `/api/v1/...` and suffix forms are accepted for `src`.
+ * paths of the same shape, each `${…}` covering one segment. A
+ * `${name}` constrained by DISPATCH_VERBS captures its segment —
+ * literal contract verbs must be declared; `{param}` positions are
+ * data and always pass.
  */
 function dispatchSignature(template) {
   const suffix = template.startsWith('/api/v1') ? template.slice(7) : template;
+  const verbs = DISPATCH_VERBS[template] ?? {};
   const body = suffix
     .split('/')
-    .map((part) => (part.startsWith('${') ? '[^/]+' : esc(part)))
+    .map((part) => {
+      const m = part.match(/^\$\{([^}]+)\}$/);
+      if (m === null) return esc(part);
+      return verbs[m[1]] !== undefined ? `(?<v_${m[1]}>[^/]+)` : '[^/]+';
+    })
     .join('/');
   return {
+    verbs,
     srcRe: new RegExp(
       `['"\`](?:/api/v1)?` +
         suffix
@@ -109,6 +145,28 @@ function dispatchSignature(template) {
     ),
     contractRe: new RegExp(`^(?:/api/v1)?${body}$`),
   };
+}
+
+/**
+ * A dispatch template covers a contract route only when every `${name}`
+ * position maps to a real value: a `{param}` contract segment (data —
+ * always passes), or a literal segment declared in DISPATCH_VERBS for
+ * that position. Literal segments at data positions (`${id}`) do NOT
+ * cover — `/admin/bestexec/rts27/materialize` is not "the {id} read".
+ */
+function dispatchCovers(d, apiPath) {
+  const parts = apiPath.startsWith('/api/v1') ? apiPath.slice(7) : apiPath;
+  const contractSegs = parts.split('/');
+  const tmplSegs = (d.template.startsWith('/api/v1') ? d.template.slice(7) : d.template).split('/');
+  if (tmplSegs.length !== contractSegs.length) return false;
+  return tmplSegs.every((seg, i) => {
+    const m = seg.match(/^\$\{([^}]+)\}$/);
+    const contract = contractSegs[i];
+    if (m === null) return seg === contract;
+    if (contract.startsWith('{') && contract.endsWith('}')) return true;
+    const allowed = d.verbs[m[1]];
+    return allowed !== undefined && allowed.includes(contract);
+  });
 }
 
 // Verify every declared dispatch template exists in the source corpus.
@@ -123,7 +181,8 @@ const stubOnly = [];
 let checked = 0;
 for (const [apiPath, ops] of Object.entries(paths)) {
   for (const [method, op] of Object.entries(ops)) {
-    const key = `${method.toUpperCase()} ${apiPath}`;
+    const httpMethod = method.toUpperCase();
+    const key = `${httpMethod} ${apiPath}`;
     if (isExcluded(key)) continue;
     if (op?.['x-status'] === 'stub' || op?.status === 'stub') {
       stubOnly.push(key);
@@ -131,8 +190,16 @@ for (const [apiPath, ops] of Object.entries(paths)) {
     }
     checked++;
     const re = pathMatcher(apiPath);
-    if (corpus.some((text) => re.test(text))) continue;
-    if (dispatchMeta.some((d) => d.contractRe.test(apiPath))) continue;
+    const literalHit = corpus.some((text) => {
+      re.lastIndex = 0;
+      for (const m of text.matchAll(re)) {
+        const inferred = methodAt(text, m.index);
+        if (inferred === 'ANY' || inferred === httpMethod) return true;
+      }
+      return false;
+    });
+    if (literalHit) continue;
+    if (dispatchMeta.some((d) => dispatchCovers(d, apiPath))) continue;
     uncovered.push(key);
   }
 }

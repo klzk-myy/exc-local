@@ -183,6 +183,47 @@ export async function gdprErase(api: ApiClient, confirmation: string): Promise<G
   return api.post<GdprJob>('/account/gdpr/erase', { confirmation });
 }
 
+/** Row of GET /account/gdpr — the account's export/erasure request history. */
+export interface GdprRequestRow {
+  id: number;
+  kind: string;
+  status: string;
+  detail?: string;
+  artifactRef?: string;
+  sha256?: string;
+  createdAt: string;
+  completedAt?: string;
+}
+
+export async function gdprRequests(api: ApiClient): Promise<GdprRequestRow[]> {
+  const raw = await api.get<unknown>('/account/gdpr');
+  const rows =
+    typeof raw === 'object' &&
+    raw !== null &&
+    Array.isArray((raw as Record<string, unknown>)['requests'])
+      ? ((raw as Record<string, unknown>)['requests'] as unknown[])
+      : [];
+  return rows.map((x) => {
+    const r = (x ?? {}) as Record<string, unknown>;
+    const detail = r['detail'];
+    return {
+      id: typeof r['id'] === 'number' ? r['id'] : Number(r['id'] ?? 0),
+      kind: typeof r['kind'] === 'string' ? r['kind'] : '',
+      status: typeof r['status'] === 'string' ? r['status'] : '',
+      detail:
+        detail === undefined || detail === null
+          ? undefined
+          : typeof detail === 'string'
+            ? detail
+            : JSON.stringify(detail),
+      artifactRef: typeof r['artifact_ref'] === 'string' ? r['artifact_ref'] : undefined,
+      sha256: typeof r['sha256'] === 'string' ? r['sha256'] : undefined,
+      createdAt: typeof r['created_at'] === 'string' ? r['created_at'] : '',
+      completedAt: typeof r['completed_at'] === 'string' ? r['completed_at'] : undefined,
+    };
+  });
+}
+
 export interface ConsentState {
   marketing: boolean;
   research: boolean;

@@ -30,6 +30,7 @@ import {
   deleteScheduleOverride,
   fetchAuctionCalendar,
   fetchMarketSchedule,
+  fetchScheduleOverrides,
   putAuctionCalendar,
   updateScheduleOverride,
   type CalendarEntry,
@@ -52,10 +53,23 @@ export function SchedulePanel({ adminApi }: { adminApi: BoundAdminApi }) {
   const [calReason, setCalReason] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
 
+  const [includeExpired, setIncludeExpired] = useState(false);
+
   const schedule = useQuery({
     queryKey: ['admin-market-schedule'],
     queryFn: () => fetchMarketSchedule(adminApi),
   });
+  // The dedicated overrides register includes expired rows the base
+  // schedule document trims — toggled on demand, not polled.
+  const overridesRegister = useQuery({
+    queryKey: ['admin-market-schedule', 'overrides'],
+    queryFn: () => fetchScheduleOverrides(adminApi),
+    enabled: includeExpired,
+  });
+  const overrideRows =
+    includeExpired && overridesRegister.data !== undefined
+      ? overridesRegister.data
+      : (schedule.data?.overrides ?? []);
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: ['admin-market-schedule'] });
   };
@@ -134,7 +148,18 @@ export function SchedulePanel({ adminApi }: { adminApi: BoundAdminApi }) {
           {schedule.data.publishedAt.slice(0, 16)}
         </p>
       ) : null}
-      {schedule.data !== undefined && schedule.data.overrides.length > 0 ? (
+      <label className="mt-1 flex items-center gap-1 text-xs text-neutral-400">
+        <input
+          type="checkbox"
+          checked={includeExpired}
+          onChange={(e) => {
+            setIncludeExpired(e.target.checked);
+          }}
+        />
+        include expired overrides (dedicated register)
+      </label>
+      {overridesRegister.isError ? <ErrorBox error={overridesRegister.error} /> : null}
+      {overrideRows.length > 0 ? (
         <table className={`${tableCls} mt-2`}>
           <thead>
             <tr>
@@ -149,7 +174,7 @@ export function SchedulePanel({ adminApi }: { adminApi: BoundAdminApi }) {
             </tr>
           </thead>
           <tbody>
-            {schedule.data.overrides.map((o) => (
+            {overrideRows.map((o) => (
               <tr key={o.id}>
                 <td className={tdCls}>{o.date}</td>
                 <td className={tdCls}>{o.closed ? 'full-day' : 'partial'}</td>

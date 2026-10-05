@@ -203,3 +203,19 @@ export async function setClientCategory(
     envOpts(env),
   );
 }
+
+/**
+ * POST /admin/accounts/{id}/product-profile — Task 14.3.13 pricing-profile
+ * assignment (distinct from the PUT client_category variant above).
+ * Server enforces ACTIVE profile, no open exposure, zero balances on
+ * divisor-changing switches.
+ */
+export async function assignProductProfile(
+  api: BoundAdminApi,
+  accountId: number,
+  profileCode: string,
+): Promise<void> {
+  await api.post(`/admin/accounts/${accountId}/product-profile`, {
+    profile_code: profileCode,
+  });
+}

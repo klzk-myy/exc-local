@@ -15,6 +15,7 @@ import {
   cardCls,
   ErrorBox,
   inputCls,
+  JsonRows,
   labelCls,
   selectCls,
   StatusBadge,
@@ -25,7 +26,13 @@ import {
 
 import { isAccessDenied } from '../admin/adminRole';
 import { AccessDeniedCard } from '../admin/RequireAdmin';
-import { createChargeback, fetchChargebacks, resolveChargeback, submitChargeback } from './api';
+import {
+  createChargeback,
+  fetchChargebackDetail,
+  fetchChargebacks,
+  resolveChargeback,
+  submitChargeback,
+} from './api';
 
 export function ChargebacksPanel({ adminApi }: { adminApi: BoundAdminApi }) {
   const qc = useQueryClient();
@@ -41,11 +48,17 @@ export function ChargebacksPanel({ adminApi }: { adminApi: BoundAdminApi }) {
   });
   const [resolveForm, setResolveForm] = useState({ id: '', outcome: 'WON', note: '' });
   const [notice, setNotice] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<number | null>(null);
 
   const list = useQuery({
     queryKey: ['admin-chargebacks', statusFilter],
     queryFn: () =>
       fetchChargebacks(adminApi, { status: statusFilter === '' ? undefined : statusFilter }),
+  });
+  const detail = useQuery({
+    queryKey: ['admin-chargebacks', 'detail', openId],
+    queryFn: () => fetchChargebackDetail(adminApi, openId ?? 0),
+    enabled: openId !== null,
   });
 
   const invalidate = () => {
@@ -137,9 +150,20 @@ export function ChargebacksPanel({ adminApi }: { adminApi: BoundAdminApi }) {
               </tr>
             </thead>
             <tbody>
-              {list.data.map((c) => (
+              {list.data.map((c) => [
                 <tr key={c.id}>
-                  <td className={tdCls}>{c.id}</td>
+                  <td className={tdCls}>
+                    <button
+                      type="button"
+                      className={btnGhost}
+                      aria-expanded={openId === c.id}
+                      onClick={() => {
+                        setOpenId(openId === c.id ? null : c.id);
+                      }}
+                    >
+                      {c.id}
+                    </button>
+                  </td>
                   <td className={tdCls}>{c.accountId}</td>
                   <td className={tdCls}>
                     {c.amount} {c.currency}
@@ -163,8 +187,21 @@ export function ChargebacksPanel({ adminApi }: { adminApi: BoundAdminApi }) {
                       </button>
                     ) : null}
                   </td>
-                </tr>
-              ))}
+                </tr>,
+                openId === c.id ? (
+                  <tr key={`${c.id}-detail`}>
+                    <td className={tdCls} colSpan={7}>
+                      {detail.isPending ? (
+                        <p className="text-xs text-neutral-500">Loading detail…</p>
+                      ) : detail.isError ? (
+                        <ErrorBox error={detail.error} />
+                      ) : (
+                        <JsonRows rows={[detail.data]} />
+                      )}
+                    </td>
+                  </tr>
+                ) : null,
+              ])}
             </tbody>
           </table>
         </div>
