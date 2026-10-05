@@ -172,11 +172,13 @@ Non-goals: new backend business logic (existing routes only); the `/api/v1/test/
 5. Funding alerts rail — `GET /api/v1/admin/funding/ops-alerts`.
 
 **DoD:**
-* [ ] Deposit review/confirm, wire registration, returns, withdrawal approve/reject, quarantine resolve, bank-account verify all operable
-* [ ] Threshold badges + dual-control on every mutation
+* [x] Deposit review/confirm, wire registration, returns, withdrawal approve/reject, quarantine resolve, bank-account verify all operable
+* [x] Threshold badges + dual-control on every mutation
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: funding ops queues enforce review tiers and dual control — defined first, validated against spec
+- [x] Spec checkpoint: funding ops queues enforce review tiers and dual control — defined first, validated against spec
+
+**Execution record (2026-10-07):** `frontend/src/features/admin-funding/` — `FundingOpsPage` (`/admin/funding-ops`) + `api.ts` + 5 panels: `OpsAlertsPanel` (durable alert rail — the queue-discovery feed, since the contract mounts no deposit/withdrawal list GET), `DepositOpsPanel` (ingest w/ idempotency, two-source confirm, four-eyes review, inbound-wire registration w/ 202=quarantined disposition, rail returns; tier legend < $10K auto / $10K–50K / >$50K PENDING_REVIEW+4h), `WithdrawalPanel` (id-driven approve/reject four-eyes), `QuarantinePanel` (suspense ledger w/ GL account, name-match score, SLA; RELEASE_TO_CLIENT/RETURN_TO_SOURCE four-eyes), `BankAccountsPanel` (verify {approver_id,method} four-eyes / reject {reason}). Zero backend changes — all endpoints already mounted. 7 component tests; 659/659 suite green; route-completeness green.
 
 ---
 
