@@ -333,10 +333,12 @@ Non-goals: new backend business logic (existing routes only); the `/api/v1/test/
 4. Governance/recert/residency/ICT — `GET/POST /api/v1/admin/governance-packs[/{id}][/generate|/release]`, `GET/POST /api/v1/admin/recert[/{id}[/decisions]]`, `GET /api/v1/admin/data-residency/{policies,access-log}`, `GET/POST/PUT/DELETE /api/v1/admin/ict-providers[/{id}[/reviews]]`, `GET …/due`.
 
 **DoD:**
-* [ ] All conduct/governance surfaces render live state; SLA clocks displayed
+* [x] All conduct/governance surfaces render live state; SLA clocks displayed
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: conduct & DORA consoles complete — defined first, validated against spec
+- [x] Spec checkpoint: conduct & DORA consoles complete — defined first, validated against spec
+
+**Execution record (2026-10-07):** `frontend/src/features/admin-conduct/` — `ConductPage` (`/admin/conduct`) + `api.ts` + 4 panels: `RegChangesPanel` (register + intake; per-change impact map with `PUT …/{id}/impact`, `impacts/{id}/done` completion, lifecycle transitions `triage|scope|implement|close|assign_owner`, correspondence/regulator info-hold attach, 10-business-day triage SLA clock rendered per row), `PoliciesPanel` (execution-policy version history + DRAFT upsert + CCO activate — supersedes incumbent, frozen-while-review-overdue surfaced — + periodic review `APPROVE|NARROW|SUSPEND`; product-profile register/create with dual-control PENDING semantics honest-rendered; `PUT …/{id}/target-market` assignment + `product-target-markets?overdue=true` review queue), `FXGCPanel` (annual assessment intake `{period, code_version?}`; detail view over the 55-principle verdict matrix; officer verdict `{principle_id, adherence_status, evidence_summary?, remediation_ref?}`; complete → Statement of Commitment (PENDING verdicts refused server-side); executive sign-off; public-register publish flag), `DoraPanel` (governance packs list/detail with `hash_ok` re-verification + on-demand generate `CEO_DAILY|BOARD_QUARTERLY|BOARD_ADHOC` + distinct-approver `…/{id}/release`; recertification open → auditor report → per-binding `{approve}` decisions; data-residency policy register + cross-border access log; ICT provider register — create/update/retire `DELETE`, due-obligation alerts (overdue reviews/renewals/stale exit tests) banner, per-provider event log + review/renewal/substitution-test record). ICT response bodies are PascalCase (no json tags) — parser accepts both casings; `PUT`/`DELETE` bound to `ApiClient` + `X-Admin-Env` since `BoundAdminApi` exposes only get/post. Zero backend changes. 7 component tests; 708/708 suite green.
 
 ---
 

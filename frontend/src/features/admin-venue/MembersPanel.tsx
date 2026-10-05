@@ -95,39 +95,39 @@ export function MembersPanel({ adminApi }: { adminApi: BoundAdminApi }) {
       const body: Record<string, unknown> = (() => {
         switch (action) {
           case 'due-diligence':
-            return { status: f.status ?? 'COMPLETED' };
+            return { status: f['status'] ?? 'COMPLETED' };
           case 'agreements':
-            return { kind: f.kind ?? '', ref: f.ref ?? '' };
+            return { kind: f['kind'] ?? '', ref: f['ref'] ?? '' };
           case 'products':
             return {
-              products: (f.products ?? '')
+              products: (f['products'] ?? '')
                 .split(',')
                 .map((s) => s.trim())
                 .filter((s) => s !== ''),
-              ports: (f.ports ?? '')
+              ports: (f['ports'] ?? '')
                 .split(',')
                 .map((s) => s.trim())
                 .filter((s) => s !== ''),
             };
           case 'decision':
             return {
-              approve: (f.approve ?? 'true') === 'true',
-              reason: f.reason ?? '',
-              annual_review_due: f.annual_review_due ?? '',
+              approve: (f['approve'] ?? 'true') === 'true',
+              reason: f['reason'] ?? '',
+              annual_review_due: f['annual_review_due'] ?? '',
             };
           case 'suspend':
           case 'reinstate':
           case 'terminate':
-            return { reason: f.reason ?? '' };
+            return { reason: f['reason'] ?? '' };
           case 'appeals':
-            return { grounds: f.grounds ?? '' };
+            return { grounds: f['grounds'] ?? '' };
           case 'appeal-decision':
-            return { uphold: (f.uphold ?? 'true') === 'true', rationale: f.rationale ?? '' };
+            return { uphold: (f['uphold'] ?? 'true') === 'true', rationale: f['rationale'] ?? '' };
           case 'reviews':
             return {
-              review_type: f.review_type ?? 'ANNUAL',
-              outcome: f.outcome ?? 'PASS',
-              next_review_due: f.next_review_due ?? '',
+              review_type: f['review_type'] ?? 'ANNUAL',
+              outcome: f['outcome'] ?? 'PASS',
+              next_review_due: f['next_review_due'] ?? '',
             };
         }
       })();
@@ -311,7 +311,7 @@ export function MembersPanel({ adminApi }: { adminApi: BoundAdminApi }) {
               <select
                 aria-label="DD status"
                 className={selectCls}
-                value={fields.status ?? 'COMPLETED'}
+                value={fields['status'] ?? 'COMPLETED'}
                 onChange={(e) => {
                   setFields({ ...fields, status: e.target.value });
                 }}
@@ -340,7 +340,7 @@ export function MembersPanel({ adminApi }: { adminApi: BoundAdminApi }) {
                 <select
                   aria-label="Admission approve"
                   className={selectCls}
-                  value={fields.approve ?? 'true'}
+                  value={fields['approve'] ?? 'true'}
                   onChange={(e) => {
                     setFields({ ...fields, approve: e.target.value });
                   }}
@@ -361,7 +361,7 @@ export function MembersPanel({ adminApi }: { adminApi: BoundAdminApi }) {
                 <select
                   aria-label="Appeal uphold"
                   className={selectCls}
-                  value={fields.uphold ?? 'true'}
+                  value={fields['uphold'] ?? 'true'}
                   onChange={(e) => {
                     setFields({ ...fields, uphold: e.target.value });
                   }}
@@ -377,7 +377,7 @@ export function MembersPanel({ adminApi }: { adminApi: BoundAdminApi }) {
                 <select
                   aria-label="Review outcome"
                   className={selectCls}
-                  value={fields.outcome ?? 'PASS'}
+                  value={fields['outcome'] ?? 'PASS'}
                   onChange={(e) => {
                     setFields({ ...fields, outcome: e.target.value });
                   }}

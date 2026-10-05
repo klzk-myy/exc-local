@@ -171,105 +171,105 @@ export interface LaunchGate {
 const member = (v: unknown): VenueMember => {
   const r = record(v);
   return {
-    memberId: num(r.member_id),
-    legalName: str(r.legal_name),
-    lei: str(r.lei),
-    regulatoryStatus: str(r.regulatory_status),
-    accessModel: str(r.access_model),
-    approvedProducts: listOf(r.approved_products, (x) => str(x)),
-    approvedPorts: listOf(r.approved_ports, (x) => str(x)),
-    dueDiligenceStatus: str(r.due_diligence_status),
-    admissionDecision: str(r.admission_decision),
-    suspended: boolOf(r.suspended),
-    suspensionReason: optStr(r.suspension_reason),
-    terminatedAt: optStr(r.terminated_at),
-    terminationReason: optStr(r.termination_reason),
-    annualReviewDue: optStr(r.annual_review_due),
-    jurisdiction: optStr(r.jurisdiction),
-    createdAt: str(r.created_at),
+    memberId: num(r['member_id']),
+    legalName: str(r['legal_name']),
+    lei: str(r['lei']),
+    regulatoryStatus: str(r['regulatory_status']),
+    accessModel: str(r['access_model']),
+    approvedProducts: listOf(r['approved_products'], (x) => str(x)),
+    approvedPorts: listOf(r['approved_ports'], (x) => str(x)),
+    dueDiligenceStatus: str(r['due_diligence_status']),
+    admissionDecision: str(r['admission_decision']),
+    suspended: boolOf(r['suspended']),
+    suspensionReason: optStr(r['suspension_reason']),
+    terminatedAt: optStr(r['terminated_at']),
+    terminationReason: optStr(r['termination_reason']),
+    annualReviewDue: optStr(r['annual_review_due']),
+    jurisdiction: optStr(r['jurisdiction']),
+    createdAt: str(r['created_at']),
   };
 };
 
 const rulebook = (v: unknown): Rulebook => {
   const r = record(v);
   return {
-    rulebookId: num(r.rulebook_id),
-    kind: str(r.kind),
-    scopeKey: str(r.scope_key),
-    version: str(r.version),
-    bodyRef: str(r.body_ref),
-    status: str(r.status),
-    requiresRegulator: boolOf(r.requires_regulator_approval),
-    regulatorStatus: str(r.regulator_status),
-    regulatorFilingRef: optStr(r.regulator_filing_ref),
-    emergency: boolOf(r.emergency),
-    effectiveFrom: optStr(r.effective_from),
-    activatedAt: optStr(r.activated_at),
+    rulebookId: num(r['rulebook_id']),
+    kind: str(r['kind']),
+    scopeKey: str(r['scope_key']),
+    version: str(r['version']),
+    bodyRef: str(r['body_ref']),
+    status: str(r['status']),
+    requiresRegulator: boolOf(r['requires_regulator_approval']),
+    regulatorStatus: str(r['regulator_status']),
+    regulatorFilingRef: optStr(r['regulator_filing_ref']),
+    emergency: boolOf(r['emergency']),
+    effectiveFrom: optStr(r['effective_from']),
+    activatedAt: optStr(r['activated_at']),
   };
 };
 
 const intervention = (v: unknown): Intervention => {
   const r = record(v);
   return {
-    interventionId: num(r.intervention_id),
-    kind: str(r.kind),
-    status: str(r.status),
-    reason: str(r.reason),
-    instrumentId: optNum(r.instrument_id),
-    memberId: optNum(r.member_id),
-    accountId: optNum(r.account_id),
-    imposedAt: str(r.imposed_at),
-    liftedAt: optStr(r.lifted_at),
+    interventionId: num(r['intervention_id']),
+    kind: str(r['kind']),
+    status: str(r['status']),
+    reason: str(r['reason']),
+    instrumentId: optNum(r['instrument_id']),
+    memberId: optNum(r['member_id']),
+    accountId: optNum(r['account_id']),
+    imposedAt: str(r['imposed_at']),
+    liftedAt: optStr(r['lifted_at']),
   };
 };
 
 const venueCase = (v: unknown): VenueCase => {
   const r = record(v);
   return {
-    caseId: num(r.case_id),
-    caseRef: str(r.case_ref),
-    kind: str(r.kind),
-    subject: str(r.subject),
-    status: str(r.status),
-    outcome: optStr(r.outcome),
-    memberId: optNum(r.member_id),
-    openedAt: str(r.opened_at),
-    closedAt: optStr(r.closed_at),
+    caseId: num(r['case_id']),
+    caseRef: str(r['case_ref']),
+    kind: str(r['kind']),
+    subject: str(r['subject']),
+    status: str(r['status']),
+    outcome: optStr(r['outcome']),
+    memberId: optNum(r['member_id']),
+    openedAt: str(r['opened_at']),
+    closedAt: optStr(r['closed_at']),
   };
 };
 
 const conflict = (v: unknown): Conflict => {
   const r = record(v);
   return {
-    conflictId: num(r.conflict_id),
-    memberId: optNum(r.member_id),
-    officerUserId: optNum(r.officer_user_id),
-    subject: str(r.subject),
-    nature: str(r.nature),
-    status: str(r.status),
-    mitigation: optStr(r.mitigation),
-    declaredAt: str(r.declared_at),
+    conflictId: num(r['conflict_id']),
+    memberId: optNum(r['member_id']),
+    officerUserId: optNum(r['officer_user_id']),
+    subject: str(r['subject']),
+    nature: str(r['nature']),
+    status: str(r['status']),
+    mitigation: optStr(r['mitigation']),
+    declaredAt: str(r['declared_at']),
   };
 };
 
 const prereq = (v: unknown): Prerequisite => {
   const r = record(v);
   return {
-    prereqId: num(r.prereq_id),
-    kind: str(r.kind),
-    scope: str(r.scope),
-    required: boolOf(r.required),
-    status: str(r.status),
-    description: str(r.description),
-    evidenceRef: optStr(r.evidence_ref),
-    expiresAt: optStr(r.expires_at),
+    prereqId: num(r['prereq_id']),
+    kind: str(r['kind']),
+    scope: str(r['scope']),
+    required: boolOf(r['required']),
+    status: str(r['status']),
+    description: str(r['description']),
+    evidenceRef: optStr(r['evidence_ref']),
+    expiresAt: optStr(r['expires_at']),
   };
 };
 
 // ---------- members ----------
 
 export function fetchMembers(api: BoundAdminApi): Promise<VenueMember[]> {
-  return api.get('/admin/venue/members').then((r) => listOf(record(r).members, member));
+  return api.get('/admin/venue/members').then((r) => listOf(record(r)['members'], member));
 }
 
 export interface MemberDetail {
@@ -282,24 +282,24 @@ export function fetchMember(api: BoundAdminApi, id: number): Promise<MemberDetai
   return api.get(`/admin/venue/members/${id}`).then((r) => {
     const d = record(r);
     return {
-      member: member(d.member),
-      events: listOf(d.events, (x) => {
+      member: member(d['member']),
+      events: listOf(d['events'], (x) => {
         const e = record(x);
         return {
-          eventId: num(e.event_id),
-          eventType: str(e.event_type),
-          detail: e.detail,
-          createdAt: str(e.created_at),
+          eventId: num(e['event_id']),
+          eventType: str(e['event_type']),
+          detail: e['detail'],
+          createdAt: str(e['created_at']),
         };
       }),
-      reviews: listOf(d.reviews, (x) => {
+      reviews: listOf(d['reviews'], (x) => {
         const rv = record(x);
         return {
-          reviewId: num(rv.review_id),
-          reviewType: str(rv.review_type),
-          outcome: str(rv.outcome),
-          nextReviewDue: str(rv.next_review_due),
-          reviewedAt: str(rv.reviewed_at),
+          reviewId: num(rv['review_id']),
+          reviewType: str(rv['review_type']),
+          outcome: str(rv['outcome']),
+          nextReviewDue: str(rv['next_review_due']),
+          reviewedAt: str(rv['reviewed_at']),
         };
       }),
     };
@@ -318,7 +318,7 @@ export function registerMember(
 ): Promise<number> {
   return api
     .post('/admin/venue/members', body)
-    .then((r) => num(record(record(r).member).member_id));
+    .then((r) => num(record(record(r)['member'])['member_id']));
 }
 
 export function memberAction(
@@ -343,7 +343,7 @@ export function memberAction(
 // ---------- rulebooks ----------
 
 export function fetchRulebooks(api: BoundAdminApi): Promise<Rulebook[]> {
-  return api.get('/admin/venue/rulebooks').then((r) => listOf(record(r).rulebooks, rulebook));
+  return api.get('/admin/venue/rulebooks').then((r) => listOf(record(r)['rulebooks'], rulebook));
 }
 
 export interface RulebookDetail {
@@ -356,23 +356,23 @@ export function fetchRulebook(api: BoundAdminApi, id: number): Promise<RulebookD
   return api.get(`/admin/venue/rulebooks/${id}`).then((r) => {
     const d = record(r);
     return {
-      rulebook: rulebook(d.rulebook),
-      notices: listOf(d.notices, (x) => {
+      rulebook: rulebook(d['rulebook']),
+      notices: listOf(d['notices'], (x) => {
         const n = record(x);
         return {
-          noticeId: num(n.notice_id),
-          subject: str(n.subject),
-          memberId: optNum(n.member_id),
-          issuedAt: str(n.issued_at),
+          noticeId: num(n['notice_id']),
+          subject: str(n['subject']),
+          memberId: optNum(n['member_id']),
+          issuedAt: str(n['issued_at']),
         };
       }),
-      acks: listOf(d.acknowledgements, (x) => {
+      acks: listOf(d['acknowledgements'], (x) => {
         const a = record(x);
         return {
-          ackId: num(a.ack_id),
-          memberId: num(a.member_id),
-          acknowledgedBy: str(a.acknowledged_by),
-          acknowledgedAt: str(a.acknowledged_at),
+          ackId: num(a['ack_id']),
+          memberId: num(a['member_id']),
+          acknowledgedBy: str(a['acknowledged_by']),
+          acknowledgedAt: str(a['acknowledged_at']),
         };
       }),
     };
@@ -391,7 +391,7 @@ export function draftRulebook(
 ): Promise<number> {
   return api
     .post('/admin/venue/rulebooks', body)
-    .then((r) => num(record(record(r).rulebook).rulebook_id));
+    .then((r) => num(record(record(r)['rulebook'])['rulebook_id']));
 }
 
 export function rulebookAction(
@@ -408,7 +408,7 @@ export function rulebookAction(
 export function fetchInterventions(api: BoundAdminApi): Promise<Intervention[]> {
   return api
     .get('/admin/venue/interventions')
-    .then((r) => listOf(record(r).interventions, intervention));
+    .then((r) => listOf(record(r)['interventions'], intervention));
 }
 
 export function recordIntervention(
@@ -435,7 +435,7 @@ export function liftIntervention(api: BoundAdminApi, id: number, note?: string):
 }
 
 export function fetchVenueCases(api: BoundAdminApi): Promise<VenueCase[]> {
-  return api.get('/admin/venue/cases').then((r) => listOf(record(r).cases, venueCase));
+  return api.get('/admin/venue/cases').then((r) => listOf(record(r)['cases'], venueCase));
 }
 
 export interface CaseDetail {
@@ -447,15 +447,15 @@ export function fetchVenueCase(api: BoundAdminApi, id: number): Promise<CaseDeta
   return api.get(`/admin/venue/cases/${id}`).then((r) => {
     const d = record(r);
     return {
-      case: venueCase(d.case),
-      evidence: listOf(d.evidence, (x) => {
+      case: venueCase(d['case']),
+      evidence: listOf(d['evidence'], (x) => {
         const e = record(x);
         return {
-          evidenceId: num(e.evidence_id),
-          evidenceRef: str(e.evidence_ref),
-          sha256: optStr(e.sha256),
-          note: optStr(e.note),
-          attachedAt: str(e.attached_at),
+          evidenceId: num(e['evidence_id']),
+          evidenceRef: str(e['evidence_ref']),
+          sha256: optStr(e['sha256']),
+          note: optStr(e['note']),
+          attachedAt: str(e['attached_at']),
         };
       }),
     };
@@ -466,7 +466,9 @@ export function openVenueCase(
   api: BoundAdminApi,
   body: { kind: string; subject: string; member_id?: number; account_id?: number },
 ): Promise<number> {
-  return api.post('/admin/venue/cases', body).then((r) => num(record(record(r).case).case_id));
+  return api
+    .post('/admin/venue/cases', body)
+    .then((r) => num(record(record(r)['case'])['case_id']));
 }
 
 export function attachCaseEvidence(
@@ -492,7 +494,7 @@ export function transitionCase(
 }
 
 export function fetchConflicts(api: BoundAdminApi): Promise<Conflict[]> {
-  return api.get('/admin/venue/conflicts').then((r) => listOf(record(r).conflicts, conflict));
+  return api.get('/admin/venue/conflicts').then((r) => listOf(record(r)['conflicts'], conflict));
 }
 
 export function declareConflict(
@@ -517,15 +519,15 @@ export function resolveConflict(
 
 export function fetchAssessments(api: BoundAdminApi): Promise<SelfAssessment[]> {
   return api.get('/admin/venue/self-assessments').then((r) =>
-    listOf(record(r).assessments, (x) => {
+    listOf(record(r)['assessments'], (x) => {
       const a = record(x);
       return {
-        assessmentId: num(a.assessment_id),
-        periodYear: num(a.period_year),
-        version: num(a.version),
-        status: str(a.status),
-        assessedAt: optStr(a.assessed_at),
-        createdAt: str(a.created_at),
+        assessmentId: num(a['assessment_id']),
+        periodYear: num(a['period_year']),
+        version: num(a['version']),
+        status: str(a['status']),
+        assessedAt: optStr(a['assessed_at']),
+        createdAt: str(a['created_at']),
       };
     }),
   );
@@ -549,18 +551,18 @@ export function completeAssessment(api: BoundAdminApi, id: number): Promise<void
 
 export function fetchCCOReports(api: BoundAdminApi): Promise<CCOReport[]> {
   return api.get('/admin/venue/cco-reports').then((r) =>
-    listOf(record(r).reports, (x) => {
+    listOf(record(r)['reports'], (x) => {
       const c = record(x);
       return {
-        id: num(c.id),
-        periodStart: str(c.period_start),
-        periodEnd: str(c.period_end),
-        version: num(c.version),
-        status: str(c.status),
-        regulatorFilingRef: optStr(c.regulator_filing_ref),
-        boardSignedAt: optStr(c.board_signed_at),
-        filedAt: optStr(c.filed_at),
-        createdAt: str(c.created_at),
+        id: num(c['id']),
+        periodStart: str(c['period_start']),
+        periodEnd: str(c['period_end']),
+        version: num(c['version']),
+        status: str(c['status']),
+        regulatorFilingRef: optStr(c['regulator_filing_ref']),
+        boardSignedAt: optStr(c['board_signed_at']),
+        filedAt: optStr(c['filed_at']),
+        createdAt: str(c['created_at']),
       };
     }),
   );
@@ -589,7 +591,7 @@ export function ccoAction(
 export function fetchPrerequisites(api: BoundAdminApi): Promise<Prerequisite[]> {
   return api
     .get('/admin/venue/launch-prerequisites')
-    .then((r) => listOf(record(r).prerequisites, prereq));
+    .then((r) => listOf(record(r)['prerequisites'], prereq));
 }
 
 export function evidencePrerequisite(
@@ -605,11 +607,11 @@ export function expirePrerequisite(api: BoundAdminApi, id: number): Promise<void
 
 export function fetchLaunchGate(api: BoundAdminApi): Promise<LaunchGate> {
   return api.get('/admin/venue/launch-gate').then((r) => {
-    const g = record(record(r).launch_gate);
+    const g = record(record(r)['launch_gate']);
     return {
-      ready: boolOf(g.ready),
-      missing: listOf(g.missing, prereq),
-      evaluatedAt: str(g.evaluated_at),
+      ready: boolOf(g['ready']),
+      missing: listOf(g['missing'], prereq),
+      evaluatedAt: str(g['evaluated_at']),
     };
   });
 }

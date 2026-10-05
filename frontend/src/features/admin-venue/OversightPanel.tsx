@@ -141,12 +141,16 @@ export function OversightPanel({ adminApi }: { adminApi: BoundAdminApi }) {
       if (selectedCase === null) return Promise.reject(new Error('Select a case'));
       if (caseAction === 'evidence') {
         return attachCaseEvidence(adminApi, selectedCase, {
-          evidence_ref: fields.evidence_ref ?? '',
-          ...(fields.sha256 !== undefined && fields.sha256 !== '' ? { sha256: fields.sha256 } : {}),
-          ...(fields.note !== undefined && fields.note !== '' ? { note: fields.note } : {}),
+          evidence_ref: fields['evidence_ref'] ?? '',
+          ...(fields['sha256'] !== undefined && fields['sha256'] !== ''
+            ? { sha256: fields['sha256'] }
+            : {}),
+          ...(fields['note'] !== undefined && fields['note'] !== ''
+            ? { note: fields['note'] }
+            : {}),
         });
       }
-      return transitionCase(adminApi, selectedCase, fields.status ?? '', fields.outcome);
+      return transitionCase(adminApi, selectedCase, fields['status'] ?? '', fields['outcome']);
     },
     onSuccess: () => {
       setNotice(
@@ -431,7 +435,7 @@ export function OversightPanel({ adminApi }: { adminApi: BoundAdminApi }) {
                 <select
                   aria-label="Transition status"
                   className={selectCls}
-                  value={fields.status ?? ''}
+                  value={fields['status'] ?? ''}
                   onChange={(e) => {
                     setFields({ ...fields, status: e.target.value });
                   }}
@@ -443,7 +447,9 @@ export function OversightPanel({ adminApi }: { adminApi: BoundAdminApi }) {
                     </option>
                   ))}
                 </select>
-                {TERMINAL.has(fields.status ?? '') ? input('outcome', 'outcome (required)') : null}
+                {TERMINAL.has(fields['status'] ?? '')
+                  ? input('outcome', 'outcome (required)')
+                  : null}
               </>
             )}
             <button type="submit" className={btnGhost} disabled={caseAct.isPending}>

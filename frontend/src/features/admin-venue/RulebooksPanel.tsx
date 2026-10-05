@@ -84,36 +84,36 @@ export function RulebooksPanel({ adminApi }: { adminApi: BoundAdminApi }) {
       const body: Record<string, unknown> = (() => {
         switch (action) {
           case 'file':
-            return { filing_ref: f.filing_ref ?? '' };
+            return { filing_ref: f['filing_ref'] ?? '' };
           case 'regulator-decision':
-            return { approved: (f.approved ?? 'true') === 'true', notes: f.notes ?? '' };
+            return { approved: (f['approved'] ?? 'true') === 'true', notes: f['notes'] ?? '' };
           case 'approve':
             return {};
           case 'activate':
             return {
-              ...(f.effective_from !== undefined && f.effective_from !== ''
-                ? { effective_from: f.effective_from }
+              ...(f['effective_from'] !== undefined && f['effective_from'] !== ''
+                ? { effective_from: f['effective_from'] }
                 : {}),
-              emergency: (f.emergency ?? 'false') === 'true',
-              ...(f.emergency_reason !== undefined && f.emergency_reason !== ''
-                ? { emergency_reason: f.emergency_reason }
+              emergency: (f['emergency'] ?? 'false') === 'true',
+              ...(f['emergency_reason'] !== undefined && f['emergency_reason'] !== ''
+                ? { emergency_reason: f['emergency_reason'] }
                 : {}),
             };
           case 'notices':
             return {
-              subject: f.subject ?? '',
-              body_ref: f.body_ref ?? '',
-              ...(f.member_id !== undefined && f.member_id !== ''
-                ? { member_id: Number(f.member_id) }
+              subject: f['subject'] ?? '',
+              body_ref: f['body_ref'] ?? '',
+              ...(f['member_id'] !== undefined && f['member_id'] !== ''
+                ? { member_id: Number(f['member_id']) }
                 : {}),
             };
           case 'acks':
             return {
-              member_id: Number(f.member_id ?? '0'),
-              ...(f.notice_id !== undefined && f.notice_id !== ''
-                ? { notice_id: Number(f.notice_id) }
+              member_id: Number(f['member_id'] ?? '0'),
+              ...(f['notice_id'] !== undefined && f['notice_id'] !== ''
+                ? { notice_id: Number(f['notice_id']) }
                 : {}),
-              acknowledged_by: f.acknowledged_by ?? '',
+              acknowledged_by: f['acknowledged_by'] ?? '',
             };
         }
       })();
@@ -299,7 +299,7 @@ export function RulebooksPanel({ adminApi }: { adminApi: BoundAdminApi }) {
                 <select
                   aria-label="Regulator approved"
                   className={selectCls}
-                  value={fields.approved ?? 'true'}
+                  value={fields['approved'] ?? 'true'}
                   onChange={(e) => {
                     setFields({ ...fields, approved: e.target.value });
                   }}
@@ -316,7 +316,7 @@ export function RulebooksPanel({ adminApi }: { adminApi: BoundAdminApi }) {
                 <select
                   aria-label="Emergency activation"
                   className={selectCls}
-                  value={fields.emergency ?? 'false'}
+                  value={fields['emergency'] ?? 'false'}
                   onChange={(e) => {
                     setFields({ ...fields, emergency: e.target.value });
                   }}
@@ -324,7 +324,9 @@ export function RulebooksPanel({ adminApi }: { adminApi: BoundAdminApi }) {
                   <option value="false">normal</option>
                   <option value="true">EMERGENCY</option>
                 </select>
-                {fields.emergency === 'true' ? input('emergency_reason', 'emergency_reason') : null}
+                {fields['emergency'] === 'true'
+                  ? input('emergency_reason', 'emergency_reason')
+                  : null}
               </>
             ) : null}
             {action === 'notices' ? (
