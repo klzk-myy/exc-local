@@ -193,10 +193,12 @@ Non-goals: new backend business logic (existing routes only); the `/api/v1/test/
 4. Treasury — `GET/POST /api/v1/admin/treasury/{own-funds,contingent-capital}`; `GET /api/v1/admin/insurance-fund`; `PUT /api/v1/admin/collateral-schedule`.
 
 **DoD:**
-* [ ] Nostro registry/recon/replenishment + client-money audit/certification + treasury views functional
+* [x] Nostro registry/recon/replenishment + client-money audit/certification + treasury views functional
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: segregated-funds state is inspectable and auditable — defined first, validated against spec
+- [x] Spec checkpoint: segregated-funds state is inspectable and auditable — defined first, validated against spec
+
+**Execution record (2026-10-07):** `frontend/src/features/admin-treasury/` — `TreasuryPage` (`/admin/treasury`) + `api.ts` + 4 panels: `NostroPanel` (per-currency coverage w/ deficit flags, NOSTRO/VOSTRO registry, replenishment request→four-eyes decide, immutable SWIFT journal), `ReconPanel` (nostro report/rerun/break INVESTIGATE|RESOLVE + PB give-up recon w/ auto-match rate), `ClientMoneyPanel` (engagement register → system-assembled evidence pack sha256 → four-eyes certification), `TreasuryPanel` (own-funds ledger + freeze flags, contingent-capital waterfall, insurance fund balances/txns, collateral schedule PUT). Contract note: PBReconRun/Break marshal PascalCase (no json tags) — parser dual-cases. Zero backend changes. 6 component tests; 665/665 suite green.
 
 ---
 
