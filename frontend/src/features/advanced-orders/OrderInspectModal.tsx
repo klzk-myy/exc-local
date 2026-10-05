@@ -14,6 +14,7 @@ import { useMemo, useState } from 'react';
 
 import { apiClient } from '@/app/runtime';
 import { orderAmendments } from '@/features/history/api';
+import { TcaCard } from '@/features/reports/TcaPanel';
 import { ErrorBox, btnDanger, btnGhost, inputCls, labelCls, Modal } from '@/lib/ui';
 import { tryDec } from '@/lib/decimal/decimal';
 import { useScopeKey } from '@/lib/trading/queries';
@@ -214,6 +215,9 @@ export function OrderInspectModal({
             </button>
           </div>
           <AmendmentLedger orderId={order.id} api={api} />
+          <div className="mt-3 border-t border-neutral-800 pt-2">
+            <TcaCard symbol={order.symbol} api={api} />
+          </div>
         </div>
       )}
     </Modal>

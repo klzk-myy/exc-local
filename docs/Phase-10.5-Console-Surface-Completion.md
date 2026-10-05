@@ -472,10 +472,12 @@ Non-goals: new backend business logic (existing routes only); the `/api/v1/test/
 4. PAMM detail — `GET /api/v1/pamm/pools[/{id}[/statement]]`, `POST …/{id}/{invest,redeem}` (extends Task 10.3.26-adjacent `PammPage`).
 
 **DoD:**
-* [ ] History queries paginate correctly; export jobs create→poll→download; TCA card renders per order
+* [x] History queries paginate correctly; export jobs create→poll→download; TCA card renders per order
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: history + export center complete — defined first, validated against spec
+- [x] Spec checkpoint: history + export center complete — defined first, validated against spec
+
+*Execution record (this implementation):* new `features/explorer` — `HistoryExplorerPage` (`/explorer`, Research nav order 2, auto-glob) + `api.ts`. Dataset picker over `GET /history/{trades,ticks,block-trades}/{symbol}`, `GET /history/klines/{symbol}?interval=` (select constrained to the 12 persisted labels incl. `1D`/`1W`/`1M`), `GET /history/swap-rates?symbol=` — all §8.8 keyset-paginated via accumulating `next_cursor` "Load more" (no offset drift); every page renders the envelope's `access_tier`/`delayed`/`degraded` badges verbatim; block-tape renders `bust`/`corrected_by`/`supersedes` lineage + `delay_ms`; swap sheets render the triple-Wednesday `×3` badge + `accrual_count` reconciliation count. Export: `GET /history/trades/{symbol}/export?kind=&format=&async=1` enqueue buttons (csv/json) → 202 job surfaced with id + pointer to Reports. `ExportJobsPanel` folded into Reports→Downloads (below DownloadCenter): `GET /export-jobs` owner list with status/truncated/error, `expires_at` countdown, poll-while-QUEUED/RUNNING (3s), "Load older jobs" cursor paging, download via `downloadFile` on `/export-jobs/{id}/download` only when the server emitted `download_url` (expired links never offered). TCA: `TcaPanel` (new Reports tab) renders `GET /reports/tca/{account_id}?period=&instrument_class=` bucket table; `TcaCard` embedded in `OrderInspectModal` filters the account report to the order's `symbol` — **contract deviation recorded**: the mounted route is per-account (`{account_id}` with FORBIDDEN on foreign ids), not per-order as the task row suggested, so the card is an honest account-scoped per-symbol view with a link to the full report, not a fabricated per-order metric. Fixed a latent DownloadCenter bug in the same seam: the TCA download card resolved master scope to account `0` → INVALID_REQUEST for every non-admin; now resolves the claims account id from the session store. PAMM: `listPools`/`poolStatement` gained keyset `?after=` paging with "Load older pools/entries" (shown only when the last page was full — the envelope carries no cursor). Zero backend changes. Tests: 5 explorer + 2 reports additions; suite 750/750; `go test ./internal/gateway` green.
 
 ---
 

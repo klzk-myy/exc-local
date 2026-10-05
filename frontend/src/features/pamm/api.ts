@@ -109,8 +109,10 @@ export function parseEntry(v: unknown): StatementEntry | null {
   };
 }
 
-export async function listPools(api: ApiClient): Promise<PammPool[]> {
-  const res = await api.get<unknown>('/pamm/pools');
+export async function listPools(api: ApiClient, after?: number): Promise<PammPool[]> {
+  const res = await api.get<unknown>(
+    after !== undefined ? `/pamm/pools?after=${after}` : '/pamm/pools',
+  );
   const raw = isRecord(res) && Array.isArray(res['pools']) ? res['pools'] : [];
   return raw.map(parsePool).filter((p): p is PammPool => p !== null);
 }
@@ -119,8 +121,14 @@ export async function poolDetail(api: ApiClient, poolId: number): Promise<PammPo
   return parsePoolDetail(await api.get<unknown>(`/pamm/pools/${poolId}`));
 }
 
-export async function poolStatement(api: ApiClient, poolId: number): Promise<StatementEntry[]> {
-  const res = await api.get<unknown>(`/pamm/pools/${poolId}/statement`);
+export async function poolStatement(
+  api: ApiClient,
+  poolId: number,
+  after?: number,
+): Promise<StatementEntry[]> {
+  const res = await api.get<unknown>(
+    `/pamm/pools/${poolId}/statement${after !== undefined ? `?after=${after}` : ''}`,
+  );
   const raw = isRecord(res) && Array.isArray(res['entries']) ? res['entries'] : [];
   return raw.map(parseEntry).filter((e): e is StatementEntry => e !== null);
 }

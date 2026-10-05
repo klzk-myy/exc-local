@@ -16,6 +16,7 @@
 import { useState } from 'react';
 
 import { ApiError } from '@/lib/api';
+import { useSessionStore } from '@/lib/auth/session';
 import { btnPrimary, cardCls, inputCls, labelCls, selectCls } from '@/lib/ui';
 import { downloadFile, isNotImplemented, saveBlob, useValidatedField } from '@/lib/input-helpers';
 import { TAX_METHODS, type FieldRule } from '@/lib/input-helpers/validation';
@@ -233,7 +234,11 @@ export function DownloadCenter() {
         action="Download TCA"
         status={st('tca')}
         onGo={() => {
-          const id = scopeKey === MASTER_ACCOUNT_KEY ? 0 : scopeAccountId(scopeKey);
+          // TCA is claims-account-scoped: the master scope resolves to
+          // the session account id; a sub-account key would be a foreign
+          // id the backend rejects — request the claims account instead.
+          const claimsId = useSessionStore.getState().user?.accountId ?? 0;
+          const id = scopeKey === MASTER_ACCOUNT_KEY ? claimsId : scopeAccountId(scopeKey);
           run('tca', () =>
             downloadFile(`/reports/tca/${encodeURIComponent(String(id))}`, 'tca-report.csv', {
               accept: 'text/csv',

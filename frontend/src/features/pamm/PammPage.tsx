@@ -23,6 +23,7 @@ import {
   poolStatement,
   redeem,
   type PammPool,
+  type StatementEntry,
 } from './api';
 
 function isUnavailable(err: unknown): boolean {
@@ -100,6 +101,12 @@ function Detail({ poolId }: { poolId: number }) {
     queryFn: () => poolStatement(apiClient, poolId),
     retry: false,
   });
+  const [moreStmt, setMoreStmt] = useState<StatementEntry[]>([]);
+  const [stmtMoreErr, setStmtMoreErr] = useState<unknown>(null);
+  const stmtRows = [...(stmt.data ?? []), ...moreStmt];
+  const stmtHasMore =
+    (moreStmt.length > 0 ? moreStmt : (stmt.data ?? [])).length % 50 === 0 &&
+    (moreStmt.length > 0 ? moreStmt : (stmt.data ?? [])).length > 0;
   const move = useMutation({
     mutationFn: (kind: 'invest' | 'redeem') =>
       kind === 'invest' ? invest(apiClient, poolId, amount) : redeem(apiClient, poolId, amount),
@@ -187,7 +194,7 @@ function Detail({ poolId }: { poolId: number }) {
         <p className="mb-1 text-xs font-medium text-neutral-400">Statement</p>
         {stmt.error ? (
           <ErrorBox error={stmt.error} />
-        ) : (stmt.data ?? []).length === 0 ? (
+        ) : stmtRows.length === 0 ? (
           <p className="py-2 text-center text-xs text-neutral-500">No movements.</p>
         ) : (
           <table className={tableCls}>
@@ -201,7 +208,7 @@ function Detail({ poolId }: { poolId: number }) {
               </tr>
             </thead>
             <tbody>
-              {(stmt.data ?? []).map((e) => (
+              {stmtRows.map((e) => (
                 <tr key={e.entryId}>
                   <td className={`${tdCls} font-mono`}>{e.txnType}</td>
                   <td className={tdCls}>{e.direction}</td>
@@ -219,6 +226,25 @@ function Detail({ poolId }: { poolId: number }) {
             </tbody>
           </table>
         )}
+        {stmtMoreErr !== null ? <ErrorBox error={stmtMoreErr} /> : null}
+        {stmtHasMore ? (
+          <button
+            type="button"
+            className={btnGhost}
+            onClick={() => {
+              const last = stmtRows[stmtRows.length - 1];
+              if (last === undefined) return;
+              setStmtMoreErr(null);
+              void poolStatement(apiClient, poolId, last.entryId)
+                .then((rows) => {
+                  setMoreStmt((s) => [...s, ...rows]);
+                })
+                .catch(setStmtMoreErr);
+            }}
+          >
+            Load older entries
+          </button>
+        ) : null}
       </div>
     </div>
   );
@@ -242,6 +268,8 @@ function PoolRow({ pool, onSelect }: { pool: PammPool; onSelect: () => void }) {
 
 export default function PammPage() {
   const [selected, setSelected] = useState<number | null>(null);
+  const [morePools, setMorePools] = useState<PammPool[]>([]);
+  const [poolsMoreErr, setPoolsMoreErr] = useState<unknown>(null);
   const authed = useAuthed();
   const q = useQuery({
     queryKey: ['pamm', 'pools'],
@@ -265,7 +293,9 @@ export default function PammPage() {
       </div>
     );
   }
-  const pools = q.data ?? [];
+  const pools = [...(q.data ?? []), ...morePools];
+  const lastPoolPage = morePools.length > 0 ? morePools : (q.data ?? []);
+  const poolsHaveMore = lastPoolPage.length > 0 && lastPoolPage.length % 50 === 0;
 
   return (
     <div className="mx-auto max-w-4xl space-y-4 p-4">
@@ -299,7 +329,26 @@ export default function PammPage() {
           </tbody>
         </table>
       )}
-      {selected !== null && <Detail poolId={selected} />}
+      {poolsMoreErr !== null ? <ErrorBox error={poolsMoreErr} /> : null}
+      {poolsHaveMore ? (
+        <button
+          type="button"
+          className={btnGhost}
+          onClick={() => {
+            const last = pools[pools.length - 1];
+            if (last === undefined) return;
+            setPoolsMoreErr(null);
+            void listPools(apiClient, last.poolId)
+              .then((rows) => {
+                setMorePools((s) => [...s, ...rows]);
+              })
+              .catch(setPoolsMoreErr);
+          }}
+        >
+          Load older pools
+        </button>
+      ) : null}
+      {selected !== null && <Detail key={selected} poolId={selected} />}
     </div>
   );
 }

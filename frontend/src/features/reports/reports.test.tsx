@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 import { resetSessionForTests } from '@/lib/auth/session';
 import { installFetchMock, renderApp, signInForTests } from '@/test/accountMocks';
 
 import { parseAnnouncement, parseFeeSchedule, parseSystemStatus } from './api';
 import { AnnouncementsPanel, FeeSchedulePanel, SolvencyPanel, SystemInfoPanel } from './panels';
+import { ExportJobsPanel } from './ExportJobsPanel';
+import { TcaPanel } from './TcaPanel';
 
 vi.mock('@/app/runtime', () => import('@/test/accountMocks').then((m) => m.runtimeModule()));
 
@@ -145,5 +148,76 @@ describe('AnnouncementsPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /Dismiss announcement Maint window/ }));
     expect(screen.queryByText('Maint window')).not.toBeInTheDocument();
     expect(window.localStorage.getItem('exc.dismissed-announcements.v1')).toContain('"1"');
+  });
+});
+
+describe('ExportJobsPanel', () => {
+  it('renders owner jobs with status/expiry and a live download link', async () => {
+    installFetchMock({
+      'GET /api/v1/export-jobs': {
+        status: 200,
+        body: {
+          data: [
+            {
+              id: 5,
+              kind: 'trades',
+              symbol: 'EUR/USD',
+              format: 'csv',
+              status: 'COMPLETED',
+              row_count: 4200,
+              expires_at: new Date(Date.now() + 3600_000).toISOString(),
+              download_url: '/api/v1/export-jobs/5/download',
+            },
+            {
+              id: 6,
+              kind: 'klines',
+              symbol: 'USD/JPY',
+              format: 'parquet',
+              status: 'QUEUED',
+            },
+          ],
+        },
+      },
+    });
+    renderApp(<ExportJobsPanel />);
+    expect(await screen.findByText('#5')).toBeInTheDocument();
+    expect(screen.getByText('COMPLETED')).toBeInTheDocument();
+    expect(screen.getByText('QUEUED')).toBeInTheDocument();
+    expect(screen.getByText(/expires in/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Download' })).toBeInTheDocument();
+    expect(screen.getByText('in progress…')).toBeInTheDocument();
+  });
+});
+
+describe('TcaPanel', () => {
+  it('fetches the claims-account report and renders buckets', async () => {
+    const calls = installFetchMock({
+      'GET /api/v1/reports/tca/1001': {
+        status: 200,
+        body: {
+          account_id: 1001,
+          period: 'daily',
+          buckets: [
+            {
+              bucket_start: '2026-10-01T00:00:00Z',
+              symbol: 'EUR/USD',
+              fills: 42,
+              avg_slip_arrival_bps: '0.4',
+              avg_slip_vwap_bps: '-0.1',
+              avg_price_improvement_delta: '0.02',
+            },
+          ],
+        },
+      },
+    });
+    renderApp(<TcaPanel />);
+    expect(await screen.findByText('EUR/USD')).toBeInTheDocument();
+    expect(screen.getByText('42')).toBeInTheDocument();
+    expect(screen.getByText('0.4')).toBeInTheDocument();
+    expect(calls.some((c) => c.url.includes('period=daily'))).toBe(true);
+    await userEvent.selectOptions(screen.getByLabelText('Instrument class'), 'SPOT');
+    await waitFor(() => {
+      expect(calls.some((c) => c.url.includes('instrument_class=SPOT'))).toBe(true);
+    });
   });
 });

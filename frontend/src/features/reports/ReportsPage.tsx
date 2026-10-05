@@ -5,10 +5,13 @@
 import { useState } from 'react';
 
 import { DownloadCenter } from './DownloadCenter';
+import { ExportJobsPanel } from './ExportJobsPanel';
 import { AnnouncementsPanel, FeeSchedulePanel, SolvencyPanel, SystemInfoPanel } from './panels';
+import { TcaPanel } from './TcaPanel';
 
 const TABS = [
   { id: 'downloads', label: 'Downloads' },
+  { id: 'tca', label: 'TCA' },
   { id: 'fees', label: 'Fees' },
   { id: 'solvency', label: 'Solvency' },
   { id: 'system', label: 'System' },
@@ -50,7 +53,13 @@ export default function ReportsPage() {
         ))}
       </div>
 
-      {tab === 'downloads' ? <DownloadCenter /> : null}
+      {tab === 'downloads' ? (
+        <div className="space-y-4">
+          <DownloadCenter />
+          <ExportJobsPanel />
+        </div>
+      ) : null}
+      {tab === 'tca' ? <TcaPanel /> : null}
       {tab === 'fees' ? <FeeSchedulePanel /> : null}
       {tab === 'solvency' ? <SolvencyPanel /> : null}
       {tab === 'system' ? <SystemInfoPanel /> : null}
