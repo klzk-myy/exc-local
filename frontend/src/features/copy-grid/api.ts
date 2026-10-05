@@ -203,3 +203,237 @@ export function pauseGridBot(api: ApiClient, id: string): Promise<unknown> {
 export function resumeGridBot(api: ApiClient, id: string): Promise<unknown> {
   return api.post(`/bots/grid/${encodeURIComponent(id)}/resume`, {});
 }
+
+// ---------------------------------------------------------------------------
+// Strategy engine — GET/POST /strategies[/{id}], pause/resume/DELETE
+// (Phase-16 Task 16.3.21)
+// ---------------------------------------------------------------------------
+
+export interface Strategy {
+  strategy_id: number;
+  kind: string; // DCA | REBALANCE | …
+  label?: string;
+  from_currency?: string;
+  to_currency?: string;
+  amount?: string;
+  schedule?: string; // DAILY | WEEKLY | MONTHLY
+  targets?: Record<string, string>;
+  drift_band_pct?: string;
+  template_id?: number;
+  status: string;
+  next_run_at?: string;
+  last_run_at?: string;
+  realized_pnl?: string;
+  total_fees?: string;
+  run_count?: number;
+  created_at?: string;
+}
+
+export interface StrategyRun {
+  run_id: number;
+  scheduled_for?: string;
+  kind?: string;
+  status: string;
+  skip_reason?: string;
+  order_ids?: number[];
+  legs?: {
+    currency?: string;
+    action?: string;
+    symbol?: string;
+    amount?: string;
+    status?: string;
+    note?: string;
+  }[];
+  notional?: string;
+  currency?: string;
+  fees?: string;
+}
+
+export interface StrategyDetail {
+  strategy: Strategy;
+  runs?: StrategyRun[];
+}
+
+export const STRATEGY_KINDS = ['DCA', 'REBALANCE'] as const;
+export const STRATEGY_SCHEDULES = ['DAILY', 'WEEKLY', 'MONTHLY'] as const;
+
+export async function listMyStrategies(api: ApiClient): Promise<Strategy[]> {
+  const res = await api.get<{ strategies?: Strategy[] }>('/strategies');
+  return res.strategies ?? [];
+}
+
+export async function strategyDetail(api: ApiClient, id: number): Promise<StrategyDetail | null> {
+  const res = await api.get<StrategyDetail | Strategy>(`/strategies/${id}`);
+  if ('strategy' in res) return res;
+  return { strategy: res };
+}
+
+export interface StrategyCreateInput {
+  kind: string;
+  label?: string;
+  from_currency?: string;
+  to_currency?: string;
+  amount?: string;
+  schedule?: string;
+  targets?: Record<string, string>;
+  drift_band_pct?: string;
+}
+
+export function createStrategy(api: ApiClient, input: StrategyCreateInput): Promise<Strategy> {
+  return api.post<Strategy>('/strategies', input);
+}
+
+export function pauseStrategy(api: ApiClient, id: number): Promise<Strategy> {
+  return api.post<Strategy>(`/strategies/${id}/pause`, {});
+}
+
+export function resumeStrategy(api: ApiClient, id: number): Promise<Strategy> {
+  return api.post<Strategy>(`/strategies/${id}/resume`, {});
+}
+
+/** DELETE /strategies/{id} — cancels the strategy and unwinds any open run. */
+export function cancelStrategy(api: ApiClient, id: number): Promise<Strategy> {
+  return api.delete<Strategy>(`/strategies/${id}`);
+}
+
+// ---------------------------------------------------------------------------
+// Strategy templates — approved marketplace list, publish, instantiate
+// ---------------------------------------------------------------------------
+
+export interface StrategyTemplate {
+  template_id: number;
+  name: string;
+  description: string;
+  kind: string;
+  config?: unknown;
+  status: string;
+  publisher_account_id?: number;
+  reject_reason?: string;
+  created_at?: string;
+}
+
+export async function listTemplates(api: ApiClient): Promise<StrategyTemplate[]> {
+  const res = await api.get<{ templates?: StrategyTemplate[] }>('/strategy-templates');
+  return res.templates ?? [];
+}
+
+/** Publishes a PENDING_APPROVAL template — configuration JSON only;
+ * admin approval lives in the admin-content curation surface. */
+export function publishTemplate(
+  api: ApiClient,
+  input: { name: string; description: string; kind: string; config: string },
+): Promise<StrategyTemplate> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(input.config);
+  } catch {
+    parsed = input.config;
+  }
+  return api.post<StrategyTemplate>('/strategy-templates', {
+    name: input.name,
+    description: input.description,
+    kind: input.kind,
+    config: parsed,
+  });
+}
+
+/** POST /strategy-templates/{id}/instantiate — copies the APPROVED
+ * template's config into a new account-owned strategy (201). */
+export function instantiateTemplate(api: ApiClient, id: number): Promise<Strategy> {
+  return api.post<Strategy>(`/strategy-templates/${id}/instantiate`, {});
+}
+
+// ---------------------------------------------------------------------------
+// Copy-strategy author flow — POST /copy/strategies, POST …/{id}/list
+// (Phase-14 Task 14.3.14)
+// ---------------------------------------------------------------------------
+
+export interface CopyProfile {
+  strategy_id: number;
+  manager_account_id?: number;
+  display_name: string;
+  description?: string;
+  currency?: string;
+  instrument_class?: string;
+  status: string; // INCUBATING | LISTED | SUSPENDED
+  profit_share_pct?: string;
+  incubating_since?: string;
+  listed_at?: string;
+  suspended_at?: string;
+  suspend_reason?: string;
+}
+
+/** NOTE: the mounted API serves GET /copy/strategies as the public
+ * LISTED-only discovery feed — there is no "my profiles" read endpoint
+ * (store.StrategiesByManager exists but is not exposed). The panel keeps
+ * the POST-created row in session state and renders it honestly instead
+ * of inventing a list. */
+
+/** Creates an INCUBATING copy-strategy profile — the caller becomes the
+ * manager. */
+export function createCopyProfile(
+  api: ApiClient,
+  input: {
+    display_name: string;
+    description: string;
+    currency: string;
+    instrument_class: string;
+    profit_share_pct: string;
+  },
+): Promise<CopyProfile> {
+  return api.post<CopyProfile>('/copy/strategies', input);
+}
+
+/** POST /copy/strategies/{id}/list — request LISTED. The service enforces
+ * ≥30d incubation + appropriateness PASS fail-closed; refusals surface
+ * as coded errors. */
+export function requestListing(api: ApiClient, id: number): Promise<CopyProfile> {
+  return api.post<CopyProfile>(`/copy/strategies/${id}/list`, {});
+}
+
+// ---------------------------------------------------------------------------
+// Basket + promotion views — GET /baskets/{op_id}, GET /promotions/{id}
+// ---------------------------------------------------------------------------
+
+export interface BasketStatus {
+  op_id: string;
+  status: string;
+  code?: number;
+  leg_count?: number;
+  legs_filled?: number;
+  legs_unwound?: number;
+  slippage_ticks?: number;
+  legs?: {
+    leg_index?: number;
+    order_id?: number;
+    instrument_id?: number;
+    shard_id?: number;
+    order_status?: string;
+    filled_qty?: string;
+  }[];
+}
+
+export function basketStatus(api: ApiClient, opId: string): Promise<BasketStatus> {
+  return api.get<BasketStatus>(`/baskets/${encodeURIComponent(opId)}`);
+}
+
+export interface PromotionView {
+  promotion_id: number;
+  slug?: string;
+  channel?: string;
+  body_ref?: string;
+  title?: string;
+  version?: number;
+  approval_status?: string;
+  approved_until?: string;
+}
+
+/** Renderable-content view — PROMOTION_NOT_APPROVED (410) for anything
+ * not APPROVED+unexpired. */
+export async function promotionView(api: ApiClient, id: string): Promise<PromotionView | null> {
+  const res = await api.get<unknown>(`/promotions/${id}`);
+  if (!isRecord(res)) return null;
+  const inner = res['promotion'];
+  if (isRecord(inner)) return inner as unknown as PromotionView;
+  return res as unknown as PromotionView;
+}

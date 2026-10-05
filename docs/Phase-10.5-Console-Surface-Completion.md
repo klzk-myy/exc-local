@@ -418,10 +418,11 @@ Non-goals: new backend business logic (existing routes only); the `/api/v1/test/
 * [ ] Strategy lifecycle + template instantiate + basket view + copy-strategy listing all functional
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: strategy marketplace user flow complete — defined first, validated against spec
+- [x] Spec checkpoint: strategy marketplace user flow complete — defined first, validated against spec
 
 ---
 
+*Execution record (this implementation):* extends `features/copy-grid` (Task 10.3.26) — new `MarketplacePanel` as a third tab on the CopyGrid page. **My strategies**: `GET/POST /strategies` (kind-aware create — DCA emits `from/to/amount/schedule`, REBALANCE emits `targets` map + `drift_band_pct`), `POST …/{id}/pause|resume`, `DELETE …/{id}` (cancel + unwind), row-expand detail via `GET …/{id}` rendering run ledger (status + skip_reason + legs). **Templates**: `GET /strategy-templates` (approved catalog only) + `POST …/{id}/instantiate` (config copy → 201 strategy) + `POST /strategy-templates` publish (config JSON parsed client-side; lands PENDING_APPROVAL — admin queue stays in admin-content). **Copy author**: `POST /copy/strategies` (INCUBATING profile: display_name/description/currency/instrument_class/profit_share_pct) + `POST …/{id}/list` — the ≥30d incubation + appropriateness gate refusal surfaces as the coded error verbatim. **Viewers**: `GET /baskets/{op_id}` (op status + per-leg order status/filled) and `GET /promotions/{id}` (render-gated; 410 PROMOTION_NOT_APPROVED flows through ErrorBox). Contract gaps: no "my copy profiles" GET exists (`Discover` is LISTED-only; `StrategiesByManager` store method is unmounted) — the author section renders only session-created/listed rows honestly, recorded here. Zero backend changes. Tests: 5 new MarketplacePanel cases; suite 729/729.
 ### Task 10.5.3.20: Advanced Order Composition (extends Task 10.3.7/10.3.27)
 
 **Objective:** Wire the remaining mounted order-composition endpoints into the advanced ticket.

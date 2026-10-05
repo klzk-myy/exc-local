@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 import { resetSessionForTests } from '@/lib/auth/session';
 import { installFetchMock, renderApp, signInForTests } from '@/test/accountMocks';
 import { parseGridBot, parseStrategy } from './api';
+import MarketplacePanel from './MarketplacePanel';
 import { StrategyBrowser } from './StrategyBrowser';
 import { GridBotWizard } from './GridBotWizard';
 import { ActiveBotsPanel } from './ActiveBotsPanel';
@@ -273,5 +275,212 @@ describe('MyFollowsPanel', () => {
         true,
       );
     });
+  });
+});
+
+describe('MarketplacePanel', () => {
+  it('lists strategies and pauses one via POST /strategies/{id}/pause', async () => {
+    const calls = installFetchMock({
+      'GET /api/v1/strategies': {
+        body: {
+          strategies: [
+            {
+              strategy_id: 3,
+              kind: 'DCA',
+              label: 'Weekly EUR',
+              from_currency: 'USD',
+              to_currency: 'EUR',
+              amount: '250',
+              schedule: 'WEEKLY',
+              status: 'ACTIVE',
+              run_count: 4,
+            },
+          ],
+        },
+      },
+      'POST /api/v1/strategies/3/pause': {
+        body: { strategy_id: 3, kind: 'DCA', status: 'PAUSED' },
+      },
+      'GET /api/v1/strategy-templates': { body: { templates: [] } },
+    });
+    renderApp(<MarketplacePanel />);
+    const user = userEvent.setup();
+    expect(await screen.findByText('Weekly EUR')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Pause' }));
+    await waitFor(() => {
+      expect(calls.some((c) => c.url === '/api/v1/strategies/3/pause')).toBe(true);
+    });
+  });
+
+  it('creates a DCA strategy with the full contract body', async () => {
+    const calls = installFetchMock({
+      'GET /api/v1/strategies': { body: { strategies: [] } },
+      'GET /api/v1/strategy-templates': { body: { templates: [] } },
+      'POST /api/v1/strategies': {
+        status: 201,
+        body: { strategy_id: 9, kind: 'DCA', status: 'ACTIVE' },
+      },
+    });
+    renderApp(<MarketplacePanel />);
+    const user = userEvent.setup();
+    await user.type(await screen.findByLabelText(/^Label/), 'Rent money');
+    await user.selectOptions(screen.getByLabelText(/^From/), 'USD');
+    await user.selectOptions(screen.getByLabelText(/^To/), 'EUR');
+    await user.type(screen.getByLabelText(/Amount per run/), '250');
+    await user.click(screen.getByRole('button', { name: 'Create strategy' }));
+    await waitFor(() => {
+      const c = calls.find((x) => x.method === 'POST' && x.url.endsWith('/strategies'));
+      expect(JSON.parse(c?.init?.body as string)).toMatchObject({
+        kind: 'DCA',
+        label: 'Rent money',
+        from_currency: 'USD',
+        to_currency: 'EUR',
+        amount: '250',
+        schedule: 'WEEKLY',
+      });
+    });
+  });
+
+  it('instantiates an approved template and publishes one for review', async () => {
+    const calls = installFetchMock({
+      'GET /api/v1/strategies': { body: { strategies: [] } },
+      'GET /api/v1/strategy-templates': {
+        body: {
+          templates: [
+            {
+              template_id: 5,
+              name: 'Balanced majors',
+              description: 'EUR/USD/JPY rebalance',
+              kind: 'REBALANCE',
+              status: 'APPROVED',
+            },
+          ],
+        },
+      },
+      'POST /api/v1/strategy-templates/5/instantiate': {
+        status: 201,
+        body: { strategy_id: 21, kind: 'REBALANCE', status: 'ACTIVE', template_id: 5 },
+      },
+      'POST /api/v1/strategy-templates': {
+        status: 201,
+        body: { template_id: 8, name: 'X', status: 'PENDING_APPROVAL' },
+      },
+    });
+    renderApp(<MarketplacePanel />);
+    const user = userEvent.setup();
+    expect(await screen.findByText('Balanced majors')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Instantiate' }));
+    await waitFor(() => {
+      expect(calls.some((c) => c.url.includes('/strategy-templates/5/instantiate'))).toBe(true);
+    });
+    expect(await screen.findByText(/Strategy #21 created from template/)).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText(/^Name/), 'My template');
+    await user.type(screen.getByLabelText(/Template description/), 'desc');
+    fireEvent.change(screen.getByLabelText(/Config JSON/), { target: { value: '{"a":1}' } });
+    await user.click(screen.getByRole('button', { name: 'Publish for review' }));
+    await waitFor(() => {
+      const c = calls.find((x) => x.method === 'POST' && x.url.endsWith('/strategy-templates'));
+      expect(JSON.parse(c?.init?.body as string)).toMatchObject({
+        name: 'My template',
+        kind: 'DCA',
+        config: { a: 1 },
+      });
+    });
+  });
+
+  it('creates an INCUBATING copy profile and requests listing', async () => {
+    const calls = installFetchMock({
+      'GET /api/v1/strategies': { body: { strategies: [] } },
+      'GET /api/v1/strategy-templates': { body: { templates: [] } },
+      'POST /api/v1/copy/strategies': {
+        status: 201,
+        body: {
+          strategy_id: 44,
+          display_name: 'G10 momentum',
+          status: 'INCUBATING',
+          incubating_since: '2026-05-19T00:00:00Z',
+        },
+      },
+      'POST /api/v1/copy/strategies/44/list': {
+        status: 422,
+        body: {
+          type: 'error',
+          error: 'INCUBATION_INCOMPLETE',
+          message: 'needs 30d track record',
+          status: 422,
+        },
+      },
+    });
+    renderApp(<MarketplacePanel />);
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText(/Display name/), 'G10 momentum');
+    await user.type(screen.getByLabelText(/^Description/), 'desc');
+    await user.type(screen.getByLabelText(/Profit share/), '10');
+    await user.click(screen.getByRole('button', { name: 'Create profile' }));
+    await waitFor(() => {
+      const c = calls.find((x) => x.method === 'POST' && x.url.endsWith('/copy/strategies'));
+      expect(JSON.parse(c?.init?.body as string)).toMatchObject({
+        display_name: 'G10 momentum',
+        currency: 'USD',
+        instrument_class: 'FX_SPOT',
+        profit_share_pct: '10',
+      });
+    });
+    // created row renders INCUBATING with the list action
+    const row = await screen.findByText(/G10 momentum/);
+    const li = row.closest('li')!;
+    await user.click(within(li).getByRole('button', { name: 'Request listing' }));
+    await waitFor(() => {
+      expect(calls.some((c) => c.url.includes('/copy/strategies/44/list'))).toBe(true);
+    });
+    // fail-closed refusal surfaces verbatim, not as success
+    expect(await screen.findByRole('alert')).toHaveTextContent('INCUBATION_INCOMPLETE');
+  });
+
+  it('looks up a basket op and renders leg statuses', async () => {
+    installFetchMock({
+      'GET /api/v1/strategies': { body: { strategies: [] } },
+      'GET /api/v1/strategy-templates': { body: { templates: [] } },
+      'GET /api/v1/baskets/op-42': {
+        body: {
+          op_id: 'op-42',
+          status: 'PARTIAL',
+          leg_count: 2,
+          legs_filled: 1,
+          legs: [
+            {
+              leg_index: 0,
+              order_id: 11,
+              instrument_id: 1,
+              order_status: 'FILLED',
+              filled_qty: '100',
+            },
+            { leg_index: 1, order_id: 12, instrument_id: 2, order_status: 'WORKING' },
+          ],
+        },
+      },
+      'GET /api/v1/promotions/7': {
+        body: {
+          promotion: {
+            promotion_id: 7,
+            title: 'Spring rebate',
+            slug: 'spring',
+            channel: 'EMAIL',
+            version: 2,
+          },
+        },
+      },
+    });
+    renderApp(<MarketplacePanel />);
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText(/Operation ID/), 'op-42');
+    await user.click(screen.getByRole('button', { name: 'Look up' }));
+    expect(await screen.findByText(/1\/2 filled/)).toBeInTheDocument();
+    expect(screen.getByText('FILLED')).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText(/Promotion ID/), '7');
+    await user.click(screen.getByRole('button', { name: 'View' }));
+    expect(await screen.findByText(/Spring rebate/)).toBeInTheDocument();
   });
 });
