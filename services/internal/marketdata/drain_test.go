@@ -16,15 +16,17 @@ import (
 func TestDrainAdvisoryAndClose(t *testing.T) {
 	srv, c := dial(t, Config{})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	if err := srv.Drain(ctx, "maintenance", time.Second); err != nil && ctx.Err() == nil {
 		t.Fatalf("drain: %v", err)
 	}
 
-	// Client sees the advisory then the close.
+	// Client sees the advisory then the close. Read budget is generous —
+	// Drain's pumpDone wait is deadline-bounded, so under a loaded -race
+	// runner the write pump may flush the advisory AFTER Drain returns.
 	var sawReconnect bool
-	_ = c.SetReadDeadline(time.Now().Add(3 * time.Second))
+	_ = c.SetReadDeadline(time.Now().Add(10 * time.Second))
 	for {
 		mt, b, err := c.ReadMessage()
 		if err != nil {
