@@ -34,6 +34,39 @@ function useServerTime() {
   });
 }
 
+// Live announcement inbox (§8.9 item 3 — public feed, Task 5.3.14).
+function AnnouncementsInbox() {
+  const anns = useQuery({
+    queryKey: ['public', 'announcements'],
+    queryFn: () =>
+      apiClient.get<{
+        data: { id: number; title: string; category: string; publish_at: string }[];
+      }>('/announcements?limit=10'),
+    staleTime: 60_000,
+    retry: false,
+  });
+  const items = anns.data?.data ?? [];
+  if (anns.error !== null || items.length === 0) return null;
+  return (
+    <section className={cardCls} aria-label="Announcements">
+      <h2 className="mb-2 text-sm font-medium text-neutral-400">Announcements</h2>
+      <ul className="space-y-1 text-sm">
+        {items.map((a) => (
+          <li key={a.id} className="flex items-baseline gap-2">
+            <span className="shrink-0 rounded bg-neutral-800 px-1.5 py-0.5 text-xs text-neutral-400">
+              {a.category}
+            </span>
+            <span className="min-w-0 truncate text-neutral-200">{a.title}</span>
+            <span className="ml-auto shrink-0 text-xs text-neutral-500">
+              {a.publish_at.slice(0, 10)}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 const QUICK_LINKS = [
   { label: 'Workspace', to: '/workspace' },
   { label: 'Chart', to: '/chart/EUR%2FUSD' },
@@ -62,31 +95,31 @@ function AccountSnapshot() {
           <h3 className="mb-1 text-xs font-medium text-neutral-500">Balances</h3>
           <div className="relative overflow-x-auto" tabIndex={0}>
             <table className={tableCls}>
-            <thead>
-              <tr>
-                <th className={thCls}>CCY</th>
-                <th className={thCls}>Available</th>
-                <th className={thCls}>Locked</th>
-                <th className={thCls}>Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(balances.data ?? []).map((b) => (
-                <tr key={b.currency}>
-                  <td className={tdCls}>{b.currency}</td>
-                  <td className={tdCls}>{b.available.toDisplay(2)}</td>
-                  <td className={tdCls}>{b.locked.toDisplay(2)}</td>
-                  <td className={tdCls}>{b.total.toDisplay(2)}</td>
-                </tr>
-              ))}
-              {balances.data?.length === 0 && (
+              <thead>
                 <tr>
-                  <td className={tdCls} colSpan={4}>
-                    No balances — fund the account to trade.
-                  </td>
+                  <th className={thCls}>CCY</th>
+                  <th className={thCls}>Available</th>
+                  <th className={thCls}>Locked</th>
+                  <th className={thCls}>Total</th>
                 </tr>
-              )}
-            </tbody>
+              </thead>
+              <tbody>
+                {(balances.data ?? []).map((b) => (
+                  <tr key={b.currency}>
+                    <td className={tdCls}>{b.currency}</td>
+                    <td className={tdCls}>{b.available.toDisplay(2)}</td>
+                    <td className={tdCls}>{b.locked.toDisplay(2)}</td>
+                    <td className={tdCls}>{b.total.toDisplay(2)}</td>
+                  </tr>
+                ))}
+                {balances.data?.length === 0 && (
+                  <tr>
+                    <td className={tdCls} colSpan={4}>
+                      No balances — fund the account to trade.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
             </table>
           </div>
         </div>
@@ -94,38 +127,38 @@ function AccountSnapshot() {
           <h3 className="mb-1 text-xs font-medium text-neutral-500">Open positions</h3>
           <div className="relative overflow-x-auto" tabIndex={0}>
             <table className={tableCls}>
-            <thead>
-              <tr>
-                <th className={thCls}>Symbol</th>
-                <th className={thCls}>Side</th>
-                <th className={thCls}>Qty</th>
-                <th className={thCls}>uPnL</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(positions.data ?? []).map((p) => (
-                <tr key={p.id}>
-                  <td className={tdCls}>
-                    <Link
-                      to={`/advanced/${encodeURIComponent(p.symbol)}`}
-                      className="text-sky-400 hover:underline"
-                    >
-                      {p.symbol}
-                    </Link>
-                  </td>
-                  <td className={tdCls}>{p.side}</td>
-                  <td className={tdCls}>{p.quantity.toDisplay()}</td>
-                  <td className={tdCls}>{p.unrealizedPnl.toDisplay(2)}</td>
-                </tr>
-              ))}
-              {positions.data?.length === 0 && (
+              <thead>
                 <tr>
-                  <td className={tdCls} colSpan={4}>
-                    No open positions.
-                  </td>
+                  <th className={thCls}>Symbol</th>
+                  <th className={thCls}>Side</th>
+                  <th className={thCls}>Qty</th>
+                  <th className={thCls}>uPnL</th>
                 </tr>
-              )}
-            </tbody>
+              </thead>
+              <tbody>
+                {(positions.data ?? []).map((p) => (
+                  <tr key={p.id}>
+                    <td className={tdCls}>
+                      <Link
+                        to={`/advanced/${encodeURIComponent(p.symbol)}`}
+                        className="text-sky-400 hover:underline"
+                      >
+                        {p.symbol}
+                      </Link>
+                    </td>
+                    <td className={tdCls}>{p.side}</td>
+                    <td className={tdCls}>{p.quantity.toDisplay()}</td>
+                    <td className={tdCls}>{p.unrealizedPnl.toDisplay(2)}</td>
+                  </tr>
+                ))}
+                {positions.data?.length === 0 && (
+                  <tr>
+                    <td className={tdCls} colSpan={4}>
+                      No open positions.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
             </table>
           </div>
         </div>
@@ -201,7 +234,8 @@ export default function HomePage() {
         </section>
       </div>
 
-      <div className="mt-4">
+      <div className="mt-4 grid gap-4">
+        <AnnouncementsInbox />
         {signedIn ? (
           <AccountSnapshot />
         ) : (

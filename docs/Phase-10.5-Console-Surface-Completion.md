@@ -355,10 +355,12 @@ Non-goals: new backend business logic (existing routes only); the `/api/v1/test/
 6. Admin webhook management — `GET /api/v1/admin/webhooks/dead-letters` + `POST …/{id}/retransmit` dead-letter review (mounted). Endpoint inspection/disable across accounts is a backend seam gap (the store only lists per-account); if the surface needs it, this task adds the admin route first — register it in routes_v1.go when added (user-side register/delete already shipped in `webhooks/`).
 
 **DoD:**
-* [ ] Content CRUD + promo lifecycle + break-glass review + dual-control queue all functional
+* [x] Content CRUD + promo lifecycle + break-glass review + dual-control queue all functional
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: content/engagement/emergency-access admin complete — defined first, validated against spec
+- [x] Spec checkpoint: content/engagement/emergency-access admin complete — defined first, validated against spec
+
+**Execution record (2026-10-07):** `frontend/src/features/admin-content/` — `ContentPage` (`/admin/content`) + `api.ts` + 5 panels: `ContentPanel` (announcement register incl. drafts/retracted — create/PATCH-edit/Retract-as-DELETE disclosure-preserving transitions; maintenance windows schedule + cancel-as-DELETE), `PromotionsPanel` (`?status=` queue; create DRAFT; PUT revision lands a new version under the slug keeping the approval chain; submit/approve/reject{reason}/withdraw verbs gated by row status; approve carries the five-element MiFID checklist + `second_approver_id` for claims promos + ≤12mo `approved_until`; marketing report strip with SLA/expired-flagged counters), `CurationPanel` (template review queue `?status=` + approve/reject; copy-strategy suspend `{reason}` misconduct action), `EmergencyPanel` (break-glass mint `{grantee_id, incident_ref, reason, ttl_seconds, second_approver_id|unreachable_approver}` + mandatory post-incident review `{notes}` — self-review refused server-side; API-key `extend-expiry` PUT honestly rendered as a 202 dual-control request, never inline; webhook dead-letter queue + per-delivery retransmit), `LpPanel` (per-LP detail with instrument feed configs, guarded lifecycle PUT `{status, staleness_timeout_ms?, reason}`, performance-alert trail `?open=1`). User-side: `AnnouncementsInbox` on `HomePage` reads the public `/announcements` feed. The dual-control queue itself is already served by `DualControlPanel` on `/admin` — this surface submits into it rather than duplicating it; cross-account webhook endpoint inspection remains the documented backend seam gap. Zero backend changes. 7 component tests; 715/715 suite green.
 
 ---
 

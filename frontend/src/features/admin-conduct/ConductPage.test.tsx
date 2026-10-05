@@ -37,14 +37,14 @@ const BASE = {
       policies: [{ id: 2, version: '2026.1', status: 'ACTIVE', body_ref: 'doc://exec-2026-1' }],
     },
   },
-  'GET /api/v1/admin/product-profiles?include_retired=true': {
+  'GET /api/v1/admin/product-profiles': {
     body: {
       profiles: [
         { profile_id: 1, code: 'STD', pricing_plan: 'FIXED', min_deposit: '0', status: 'ACTIVE' },
       ],
     },
   },
-  'GET /api/v1/admin/product-target-markets?overdue=true': {
+  'GET /api/v1/admin/product-target-markets': {
     body: {
       target_markets: [
         {
