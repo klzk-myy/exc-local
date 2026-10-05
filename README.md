@@ -47,7 +47,7 @@ balance mutations · fail-closed zero-loss pessimism (spec §2.7) · degradation
 | Layer | Tech |
 |---|---|
 | Matching core | C++17/20, CMake, NUMA-pinned shards, pipette fixed-point (10⁸) |
-| Services | Go 1.23+, 33 `cmd/*` binaries (gateway, fix, risk, oracle, bridge, compliance, …) |
+| Services | Go 1.23+, 34 `cmd/*` binaries (gateway, fix, risk, oracle, bridge, compliance, …) |
 | Frontend | React 18 + TypeScript, Vite, Vitest, Playwright e2e |
 | Data | PostgreSQL 16 + pg_partman · Redis 7 (Sentinel HA + cache instance) · ClickHouse · Trino · S3 archives |
 | Messaging | Aeron / shared memory (hot path) · NATS JetStream (event backbone) |
@@ -57,8 +57,8 @@ balance mutations · fail-closed zero-loss pessimism (spec §2.7) · degradation
 
 ```
 core/            C++ matching engine, WAL, IPC, FlatBuffers proto (CMake: build/, build-debug/, build-prof/)
-services/        Go services — cmd/<binary> entrypoints (33 binaries), internal/ packages,
-                 pkg/, config.example.yaml, internal/db/migrations/ (215 migration pairs, 001–285)
+services/        Go services — cmd/<binary> entrypoints (34 binaries), internal/ packages,
+                 pkg/, config.example.yaml, internal/db/migrations/ (216 migration pairs, 001–285)
 frontend/        React 18 + TS web UI (Vite, Vitest, Playwright e2e)
 tests/           spec/ (543 checkpoint harness) · soak/ (72h loadgen) · load/ (AC matrix) ·
                  chaos/ (6 scenarios) · integration/ (63 tests) · pentest/ (17 tests)
@@ -351,8 +351,8 @@ CI: `.github/workflows/ci.yml` (10 jobs) + `security.yml` (5 jobs) — currently
 ## Current status
 
 - All 31 phases (24 core + 7 buffer) implemented — 506 tasks, 543 checkpoints; Phase-10.5 console-surface completion landed (27 tasks, remediation #46; supersedes "479 tasks / planned").
-- 215 migration pairs · 419 §24 acceptance criteria · 234 error codes emitted (207 in spec §23 registry + matrix-resident).
-- Canonical counts verified by mechanical audit: §24=419, error codes=234, AC rows=1,079, migrations=001–285, spec checkpoints=543.
+- 216 migration pairs · 419 §24 acceptance criteria · 277 registered error codes (207 spec §23 rows + 70 gateway-local).
+- Canonical counts verified by mechanical audit: §24=419, error codes=277, AC rows=1,079, migrations=001–285, spec checkpoints=543.
 - Open items are **environment-bound evidence gates**, not code gaps:
   - **72h soak @ 50k ord/s** — needs a dedicated benchmark host for the p99≤50µs criterion; engine ceiling ≥90.7k/s measured (supersedes "~15k/s dev-host ceiling" — that figure was the loadgen's ~20µs/order send loop, not engine capacity); all other Phase-02.5 criteria verified incl. crash-restart 614ms–1359ms ≪10s.
   - **75k/s × 4h staging gate** — needs a provisioned staging cluster; artifact contract `staging-report.json` armed (`ckP085StagingGate`).
