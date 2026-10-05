@@ -234,10 +234,12 @@ Non-goals: new backend business logic (existing routes only); the `/api/v1/test/
 4. Tax reporting — `GET/POST /api/v1/admin/tax-reporting/runs[/{id}]`, `POST …/runs/{id}/{review|approve|reject}` (CRS/FATCA golden-XML runs).
 
 **DoD:**
-* [ ] Fee schedules + promos + tax runs + finance statements render and mutate correctly
+* [x] Fee schedules + promos + tax runs + finance statements render and mutate correctly
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: pricing/finance admin complete with approval flows — defined first, validated against spec
+- [x] Spec checkpoint: pricing/finance admin complete with approval flows — defined first, validated against spec
+
+**Execution record (2026-10-07):** `frontend/src/features/admin-finance/` — `FinancePage` (`/admin/finance`) + `api.ts` + 4 panels: `FeeSchedulesPanel` (rail/all filter, create v1, PUT successor insert — supersedes chain preserved, DELETE retire, per-row version-chain drill-down), `PromosPanel` (window list + create → PENDING_APPROVAL rendered honestly, four-eyes approve/reject — distinct approver enforced claims-side), `FinancePanel` (trial-balance JSON w/ date+currency filters, P&L/balance-sheet CSV export links, invoice register w/ account+month filter, reporting-values list + Compliance-officer upsert), `TaxReportingPanel` (CRS/FATCA runs + generate, DRAFT→UNDER_REVIEW→APPROVED→SUBMITTED lifecycle strip, reject w/ reason, submit w/ submission_ref, integrity-checked /xml artifact link). Full lifecycle incl. XML + submit covered beyond plan's review|approve|reject shorthand. Zero backend changes. 6 component tests; 677/677 suite green.
 
 ---
 
