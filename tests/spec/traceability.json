@@ -1,7 +1,7 @@
 {
   "tool": "exchange-testspec/validator trace",
   "version": "1.0.0",
-  "generated_at": "2026-10-03T01:53:04.032732032Z",
+  "generated_at": "2026-10-05T15:09:29.628000433Z",
   "repo_root": "/www/wwwroot/exc.local",
   "docs": "/www/wwwroot/exc.local/docs",
   "spec": "Specification - Complete Exchange System Suite.md",
@@ -315,7 +315,7 @@
               "exists": true,
               "cites_criterion": false,
               "text": "Idempotent replay skips already-applied entries",
-              "line": 403
+              "line": 405
             }
           ],
           "resolved": true
@@ -3263,21 +3263,21 @@
               "exists": true,
               "cites_criterion": false,
               "text": "PostgreSQL WAL archived to S3 continuously",
-              "line": 396
+              "line": 398
             },
             {
               "row": 14,
               "exists": true,
               "cites_criterion": false,
               "text": "Nightly base backup completes",
-              "line": 397
+              "line": 399
             },
             {
               "row": 15,
               "exists": true,
               "cites_criterion": false,
               "text": "PITR restore to specified timestamp succeeds",
-              "line": 398
+              "line": 400
             }
           ],
           "resolved": true
@@ -3315,14 +3315,14 @@
               "exists": true,
               "cites_criterion": false,
               "text": "RPO ≤ 15s verified",
-              "line": 399
+              "line": 401
             },
             {
               "row": 17,
               "exists": true,
               "cites_criterion": false,
               "text": "RTO ≤ 5 min verified",
-              "line": 400
+              "line": 402
             }
           ],
           "resolved": true
@@ -3359,7 +3359,7 @@
               "exists": true,
               "cites_criterion": false,
               "text": "ClickHouse DR targets met: RPO ≤ 60s, RTO ≤ 30 min (§18.3, §24 #159)",
-              "line": 407
+              "line": 409
             }
           ],
           "resolved": true
@@ -6299,7 +6299,7 @@
               "exists": true,
               "cites_criterion": true,
               "text": "ClickHouse DR targets met: RPO ≤ 60s, RTO ≤ 30 min (§18.3, §24 #159)",
-              "line": 407
+              "line": 409
             }
           ],
           "resolved": true
@@ -6311,7 +6311,7 @@
           "Phase-04-Persistence-Recovery.md#AC24"
         ],
         "task_ac": [
-          "Phase-04-Persistence-Recovery.md:186"
+          "Phase-04-Persistence-Recovery.md:188"
         ],
         "checkpoints": [
           {
@@ -10118,7 +10118,7 @@
               "exists": true,
               "cites_criterion": true,
               "text": "Advanced order panel: all TIF modes, iceberg, trailing stop, bracket; sub-account switcher with balances; admin fee tier assignment (§24 #251)",
-              "line": 818
+              "line": 834
             }
           ],
           "resolved": true
@@ -10837,7 +10837,7 @@
               "exists": true,
               "cites_criterion": true,
               "text": "Position/margin/pip/liquidation/swap calculators use live mark and account leverage (§24 #267)",
-              "line": 819
+              "line": 835
             }
           ],
           "resolved": true
@@ -10881,7 +10881,7 @@
               "exists": true,
               "cites_criterion": true,
               "text": "Lite/Pro modes, confirmed quick actions, percentage sizing, and interactive depth chart are functional (§24 #268)",
-              "line": 820
+              "line": 836
             }
           ],
           "resolved": true
@@ -10959,7 +10959,7 @@
               "exists": true,
               "cites_criterion": true,
               "text": "ADL rank is visible per position with explanatory risk tooltip (§24 #269)",
-              "line": 821
+              "line": 837
             }
           ],
           "resolved": true
@@ -12162,14 +12162,14 @@
               "exists": true,
               "cites_criterion": true,
               "text": "Users can save/reset accessible customizable workspace layouts and themes, meeting WCAG 2.1 AA with a CI axe-core audit over trade, positions, admin and calculator routes (§24 #292)",
-              "line": 822
+              "line": 838
             },
             {
               "row": 27,
               "exists": true,
               "cites_criterion": true,
               "text": "Chart shows draggable open orders, fill markers, position/stop/target overlays, and candle countdown with safe amendment semantics (§24 #292)",
-              "line": 823
+              "line": 839
             }
           ],
           "resolved": true
@@ -12220,7 +12220,7 @@
               "exists": true,
               "cites_criterion": true,
               "text": "Built-in indicators and cost-aware sandboxed backtests are reproducible and cannot place live orders (§24 #293)",
-              "line": 824
+              "line": 840
             }
           ],
           "resolved": true
@@ -12264,7 +12264,7 @@
               "exists": true,
               "cites_criterion": true,
               "text": "FX top movers, heatmaps, watchlists, and rate alerts consume canonical market data (§24 #294)",
-              "line": 825
+              "line": 841
             }
           ],
           "resolved": true
@@ -12311,7 +12311,7 @@
               "exists": true,
               "cites_criterion": true,
               "text": "Equity/P\u0026L/drawdown/cost dashboard reconciles to Phase-20 ledger-backed reporting (§24 #295)",
-              "line": 826
+              "line": 842
             }
           ],
           "resolved": true
@@ -12640,7 +12640,7 @@
               "exists": true,
               "cites_criterion": true,
               "text": "Graduated WAL recovery ladder resolves trailing CRC errors, rebases snapshot on Level 2, and halts fail-closed on Level 3 with recovery_reports row (§24 #302)",
-              "line": 410
+              "line": 412
             }
           ],
           "resolved": true
@@ -12992,7 +12992,7 @@
               "exists": true,
               "cites_criterion": true,
               "text": "UI renders DISCONNECTED banner and disables order entry on socket drop; rolls back optimistic state on rejection; warns STALE_PRICING on \u003e3s silence; reconnects on the spec §21.3 schedule (100ms→2s then 10s cap, ±20% jitter) with the normative state machine staying under the Phase-06 10/min/IP throttle and inside the 60s replay window (§24 #310)",
-              "line": 827
+              "line": 843
             }
           ],
           "resolved": true
@@ -14104,7 +14104,7 @@
               "exists": true,
               "cites_criterion": true,
               "text": "End-to-end crash recovery \u0026 cross-region DR orchestration engine automates split-brain fencing, standby promotion, 6-stage data integrity audit (zero-sum GL, monotonic sequence, book-WAL equality), client resync, and CANCEL_ONLY reopening ladder within RTO targets (§18.6, §24 #335)",
-              "line": 411
+              "line": 413
             }
           ],
           "resolved": true
@@ -14818,7 +14818,7 @@
               "exists": true,
               "cites_criterion": true,
               "text": "Environment pill with prod confirm and context-bound API client; fleet/release/ops-board pages with dual-control surfacing; new routes axe-audited and RBAC-gated (§24 #351)",
-              "line": 828
+              "line": 844
             }
           ],
           "resolved": true
@@ -14910,7 +14910,7 @@
               "exists": true,
               "cites_criterion": true,
               "text": "Audit stages time-boxed inside RTO with running-digest verification and P1 fail-closed overrun; snapshots carry CRC32C with automatic rebase on corruption (§24 #353)",
-              "line": 412
+              "line": 414
             }
           ],
           "resolved": true
@@ -14954,7 +14954,7 @@
               "exists": true,
               "cites_criterion": true,
               "text": "Per-shard audit verdicts reopen healthy shards while failed shards freeze; feed outage past 120s reopens with suspense flags and post-open reconcile; zero-sum exempt from fallback (§24 #354)",
-              "line": 413
+              "line": 415
             }
           ],
           "resolved": true
@@ -16196,7 +16196,7 @@
               "exists": true,
               "cites_criterion": true,
               "text": "Login, register, 2FA setup/verify/disable, and session-list screens functional; route guards redirect unauthenticated users; silent token refresh until refresh fails (§24 #382)",
-              "line": 829
+              "line": 845
             }
           ],
           "resolved": true
@@ -16240,7 +16240,7 @@
               "exists": true,
               "cites_criterion": true,
               "text": "Account-security center covers profile, WebAuthn/passkeys, anti-phishing code, device management, emergency freeze, cooling-off, account closure, GDPR export/erase, consent, and notification preferences with confirmation modals on destructive actions (§24 #383)",
-              "line": 830
+              "line": 846
             }
           ],
           "resolved": true
@@ -16284,7 +16284,7 @@
               "exists": true,
               "cites_criterion": true,
               "text": "Deposit instructions render per-currency bank details; withdrawal form with beneficiary selector, 2FA, and 15-min confirm window; internal transfers between owned accounts; fee estimator shows rail fee, arrival estimate, and cut-off (§24 #384)",
-              "line": 831
+              "line": 847
             }
           ],
           "resolved": true
@@ -16328,7 +16328,7 @@
               "exists": true,
               "cites_criterion": true,
               "text": "KYC status tracker displays tier/state/per-document status and trading-limit impact; upload wizard handles multi-step document submission with file validation; re-verification prompts on expiry (§24 #385)",
-              "line": 832
+              "line": 848
             }
           ],
           "resolved": true
@@ -16372,7 +16372,7 @@
               "exists": true,
               "cites_criterion": true,
               "text": "Support-ticket submission with attachments and priority gating; conversation thread with status lifecycle; staff-side queue renders for Support Agent role (§24 #386)",
-              "line": 833
+              "line": 849
             }
           ],
           "resolved": true
@@ -16416,7 +16416,7 @@
               "exists": true,
               "cites_criterion": true,
               "text": "Copy-trading strategy browser/follow and grid-bot wizard/management UI enforce max-5-concurrent bots and display risk disclosures (§24 #387)",
-              "line": 834
+              "line": 850
             }
           ],
           "resolved": true
@@ -16460,7 +16460,7 @@
               "exists": true,
               "cites_criterion": true,
               "text": "Order history table with filters and per-row cancel/amend/audit-link; algo management with pause/resume; OPO/OCO list viewer; dead-man switch with live countdown; test/preview validates without submitting; BBO/aggTrades/liquidations/OI/referencePrice/configurable-depth WS channels consumed (§24 #388)",
-              "line": 835
+              "line": 851
             }
           ],
           "resolved": true
@@ -16504,7 +16504,7 @@
               "exists": true,
               "cites_criterion": true,
               "text": "Tax report, account statements, trade confirmations, TCA report, solvency proof viewer, fee schedule, account snapshots, income history, and system-info panel functional; announcement banners render globally in SPA shell (§24 #389)",
-              "line": 836
+              "line": 852
             }
           ],
           "resolved": true
@@ -16548,7 +16548,7 @@
               "exists": true,
               "cites_criterion": true,
               "text": "Centralized input-helper framework: OpenAPI-synced validation schemas, instrument-aware formatting, real-time preview engine, smart defaults, autocomplete, keyboard shortcuts, contextual help, unified confirmation/risk-warning modals, bulk/paste import, and unit converters are shared across all UI surfaces (§24 #390)",
-              "line": 837
+              "line": 853
             }
           ],
           "resolved": true
@@ -17795,7 +17795,7 @@
               "exists": true,
               "cites_criterion": true,
               "text": "Daily batch compactor exports historical trades/aggTrades/klines to S3 ZIPs with SHA256 (§24 #419)",
-              "line": 409
+              "line": 411
             }
           ],
           "resolved": true
