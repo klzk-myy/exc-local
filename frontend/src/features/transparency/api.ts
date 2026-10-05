@@ -132,6 +132,16 @@ export async function fetchBestExec(
   return raw.map(parseBestExec).filter((r): r is BestExecReport => r !== null);
 }
 
+/** Full published report payload (metrics/venues JSON) — GET .../{id}. */
+export async function fetchBestExecDetail(
+  kind: 'rts27' | 'rts28',
+  id: number,
+  api: Api = apiClient,
+): Promise<Record<string, unknown>> {
+  const res = await api.get<unknown>(`/venue/best-execution/${kind}/${id}`);
+  return isRecord(res) ? res : {};
+}
+
 /** Download the published CSV artifact for a report. */
 export function downloadBestExecCsv(kind: 'rts27' | 'rts28', id: number) {
   return downloadFile(`/venue/best-execution/${kind}/${id}/csv`, `${kind}-${id}.csv`, {

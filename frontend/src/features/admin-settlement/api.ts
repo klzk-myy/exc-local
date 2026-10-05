@@ -445,3 +445,264 @@ export async function resolveChargeback(
     note: input.note,
   });
 }
+
+// ---------------------------------------------------------------------------
+// Backoffice settlement ops (Task 10.5.3.27 gate-coverage wiring):
+// nostro statement ingest/journal, bilateral netting batches, SSI
+// register, suspense routing, rail cut-off schedules, instruction roll.
+// Rows marshal the service structs verbatim (mostly snake_case, some
+// PascalCase) — pick() dual-cases where both appear in the wild.
+// ---------------------------------------------------------------------------
+
+export interface AdminStatement {
+  id: number;
+  nostroAccountId: number;
+  format: string;
+  status: string;
+  periodStart: string;
+  periodEnd: string;
+  entryCount: number;
+  checksum: string;
+  receivedAt: string;
+}
+const parseStatement = (v: unknown): AdminStatement => {
+  const r = isRecord(v) ? v : {};
+  return {
+    id: num(pick(r, 'id', 'ID')) ?? num(pick(r, 'statement_id', 'StatementID')) ?? 0,
+    nostroAccountId: num(pick(r, 'nostro_account_id', 'NostroAccountID')) ?? 0,
+    format: str(pick(r, 'format', 'Format')) ?? '',
+    status: str(pick(r, 'status', 'Status')) ?? '',
+    periodStart: str(pick(r, 'period_start', 'PeriodStart')) ?? '',
+    periodEnd: str(pick(r, 'period_end', 'PeriodEnd')) ?? '',
+    entryCount: num(pick(r, 'entry_count', 'EntryCount')) ?? 0,
+    checksum: str(pick(r, 'checksum', 'Checksum')) ?? '',
+    receivedAt: str(pick(r, 'received_at', 'ReceivedAt')) ?? '',
+  };
+};
+
+export async function fetchAdminStatements(
+  api: BoundAdminApi,
+  nostroAccountId?: number,
+): Promise<AdminStatement[]> {
+  const raw = await api.get<unknown>('/admin/settlement/statements', {
+    ...(nostroAccountId !== undefined && nostroAccountId > 0
+      ? { nostro_account_id: String(nostroAccountId) }
+      : {}),
+    limit: '100',
+  });
+  const rows = isRecord(raw) && Array.isArray(raw['statements']) ? raw['statements'] : [];
+  return rows.map(parseStatement);
+}
+
+export async function ingestStatement(
+  api: BoundAdminApi,
+  input: {
+    nostroAccountId: number;
+    format: 'MT940' | 'MT942' | 'CAMT053';
+    content: string;
+    source?: string;
+  },
+): Promise<unknown> {
+  return api.post<unknown>('/admin/settlement/statements', {
+    nostro_account_id: input.nostroAccountId,
+    format: input.format,
+    content: input.content,
+    source: input.source,
+  });
+}
+
+export async function fetchStatementEntries(
+  api: BoundAdminApi,
+  id: number,
+): Promise<Record<string, unknown>[]> {
+  const raw = await api.get<unknown>(`/admin/settlement/statements/${id}/entries`);
+  return isRecord(raw) && Array.isArray(raw['entries'])
+    ? (raw['entries'] as Record<string, unknown>[])
+    : [];
+}
+
+export interface NettingBatch {
+  id: number;
+  counterpartyAccountId: number;
+  currency: string;
+  valueDate: string;
+  status: string;
+  lineCount: number;
+}
+const parseBatch = (v: unknown): NettingBatch => {
+  const r = isRecord(v) ? v : {};
+  return {
+    id: num(pick(r, 'id', 'ID')) ?? 0,
+    counterpartyAccountId: num(pick(r, 'counterparty_account_id', 'CounterpartyAccountID')) ?? 0,
+    currency: str(pick(r, 'currency', 'Currency')) ?? '',
+    valueDate: str(pick(r, 'value_date', 'ValueDate')) ?? '',
+    status: str(pick(r, 'status', 'Status')) ?? '',
+    lineCount: num(pick(r, 'line_count', 'LineCount')) ?? 0,
+  };
+};
+
+export async function fetchNettingBatches(
+  api: BoundAdminApi,
+  status?: string,
+): Promise<NettingBatch[]> {
+  const raw = await api.get<unknown>('/admin/settlement/netting/batches', {
+    ...(status !== undefined && status !== '' ? { status } : {}),
+    limit: '100',
+  });
+  const rows = isRecord(raw) && Array.isArray(raw['batches']) ? raw['batches'] : [];
+  return rows.map(parseBatch);
+}
+
+export async function fetchBatchLines(
+  api: BoundAdminApi,
+  id: number,
+): Promise<Record<string, unknown>[]> {
+  const raw = await api.get<unknown>(`/admin/settlement/netting/batches/${id}/lines`);
+  return isRecord(raw) && Array.isArray(raw['lines'])
+    ? (raw['lines'] as Record<string, unknown>[])
+    : [];
+}
+
+export const runNetting = (
+  api: BoundAdminApi,
+  input: {
+    counterpartyAccountId: number;
+    currency: string;
+    valueDate: string;
+  },
+): Promise<unknown> =>
+  api.post<unknown>('/admin/settlement/netting/run', {
+    counterparty_account_id: input.counterpartyAccountId,
+    currency: input.currency,
+    value_date: input.valueDate,
+  });
+
+export const dispatchBatch = (api: BoundAdminApi, id: number, rail: string): Promise<unknown> =>
+  api.post<unknown>(`/admin/settlement/netting/batches/${id}/dispatch`, { rail });
+
+export const settleBatch = (
+  api: BoundAdminApi,
+  id: number,
+  confirmationRef: string,
+): Promise<unknown> =>
+  api.post<unknown>(`/admin/settlement/netting/batches/${id}/settle`, {
+    confirmation_ref: confirmationRef,
+  });
+
+export const bustBatch = (
+  api: BoundAdminApi,
+  id: number,
+  instructionIds: number[],
+  reason: string,
+): Promise<unknown> =>
+  api.post<unknown>(`/admin/settlement/netting/batches/${id}/bust`, {
+    instruction_ids: instructionIds,
+    reason,
+  });
+
+export interface Ssi {
+  id: number;
+  accountId: number;
+  currency: string;
+  ref: string;
+  bic: string;
+  isDefault: boolean;
+  revoked: boolean;
+}
+const parseSsi = (v: unknown): Ssi => {
+  const r = isRecord(v) ? v : {};
+  return {
+    id: num(pick(r, 'id', 'ID')) ?? 0,
+    accountId: num(pick(r, 'account_id', 'AccountID')) ?? 0,
+    currency: str(pick(r, 'currency', 'Currency')) ?? '',
+    ref: str(pick(r, 'nostro_or_beneficiary_ref', 'NostroOrBeneficiaryRef')) ?? '',
+    bic: str(pick(r, 'bic', 'BIC')) ?? '',
+    isDefault: bool(pick(r, 'is_default', 'IsDefault')) ?? false,
+    revoked: bool(pick(r, 'revoked', 'Revoked')) ?? false,
+  };
+};
+
+export async function fetchSsis(api: BoundAdminApi, accountId: number): Promise<Ssi[]> {
+  const raw = await api.get<unknown>('/admin/settlement/ssi', {
+    account_id: String(accountId),
+  });
+  const rows = isRecord(raw) && Array.isArray(raw['ssis']) ? raw['ssis'] : [];
+  return rows.map(parseSsi);
+}
+
+export const registerSsi = (
+  api: BoundAdminApi,
+  input: {
+    accountId: number;
+    bankAccountId: number;
+    currency: string;
+    ref: string;
+    bic?: string;
+    isDefault?: boolean;
+  },
+): Promise<unknown> =>
+  api.post<unknown>('/admin/settlement/ssi', {
+    account_id: input.accountId,
+    bank_account_id: input.bankAccountId,
+    currency: input.currency,
+    nostro_or_beneficiary_ref: input.ref,
+    bic: input.bic,
+    is_default: input.isDefault,
+  });
+
+export const revokeSsi = (api: BoundAdminApi, id: number): Promise<unknown> =>
+  api.post<unknown>(`/admin/settlement/ssi/${id}/revoke`, {});
+
+export const routeSuspense = (
+  api: BoundAdminApi,
+  input: {
+    bankTxId: string;
+    rail: string;
+    currency: string;
+    amount: string;
+    originatorName: string;
+    originatorAccount: string;
+    reference: string;
+    remittanceInfo?: string;
+  },
+): Promise<unknown> =>
+  api.post<unknown>('/admin/settlement/suspense/route', {
+    bank_tx_id: input.bankTxId,
+    rail: input.rail,
+    currency: input.currency,
+    amount: input.amount,
+    originator_name: input.originatorName,
+    originator_account: input.originatorAccount,
+    reference: input.reference,
+    remittance_info: input.remittanceInfo,
+  });
+
+export const resolveSuspense = (
+  api: BoundAdminApi,
+  id: number,
+  action: 'RELEASE_TO_CLIENT' | 'RETURN_TO_SOURCE',
+  notes?: string,
+): Promise<unknown> =>
+  api.post<unknown>(`/admin/settlement/suspense/${id}/resolve`, { action, notes });
+
+export const fetchRailSchedules = async (
+  api: BoundAdminApi,
+): Promise<Record<string, unknown>[]> => {
+  const raw = await api.get<unknown>('/admin/settlement/rail-schedules');
+  return isRecord(raw) && Array.isArray(raw['schedules'])
+    ? (raw['schedules'] as Record<string, unknown>[])
+    : [];
+};
+
+export const evaluateRail = (
+  api: BoundAdminApi,
+  input: { rail: string; currency: string; at?: string },
+): Promise<unknown> =>
+  api.post<unknown>('/admin/settlement/rail-schedules/evaluate', {
+    rail: input.rail,
+    currency: input.currency,
+    at: input.at === '' ? undefined : input.at,
+  });
+
+export const rollInstruction = (api: BoundAdminApi, id: number): Promise<unknown> =>
+  api.post<unknown>(`/admin/settlement/instructions/${id}/roll`, {});

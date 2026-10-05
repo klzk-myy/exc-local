@@ -139,7 +139,17 @@ export default function ApiKeysPanel() {
   return (
     <div className="space-y-4">
       <div className={cardCls}>
-        <h3 className="mb-2 text-sm font-semibold">API keys</h3>
+        <div className="mb-2 flex items-center justify-between">
+          <h3 className="text-sm font-semibold">API keys</h3>
+          <a
+            href="/developer"
+            target="_blank"
+            rel="noreferrer"
+            className="text-xs text-sky-300 hover:underline"
+          >
+            API documentation ↗
+          </a>
+        </div>
         {issued?.secret !== undefined && (
           <OneTimeSecret secret={issued.secret} notice={issued.notice} />
         )}

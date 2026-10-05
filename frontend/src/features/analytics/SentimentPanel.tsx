@@ -8,6 +8,8 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 
+import { ApiError } from '@/lib/api';
+
 import { apiClient } from '@/app/runtime';
 import { ErrorBox, Field, cardCls, selectCls, tableCls, tdCls, thCls } from '@/lib/ui';
 
@@ -43,16 +45,19 @@ export function SentimentPanel({ symbol }: { symbol: string }) {
     queryKey: ['analytics', 'oi', symbol, interval],
     queryFn: () => fetchOpenInterest(symbol, interval, apiClient),
     enabled: symbol !== '',
+    retry: (n, e) => !(e instanceof ApiError && e.status < 500) && n < 2,
   });
   const ls = useQuery({
     queryKey: ['analytics', 'long-short', symbol, period],
     queryFn: () => fetchLongShort(symbol, period, apiClient),
     enabled: symbol !== '',
+    retry: (n, e) => !(e instanceof ApiError && e.status < 500) && n < 2,
   });
   const tf = useQuery({
     queryKey: ['analytics', 'taker-flow', symbol, period],
     queryFn: () => fetchMarketTakerVolume(symbol, apiClient),
     enabled: symbol !== '',
+    retry: (n, e) => !(e instanceof ApiError && e.status < 500) && n < 2,
   });
 
   const lsPoints = (ls.data?.points ?? []).slice(-12);

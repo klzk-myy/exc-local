@@ -444,3 +444,17 @@ export async function enforce(
     ttl_seconds: input.ttlSeconds ?? 0,
   });
 }
+
+// ---------------------------------------------------------------------------
+// Swap-free account verification decisions (Phase-14 Task 14.3.15) —
+// Compliance-Officer approve/reject on requests and revoke on the
+// standing status (abuse → compliance hold). No admin list route
+// mounts; ids arrive through the compliance case queue.
+// ---------------------------------------------------------------------------
+
+export const decideSwapFree = (
+  api: BoundAdminApi,
+  id: number,
+  decision: 'approve' | 'reject' | 'revoke',
+  reason?: string,
+): Promise<unknown> => api.post<unknown>(`/admin/swap-free/${id}/${decision}`, { reason });

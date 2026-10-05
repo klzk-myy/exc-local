@@ -327,3 +327,38 @@ export async function revokeSubAccountApiKey(
 ): Promise<void> {
   await api.delete(`/account/sub-accounts/${subAccountId}/api-keys/${keyId}`);
 }
+
+// ---------------------------------------------------------------------------
+// GDPR consent registry (Task 10.5.3.27 gate-coverage wiring,
+// Phase-25 Task 25.3.21) — purpose-keyed lawful-basis consents with
+// granted_at/revoked_at audit timestamps. Distinct from the
+// doc-version consent endpoints above: this is the GDPR registry.
+// ---------------------------------------------------------------------------
+
+export interface GdprConsent {
+  purpose: string;
+  granted: boolean;
+  grantedAt?: string;
+  revokedAt?: string;
+}
+
+export async function fetchGdprConsents(api: ApiClient): Promise<GdprConsent[]> {
+  const raw = await api.get<unknown>('/account/gdpr/consent');
+  if (typeof raw !== 'object' || raw === null) return [];
+  const rows = (raw as Record<string, unknown>)['consents'];
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .filter((r): r is Record<string, unknown> => typeof r === 'object' && r !== null)
+    .map((r) => ({
+      purpose: typeof r['purpose'] === 'string' ? r['purpose'] : '',
+      granted: r['granted'] === true,
+      grantedAt: typeof r['granted_at'] === 'string' ? r['granted_at'] : undefined,
+      revokedAt: typeof r['revoked_at'] === 'string' ? r['revoked_at'] : undefined,
+    }));
+}
+
+export const putGdprConsent = (
+  api: ApiClient,
+  purpose: string,
+  granted: boolean,
+): Promise<unknown> => api.put<unknown>('/account/gdpr/consent', { purpose, granted });

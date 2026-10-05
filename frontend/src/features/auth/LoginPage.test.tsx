@@ -103,7 +103,7 @@ describe('LoginPage', () => {
     installFetchMock({});
     renderApp(<LoginPage />);
     // jsdom exposes no PublicKeyCredential — the control fails closed.
-    expect(screen.getByRole('button', { name: 'Sign in with a passkey' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Continue with a passkey' })).toBeDisabled();
     expect(screen.getByText(/requires a browser with WebAuthn support/)).toBeInTheDocument();
   });
 
@@ -152,7 +152,7 @@ describe('LoginPage', () => {
     });
     renderApp(<LoginPage />);
     const user = userEvent.setup();
-    await user.click(screen.getByRole('button', { name: 'Sign in with a passkey' }));
+    await user.click(screen.getByRole('button', { name: 'Continue with a passkey' }));
     await waitFor(() => {
       expect(useSessionStore.getState().accessToken).toBe('pk-at');
     });

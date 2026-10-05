@@ -170,7 +170,7 @@ export function SubmissionsPanel({ adminApi }: { adminApi: BoundAdminApi }) {
         </p>
       ) : null}
       {queue.data !== undefined && queue.data.breaks.length > 0 ? (
-        <div className="max-h-44 overflow-y-auto">
+        <div className="max-h-44 overflow-y-auto" tabIndex={0}>
           <table className={tableCls}>
             <thead>
               <tr>
@@ -209,7 +209,7 @@ export function SubmissionsPanel({ adminApi }: { adminApi: BoundAdminApi }) {
 
       {submissions.error !== null ? <ErrorBox error={submissions.error} /> : null}
       {submissions.data !== undefined && submissions.data.length > 0 ? (
-        <div className="mt-2 max-h-44 overflow-y-auto">
+        <div className="mt-2 max-h-44 overflow-y-auto" tabIndex={0}>
           <table className={tableCls}>
             <thead>
               <tr>
@@ -398,7 +398,10 @@ export function SubmissionsPanel({ adminApi }: { adminApi: BoundAdminApi }) {
       </form>
 
       {reconcileReport !== null ? (
-        <pre className="mt-2 max-h-40 overflow-auto rounded border border-neutral-800 p-2 font-mono text-xs">
+        <pre
+          className="mt-2 max-h-40 overflow-auto rounded border border-neutral-800 p-2 font-mono text-xs"
+          tabIndex={0}
+        >
           {JSON.stringify(reconcileReport, null, 2)}
         </pre>
       ) : null}

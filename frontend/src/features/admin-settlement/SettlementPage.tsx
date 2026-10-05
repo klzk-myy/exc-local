@@ -11,9 +11,11 @@ import { EnvPill, EnvSwitcher, EnvWatermark, useBoundAdminApi } from '@/lib/env'
 import { RequireAdmin } from '../admin/RequireAdmin';
 import { useAdminRole } from '../admin/adminRole';
 import { AllocationsPanel } from './AllocationsPanel';
+import { BackofficePanel } from './BackofficePanel';
 import { ChargebacksPanel } from './ChargebacksPanel';
 import { ClsPanel } from './ClsPanel';
 import { ExceptionsPanel } from './ExceptionsPanel';
+import { NettingPanel } from './NettingPanel';
 
 export default function SettlementPage() {
   return (
@@ -47,6 +49,8 @@ function SettlementDashboard() {
       </div>
       <div className="grid gap-4">
         <ClsPanel adminApi={adminApi} />
+        <NettingPanel adminApi={adminApi} />
+        <BackofficePanel adminApi={adminApi} />
         <ExceptionsPanel adminApi={adminApi} />
         <AllocationsPanel adminApi={adminApi} />
         <ChargebacksPanel adminApi={adminApi} />

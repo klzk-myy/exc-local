@@ -24,7 +24,13 @@ import {
 
 import { isAccessDenied } from '../admin/adminRole';
 import { AccessDeniedCard } from '../admin/RequireAdmin';
-import { fetchBaselReport, fetchComplianceReport, fetchRegEvents } from './api';
+import {
+  fetchBaselReport,
+  fetchComplianceReport,
+  fetchMifidReport,
+  fetchRegEventDetail,
+  fetchRegEvents,
+} from './api';
 
 const EXPORT_TYPES = [
   'MIFID2',
@@ -46,6 +52,8 @@ export function RegimePanel({ adminApi }: { adminApi: BoundAdminApi }) {
   });
   const [exportOut, setExportOut] = useState<unknown>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [eventDetail, setEventDetail] = useState<{ id: number; raw: unknown } | null>(null);
+  const [mifidRun, setMifidRun] = useState(false);
 
   const emirEvents = useQuery({
     queryKey: ['admin-emir-events', regime],
@@ -58,6 +66,17 @@ export function RegimePanel({ adminApi }: { adminApi: BoundAdminApi }) {
     queryKey: ['admin-basel-report', baselPeriod, baselRun],
     queryFn: () => fetchBaselReport(adminApi, baselPeriod === '' ? undefined : baselPeriod),
     enabled: baselRun,
+  });
+  const detailMut = useMutation({
+    mutationFn: (id: number) => fetchRegEventDetail(adminApi, id),
+    onSuccess: (raw, id) => setEventDetail({ id, raw }),
+    onError: (e) => setNotice(e instanceof Error ? e.message : 'Detail load failed'),
+  });
+  const mifid = useQuery({
+    queryKey: ['admin-mifid-report'],
+    queryFn: () => fetchMifidReport(adminApi),
+    enabled: mifidRun,
+    retry: false,
   });
   const exportMut = useMutation({
     mutationFn: () =>
@@ -99,7 +118,7 @@ export function RegimePanel({ adminApi }: { adminApi: BoundAdminApi }) {
         <p className="text-sm text-neutral-500">No reportable events.</p>
       ) : null}
       {emirEvents.data !== undefined && emirEvents.data.length > 0 ? (
-        <div className="max-h-48 overflow-y-auto">
+        <div className="max-h-48 overflow-y-auto" tabIndex={0}>
           <table className={tableCls}>
             <thead>
               <tr>
@@ -115,7 +134,16 @@ export function RegimePanel({ adminApi }: { adminApi: BoundAdminApi }) {
             <tbody>
               {emirEvents.data.map((e) => (
                 <tr key={e.eventId}>
-                  <td className={tdCls}>{e.eventId}</td>
+                  <td className={tdCls}>
+                    <button
+                      type="button"
+                      className="underline decoration-dotted"
+                      onClick={() => detailMut.mutate(e.eventId)}
+                      aria-expanded={eventDetail?.id === e.eventId}
+                    >
+                      {e.eventId}
+                    </button>
+                  </td>
                   <td className={`${tdCls} font-mono text-xs`}>{e.uti}</td>
                   <td className={tdCls}>
                     <StatusBadge value={e.regime || 'UNKNOWN'} />
@@ -130,6 +158,24 @@ export function RegimePanel({ adminApi }: { adminApi: BoundAdminApi }) {
           </table>
         </div>
       ) : null}
+      {eventDetail !== null && (
+        <div className="mt-2 rounded border border-neutral-800 p-2">
+          <div className="mb-1 flex items-center justify-between">
+            <h3 className="text-xs font-semibold">Event #{eventDetail.id} detail</h3>
+            <button
+              type="button"
+              className={btnGhost}
+              onClick={() => setEventDetail(null)}
+              aria-label="Close event detail"
+            >
+              Close
+            </button>
+          </div>
+          <pre className="max-h-48 overflow-auto font-mono text-xs text-neutral-300" tabIndex={0}>
+            {JSON.stringify(eventDetail.raw, null, 2)}
+          </pre>
+        </div>
+      )}
 
       <div className="mt-4 border-t border-neutral-800 pt-3">
         <h3 className="mb-1 text-sm font-semibold">Basel III report</h3>
@@ -154,14 +200,54 @@ export function RegimePanel({ adminApi }: { adminApi: BoundAdminApi }) {
           </button>
         </div>
         {basel.error !== null ? <ErrorBox error={basel.error} /> : null}
-        {basel.data === null && baselRun && !basel.isLoading ? (
+        {basel.data === null && baselRun ? (
           <p className={hintTextCls}>No Basel report persisted for the period.</p>
         ) : null}
         {basel.data !== null && basel.data !== undefined ? (
-          <pre className="mt-2 max-h-48 overflow-auto rounded border border-neutral-800 p-2 font-mono text-xs">
+          <pre
+            className="mt-2 max-h-48 overflow-auto rounded border border-neutral-800 p-2 font-mono text-xs"
+            tabIndex={0}
+          >
             {JSON.stringify(basel.data.raw, null, 2)}
           </pre>
         ) : null}
+      </div>
+
+      <div className="mt-4 border-t border-neutral-800 pt-3">
+        <div className="mb-2 flex items-center justify-between">
+          <h3 className="text-sm font-semibold">MiFID II bundle</h3>
+          <button
+            type="button"
+            className={btnGhost}
+            onClick={() => setMifidRun(true)}
+            disabled={mifidRun}
+          >
+            Load RTS27+RTS28 bundle
+          </button>
+        </div>
+        {mifid.isError && <ErrorBox error={mifid.error} />}
+        {mifid.data !== undefined && (
+          <div className="grid gap-2 text-xs md:grid-cols-2">
+            {(
+              [
+                ['RTS 27 execution quality', mifid.data.rts27],
+                ['RTS 28 top-5 venues', mifid.data.rts28],
+              ] as const
+            ).map(([title, rows]) => (
+              <div key={title} className="rounded border border-neutral-800 p-2">
+                <h4 className="mb-1 font-medium text-neutral-300">{title}</h4>
+                <ul className="max-h-40 overflow-y-auto font-mono text-neutral-400" tabIndex={0}>
+                  {rows.map((r, i) => (
+                    <li key={i} className="py-0.5">
+                      {JSON.stringify(r)}
+                    </li>
+                  ))}
+                  {rows.length === 0 && <li className={hintTextCls}>No reports.</li>}
+                </ul>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="mt-4 border-t border-neutral-800 pt-3">
@@ -211,7 +297,10 @@ export function RegimePanel({ adminApi }: { adminApi: BoundAdminApi }) {
           </button>
         </form>
         {exportOut !== null ? (
-          <pre className="mt-2 max-h-48 overflow-auto rounded border border-neutral-800 p-2 font-mono text-xs">
+          <pre
+            className="mt-2 max-h-48 overflow-auto rounded border border-neutral-800 p-2 font-mono text-xs"
+            tabIndex={0}
+          >
             {JSON.stringify(exportOut, null, 2)}
           </pre>
         ) : null}

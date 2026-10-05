@@ -12,6 +12,7 @@ import { RequireAdmin } from '../admin/RequireAdmin';
 import { useAdminRole } from '../admin/adminRole';
 import { RecordsArchivePanel, DlqPanel } from './ArchiveDlqPanel';
 import { AuditIntegrityPanel } from './AuditIntegrityPanel';
+import { AuditTrailPanel } from './AuditTrailPanel';
 import { DeprecationPanel } from './DeprecationPanel';
 import { ReconPanel } from './ReconPanel';
 
@@ -47,6 +48,7 @@ function IntegrityDashboard() {
       </div>
       <div className="grid gap-4">
         <AuditIntegrityPanel adminApi={adminApi} />
+        <AuditTrailPanel adminApi={adminApi} />
         <ReconPanel adminApi={adminApi} />
         <RecordsArchivePanel adminApi={adminApi} />
         <DlqPanel adminApi={adminApi} />

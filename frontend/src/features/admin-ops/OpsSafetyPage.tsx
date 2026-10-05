@@ -21,6 +21,8 @@ import { FlagsPanel } from './FlagsPanel';
 import { IpSecurityPanel } from './IpSecurityPanel';
 import { KillSwitchPanel } from './KillSwitchPanel';
 import { MaintenancePanel } from './MaintenancePanel';
+import { SecurityOpsPanel } from './SecurityOpsPanel';
+import { TradeOpsPanel } from './TradeOpsPanel';
 
 export default function OpsSafetyPage() {
   return (
@@ -58,6 +60,8 @@ function OpsSafetyDashboard() {
         <FlagsPanel adminApi={adminApi} />
         <IpSecurityPanel adminApi={adminApi} />
         <MaintenancePanel adminApi={adminApi} />
+        <TradeOpsPanel adminApi={adminApi} />
+        <SecurityOpsPanel adminApi={adminApi} />
         <DestructiveOpsPanel adminApi={adminApi} />
       </div>
     </div>

@@ -7,7 +7,7 @@
  *   GET /venue/best-execution/rts28[/{id}/csv]  annual top-5 venues
  *   GET /meta/pagination · /meta/rate-limits    published API contracts
  */
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 
 import { apiClient } from '@/app/runtime';
@@ -18,6 +18,7 @@ import { ErrorBox, Field, btnGhost, cardCls, selectCls, tableCls, tdCls, thCls }
 import {
   downloadBestExecCsv,
   fetchBestExec,
+  fetchBestExecDetail,
   fetchPaginationMeta,
   fetchRateLimitsMeta,
   fetchVenueInfo,
@@ -147,9 +148,28 @@ function VenueDocCard() {
   );
 }
 
+function BestExecDetail({ kind, id }: { kind: 'rts27' | 'rts28'; id: number }) {
+  const q = useQuery({
+    queryKey: ['public', 'best-exec', kind, id],
+    queryFn: () => fetchBestExecDetail(kind, id, apiClient),
+    retry: retryPublic,
+  });
+  if (q.isPending) return <p className="text-xs text-neutral-500">Loading report…</p>;
+  if (q.isError) return <ErrorBox error={q.error} />;
+  return (
+    <pre
+      className="max-h-56 overflow-y-auto rounded border border-neutral-800 bg-neutral-950/60 p-2 font-mono text-[11px] text-neutral-300"
+      tabIndex={0}
+    >
+      {JSON.stringify(q.data, null, 2)}
+    </pre>
+  );
+}
+
 function BestExecCard() {
   const [kind, setKind] = useState<'rts27' | 'rts28'>('rts27');
   const [dlErr, setDlErr] = useState<unknown>(null);
+  const [openId, setOpenId] = useState<number | null>(null);
   const q = useQuery({
     queryKey: ['public', 'best-exec', kind],
     queryFn: () => fetchBestExec(kind, apiClient),
@@ -199,37 +219,53 @@ function BestExecCard() {
             </thead>
             <tbody>
               {q.data.map((r) => (
-                <tr key={r.id}>
-                  <td className={`${tdCls} font-mono`}>
-                    {kind === 'rts27' ? (r.quarter_start ?? '—').slice(0, 10) : (r.year ?? '—')}
-                    {r.zero_activity === true ? (
-                      <span className="ml-1 rounded bg-neutral-700/60 px-1 text-[10px] text-neutral-400">
-                        zero activity
-                      </span>
+                <Fragment key={r.id}>
+                  <tr>
+                    <td className={`${tdCls} font-mono`}>
+                      <button
+                        type="button"
+                        className="text-sky-300 hover:underline"
+                        aria-expanded={openId === r.id}
+                        onClick={() => setOpenId(openId === r.id ? null : r.id)}
+                      >
+                        {kind === 'rts27' ? (r.quarter_start ?? '—').slice(0, 10) : (r.year ?? '—')}
+                      </button>
+                      {r.zero_activity === true ? (
+                        <span className="ml-1 rounded bg-neutral-700/60 px-1 text-[10px] text-neutral-400">
+                          zero activity
+                        </span>
+                      ) : null}
+                    </td>
+                    <td className={`${tdCls} font-mono`}>{r.instrument_class ?? '—'}</td>
+                    <td className={`${tdCls} font-mono`}>v{r.version ?? '—'}</td>
+                    <td className={tdCls}>{r.status ?? '—'}</td>
+                    {kind === 'rts27' ? (
+                      <td className={`${tdCls} font-mono`}>{r.days_covered ?? '—'}</td>
                     ) : null}
-                  </td>
-                  <td className={`${tdCls} font-mono`}>{r.instrument_class ?? '—'}</td>
-                  <td className={`${tdCls} font-mono`}>v{r.version ?? '—'}</td>
-                  <td className={tdCls}>{r.status ?? '—'}</td>
-                  {kind === 'rts27' ? (
-                    <td className={`${tdCls} font-mono`}>{r.days_covered ?? '—'}</td>
+                    <td className={`${tdCls} font-mono`}>
+                      {r.published_at !== undefined ? r.published_at.slice(0, 10) : '—'}
+                    </td>
+                    <td className={tdCls}>
+                      <button
+                        type="button"
+                        className={btnGhost}
+                        onClick={() => {
+                          setDlErr(null);
+                          void downloadBestExecCsv(kind, r.id).then(saveBlob).catch(setDlErr);
+                        }}
+                      >
+                        CSV
+                      </button>
+                    </td>
+                  </tr>
+                  {openId === r.id ? (
+                    <tr>
+                      <td className={tdCls} colSpan={kind === 'rts27' ? 7 : 6}>
+                        <BestExecDetail kind={kind} id={r.id} />
+                      </td>
+                    </tr>
                   ) : null}
-                  <td className={`${tdCls} font-mono`}>
-                    {r.published_at !== undefined ? r.published_at.slice(0, 10) : '—'}
-                  </td>
-                  <td className={tdCls}>
-                    <button
-                      type="button"
-                      className={btnGhost}
-                      onClick={() => {
-                        setDlErr(null);
-                        void downloadBestExecCsv(kind, r.id).then(saveBlob).catch(setDlErr);
-                      }}
-                    >
-                      CSV
-                    </button>
-                  </td>
-                </tr>
+                </Fragment>
               ))}
             </tbody>
           </table>
@@ -266,7 +302,7 @@ function MetaCard() {
             {pag.data.envelope?.cursor_order ?? '—'}
             {pag.data.envelope?.cursor_opaque === true ? ' · opaque cursor' : ''}
           </p>
-          <div className="max-h-44 overflow-y-auto">
+          <div className="max-h-44 overflow-y-auto" tabIndex={0}>
             <table className={tableCls}>
               <thead>
                 <tr>

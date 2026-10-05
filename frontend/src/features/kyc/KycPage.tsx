@@ -11,6 +11,7 @@ import { useAuthed } from '@/lib/trading/queries';
 import { ErrorBox, cardCls } from '@/lib/ui';
 
 import * as api from './api';
+import { SelfCertPanel } from './SelfCertPanel';
 import { StatusTracker } from './StatusTracker';
 import UploadWizard from './UploadWizard';
 
@@ -129,6 +130,7 @@ export default function KycPage() {
           {q.isPending && <p className="text-sm text-neutral-400">Loading status…</p>}
           {status !== undefined && <StatusTracker status={status} />}
           {req.data !== undefined && <PolicyCard requirements={req.data} />}
+          <SelfCertPanel />
           {needsSubmission && (
             <UploadWizard
               requirements={req.data}

@@ -190,7 +190,7 @@ export default function LoginPage() {
                 passkey.mutate();
               }}
             >
-              {passkey.isPending ? 'Waiting for passkey…' : 'Sign in with a passkey'}
+              {passkey.isPending ? 'Waiting for passkey…' : 'Continue with a passkey'}
             </button>
             {!passkeySupported && (
               <p className="mt-2 text-xs text-neutral-500" role="status">

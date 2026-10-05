@@ -14,8 +14,11 @@
  * renders as an explicit "not available" note on failure.
  */
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 
 import { ApiError } from '@/lib/api';
+import { apiClient } from '@/app/runtime';
+import { listStatements } from '../funding/api';
 import { useSessionStore } from '@/lib/auth/session';
 import { btnPrimary, cardCls, inputCls, labelCls, selectCls } from '@/lib/ui';
 import { downloadFile, isNotImplemented, saveBlob, useValidatedField } from '@/lib/input-helpers';
@@ -165,16 +168,15 @@ export function DownloadCenter() {
         {year.error ? <p className="mt-1 text-xs text-red-400">{year.error}</p> : null}
       </DownloadCard>
 
-      <DownloadCard
-        title="Account statement"
-        desc="Monthly account statement (Phase-20 Task 20.3.6) — endpoint live."
-        action="Download statement"
-        status={st('statement')}
-        onGo={() => {
-          run('statement', () =>
-            downloadFile('/account/statements', 'statement.csv', { accept: 'text/csv' }),
-          );
-        }}
+      <StatementRegistry
+        onDownload={(id) =>
+          run(`stmt-${id}`, () =>
+            downloadFile(`/account/statements/${id}/download`, `statement-${id}.csv`, {
+              accept: 'text/csv',
+            }),
+          )
+        }
+        statusFor={(id) => st(`stmt-${id}`)}
       />
 
       <DownloadCard
@@ -246,6 +248,87 @@ export function DownloadCenter() {
           );
         }}
       />
+    </div>
+  );
+}
+
+/**
+ * Statement registry (Task 10.5.3.27 gate-coverage wiring,
+ * Phase-20 Task 20.3.6) — GET /account/statements returns the JSON
+ * registry; each row downloads its CSV artifact via /{id}/download.
+ */
+function StatementRegistry({
+  onDownload,
+  statusFor,
+}: {
+  onDownload: (id: number) => void;
+  statusFor: (id: number) => Status;
+}) {
+  const q = useQuery({
+    queryKey: ['account', 'statements'],
+    queryFn: () => listStatements(apiClient),
+    retry: false,
+  });
+  return (
+    <div className={cardCls}>
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-neutral-100">Account statements</h2>
+        <button
+          type="button"
+          className="text-xs text-sky-300 hover:underline"
+          onClick={() => void q.refetch()}
+        >
+          Refresh
+        </button>
+      </div>
+      <p className="mt-1 text-xs text-neutral-500">
+        Statement registry (Phase-20 Task 20.3.6) — pick a period; the CSV artifact lives at /
+        {'{id}'}/download.
+      </p>
+      {q.isError ? (
+        <p role="alert" className="mt-2 text-xs text-red-400">
+          {q.error instanceof Error ? q.error.message : 'Failed to load statements'}
+        </p>
+      ) : null}
+      <ul className="mt-2 space-y-1 text-xs">
+        {(q.data ?? []).map((s) => {
+          const stt = statusFor(s.id);
+          return (
+            <li
+              key={s.id}
+              className="flex items-center justify-between rounded border border-neutral-800 px-2 py-1"
+            >
+              <span className="text-neutral-300">
+                {s.periodStart ?? '?'} → {s.periodEnd ?? '?'}
+                {s.generatedAt !== undefined ? (
+                  <span className="ml-2 text-neutral-500">gen {s.generatedAt}</span>
+                ) : null}
+              </span>
+              <span className="flex items-center gap-2">
+                {stt.kind === 'done' ? (
+                  <span className="text-emerald-300">{stt.filename}</span>
+                ) : null}
+                {stt.kind === 'error' ? (
+                  <span className="text-red-400">
+                    {stt.err instanceof ApiError ? stt.err.message : 'Download failed'}
+                  </span>
+                ) : null}
+                <button
+                  type="button"
+                  className={btnPrimary}
+                  disabled={stt.kind === 'busy'}
+                  onClick={() => onDownload(s.id)}
+                >
+                  {stt.kind === 'busy' ? 'Preparing…' : 'CSV'}
+                </button>
+              </span>
+            </li>
+          );
+        })}
+        {q.data?.length === 0 ? (
+          <li className="text-neutral-500">No statements generated yet.</li>
+        ) : null}
+      </ul>
     </div>
   );
 }

@@ -6,6 +6,8 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 
+import { ApiError } from '@/lib/api';
+
 import { apiClient } from '@/app/runtime';
 import { ErrorBox, Field, cardCls, selectCls, tableCls, tdCls, thCls } from '@/lib/ui';
 
@@ -14,18 +16,25 @@ import { fetchPerformance, fetchStats24h, fetchVenueStats, fetchVolume } from '.
 export function VenuePanel() {
   const [granularity, setGranularity] = useState<'1h' | '1d'>('1h');
 
-  const stats = useQuery({ queryKey: ['analytics', '24h'], queryFn: () => fetchStats24h() });
+  const stats = useQuery({
+    queryKey: ['analytics', '24h'],
+    queryFn: () => fetchStats24h(),
+    retry: (n, e) => !(e instanceof ApiError && e.status < 500) && n < 2,
+  });
   const perf = useQuery({
     queryKey: ['analytics', 'performance'],
     queryFn: () => fetchPerformance(apiClient),
+    retry: (n, e) => !(e instanceof ApiError && e.status < 500) && n < 2,
   });
   const vol = useQuery({
     queryKey: ['analytics', 'volume', granularity],
     queryFn: () => fetchVolume({ granularity, limit: 25 }, apiClient),
+    retry: (n, e) => !(e instanceof ApiError && e.status < 500) && n < 2,
   });
   const venue = useQuery({
     queryKey: ['analytics', 'venue-stats'],
     queryFn: () => fetchVenueStats(apiClient),
+    retry: (n, e) => !(e instanceof ApiError && e.status < 500) && n < 2,
   });
 
   return (
@@ -47,7 +56,7 @@ export function VenuePanel() {
         ) : stats.data.rows.length === 0 ? (
           <p className="text-xs text-neutral-500">No trades in the window.</p>
         ) : (
-          <div className="max-h-56 overflow-y-auto">
+          <div className="max-h-56 overflow-y-auto" tabIndex={0}>
             <table className={tableCls}>
               <thead>
                 <tr>
@@ -141,7 +150,7 @@ export function VenuePanel() {
         ) : vol.data.rows.length === 0 ? (
           <p className="text-xs text-neutral-500">No volume in the window.</p>
         ) : (
-          <div className="max-h-40 overflow-y-auto">
+          <div className="max-h-40 overflow-y-auto" tabIndex={0}>
             <table className={tableCls}>
               <thead>
                 <tr>

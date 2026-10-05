@@ -31,6 +31,11 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /out/ /app/bin/
+# Static content served by the gateway — the VDP policy loader
+# (cmd/gateway/wiring.go loadVDPPolicy) resolves content/… relative to
+# the workdir or EXC_VDP_POLICY_PATH; ship the canonical docs in-image
+# so /api/v1/security/policy never degrades for a missing mount.
+COPY content/ /app/content/
 RUN chmod +x /app/bin/*
 
 ENV PATH="/app/bin:${PATH}"

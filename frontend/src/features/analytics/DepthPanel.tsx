@@ -6,6 +6,8 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 
+import { ApiError } from '@/lib/api';
+
 import { apiClient } from '@/app/runtime';
 import { ErrorBox, btnGhost, cardCls, tableCls, tdCls, thCls } from '@/lib/ui';
 
@@ -17,6 +19,7 @@ export function DepthPanel({ symbol }: { symbol: string }) {
     queryFn: () => fetchDepth(symbol, 10, apiClient),
     enabled: symbol !== '',
     refetchInterval: 15_000,
+    retry: (n, e) => !(e instanceof ApiError && e.status < 500) && n < 2,
   });
   const [l3Req, setL3Req] = useState(false);
   const [l3, setL3] = useState<{ data?: unknown; error?: unknown } | null>(null);
@@ -114,7 +117,7 @@ export function DepthPanel({ symbol }: { symbol: string }) {
                       </span>
                     ) : null}
                   </p>
-                  <div className="mt-1 max-h-40 overflow-y-auto">
+                  <div className="mt-1 max-h-40 overflow-y-auto" tabIndex={0}>
                     <table className={tableCls}>
                       <tbody>
                         {(d.orders ?? []).slice(0, 25).map((o, i) => (

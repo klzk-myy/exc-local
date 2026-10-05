@@ -370,6 +370,16 @@ services:
   gateway:
     <<: *go-common
     command: ["/app/bin/gateway"]
+    environment:
+      <<: *go-env
+      # Fail-closed loader (wiring.go): point at the in-image doc so the
+      # endpoint never silently degrades when a mount is absent.
+      EXC_VDP_POLICY_PATH: /app/content/security/policy.md
+    volumes:
+      - /dev/shm:/dev/shm
+      # Repo docs served by the gateway (VDP policy, legal markdown) —
+      # bind-mounted so edits hot-apply without an image rebuild.
+      - ./content:/app/content:ro
     depends_on:
       matching-engine:
         condition: service_started

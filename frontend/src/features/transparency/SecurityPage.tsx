@@ -39,7 +39,10 @@ function PolicyCard() {
       ) : q.isError ? (
         <ErrorBox error={q.error} />
       ) : (
-        <pre className="max-h-96 overflow-y-auto whitespace-pre-wrap rounded border border-neutral-800 bg-neutral-950 p-3 text-xs text-neutral-300">
+        <pre
+          className="max-h-96 overflow-y-auto whitespace-pre-wrap rounded border border-neutral-800 bg-neutral-950 p-3 text-xs text-neutral-300"
+          tabIndex={0}
+        >
           {q.data}
         </pre>
       )}

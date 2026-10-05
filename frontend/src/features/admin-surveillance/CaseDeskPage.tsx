@@ -14,6 +14,7 @@ import { CommsPanel } from './CommsPanel';
 import { SanctionsOpsPanel } from './SanctionsOpsPanel';
 import { SarCtrPanel } from './SarCtrPanel';
 import { SurveillancePanel } from './SurveillancePanel';
+import { TuningPanel } from './TuningPanel';
 
 export default function CaseDeskPage() {
   return (
@@ -50,6 +51,7 @@ function CaseDeskDashboard() {
         <SarCtrPanel adminApi={adminApi} />
         <AmlPanel adminApi={adminApi} />
         <SanctionsOpsPanel adminApi={adminApi} />
+        <TuningPanel adminApi={adminApi} />
         <CommsPanel adminApi={adminApi} />
       </div>
     </div>

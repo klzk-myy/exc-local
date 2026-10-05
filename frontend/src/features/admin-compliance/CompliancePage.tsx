@@ -14,6 +14,7 @@ import { EmployeeDealingPanel } from './EmployeeDealingPanel';
 import { EnforcementPanel } from './EnforcementPanel';
 import { RestrictedListsPanel } from './RestrictedListsPanel';
 import { ScreeningPanel } from './ScreeningPanel';
+import { SwapFreePanel } from './SwapFreePanel';
 import { TravelRulePanel } from './TravelRulePanel';
 
 export default function CompliancePage() {
@@ -51,6 +52,7 @@ function ComplianceDashboard() {
         <TravelRulePanel adminApi={adminApi} />
         <RestrictedListsPanel adminApi={adminApi} />
         <EmployeeDealingPanel adminApi={adminApi} />
+        <SwapFreePanel adminApi={adminApi} />
         <EnforcementPanel adminApi={adminApi} />
       </div>
     </div>

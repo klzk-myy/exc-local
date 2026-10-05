@@ -417,3 +417,32 @@ export async function announceDeprecation(
     notice: input.notice,
   });
 }
+
+// ---------------------------------------------------------------------------
+// Joined audit trail search (Phase-21 Task 21.3.27) — admin_audit_log ⨝
+// audit_hash_chain; mask=1 renders the auditor-shareable export.
+// ---------------------------------------------------------------------------
+
+export async function fetchAuditTrail(
+  api: BoundAdminApi,
+  q: {
+    action?: string;
+    targetType?: string;
+    adminUserId?: string;
+    mask?: boolean;
+    limit?: number;
+  },
+): Promise<Record<string, unknown>[]> {
+  const raw = await api.get<unknown>('/admin/audit/trail', {
+    ...(q.action !== undefined && q.action !== '' ? { action: q.action } : {}),
+    ...(q.targetType !== undefined && q.targetType !== '' ? { target_type: q.targetType } : {}),
+    ...(q.adminUserId !== undefined && q.adminUserId !== ''
+      ? { admin_user_id: q.adminUserId }
+      : {}),
+    ...(q.mask === true ? { mask: '1' } : {}),
+    limit: String(q.limit ?? 100),
+  });
+  return isRecord(raw) && Array.isArray(raw['rows'])
+    ? (raw['rows'] as Record<string, unknown>[]).filter(isRecord)
+    : [];
+}

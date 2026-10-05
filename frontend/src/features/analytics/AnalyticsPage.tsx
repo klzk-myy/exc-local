@@ -14,6 +14,8 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 
+import { ApiError } from '@/lib/api';
+
 import { apiClient } from '@/app/runtime';
 import { useSessionStore } from '@/lib/auth/session';
 import { ErrorBox, Field, cardCls, inputCls, tableCls, tdCls, thCls } from '@/lib/ui';
@@ -28,6 +30,7 @@ function PositioningCard({ symbol }: { symbol: string }) {
     queryKey: ['analytics', 'positioning', symbol],
     queryFn: () => fetchPositioning(symbol, apiClient),
     enabled: symbol !== '',
+    retry: (n, e) => !(e instanceof ApiError && e.status < 500) && n < 2,
   });
   return (
     <section aria-label="Positioning" className={cardCls}>
@@ -71,7 +74,11 @@ function PositioningCard({ symbol }: { symbol: string }) {
 }
 
 function MyPnlCard() {
-  const q = useQuery({ queryKey: ['analytics', 'pnl'], queryFn: () => fetchAccountPnl() });
+  const q = useQuery({
+    queryKey: ['analytics', 'pnl'],
+    queryFn: () => fetchAccountPnl(),
+    retry: (n, e) => !(e instanceof ApiError && e.status < 500) && n < 2,
+  });
   return (
     <section aria-label="Account P&L analytics" className={cardCls}>
       <h2 className="mb-1 text-sm font-semibold">My P&L analytics</h2>
@@ -82,7 +89,7 @@ function MyPnlCard() {
       ) : q.data.length === 0 ? (
         <p className="text-xs text-neutral-500">No P&L rows in the window.</p>
       ) : (
-        <div className="max-h-40 overflow-y-auto">
+        <div className="max-h-40 overflow-y-auto" tabIndex={0}>
           <table className={tableCls}>
             <thead>
               <tr>

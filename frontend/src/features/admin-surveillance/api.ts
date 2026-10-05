@@ -560,3 +560,52 @@ export async function replaySanctionsQueue(api: BoundAdminApi): Promise<Record<s
   if (!isRecord(raw)) throw malformed('sanctions replay');
   return raw;
 }
+
+// ---------------------------------------------------------------------------
+// Detection tuning (Phase-21 Task 21.3.27) — versioned signal-parameter
+// proposals: DRAFT → atomic ACTIVE swap + FP-rate backtest.
+// ---------------------------------------------------------------------------
+
+export interface TuningVersion {
+  signalType: string;
+  version: number;
+  status: string;
+  fpTargetPct?: number;
+}
+
+export async function fetchTuning(api: BoundAdminApi): Promise<TuningVersion[]> {
+  const raw = await api.get<unknown>('/admin/surveillance/tuning', { limit: '100' });
+  const rows = isRecord(raw) && Array.isArray(raw['tuning']) ? raw['tuning'] : [];
+  return rows.map((v) => {
+    const r = isRecord(v) ? v : {};
+    return {
+      signalType: str(r['signal_type']) ?? str(r['signal']) ?? '',
+      version: num(r['version']) ?? 0,
+      status: str(r['status']) ?? '',
+      fpTargetPct: num(r['fp_target_pct']),
+    };
+  });
+}
+
+export async function proposeTuning(
+  api: BoundAdminApi,
+  input: { signalType: string; params: string; fpTargetPct: number },
+): Promise<unknown> {
+  return api.post<unknown>('/admin/surveillance/tuning', {
+    signal_type: input.signalType,
+    params: JSON.parse(input.params) as unknown,
+    fp_target_pct: input.fpTargetPct,
+  });
+}
+
+export const activateTuning = (
+  api: BoundAdminApi,
+  signal: string,
+  version: number,
+): Promise<unknown> =>
+  api.post<unknown>(`/admin/surveillance/tuning/${encodeURIComponent(signal)}/activate`, {
+    version,
+  });
+
+export const backtestTuning = (api: BoundAdminApi, signal: string): Promise<unknown> =>
+  api.get<unknown>(`/admin/surveillance/tuning/${encodeURIComponent(signal)}/backtest`);

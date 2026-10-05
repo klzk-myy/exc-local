@@ -17,6 +17,8 @@ export interface BoundAdminApi {
   readonly env: AdminEnv;
   get<T>(path: string, query?: QueryParams): Promise<T>;
   post<T>(path: string, body?: unknown, opts?: RequestOptions): Promise<T>;
+  put<T>(path: string, body?: unknown, opts?: RequestOptions): Promise<T>;
+  delete<T>(path: string, opts?: RequestOptions): Promise<T>;
 }
 
 /** Bind an ApiClient to one environment context. All requests carry
@@ -32,5 +34,8 @@ export function boundAdminApi(api: ApiClient, env: AdminEnv): BoundAdminApi {
     get: <T>(path: string, query?: QueryParams) => api.get<T>(path, { ...stamp(), query }),
     post: <T>(path: string, body?: unknown, opts?: RequestOptions) =>
       api.post<T>(path, body, stamp(opts)),
+    put: <T>(path: string, body?: unknown, opts?: RequestOptions) =>
+      api.put<T>(path, body, stamp(opts)),
+    delete: <T>(path: string, opts?: RequestOptions) => api.delete<T>(path, stamp(opts)),
   };
 }

@@ -224,6 +224,12 @@ jobs:
       - name: Format check (Prettier)
         run: npm run format:check
 
+      # Task 10.5.3.27 — every mounted non-excluded backend route must
+      # have a real UI/API surface reference in src (exclusions and
+      # typed dispatches are explicit registries that fail when stale).
+      - name: Route-coverage gate
+        run: npm run check:routes
+
       - name: Unit tests (Vitest + RTL)
         run: npm run test
 

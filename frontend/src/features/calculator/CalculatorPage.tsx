@@ -9,6 +9,7 @@ import { wsClient } from '@/app/runtime';
 import type { WsClient } from '@/lib/ws';
 
 import { PositionCalculator } from './PositionCalculator';
+import { ServerPipValue } from './ServerPipValue';
 
 export default function CalculatorPage({ client = wsClient }: { client?: WsClient }) {
   const { symbol: routeSymbol } = useParams<{ symbol: string }>();
@@ -21,6 +22,7 @@ export default function CalculatorPage({ client = wsClient }: { client?: WsClien
         the pair&apos;s quote currency unless noted — all figures are estimates, not guarantees.
       </p>
       <PositionCalculator client={client} initialSymbol={routeSymbol ?? 'EUR/USD'} />
+      <ServerPipValue initialSymbol={routeSymbol ?? 'EUR/USD'} />
     </div>
   );
 }

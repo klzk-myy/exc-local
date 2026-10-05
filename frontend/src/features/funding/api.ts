@@ -538,3 +538,31 @@ export async function conversionHistory(api: ApiClient, limit = 50): Promise<Con
   const res = await api.get<{ items?: ConversionRecord[] }>(`/funding/conversions?limit=${limit}`);
   return res.items ?? [];
 }
+
+// ---------------------------------------------------------------------------
+// Statement registry + per-id download (Task 10.5.3.27 gate-coverage
+// wiring, Phase-20 Task 20.3.6) — GET /account/statements returns the
+// JSON registry; the CSV artifact lives at /{id}/download.
+// ---------------------------------------------------------------------------
+
+export interface StatementRow {
+  id: number;
+  periodStart?: string;
+  periodEnd?: string;
+  generatedAt?: string;
+}
+
+export async function listStatements(api: ApiClient): Promise<StatementRow[]> {
+  const raw = await api.get<unknown>('/account/statements');
+  if (typeof raw !== 'object' || raw === null) return [];
+  const rows = (raw as Record<string, unknown>)['statements'];
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .filter((r): r is Record<string, unknown> => typeof r === 'object' && r !== null)
+    .map((r) => ({
+      id: typeof r['id'] === 'number' ? r['id'] : 0,
+      periodStart: typeof r['period_start'] === 'string' ? r['period_start'] : undefined,
+      periodEnd: typeof r['period_end'] === 'string' ? r['period_end'] : undefined,
+      generatedAt: typeof r['generated_at'] === 'string' ? r['generated_at'] : undefined,
+    }));
+}

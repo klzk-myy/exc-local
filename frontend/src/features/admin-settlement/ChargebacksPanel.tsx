@@ -121,7 +121,7 @@ export function ChargebacksPanel({ adminApi }: { adminApi: BoundAdminApi }) {
         <p className="text-sm text-neutral-500">No chargeback cases.</p>
       ) : null}
       {list.data !== undefined && list.data.length > 0 ? (
-        <div className="max-h-48 overflow-y-auto">
+        <div className="max-h-48 overflow-y-auto" tabIndex={0}>
           <table className={tableCls}>
             <thead>
               <tr>

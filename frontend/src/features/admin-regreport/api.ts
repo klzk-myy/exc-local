@@ -376,3 +376,32 @@ export async function fetchComplianceReport(
   if (f.to) q.set('to', f.to);
   return api.get<unknown>(`/admin/compliance-report?${q.toString()}`);
 }
+
+// ---------------------------------------------------------------------------
+// Event detail + MiFID II report bundle (Task 10.5.3.27 gate wiring) —
+// event detail joins the immutable artifact + ack history; the MiFID
+// bundle merges the RTS27/28 registers server-side.
+// ---------------------------------------------------------------------------
+
+export async function fetchRegEventDetail(
+  api: BoundAdminApi,
+  id: number,
+): Promise<Record<string, unknown> | null> {
+  const raw = await api.get<unknown>(`/admin/regreporting/events/${id}`);
+  return isRecord(raw) ? raw : null;
+}
+
+export interface MifidBundle {
+  rts27: Record<string, unknown>[];
+  rts28: Record<string, unknown>[];
+}
+
+export async function fetchMifidReport(api: BoundAdminApi, status?: string): Promise<MifidBundle> {
+  const raw = await api.get<unknown>('/admin/mifid-report', {
+    ...(status !== undefined && status !== '' ? { status } : {}),
+    limit: '50',
+  });
+  const list = (k: string) =>
+    isRecord(raw) && Array.isArray(raw[k]) ? (raw[k] as Record<string, unknown>[]) : [];
+  return { rts27: list('rts27_reports'), rts28: list('rts28_reports') };
+}

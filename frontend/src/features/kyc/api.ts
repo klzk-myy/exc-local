@@ -189,3 +189,43 @@ export function fileToBase64(file: File): Promise<string> {
     r.readAsDataURL(file);
   });
 }
+
+// ---------------------------------------------------------------------------
+// Self-certification (Task 10.5.3.27 gate-coverage wiring) — investor
+// categorisation + appropriateness declaration. GET returns the stored
+// declaration; POST submits {annual_income, net_worth, trading_experience,
+// acknowledges_risk}.
+// ---------------------------------------------------------------------------
+
+export interface SelfCertification {
+  annualIncome?: string;
+  netWorth?: string;
+  tradingExperience?: string;
+  acknowledgesRisk?: boolean;
+  submittedAt?: string;
+}
+
+export async function fetchSelfCert(api: ApiClient): Promise<SelfCertification | null> {
+  const raw = await api.get<unknown>('/kyc/self-certification');
+  if (typeof raw !== 'object' || raw === null) return null;
+  const r = raw as Record<string, unknown>;
+  if (Object.keys(r).length === 0) return null;
+  return {
+    annualIncome: typeof r['annual_income'] === 'string' ? r['annual_income'] : undefined,
+    netWorth: typeof r['net_worth'] === 'string' ? r['net_worth'] : undefined,
+    tradingExperience:
+      typeof r['trading_experience'] === 'string' ? r['trading_experience'] : undefined,
+    acknowledgesRisk: r['acknowledges_risk'] === true,
+    submittedAt: typeof r['submitted_at'] === 'string' ? r['submitted_at'] : undefined,
+  };
+}
+
+export const postSelfCert = (
+  api: ApiClient,
+  body: {
+    annual_income: string;
+    net_worth: string;
+    trading_experience: string;
+    acknowledges_risk: boolean;
+  },
+): Promise<unknown> => api.post<unknown>('/kyc/self-certification', body);

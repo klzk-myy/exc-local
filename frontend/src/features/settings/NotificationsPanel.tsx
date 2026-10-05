@@ -8,7 +8,16 @@ import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiClient } from '@/app/runtime';
-import { ErrorBox, btnPrimary, cardCls, tableCls, tdCls, thCls } from '@/lib/ui';
+import {
+  ErrorBox,
+  StatusBadge,
+  btnGhost,
+  btnPrimary,
+  cardCls,
+  tableCls,
+  tdCls,
+  thCls,
+} from '@/lib/ui';
 
 import * as api from './api';
 
@@ -165,6 +174,93 @@ export default function NotificationsPanel() {
           {saveConsent.isPending ? 'Saving…' : 'Save consents'}
         </button>
       </div>
+
+      <GdprConsentPanel />
+    </div>
+  );
+}
+
+/**
+ * GDPR consent registry (Task 10.5.3.27 gate-coverage wiring,
+ * Phase-25 Task 25.3.21) — purpose-keyed consents with granted_at /
+ * revoked_at audit stamps from the registry (distinct from the
+ * marketing-research-third_party block above).
+ */
+export function GdprConsentPanel() {
+  const qc = useQueryClient();
+  const [notice, setNotice] = useState<string | null>(null);
+  const gdpr = useQuery({
+    queryKey: ['account', 'gdpr-consents'],
+    queryFn: () => api.fetchGdprConsents(apiClient),
+    retry: false,
+  });
+  const setConsent = useMutation({
+    mutationFn: ({ purpose, granted }: { purpose: string; granted: boolean }) =>
+      api.putGdprConsent(apiClient, purpose, granted),
+    onSuccess: async (_v, { purpose, granted }) => {
+      setNotice(`${purpose}: ${granted ? 'granted' : 'revoked'}`);
+      await qc.invalidateQueries({ queryKey: ['account', 'gdpr-consents'] });
+    },
+    onError: (e) => setNotice(e instanceof Error ? e.message : 'Consent update failed'),
+  });
+
+  return (
+    <div className={`${cardCls} mt-4`}>
+      <h3 className="mb-1 text-sm font-semibold">GDPR consent registry</h3>
+      <p className="mb-3 text-sm text-neutral-400">
+        Purpose-level lawful-basis consents with grant/revoke timestamps. Revocation is effective
+        immediately and recorded in the audit trail.
+      </p>
+      {notice !== null && (
+        <p role="status" className="mb-2 text-xs text-sky-300">
+          {notice}
+        </p>
+      )}
+      {gdpr.isError && <ErrorBox error={gdpr.error} />}
+      {gdpr.isPending ? (
+        <p className="text-sm text-neutral-400">Loading consent registry…</p>
+      ) : (
+        <table className={tableCls}>
+          <thead>
+            <tr>
+              <th className={thCls}>Purpose</th>
+              <th className={thCls}>Status</th>
+              <th className={thCls}>Granted</th>
+              <th className={thCls}>Revoked</th>
+              <th className={thCls} />
+            </tr>
+          </thead>
+          <tbody>
+            {(gdpr.data ?? []).map((c) => (
+              <tr key={c.purpose}>
+                <td className={tdCls}>{c.purpose}</td>
+                <td className={tdCls}>
+                  <StatusBadge value={c.granted ? 'GRANTED' : 'REVOKED'} />
+                </td>
+                <td className={tdCls}>{c.grantedAt ?? '—'}</td>
+                <td className={tdCls}>{c.revokedAt ?? '—'}</td>
+                <td className={tdCls}>
+                  <button
+                    type="button"
+                    className={btnGhost}
+                    disabled={setConsent.isPending}
+                    onClick={() => setConsent.mutate({ purpose: c.purpose, granted: !c.granted })}
+                  >
+                    {c.granted ? 'Revoke' : 'Grant'}
+                  </button>
+                </td>
+              </tr>
+            ))}
+            {(gdpr.data ?? []).length === 0 && (
+              <tr>
+                <td className={`${tdCls} text-neutral-500`} colSpan={5}>
+                  No consent purposes registered.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }

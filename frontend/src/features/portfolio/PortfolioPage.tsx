@@ -3,6 +3,7 @@
  */
 import { RequireAuth } from '@/features/auth/guards';
 
+import { MarginViewPanel } from './MarginViewPanel';
 import { Portfolio } from './Portfolio';
 
 export default function PortfolioPage() {
@@ -11,6 +12,7 @@ export default function PortfolioPage() {
       <h1 className="mb-4 text-2xl font-semibold">Portfolio</h1>
       <RequireAuth>
         <Portfolio />
+        <MarginViewPanel />
       </RequireAuth>
     </div>
   );
