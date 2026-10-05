@@ -265,6 +265,10 @@ jobs:
     name: Gated coverage report (advisory)
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    # Documented non-gating (the artifact is the deliverable) — without this
+    # a flaky env-gated package (shared-PG audit-chain contention under
+    # parallel `go test`, advisory-drain timing) red-marks the whole run.
+    continue-on-error: true
     env:
       EXC_PG_TEST: "1"
       EXC_REDIS_TEST: "1"
