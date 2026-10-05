@@ -120,7 +120,7 @@ function ConvertCard() {
       <ErrorBox error={convert.error} />
       {convert.isSuccess && (
         <p className="mt-2 text-sm text-emerald-400" role="status">
-          {convert.data.converted === true
+          {convert.data.converted
             ? `Converted ${convert.data.amount_from ?? ''} ${convert.data.from_currency ?? ''} → ${
                 convert.data.amount_to ?? ''
               } ${convert.data.to_currency ?? ''} @ ${convert.data.rate_applied ?? ''}`

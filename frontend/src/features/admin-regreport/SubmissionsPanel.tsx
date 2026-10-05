@@ -11,7 +11,6 @@ import { useState } from 'react';
 
 import type { BoundAdminApi } from '@/lib/env';
 import {
-  btnDanger,
   btnGhost,
   btnPrimary,
   cardCls,

@@ -112,9 +112,9 @@ export function SentimentPanel({ symbol }: { symbol: string }) {
           <p className="text-xs text-neutral-500">Loading…</p>
         ) : oi.isError ? (
           <ErrorBox error={oi.error} />
-        ) : oi.data?.insufficient_data === true ? (
+        ) : oi.data.insufficient_data === true ? (
           <p className="text-xs text-neutral-500">Insufficient data for this interval.</p>
-        ) : oi.data?.current != null ? (
+        ) : oi.data.current != null ? (
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
             <span>
               OI <b className="font-mono">{oi.data.current.open_interest ?? '—'}</b>
@@ -146,7 +146,7 @@ export function SentimentPanel({ symbol }: { symbol: string }) {
           <p className="text-xs text-neutral-500">Loading…</p>
         ) : ls.isError ? (
           <ErrorBox error={ls.error} />
-        ) : ls.data?.insufficient_data === true ? (
+        ) : ls.data.insufficient_data === true ? (
           <p className="text-xs text-neutral-500">
             Insufficient account cohort — publication withheld.
           </p>

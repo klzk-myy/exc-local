@@ -49,24 +49,24 @@ function PositioningCard({ symbol }: { symbol: string }) {
         <p className="text-xs text-neutral-500">Loading…</p>
       ) : q.isError ? (
         <ErrorBox error={q.error} />
-      ) : q.data?.insufficient_data === true ? (
+      ) : q.data.insufficient_data === true ? (
         <p className="text-xs text-neutral-500">
           Insufficient account cohort — publication withheld.
         </p>
       ) : (
         <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
           <dt className="text-neutral-500">Accounts</dt>
-          <dd className="font-mono">{q.data?.accounts ?? '—'}</dd>
+          <dd className="font-mono">{q.data.accounts ?? '—'}</dd>
           <dt className="text-neutral-500">Long / short</dt>
           <dd className="font-mono">
-            {q.data?.long_accounts ?? '—'} / {q.data?.short_accounts ?? '—'}
+            {q.data.long_accounts ?? '—'} / {q.data.short_accounts ?? '—'}
           </dd>
           <dt className="text-neutral-500">Long notional</dt>
-          <dd className="font-mono">{q.data?.long_notional ?? '—'}</dd>
+          <dd className="font-mono">{q.data.long_notional ?? '—'}</dd>
           <dt className="text-neutral-500">Short notional</dt>
-          <dd className="font-mono">{q.data?.short_notional ?? '—'}</dd>
+          <dd className="font-mono">{q.data.short_notional ?? '—'}</dd>
           <dt className="text-neutral-500">Gross</dt>
-          <dd className="font-mono">{q.data?.gross_notional ?? '—'}</dd>
+          <dd className="font-mono">{q.data.gross_notional ?? '—'}</dd>
         </dl>
       )}
     </section>

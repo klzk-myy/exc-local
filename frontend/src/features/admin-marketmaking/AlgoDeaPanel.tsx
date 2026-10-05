@@ -342,7 +342,7 @@ export function AlgoDeaPanel({ adminApi }: { adminApi: BoundAdminApi }) {
               {dea.data.dropCopyFeed} · {dea.data.status}
             </span>
           ) : null}
-          {dea.data === null && deaSession !== '' && !dea.isLoading ? (
+          {dea.data === null && deaSession !== '' ? (
             <span className={hintTextCls}>no controls on file for this session</span>
           ) : null}
         </div>

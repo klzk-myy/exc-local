@@ -39,8 +39,8 @@ export function DepthPanel({ symbol }: { symbol: string }) {
       ) : (
         <>
           <p className="text-xs text-neutral-500">
-            seq {depth.data?.seq ?? '—'} · updated{' '}
-            {depth.data?.updated_at_ms !== undefined
+            seq {depth.data.seq ?? '—'} · updated{' '}
+            {depth.data.updated_at_ms !== undefined
               ? new Date(depth.data.updated_at_ms).toISOString()
               : '—'}
           </p>
