@@ -1,7 +1,7 @@
 {
-  "extracted_count": 542,
-  "raw_grep_count": 543,
-  "task_count": 479,
+  "extracted_count": 569,
+  "raw_grep_count": 570,
+  "task_count": 506,
   "docs": "/www/wwwroot/exc.local/docs",
   "shards": 4,
   "checkpoints": [
@@ -1123,7 +1123,7 @@
       "index": 1,
       "text": "snapshot cadence 100k trades / 5 min",
       "file": "Phase-04-Persistence-Recovery.md",
-      "line": 48,
+      "line": 50,
       "checked": true,
       "shard": 3
     },
@@ -1134,7 +1134,7 @@
       "index": 2,
       "text": "WAL trim after snapshot confirmed",
       "file": "Phase-04-Persistence-Recovery.md",
-      "line": 49,
+      "line": 51,
       "checked": true,
       "shard": 2
     },
@@ -1145,7 +1145,7 @@
       "index": 1,
       "text": "WAL S3 archive before trim (zero-loss guard)",
       "file": "Phase-04-Persistence-Recovery.md",
-      "line": 77,
+      "line": 79,
       "checked": true,
       "shard": 0
     },
@@ -1156,7 +1156,7 @@
       "index": 2,
       "text": "90-day retention + Glacier",
       "file": "Phase-04-Persistence-Recovery.md",
-      "line": 78,
+      "line": 80,
       "checked": true,
       "shard": 1
     },
@@ -1167,7 +1167,7 @@
       "index": 1,
       "text": "replay-from-archive for historical reconstruction",
       "file": "Phase-04-Persistence-Recovery.md",
-      "line": 104,
+      "line": 106,
       "checked": true,
       "shard": 1
     },
@@ -1178,7 +1178,7 @@
       "index": 1,
       "text": "PostgreSQL PITR RPO ≤ 15s / RTO ≤ 5min",
       "file": "Phase-04-Persistence-Recovery.md",
-      "line": 130,
+      "line": 132,
       "checked": true,
       "shard": 2
     },
@@ -1189,7 +1189,7 @@
       "index": 1,
       "text": "snapshot + WAL replay exact recovery",
       "file": "Phase-04-Persistence-Recovery.md",
-      "line": 163,
+      "line": 165,
       "checked": true,
       "shard": 3
     },
@@ -1200,7 +1200,7 @@
       "index": 2,
       "text": "boot-time invariant fail-closed as last resort of graduated recovery ladder — defined first, validated against spec (amended 2026-09-19)",
       "file": "Phase-04-Persistence-Recovery.md",
-      "line": 164,
+      "line": 166,
       "checked": true,
       "shard": 2
     },
@@ -1211,7 +1211,7 @@
       "index": 1,
       "text": "ClickHouse S3 backup + restore drill (spec §18.3, §24 #159)",
       "file": "Phase-04-Persistence-Recovery.md",
-      "line": 189,
+      "line": 191,
       "checked": true,
       "shard": 0
     },
@@ -1222,7 +1222,7 @@
       "index": 1,
       "text": "PostgreSQL partition archival pipeline (§19.7, §24 #179)",
       "file": "Phase-04-Persistence-Recovery.md",
-      "line": 214,
+      "line": 216,
       "checked": true,
       "shard": 1
     },
@@ -1233,7 +1233,7 @@
       "index": 1,
       "text": "ClickHouse-to-S3 daily batch compactor and bulk archive exporter (§16.1, §24 #419)",
       "file": "Phase-04-Persistence-Recovery.md",
-      "line": 239,
+      "line": 241,
       "checked": true,
       "shard": 2
     },
@@ -1244,7 +1244,7 @@
       "index": 1,
       "text": "Graduated WAL recovery ladder and snapshot divergence fail-closed verification (§24 #302)",
       "file": "Phase-04-Persistence-Recovery.md",
-      "line": 261,
+      "line": 263,
       "checked": true,
       "shard": 3
     },
@@ -1255,7 +1255,7 @@
       "index": 1,
       "text": "End-to-end crash recovery and cross-region DR orchestration engine with 6-stage data integrity audit (§24 #335)",
       "file": "Phase-04-Persistence-Recovery.md",
-      "line": 292,
+      "line": 294,
       "checked": true,
       "shard": 3
     },
@@ -1266,7 +1266,7 @@
       "index": 1,
       "text": "time-boxed audit with running digests and snapshot checksums inside RTO (§24 #353)",
       "file": "Phase-04-Persistence-Recovery.md",
-      "line": 314,
+      "line": 316,
       "checked": true,
       "shard": 2
     },
@@ -1277,7 +1277,7 @@
       "index": 1,
       "text": "per-shard scoped reopen with external-feed fallback, zero-sum exempt from fallback (§24 #354)",
       "file": "Phase-04-Persistence-Recovery.md",
-      "line": 334,
+      "line": 336,
       "checked": true,
       "shard": 1
     },
@@ -2410,7 +2410,7 @@
       "index": 1,
       "text": "K8s Go services with HPA",
       "file": "Phase-09-Deployment-Operations.md",
-      "line": 68,
+      "line": 69,
       "checked": true,
       "shard": 2
     },
@@ -2421,7 +2421,7 @@
       "index": 1,
       "text": "blue-green with rollback",
       "file": "Phase-09-Deployment-Operations.md",
-      "line": 93,
+      "line": 95,
       "checked": true,
       "shard": 3
     },
@@ -2432,7 +2432,7 @@
       "index": 1,
       "text": "multi-region DR with RTO targets",
       "file": "Phase-09-Deployment-Operations.md",
-      "line": 123,
+      "line": 125,
       "checked": true,
       "shard": 0
     },
@@ -2443,7 +2443,7 @@
       "index": 2,
       "text": "PostgreSQL RPO ≤ 15s / RTO ≤ 5min",
       "file": "Phase-09-Deployment-Operations.md",
-      "line": 124,
+      "line": 126,
       "checked": true,
       "shard": 1
     },
@@ -2454,7 +2454,7 @@
       "index": 3,
       "text": "Redis RPO ≤ 5s / RTO ≤ 30s",
       "file": "Phase-09-Deployment-Operations.md",
-      "line": 125,
+      "line": 127,
       "checked": true,
       "shard": 2
     },
@@ -2465,7 +2465,7 @@
       "index": 1,
       "text": "47+ alert runbooks",
       "file": "Phase-09-Deployment-Operations.md",
-      "line": 150,
+      "line": 152,
       "checked": true,
       "shard": 1
     },
@@ -2476,7 +2476,7 @@
       "index": 2,
       "text": "4 tabletops \u003c SLA",
       "file": "Phase-09-Deployment-Operations.md",
-      "line": 151,
+      "line": 153,
       "checked": true,
       "shard": 0
     },
@@ -2487,7 +2487,7 @@
       "index": 1,
       "text": "6-month API deprecation notice",
       "file": "Phase-09-Deployment-Operations.md",
-      "line": 175,
+      "line": 177,
       "checked": true,
       "shard": 2
     },
@@ -2498,7 +2498,7 @@
       "index": 1,
       "text": "feature flags for canary deploys",
       "file": "Phase-09-Deployment-Operations.md",
-      "line": 198,
+      "line": 200,
       "checked": true,
       "shard": 3
     },
@@ -2509,7 +2509,7 @@
       "index": 1,
       "text": "cache warming P0 30s / P1 5s",
       "file": "Phase-09-Deployment-Operations.md",
-      "line": 222,
+      "line": 224,
       "checked": true,
       "shard": 0
     },
@@ -2520,7 +2520,7 @@
       "index": 1,
       "text": "post-mortem within 48h",
       "file": "Phase-09-Deployment-Operations.md",
-      "line": 244,
+      "line": 246,
       "checked": true,
       "shard": 1
     },
@@ -2531,7 +2531,7 @@
       "index": 1,
       "text": "graceful load shedding",
       "file": "Phase-09-Deployment-Operations.md",
-      "line": 273,
+      "line": 275,
       "checked": true,
       "shard": 1
     },
@@ -2542,7 +2542,7 @@
       "index": 1,
       "text": "trace_id continuity HTTP → Aeron → C++",
       "file": "Phase-09-Deployment-Operations.md",
-      "line": 296,
+      "line": 298,
       "checked": true,
       "shard": 0
     },
@@ -2553,7 +2553,7 @@
       "index": 1,
       "text": "PTP clock sync within 100µs (MiFID II RTS 25)",
       "file": "Phase-09-Deployment-Operations.md",
-      "line": 321,
+      "line": 323,
       "checked": true,
       "shard": 3
     },
@@ -2564,7 +2564,7 @@
       "index": 1,
       "text": "WAF/DDoS edge protection (§19.1, §24 #160)",
       "file": "Phase-09-Deployment-Operations.md",
-      "line": 346,
+      "line": 348,
       "checked": true,
       "shard": 2
     },
@@ -2575,7 +2575,7 @@
       "index": 1,
       "text": "SLOs + error budgets defined and wired (§19.3, §24 #162)",
       "file": "Phase-09-Deployment-Operations.md",
-      "line": 370,
+      "line": 372,
       "checked": true,
       "shard": 1
     },
@@ -2586,7 +2586,7 @@
       "index": 1,
       "text": "DORA ICT governance, reporting, testing and third-party register (§19.5, §24 #171)",
       "file": "Phase-09-Deployment-Operations.md",
-      "line": 397,
+      "line": 399,
       "checked": true,
       "shard": 0
     },
@@ -2597,7 +2597,7 @@
       "index": 1,
       "text": "C++ bare-metal deployment and shard drain procedure (§19.6, §24 #177)",
       "file": "Phase-09-Deployment-Operations.md",
-      "line": 428,
+      "line": 430,
       "checked": true,
       "shard": 3
     },
@@ -2608,7 +2608,7 @@
       "index": 1,
       "text": "PostgreSQL 5-year partition archival pipeline (§19.7, §24 #179)",
       "file": "Phase-09-Deployment-Operations.md",
-      "line": 454,
+      "line": 456,
       "checked": true,
       "shard": 2
     },
@@ -2619,7 +2619,7 @@
       "index": 1,
       "text": "Incident classification P0–P3 and escalation matrix (§19.8, §24 #183)",
       "file": "Phase-09-Deployment-Operations.md",
-      "line": 483,
+      "line": 485,
       "checked": true,
       "shard": 1
     },
@@ -2630,7 +2630,7 @@
       "index": 1,
       "text": "Capacity planning and sizing models (§19.9, §24 #191)",
       "file": "Phase-09-Deployment-Operations.md",
-      "line": 512,
+      "line": 514,
       "checked": true,
       "shard": 0
     },
@@ -2641,7 +2641,7 @@
       "index": 1,
       "text": "Redis Sentinel 3-node HA deployment and failover (§4.5, §24 #181)",
       "file": "Phase-09-Deployment-Operations.md",
-      "line": 537,
+      "line": 539,
       "checked": true,
       "shard": 0
     },
@@ -2652,7 +2652,7 @@
       "index": 1,
       "text": "Quarterly DR Drill Program (§18.3, §19.5 DORA, §24 #211)",
       "file": "Phase-09-Deployment-Operations.md",
-      "line": 563,
+      "line": 565,
       "checked": true,
       "shard": 1
     },
@@ -2663,7 +2663,7 @@
       "index": 1,
       "text": "Unified Data Retention Policy (§19.12, §24 #212)",
       "file": "Phase-09-Deployment-Operations.md",
-      "line": 587,
+      "line": 589,
       "checked": true,
       "shard": 2
     },
@@ -2674,7 +2674,7 @@
       "index": 1,
       "text": "Go Service Graceful Shutdown (§24 #216)",
       "file": "Phase-09-Deployment-Operations.md",
-      "line": 612,
+      "line": 614,
       "checked": true,
       "shard": 3
     },
@@ -2685,7 +2685,7 @@
       "index": 1,
       "text": "data tiering policy",
       "file": "Phase-09-Deployment-Operations.md",
-      "line": 640,
+      "line": 642,
       "checked": true,
       "shard": 0
     },
@@ -2696,7 +2696,7 @@
       "index": 1,
       "text": "public status page infrastructure and operational health monitoring (§19.3)",
       "file": "Phase-09-Deployment-Operations.md",
-      "line": 664,
+      "line": 666,
       "checked": true,
       "shard": 1
     },
@@ -2707,7 +2707,7 @@
       "index": 1,
       "text": "Automated canary rollback and blue-green health verification (§24 #309)",
       "file": "Phase-09-Deployment-Operations.md",
-      "line": 684,
+      "line": 686,
       "checked": true,
       "shard": 2
     },
@@ -2718,7 +2718,7 @@
       "index": 1,
       "text": "documented, annually exercised BCP with stand-down/go-forward criteria, alternate site and regulator notification tree (§19.11.1, §24 #331)",
       "file": "Phase-09-Deployment-Operations.md",
-      "line": 712,
+      "line": 714,
       "checked": true,
       "shard": 3
     },
@@ -2729,7 +2729,7 @@
       "index": 1,
       "text": "Daemon execution inventory, systemd templates, and multi-tier watchdog architecture (§19.13, §24 #334)",
       "file": "Phase-09-Deployment-Operations.md",
-      "line": 739,
+      "line": 741,
       "checked": true,
       "shard": 0
     },
@@ -2740,7 +2740,7 @@
       "index": 1,
       "text": "observability budgets, capacity proof with burst headroom, residency-gated failover, and per-secret inventory with emergency rotation (§24 #340)",
       "file": "Phase-09-Deployment-Operations.md",
-      "line": 765,
+      "line": 767,
       "checked": true,
       "shard": 1
     },
@@ -2751,7 +2751,7 @@
       "index": 1,
       "text": "environment context model, fleet inventory with dual-controlled actions, and direction-enforced promotion gates (§24 #350)",
       "file": "Phase-09-Deployment-Operations.md",
-      "line": 789,
+      "line": 791,
       "checked": true,
       "shard": 3
     },
@@ -2795,7 +2795,7 @@
       "index": 1,
       "text": "TradingView Lightweight Charts",
       "file": "Phase-10-Trader-UI.md",
-      "line": 120,
+      "line": 122,
       "checked": true,
       "shard": 2
     },
@@ -2806,7 +2806,7 @@
       "index": 1,
       "text": "real-time positions + balances",
       "file": "Phase-10-Trader-UI.md",
-      "line": 144,
+      "line": 148,
       "checked": true,
       "shard": 3
     },
@@ -2817,7 +2817,7 @@
       "index": 1,
       "text": "RBAC-gated admin dashboard",
       "file": "Phase-10-Trader-UI.md",
-      "line": 172,
+      "line": 176,
       "checked": true,
       "shard": 0
     },
@@ -2828,7 +2828,7 @@
       "index": 1,
       "text": "advanced order UI",
       "file": "Phase-10-Trader-UI.md",
-      "line": 194,
+      "line": 198,
       "checked": true,
       "shard": 1
     },
@@ -2839,7 +2839,7 @@
       "index": 1,
       "text": "calculator outputs use live marks and account leverage (§24 #267)",
       "file": "Phase-10-Trader-UI.md",
-      "line": 204,
+      "line": 210,
       "checked": true,
       "shard": 2
     },
@@ -2850,7 +2850,7 @@
       "index": 1,
       "text": "persistent Lite/Pro modes expose appropriate complexity (§24 #268)",
       "file": "Phase-10-Trader-UI.md",
-      "line": 213,
+      "line": 221,
       "checked": true,
       "shard": 3
     },
@@ -2861,7 +2861,7 @@
       "index": 1,
       "text": "quick actions require projected-execution confirmation (§24 #268)",
       "file": "Phase-10-Trader-UI.md",
-      "line": 222,
+      "line": 230,
       "checked": true,
       "shard": 3
     },
@@ -2872,7 +2872,7 @@
       "index": 1,
       "text": "percentage sizing respects free margin and lot filters (§24 #268)",
       "file": "Phase-10-Trader-UI.md",
-      "line": 231,
+      "line": 239,
       "checked": true,
       "shard": 2
     },
@@ -2883,7 +2883,7 @@
       "index": 1,
       "text": "interactive depth chart consumes canonical L2 data (§24 #268)",
       "file": "Phase-10-Trader-UI.md",
-      "line": 240,
+      "line": 250,
       "checked": true,
       "shard": 1
     },
@@ -2894,7 +2894,7 @@
       "index": 1,
       "text": "ADL rank is visible with clear risk explanation (§24 #269)",
       "file": "Phase-10-Trader-UI.md",
-      "line": 249,
+      "line": 259,
       "checked": true,
       "shard": 0
     },
@@ -2905,7 +2905,7 @@
       "index": 1,
       "text": "users can save, restore, and reset accessible trading layouts (§24 #292)",
       "file": "Phase-10-Trader-UI.md",
-      "line": 261,
+      "line": 271,
       "checked": true,
       "shard": 3
     },
@@ -2916,7 +2916,7 @@
       "index": 1,
       "text": "chart overlays support safe inspect/modify/cancel with explicit priority semantics (§24 #292)",
       "file": "Phase-10-Trader-UI.md",
-      "line": 270,
+      "line": 284,
       "checked": true,
       "shard": 2
     },
@@ -2927,7 +2927,7 @@
       "index": 1,
       "text": "indicator presets and cost-aware sandboxed backtests are reproducible (§24 #293)",
       "file": "Phase-10-Trader-UI.md",
-      "line": 279,
+      "line": 295,
       "checked": true,
       "shard": 1
     },
@@ -2938,7 +2938,7 @@
       "index": 1,
       "text": "FX discovery views, watchlists, and rate alerts use canonical market data (§24 #294)",
       "file": "Phase-10-Trader-UI.md",
-      "line": 288,
+      "line": 304,
       "checked": true,
       "shard": 0
     },
@@ -2949,7 +2949,7 @@
       "index": 1,
       "text": "client performance dashboard reconciles to ledger-backed reports (§24 #295)",
       "file": "Phase-10-Trader-UI.md",
-      "line": 297,
+      "line": 313,
       "checked": true,
       "shard": 3
     },
@@ -2960,7 +2960,7 @@
       "index": 1,
       "text": "UI network reconnection, stale pricing indicators, and optimistic rollback (§24 #310)",
       "file": "Phase-10-Trader-UI.md",
-      "line": 333,
+      "line": 349,
       "checked": true,
       "shard": 2
     },
@@ -2971,7 +2971,7 @@
       "index": 1,
       "text": "environment switcher with context-bound client, fleet/release pages, and ops-board UI with dual-control surfacing (§24 #351)",
       "file": "Phase-10-Trader-UI.md",
-      "line": 354,
+      "line": 370,
       "checked": true,
       "shard": 2
     },
@@ -2982,7 +2982,7 @@
       "index": 1,
       "text": "auth screens gate the SPA, 2FA is mandatory before trading, sessions are revocable (§24 #382)",
       "file": "Phase-10-Trader-UI.md",
-      "line": 380,
+      "line": 396,
       "checked": true,
       "shard": 3
     },
@@ -2993,7 +2993,7 @@
       "index": 1,
       "text": "account-security center covers profile, WebAuthn, anti-phishing, devices, emergency freeze, cooling-off, closure, GDPR, consent, notifications (§24 #383)",
       "file": "Phase-10-Trader-UI.md",
-      "line": 410,
+      "line": 426,
       "checked": true,
       "shard": 0
     },
@@ -3004,7 +3004,7 @@
       "index": 1,
       "text": "funding screens cover deposits, withdrawals with 15-min confirm, internal transfers, fee estimate, and unified history (§24 #384)",
       "file": "Phase-10-Trader-UI.md",
-      "line": 437,
+      "line": 453,
       "checked": true,
       "shard": 1
     },
@@ -3015,7 +3015,7 @@
       "index": 1,
       "text": "KYC UI shows tier/status, trading-limit impact, multi-step upload, and re-verification prompts (§24 #385)",
       "file": "Phase-10-Trader-UI.md",
-      "line": 461,
+      "line": 477,
       "checked": true,
       "shard": 2
     },
@@ -3026,7 +3026,7 @@
       "index": 1,
       "text": "support UI covers ticket submission with attachments, conversation thread, status lifecycle, and staff queue (§24 #386)",
       "file": "Phase-10-Trader-UI.md",
-      "line": 485,
+      "line": 501,
       "checked": true,
       "shard": 3
     },
@@ -3037,7 +3037,7 @@
       "index": 1,
       "text": "copy-trading browser/follow and grid-bot wizard/management UI enforce limits and display risk disclosures (§24 #387)",
       "file": "Phase-10-Trader-UI.md",
-      "line": 511,
+      "line": 527,
       "checked": true,
       "shard": 0
     },
@@ -3048,7 +3048,7 @@
       "index": 1,
       "text": "order history, algo management, OPO lists, dead-man switch, and test/preview are functional; BBO/aggTrades/liquidations/OI/referencePrice/configurable-depth WS channels are consumed (§24 #388)",
       "file": "Phase-10-Trader-UI.md",
-      "line": 543,
+      "line": 559,
       "checked": true,
       "shard": 1
     },
@@ -3059,7 +3059,7 @@
       "index": 1,
       "text": "report-download, statement, solvency-proof, fee-schedule, and system-info surfaces are functional; announcement banners render globally (§24 #389)",
       "file": "Phase-10-Trader-UI.md",
-      "line": 576,
+      "line": 592,
       "checked": true,
       "shard": 2
     },
@@ -3070,9 +3070,306 @@
       "index": 1,
       "text": "centralized input-helper framework with OpenAPI-synced validation, instrument-aware formatting, preview engine, smart defaults, autocomplete, keyboard shortcuts, contextual help, unified confirmation modals, bulk import, and unit converters shared across all UI surfaces (§24 #390)",
       "file": "Phase-10-Trader-UI.md",
-      "line": 691,
+      "line": 707,
       "checked": true,
       "shard": 3
+    },
+    {
+      "checkpoint_id": "P10.5-T10.5.3.1-C1",
+      "phase": "10.5",
+      "task": "10.5.3.1",
+      "index": 1,
+      "text": "all safety levers reachable, dual-controlled, audit-written",
+      "file": "Phase-10.5-Console-Surface-Completion.md",
+      "line": 52,
+      "checked": true,
+      "shard": 3
+    },
+    {
+      "checkpoint_id": "P10.5-T10.5.3.2-C1",
+      "phase": "10.5",
+      "task": "10.5.3.2",
+      "index": 1,
+      "text": "fleet mutations reach backend through context-bound client",
+      "file": "Phase-10.5-Console-Surface-Completion.md",
+      "line": 69,
+      "checked": true,
+      "shard": 0
+    },
+    {
+      "checkpoint_id": "P10.5-T10.5.3.3-C1",
+      "phase": "10.5",
+      "task": "10.5.3.3",
+      "index": 1,
+      "text": "audit/recon/DLQ surfaces show authoritative state with honest-degraded fallbacks",
+      "file": "Phase-10.5-Console-Surface-Completion.md",
+      "line": 90,
+      "checked": true,
+      "shard": 1
+    },
+    {
+      "checkpoint_id": "P10.5-T10.5.3.4-C1",
+      "phase": "10.5",
+      "task": "10.5.3.4",
+      "index": 1,
+      "text": "customer lifecycle is fully operable from one surface",
+      "file": "Phase-10.5-Console-Surface-Completion.md",
+      "line": 115,
+      "checked": true,
+      "shard": 2
+    },
+    {
+      "checkpoint_id": "P10.5-T10.5.3.5-C1",
+      "phase": "10.5",
+      "task": "10.5.3.5",
+      "index": 1,
+      "text": "client compliance ops executable with evidence capture",
+      "file": "Phase-10.5-Console-Surface-Completion.md",
+      "line": 134,
+      "checked": true,
+      "shard": 3
+    },
+    {
+      "checkpoint_id": "P10.5-T10.5.3.6-C1",
+      "phase": "10.5",
+      "task": "10.5.3.6",
+      "index": 1,
+      "text": "surveillance case desk + SAR lifecycle + comms WORM retrieval",
+      "file": "Phase-10.5-Console-Surface-Completion.md",
+      "line": 155,
+      "checked": true,
+      "shard": 0
+    },
+    {
+      "checkpoint_id": "P10.5-T10.5.3.7-C1",
+      "phase": "10.5",
+      "task": "10.5.3.7",
+      "index": 1,
+      "text": "funding ops queues enforce review tiers and dual control",
+      "file": "Phase-10.5-Console-Surface-Completion.md",
+      "line": 179,
+      "checked": true,
+      "shard": 1
+    },
+    {
+      "checkpoint_id": "P10.5-T10.5.3.8-C1",
+      "phase": "10.5",
+      "task": "10.5.3.8",
+      "index": 1,
+      "text": "segregated-funds state is inspectable and auditable",
+      "file": "Phase-10.5-Console-Surface-Completion.md",
+      "line": 199,
+      "checked": true,
+      "shard": 2
+    },
+    {
+      "checkpoint_id": "P10.5-T10.5.3.9-C1",
+      "phase": "10.5",
+      "task": "10.5.3.9",
+      "index": 1,
+      "text": "post-trade ops surfaces expose the full state machines",
+      "file": "Phase-10.5-Console-Surface-Completion.md",
+      "line": 220,
+      "checked": true,
+      "shard": 3
+    },
+    {
+      "checkpoint_id": "P10.5-T10.5.3.10-C1",
+      "phase": "10.5",
+      "task": "10.5.3.10",
+      "index": 1,
+      "text": "pricing/finance admin complete with approval flows",
+      "file": "Phase-10.5-Console-Surface-Completion.md",
+      "line": 240,
+      "checked": true,
+      "shard": 3
+    },
+    {
+      "checkpoint_id": "P10.5-T10.5.3.11-C1",
+      "phase": "10.5",
+      "task": "10.5.3.11",
+      "index": 1,
+      "text": "instrument lifecycle console covers halt→delist with dual control",
+      "file": "Phase-10.5-Console-Surface-Completion.md",
+      "line": 261,
+      "checked": true,
+      "shard": 2
+    },
+    {
+      "checkpoint_id": "P10.5-T10.5.3.12-C1",
+      "phase": "10.5",
+      "task": "10.5.3.12",
+      "index": 1,
+      "text": "algo-trading governance surfaces complete",
+      "file": "Phase-10.5-Console-Surface-Completion.md",
+      "line": 280,
+      "checked": true,
+      "shard": 1
+    },
+    {
+      "checkpoint_id": "P10.5-T10.5.3.13-C1",
+      "phase": "10.5",
+      "task": "10.5.3.13",
+      "index": 1,
+      "text": "reg-reporting desk operates the submissions lifecycle",
+      "file": "Phase-10.5-Console-Surface-Completion.md",
+      "line": 300,
+      "checked": true,
+      "shard": 0
+    },
+    {
+      "checkpoint_id": "P10.5-T10.5.3.14-C1",
+      "phase": "10.5",
+      "task": "10.5.3.14",
+      "index": 1,
+      "text": "venue governance console covers cases/rulebook/admission/CCO reporting",
+      "file": "Phase-10.5-Console-Surface-Completion.md",
+      "line": 319,
+      "checked": true,
+      "shard": 3
+    },
+    {
+      "checkpoint_id": "P10.5-T10.5.3.15-C1",
+      "phase": "10.5",
+      "task": "10.5.3.15",
+      "index": 1,
+      "text": "conduct \u0026 DORA consoles complete",
+      "file": "Phase-10.5-Console-Surface-Completion.md",
+      "line": 339,
+      "checked": true,
+      "shard": 2
+    },
+    {
+      "checkpoint_id": "P10.5-T10.5.3.16-C1",
+      "phase": "10.5",
+      "task": "10.5.3.16",
+      "index": 1,
+      "text": "content/engagement/emergency-access admin complete",
+      "file": "Phase-10.5-Console-Surface-Completion.md",
+      "line": 361,
+      "checked": true,
+      "shard": 1
+    },
+    {
+      "checkpoint_id": "P10.5-T10.5.3.17-C1",
+      "phase": "10.5",
+      "task": "10.5.3.17",
+      "index": 1,
+      "text": "full account self-service surface",
+      "file": "Phase-10.5-Console-Surface-Completion.md",
+      "line": 384,
+      "checked": true,
+      "shard": 0
+    },
+    {
+      "checkpoint_id": "P10.5-T10.5.3.18-C1",
+      "phase": "10.5",
+      "task": "10.5.3.18",
+      "index": 1,
+      "text": "funding self-service covers all rails",
+      "file": "Phase-10.5-Console-Surface-Completion.md",
+      "line": 403,
+      "checked": true,
+      "shard": 3
+    },
+    {
+      "checkpoint_id": "P10.5-T10.5.3.19-C1",
+      "phase": "10.5",
+      "task": "10.5.3.19",
+      "index": 1,
+      "text": "strategy marketplace user flow complete",
+      "file": "Phase-10.5-Console-Surface-Completion.md",
+      "line": 421,
+      "checked": true,
+      "shard": 2
+    },
+    {
+      "checkpoint_id": "P10.5-T10.5.3.20-C1",
+      "phase": "10.5",
+      "task": "10.5.3.20",
+      "index": 1,
+      "text": "order composition UI covers every mounted submit endpoint",
+      "file": "Phase-10.5-Console-Surface-Completion.md",
+      "line": 439,
+      "checked": true,
+      "shard": 2
+    },
+    {
+      "checkpoint_id": "P10.5-T10.5.3.21-C1",
+      "phase": "10.5",
+      "task": "10.5.3.21",
+      "index": 1,
+      "text": "market analytics surface complete",
+      "file": "Phase-10.5-Console-Surface-Completion.md",
+      "line": 458,
+      "checked": true,
+      "shard": 3
+    },
+    {
+      "checkpoint_id": "P10.5-T10.5.3.22-C1",
+      "phase": "10.5",
+      "task": "10.5.3.22",
+      "index": 1,
+      "text": "history + export center complete",
+      "file": "Phase-10.5-Console-Surface-Completion.md",
+      "line": 478,
+      "checked": true,
+      "shard": 0
+    },
+    {
+      "checkpoint_id": "P10.5-T10.5.3.23-C1",
+      "phase": "10.5",
+      "task": "10.5.3.23",
+      "index": 1,
+      "text": "public transparency + status surfaces live",
+      "file": "Phase-10.5-Console-Surface-Completion.md",
+      "line": 497,
+      "checked": true,
+      "shard": 1
+    },
+    {
+      "checkpoint_id": "P10.5-T10.5.3.24-C1",
+      "phase": "10.5",
+      "task": "10.5.3.24",
+      "index": 1,
+      "text": "auth flows complete",
+      "file": "Phase-10.5-Console-Surface-Completion.md",
+      "line": 516,
+      "checked": true,
+      "shard": 2
+    },
+    {
+      "checkpoint_id": "P10.5-T10.5.3.25-C1",
+      "phase": "10.5",
+      "task": "10.5.3.25",
+      "index": 1,
+      "text": "consumers self-heal across stream provisioning order",
+      "file": "Phase-10.5-Console-Surface-Completion.md",
+      "line": 536,
+      "checked": true,
+      "shard": 3
+    },
+    {
+      "checkpoint_id": "P10.5-T10.5.3.26-C1",
+      "phase": "10.5",
+      "task": "10.5.3.26",
+      "index": 1,
+      "text": "positions recon has a verifiable engine leg",
+      "file": "Phase-10.5-Console-Surface-Completion.md",
+      "line": 552,
+      "checked": true,
+      "shard": 0
+    },
+    {
+      "checkpoint_id": "P10.5-T10.5.3.27-C1",
+      "phase": "10.5",
+      "task": "10.5.3.27",
+      "index": 1,
+      "text": "route coverage is mechanically enforced",
+      "file": "Phase-10.5-Console-Surface-Completion.md",
+      "line": 570,
+      "checked": true,
+      "shard": 1
     },
     {
       "checkpoint_id": "P11-T11.3.1-C1",
@@ -4313,7 +4610,7 @@
       "index": 1,
       "text": "FIX 4.4 session management",
       "file": "Phase-18-FIX-Protocol-Gateway.md",
-      "line": 52,
+      "line": 77,
       "checked": true,
       "shard": 3
     },
@@ -4324,7 +4621,7 @@
       "index": 1,
       "text": "FIX order submission",
       "file": "Phase-18-FIX-Protocol-Gateway.md",
-      "line": 79,
+      "line": 104,
       "checked": true,
       "shard": 0
     },
@@ -4335,7 +4632,7 @@
       "index": 1,
       "text": "FIX market data",
       "file": "Phase-18-FIX-Protocol-Gateway.md",
-      "line": 103,
+      "line": 128,
       "checked": true,
       "shard": 1
     },
@@ -4346,7 +4643,7 @@
       "index": 1,
       "text": "FIX drop copy",
       "file": "Phase-18-FIX-Protocol-Gateway.md",
-      "line": 125,
+      "line": 150,
       "checked": true,
       "shard": 2
     },
@@ -4357,7 +4654,7 @@
       "index": 1,
       "text": "FIX 5.0 SP2 for derivatives and institutional flow",
       "file": "Phase-18-FIX-Protocol-Gateway.md",
-      "line": 152,
+      "line": 177,
       "checked": true,
       "shard": 3
     },
@@ -4368,7 +4665,7 @@
       "index": 2,
       "text": "FX-specific FIX tags (Currency, SettlementType, NoPartyIDs)",
       "file": "Phase-18-FIX-Protocol-Gateway.md",
-      "line": 153,
+      "line": 178,
       "checked": true,
       "shard": 2
     },
@@ -4379,7 +4676,7 @@
       "index": 1,
       "text": "PB drop copy \u0026 trade affirmation",
       "file": "Phase-18-FIX-Protocol-Gateway.md",
-      "line": 181,
+      "line": 206,
       "checked": true,
       "shard": 0
     },
@@ -4390,7 +4687,7 @@
       "index": 1,
       "text": "FIX mass quoting \u0026 firm liquidity",
       "file": "Phase-18-FIX-Protocol-Gateway.md",
-      "line": 206,
+      "line": 231,
       "checked": true,
       "shard": 1
     },
@@ -4401,7 +4698,7 @@
       "index": 1,
       "text": "SBE / Aeron binary gateway spec",
       "file": "Phase-18-FIX-Protocol-Gateway.md",
-      "line": 231,
+      "line": 256,
       "checked": true,
       "shard": 2
     },
@@ -4412,7 +4709,7 @@
       "index": 1,
       "text": "FIX entitlement + CoD + throttle (§9.3, §24 #135–137)",
       "file": "Phase-18-FIX-Protocol-Gateway.md",
-      "line": 259,
+      "line": 284,
       "checked": true,
       "shard": 3
     },
@@ -4423,7 +4720,7 @@
       "index": 1,
       "text": "MM program + MMP protection (§9.6, §24 #139)",
       "file": "Phase-18-FIX-Protocol-Gateway.md",
-      "line": 289,
+      "line": 314,
       "checked": true,
       "shard": 3
     },
@@ -4434,7 +4731,7 @@
       "index": 1,
       "text": "FIXS mTLS + production client certification (§9.7, §24 #167)",
       "file": "Phase-18-FIX-Protocol-Gateway.md",
-      "line": 317,
+      "line": 342,
       "checked": true,
       "shard": 2
     },
@@ -4445,7 +4742,7 @@
       "index": 1,
       "text": "FIX gateway session failover and gap fill (§9.8, §24 #189)",
       "file": "Phase-18-FIX-Protocol-Gateway.md",
-      "line": 347,
+      "line": 372,
       "checked": true,
       "shard": 1
     },
@@ -4456,7 +4753,7 @@
       "index": 1,
       "text": "FIX Allocation Instructions \u0026 Reports (Tag 35=J/35=AK)",
       "file": "Phase-18-FIX-Protocol-Gateway.md",
-      "line": 376,
+      "line": 401,
       "checked": true,
       "shard": 0
     },
@@ -4467,7 +4764,7 @@
       "index": 1,
       "text": "Smart Order Routing (SOR) \u0026 External Liquidity Aggregation",
       "file": "Phase-18-FIX-Protocol-Gateway.md",
-      "line": 407,
+      "line": 432,
       "checked": true,
       "shard": 3
     },
@@ -4478,7 +4775,7 @@
       "index": 1,
       "text": "FIX TradingSessionStatus",
       "file": "Phase-18-FIX-Protocol-Gateway.md",
-      "line": 433,
+      "line": 458,
       "checked": true,
       "shard": 2
     },
@@ -4489,7 +4786,7 @@
       "index": 1,
       "text": "FIX dead-man switch shares the canonical account timer with REST/WS (§24 #257) — defined first, validated against spec *(`deadman.go` maps `UserRequest(35=BE)` UserRequestType=4 + `CountdownMs(20001)` onto the canonical `accounts.DeadManService` — same Redis store + atomic mass-cancel dispatcher as Task 5.3.33; `UserResponse(35=BF)` echoes armed/disabled state + expiry; `CountdownMs=0` disables; min 1000/max 60000 enforced → `INVALID_TIMEOUT`; drop-copy sessions rejected `SESSION_NOT_ENTITLED`; `app_test.go` covers arm/disable/out-of-range/drop-copy/unsupported-type)*",
       "file": "Phase-18-FIX-Protocol-Gateway.md",
-      "line": 444,
+      "line": 469,
       "checked": true,
       "shard": 1
     },
@@ -4500,7 +4797,7 @@
       "index": 1,
       "text": "FIX SBE transport, Ed25519/SNI, schema lifecycle, and graceful News drain pass certification (§24 #284, #289) — defined first, validated against spec — tag-value drain half landed 2026-09-29 (`internal/fix/drain.go`); SBE/production-transport half landed 2026-09-30: `internal/fixsbe/transport.go` one-listener mux (`Classify` sniffs `8=FIX` vs SBE header — tag-value req/SBE resp combos supported via negotiated `ResponseCodec`), Ed25519 session-key proof bound to `server nonce ‖ SNI ‖ TLS keying material` (`ChallengeMessage`/`VerifySessionProof`/`SNIBinder`), schema ID/version negotiation through the Phase-06 `sbe.Registry` lifecycle (deprecated → sunset-stamped `NegotiationResponse`; retired → fail-closed), and `fixsbe/drain.go` `Drainer` broadcasting `News` (SBE template 103 / FIX 35=B) on every live session naming the replacement endpoint while `Gateway` drain-gates new/replace and preserves cancels; `fixsbe/conn.go` `ConnServer.Serve` runs the per-connection handshake→dispatch lifecycle; `fix_certifications` pack cases (`sbe_equiv`, `schema_upgrade`, `news_drain`, `dup_suppress_transport`) cover the §9.7 certification leg; sessions persisted in migration 228 `fixsbe_sessions` + `fixsbe_schema_registry`",
       "file": "Phase-18-FIX-Protocol-Gateway.md",
-      "line": 460,
+      "line": 485,
       "checked": true,
       "shard": 0
     },
@@ -4511,7 +4808,7 @@
       "index": 1,
       "text": "FIX sequence gap resolution, session reject, and CoD recovery (§24 #319)",
       "file": "Phase-18-FIX-Protocol-Gateway.md",
-      "line": 480,
+      "line": 505,
       "checked": true,
       "shard": 3
     },
