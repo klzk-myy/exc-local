@@ -24,16 +24,17 @@ func TestExtractCounts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Canonical corpus: 542 strict checkpoints (543 raw grep lines incl. the
-	// harness task's own prose mention) across 479 tasks in 30 phase files.
-	if c.ExtractedCount != 542 {
-		t.Errorf("extracted=%d want 542", c.ExtractedCount)
+	// Canonical corpus: 569 strict checkpoints (570 raw grep lines incl. the
+	// harness task's own prose mention) across 506 tasks in 31 phase files
+	// (Phase-10.5 added 27).
+	if c.ExtractedCount != 569 {
+		t.Errorf("extracted=%d want 569", c.ExtractedCount)
 	}
-	if c.RawGrepCount != 543 {
-		t.Errorf("raw grep=%d want 543", c.RawGrepCount)
+	if c.RawGrepCount != 570 {
+		t.Errorf("raw grep=%d want 570", c.RawGrepCount)
 	}
-	if c.TaskCount != 479 {
-		t.Errorf("tasks=%d want 479", c.TaskCount)
+	if c.TaskCount != 506 {
+		t.Errorf("tasks=%d want 506", c.TaskCount)
 	}
 	seen := map[string]bool{}
 	for _, cp := range c.Checkpoints {
