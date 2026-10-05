@@ -171,7 +171,9 @@ export function DownloadCenter() {
       <StatementRegistry
         onDownload={(id) =>
           run(`stmt-${id}`, () =>
-            downloadFile(`/account/statements/${id}/download`, `statement-${id}.csv`, {
+            // Backend selects the artifact by ?format= (Accept is not
+            // negotiated — handlers_statements.go defaults to pdf).
+            downloadFile(`/account/statements/${id}/download?format=csv`, `statement-${id}.csv`, {
               accept: 'text/csv',
             }),
           )
@@ -299,7 +301,8 @@ function StatementRegistry({
               className="flex items-center justify-between rounded border border-neutral-800 px-2 py-1"
             >
               <span className="text-neutral-300">
-                {s.periodStart ?? '?'} → {s.periodEnd ?? '?'}
+                {s.statementType !== undefined ? `${s.statementType} · ` : ''}
+                {s.period ?? ''} {s.periodStart ?? '?'} → {s.periodEnd ?? '?'}
                 {s.generatedAt !== undefined ? (
                   <span className="ml-2 text-neutral-500">gen {s.generatedAt}</span>
                 ) : null}

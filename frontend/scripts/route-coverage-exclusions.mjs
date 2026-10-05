@@ -51,6 +51,8 @@ export const EXCLUSIONS = {
   'POST /api/v1/account/api-keys': 'ALIAS — same as above',
   'DELETE /api/v1/account/api-keys/{id}': 'ALIAS — same as above',
   'GET /api/v1/venue/info': 'ALIAS — registry-declared alias of /api/v1/exchange-info',
+  'GET /api/v1/tax/report':
+    'ALIAS — superseded spelling; console uses canonical /api/v1/account/tax-report',
 };
 
 /**

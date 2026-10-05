@@ -182,9 +182,10 @@ export default function NotificationsPanel() {
 
 /**
  * GDPR consent registry (Task 10.5.3.27 gate-coverage wiring,
- * Phase-25 Task 25.3.21) — purpose-keyed consents with granted_at /
- * revoked_at audit stamps from the registry (distinct from the
- * marketing-research-third_party block above).
+ * Phase-21 Task 21.3.7) — purpose/channel consent states from the
+ * registry (distinct from the marketing-research-third_party block
+ * above). Absent rows mean NOT granted (opt-in semantics), so the
+ * canonical purposes are always offered for grant.
  */
 export function GdprConsentPanel() {
   const qc = useQueryClient();
@@ -198,18 +199,19 @@ export function GdprConsentPanel() {
     mutationFn: ({ purpose, granted }: { purpose: string; granted: boolean }) =>
       api.putGdprConsent(apiClient, purpose, granted),
     onSuccess: async (_v, { purpose, granted }) => {
-      setNotice(`${purpose}: ${granted ? 'granted' : 'revoked'}`);
+      setNotice(`${purpose}: ${granted ? 'granted' : 'withdrawn'}`);
       await qc.invalidateQueries({ queryKey: ['account', 'gdpr-consents'] });
     },
-    onError: (e) => setNotice(e instanceof Error ? e.message : 'Consent update failed'),
   });
+
+  const rows = mergeConsentRows(gdpr.data ?? []);
 
   return (
     <div className={`${cardCls} mt-4`}>
       <h3 className="mb-1 text-sm font-semibold">GDPR consent registry</h3>
       <p className="mb-3 text-sm text-neutral-400">
-        Purpose-level lawful-basis consents with grant/revoke timestamps. Revocation is effective
-        immediately and recorded in the audit trail.
+        Purpose-level lawful-basis consents recorded in the audit trail. Revocation is effective
+        immediately.
       </p>
       {notice !== null && (
         <p role="status" className="mb-2 text-xs text-sky-300">
@@ -217,6 +219,7 @@ export function GdprConsentPanel() {
         </p>
       )}
       {gdpr.isError && <ErrorBox error={gdpr.error} />}
+      {setConsent.isError && <ErrorBox error={setConsent.error} />}
       {gdpr.isPending ? (
         <p className="text-sm text-neutral-400">Loading consent registry…</p>
       ) : (
@@ -224,43 +227,52 @@ export function GdprConsentPanel() {
           <thead>
             <tr>
               <th className={thCls}>Purpose</th>
+              <th className={thCls}>Channel</th>
               <th className={thCls}>Status</th>
-              <th className={thCls}>Granted</th>
-              <th className={thCls}>Revoked</th>
+              <th className={thCls}>Updated</th>
               <th className={thCls} />
             </tr>
           </thead>
           <tbody>
-            {(gdpr.data ?? []).map((c) => (
-              <tr key={c.purpose}>
-                <td className={tdCls}>{c.purpose}</td>
-                <td className={tdCls}>
-                  <StatusBadge value={c.granted ? 'GRANTED' : 'REVOKED'} />
-                </td>
-                <td className={tdCls}>{c.grantedAt ?? '—'}</td>
-                <td className={tdCls}>{c.revokedAt ?? '—'}</td>
-                <td className={tdCls}>
-                  <button
-                    type="button"
-                    className={btnGhost}
-                    disabled={setConsent.isPending}
-                    onClick={() => setConsent.mutate({ purpose: c.purpose, granted: !c.granted })}
-                  >
-                    {c.granted ? 'Revoke' : 'Grant'}
-                  </button>
-                </td>
-              </tr>
-            ))}
-            {(gdpr.data ?? []).length === 0 && (
-              <tr>
-                <td className={`${tdCls} text-neutral-500`} colSpan={5}>
-                  No consent purposes registered.
-                </td>
-              </tr>
-            )}
+            {rows.map((c) => {
+              const granted = c.state === 'GRANTED';
+              return (
+                <tr key={`${c.purpose}:${c.channel}`}>
+                  <td className={tdCls}>{c.purpose}</td>
+                  <td className={tdCls}>{c.channel || 'ALL'}</td>
+                  <td className={tdCls}>
+                    <StatusBadge value={c.state || 'NOT SET'} />
+                  </td>
+                  <td className={tdCls}>{c.updatedAt ?? '—'}</td>
+                  <td className={tdCls}>
+                    <button
+                      type="button"
+                      className={btnGhost}
+                      disabled={setConsent.isPending}
+                      onClick={() => setConsent.mutate({ purpose: c.purpose, granted: !granted })}
+                    >
+                      {granted ? 'Withdraw' : 'Grant'}
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       )}
     </div>
   );
+}
+
+/** Canonical purposes always render (absent row = NOT SET) plus any
+ * extra rows the registry returns. */
+function mergeConsentRows(fetched: api.GdprConsent[]): api.GdprConsent[] {
+  const seen = new Set(fetched.map((c) => `${c.purpose}:${c.channel}`));
+  const merged = [...fetched];
+  for (const p of api.GDPR_PURPOSES) {
+    if (![...seen].some((k) => k.startsWith(`${p}:`))) {
+      merged.push({ purpose: p, channel: '', state: '', updatedAt: undefined });
+    }
+  }
+  return merged;
 }

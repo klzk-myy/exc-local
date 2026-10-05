@@ -1,7 +1,7 @@
 # Implementation Plan — Complete FOREX Exchange System Suite
 
 **Stack:** C++17/20 (matching core), Go 1.23+ (services), PostgreSQL 16 (OLTP), ClickHouse (analytics), Redis 7 (cache/sessions), Aeron (core IPC), React 18 + TypeScript (frontend)
-**Scope:** 31 phases (24 core + 7 buffer — Phase-10.5 console-surface completion added 2026-10-05 remediation #46, planned) covering core matching engine, market data, risk management, FIX connectivity, advanced order types, FX derivatives, compliance, analytics, backoffice, and deployment
+**Scope:** 31 phases (24 core + 7 buffer — Phase-10.5 console-surface completion added 2026-10-05 remediation #46, landed) covering core matching engine, market data, risk management, FIX connectivity, advanced order types, FX derivatives, compliance, analytics, backoffice, and deployment
 **Domain:** Foreign Exchange (spot, forwards, swaps, NDFs, options) — fiat currencies only, no cryptocurrency
 **Spec Reference:** [`./docs/Specification - Complete Exchange System Suite.md`](./docs/Specification%20-%20Complete%20Exchange%20System%20Suite.md) (v7.0)
 
@@ -10,7 +10,7 @@
 ## Repo State & Working Rules (read first)
 
 **Status: implementation-complete repo — code + docs.** (supersedes prior "planning-stage repo — documentation only" wording)
-- All 30 landed phases (24 core + 6 buffer) are implemented; Phase-10.5 (console-surface completion) is planned, not yet landed: `core/` C++ matching engine, `services/` Go microservices, `frontend/` React 18 UI, `deploy/`, `tests/`, 216 migration pairs (supersedes prior "215 migration pairs" — corpus grew through 286 with recon_dead_letters). Docs remain the contract; code conforms to them.
+- All 31 phases (24 core + 7 buffer) are implemented — **Phase-10.5 console-surface completion landed (27/27 tasks; route-coverage CI gate live)** (supersedes "Phase-10.5 planned, not yet landed"): `core/` C++ matching engine, `services/` Go microservices, `frontend/` React 18 UI, `deploy/`, `tests/`, 216 migration pairs (supersedes prior "215 migration pairs" — corpus grew through 286 with recon_dead_letters). Docs remain the contract; code conforms to them.
 - Git: `master` on `origin` (GitHub **public** since 2026-10-01 — wiki enabled), 172 commits, clean tree (supersedes prior "103 commits" — recount at Phase-3 remediation commit batch; pushed to origin). Hosted CI fully green (10/10 CI + 5/5 security, verified 2026-10-01). Spec corpus: **543/543 checkpoints bound — 0 pending stubs** (supersedes the prior "542/542" line here — canonical 543 since remediation #37).
 - Next actionable work: **environment-gated evidence** — 72h soak @50k/s (dedicated benchmark host for p99≤50µs; engine ceiling ≥90.7k/s measured — supersedes "~15k/s host ceiling" which measured the loadgen producer loop), 75k/s×4h staging gate (staging cluster; artifact contract `staging-report.json` armed via `ckP085StagingGate`), multi-region DR legs (runner `scripts/ops/dr_drill_runner.sh` committed; D1 needs a live secondary region), live third-party accounts (PagerDuty, SES/Twilio/FCM, banking rails). (supersedes "next: Phase 1 (C++ Core Foundation)")
 

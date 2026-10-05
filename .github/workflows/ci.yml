@@ -117,6 +117,12 @@ jobs:
       - name: Go build (services module)
         run: cd services && go build ./...
 
+      # Task 10.5.3.27 — the route-coverage gate reads the checked-in
+      # openapi.json; verify it is not stale against the route registry
+      # before any coverage verdict means anything.
+      - name: OpenAPI contract freshness
+        run: cd services && go run ./cmd/openapi-gen -out ../docs/openapi/openapi.json -check
+
       - name: Resolve golangci-lint diff base
         id: golangci-base
         run: |

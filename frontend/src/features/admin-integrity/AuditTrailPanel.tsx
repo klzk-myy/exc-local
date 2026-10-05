@@ -8,7 +8,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 
 import type { BoundAdminApi } from '@/lib/env';
-import { btnGhost, cardCls, hintTextCls, inputCls, labelCls } from '@/lib/ui';
+import { JsonRows, btnGhost, cardCls, inputCls, labelCls } from '@/lib/ui';
 
 import { fetchAuditTrail } from './api';
 
@@ -81,19 +81,7 @@ export function AuditTrailPanel({ adminApi }: { adminApi: BoundAdminApi }) {
           {trail.error.message}
         </p>
       )}
-      {trail.data !== undefined && (
-        <ul
-          className="max-h-64 overflow-y-auto rounded border border-neutral-800 p-2 font-mono text-xs text-neutral-300"
-          tabIndex={0}
-        >
-          {trail.data.map((row, i) => (
-            <li key={i} className="py-0.5">
-              {JSON.stringify(row)}
-            </li>
-          ))}
-          {trail.data.length === 0 && <li className={hintTextCls}>No rows.</li>}
-        </ul>
-      )}
+      {trail.data !== undefined && <JsonRows rows={trail.data} />}
     </section>
   );
 }

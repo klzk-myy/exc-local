@@ -330,16 +330,19 @@ export async function revokeSubAccountApiKey(
 
 // ---------------------------------------------------------------------------
 // GDPR consent registry (Task 10.5.3.27 gate-coverage wiring,
-// Phase-25 Task 25.3.21) — purpose-keyed lawful-basis consents with
-// granted_at/revoked_at audit timestamps. Distinct from the
-// doc-version consent endpoints above: this is the GDPR registry.
+// Phase-21 Task 21.3.7, compliance/gdpr.go) — purpose-keyed lawful-basis
+// consents. Rows are {purpose, channel, state: GRANTED|WITHDRAWN,
+// updated_at}; absent rows mean NOT granted (opt-in semantics). Distinct
+// from the doc-version consent endpoints above.
 // ---------------------------------------------------------------------------
+
+export const GDPR_PURPOSES = ['MARKETING', 'ANALYTICS', 'DATA_SHARING'] as const;
 
 export interface GdprConsent {
   purpose: string;
-  granted: boolean;
-  grantedAt?: string;
-  revokedAt?: string;
+  channel: string;
+  state: string;
+  updatedAt?: string;
 }
 
 export async function fetchGdprConsents(api: ApiClient): Promise<GdprConsent[]> {
@@ -351,9 +354,9 @@ export async function fetchGdprConsents(api: ApiClient): Promise<GdprConsent[]> 
     .filter((r): r is Record<string, unknown> => typeof r === 'object' && r !== null)
     .map((r) => ({
       purpose: typeof r['purpose'] === 'string' ? r['purpose'] : '',
-      granted: r['granted'] === true,
-      grantedAt: typeof r['granted_at'] === 'string' ? r['granted_at'] : undefined,
-      revokedAt: typeof r['revoked_at'] === 'string' ? r['revoked_at'] : undefined,
+      channel: typeof r['channel'] === 'string' ? r['channel'] : '',
+      state: typeof r['state'] === 'string' ? r['state'] : '',
+      updatedAt: typeof r['updated_at'] === 'string' ? r['updated_at'] : undefined,
     }));
 }
 

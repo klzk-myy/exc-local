@@ -9,6 +9,7 @@ import { useState } from 'react';
 
 import type { BoundAdminApi } from '@/lib/env';
 import {
+  JsonRows,
   btnGhost,
   btnPrimary,
   cardCls,
@@ -22,8 +23,9 @@ const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'obj
 
 export function TradeOpsPanel({ adminApi }: { adminApi: BoundAdminApi }) {
   const [notice, setNotice] = useState<string | null>(null);
+  const [actionErr, setActionErr] = useState<unknown>(null);
   const [auditRows, setAuditRows] = useState<Record<string, unknown>[] | null>(null);
-  const onErr = (e: unknown) => setNotice(e instanceof Error ? e.message : 'Action failed');
+  const onErr = (e: unknown) => setActionErr(e);
 
   const [orderId, setOrderId] = useState('');
   const audit = useMutation({
@@ -36,6 +38,7 @@ export function TradeOpsPanel({ adminApi }: { adminApi: BoundAdminApi }) {
     onSuccess: (rows) => {
       setAuditRows(rows);
       setNotice(null);
+      setActionErr(null);
     },
     onError: (e) => {
       setAuditRows(null);
@@ -60,7 +63,10 @@ export function TradeOpsPanel({ adminApi }: { adminApi: BoundAdminApi }) {
         reason: bust.reason,
         approver_id: Number(bust.approverId),
       }),
-    onSuccess: (res) => setNotice(`Trade #${bust.tradeId} ${bust.action} — ${JSON.stringify(res)}`),
+    onSuccess: (res) => {
+      setNotice(`Trade #${bust.tradeId} ${bust.action} — ${JSON.stringify(res)}`);
+      setActionErr(null);
+    },
     onError: onErr,
   });
 
@@ -70,6 +76,11 @@ export function TradeOpsPanel({ adminApi }: { adminApi: BoundAdminApi }) {
       {notice !== null && (
         <p role="status" className="mb-2 text-xs text-sky-300">
           {notice}
+        </p>
+      )}
+      {actionErr !== null && (
+        <p role="alert" className="mb-2 text-xs text-rose-300">
+          {actionErr instanceof Error ? actionErr.message : 'Action failed'}
         </p>
       )}
 
@@ -99,19 +110,7 @@ export function TradeOpsPanel({ adminApi }: { adminApi: BoundAdminApi }) {
               Load audit
             </button>
           </form>
-          {auditRows !== null && (
-            <ul
-              className="max-h-64 overflow-y-auto rounded border border-neutral-800 p-2 font-mono text-xs text-neutral-300"
-              tabIndex={0}
-            >
-              {auditRows.map((row, i) => (
-                <li key={i} className="py-0.5">
-                  {JSON.stringify(row)}
-                </li>
-              ))}
-              {auditRows.length === 0 && <li className={hintTextCls}>No audit entries.</li>}
-            </ul>
-          )}
+          {auditRows !== null && <JsonRows rows={auditRows} empty="No audit entries." />}
           <p className={`mt-1 ${hintTextCls}`}>
             Compliance Officer or higher; the resolver keys on the admin user id.
           </p>

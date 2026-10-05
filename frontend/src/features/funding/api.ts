@@ -547,22 +547,28 @@ export async function conversionHistory(api: ApiClient, limit = 50): Promise<Con
 
 export interface StatementRow {
   id: number;
+  period?: string;
   periodStart?: string;
   periodEnd?: string;
+  statementType?: string;
   generatedAt?: string;
 }
 
 export async function listStatements(api: ApiClient): Promise<StatementRow[]> {
   const raw = await api.get<unknown>('/account/statements');
   if (typeof raw !== 'object' || raw === null) return [];
-  const rows = (raw as Record<string, unknown>)['statements'];
+  // §8.8 ListEnvelope — rows live under `data`; keyset cursors under
+  // `next_cursor`. Row id is `statement_id` (handlers_statements.go).
+  const rows = (raw as Record<string, unknown>)['data'];
   if (!Array.isArray(rows)) return [];
   return rows
     .filter((r): r is Record<string, unknown> => typeof r === 'object' && r !== null)
     .map((r) => ({
-      id: typeof r['id'] === 'number' ? r['id'] : 0,
+      id: typeof r['statement_id'] === 'number' ? r['statement_id'] : 0,
+      period: typeof r['period'] === 'string' ? r['period'] : undefined,
       periodStart: typeof r['period_start'] === 'string' ? r['period_start'] : undefined,
       periodEnd: typeof r['period_end'] === 'string' ? r['period_end'] : undefined,
+      statementType: typeof r['statement_type'] === 'string' ? r['statement_type'] : undefined,
       generatedAt: typeof r['generated_at'] === 'string' ? r['generated_at'] : undefined,
     }));
 }

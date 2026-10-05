@@ -266,6 +266,188 @@ function PoolRow({ pool, onSelect }: { pool: PammPool; onSelect: () => void }) {
   );
 }
 
+/**
+ * Post-trade block-trade allocation (Phase-24 Task 24.3.15,
+ * Task 10.5.3.27 gate-coverage wiring) — POST /allocations splits a
+ * block trade into fund sub-accounts under a deterministic method.
+ * Quantities cross the wire as decimal strings.
+ */
+function AllocationPanel() {
+  const [tradeId, setTradeId] = useState('');
+  const [side, setSide] = useState<'BUY' | 'SELL'>('BUY');
+  const [method, setMethod] = useState('MANUAL');
+  const [capacity, setCapacity] = useState('');
+  const [groupRef, setGroupRef] = useState('');
+  const [legs, setLegs] = useState([{ fund_account_id: '', quantity: '', weight: '' }]);
+  const [notice, setNotice] = useState<string | null>(null);
+  const submit = useMutation({
+    mutationFn: () =>
+      apiClient.post<unknown>('/allocations', {
+        trade_id: Number(tradeId),
+        side,
+        allocation_method: method,
+        ...(capacity !== '' ? { capacity } : {}),
+        ...(groupRef !== '' ? { group_ref: groupRef } : {}),
+        legs: legs.map((l) => ({
+          fund_account_id: Number(l.fund_account_id),
+          ...(l.quantity !== '' ? { quantity: l.quantity } : {}),
+          ...(l.weight !== '' ? { weight: l.weight } : {}),
+        })),
+      }),
+    onSuccess: (res) => {
+      setNotice(`Allocation submitted — ${JSON.stringify(res)}`);
+    },
+    onError: (e) => setNotice(e instanceof Error ? e.message : 'Submission failed'),
+  });
+  const setLeg = (i: number, k: 'fund_account_id' | 'quantity' | 'weight', v: string) =>
+    setLegs((s) => s.map((l, j) => (j === i ? { ...l, [k]: v } : l)));
+
+  return (
+    <section
+      className="space-y-2 rounded border border-neutral-800 p-3"
+      aria-label="Block allocation"
+    >
+      <p className="text-xs font-medium text-neutral-300">
+        Block-trade allocation <span className="text-neutral-500">(money managers)</span>
+      </p>
+      <p className="text-xs text-neutral-500">
+        Splits an executed block trade across fund sub-accounts (MANUAL quantities, PRO_RATA
+        weights, RULE_BASED presets, EQUAL_SPLIT).
+      </p>
+      {notice !== null ? (
+        <p role="status" className="text-xs text-sky-300">
+          {notice}
+        </p>
+      ) : null}
+      <form
+        className="flex flex-wrap items-end gap-2 text-xs"
+        onSubmit={(e) => {
+          e.preventDefault();
+          submit.mutate();
+        }}
+      >
+        <label className={labelCls}>
+          Trade id
+          <input
+            value={tradeId}
+            onChange={(e) => setTradeId(e.target.value)}
+            required
+            inputMode="numeric"
+            className={`${inputCls} ml-1 w-24`}
+          />
+        </label>
+        <label className={labelCls}>
+          Side
+          <select
+            value={side}
+            onChange={(e) => setSide(e.target.value as 'BUY' | 'SELL')}
+            className={`${inputCls} ml-1`}
+          >
+            <option value="BUY">BUY</option>
+            <option value="SELL">SELL</option>
+          </select>
+        </label>
+        <label className={labelCls}>
+          Method
+          <select
+            value={method}
+            onChange={(e) => setMethod(e.target.value)}
+            className={`${inputCls} ml-1`}
+          >
+            <option value="MANUAL">MANUAL</option>
+            <option value="PRO_RATA">PRO_RATA</option>
+            <option value="RULE_BASED">RULE_BASED</option>
+            <option value="EQUAL_SPLIT">EQUAL_SPLIT</option>
+          </select>
+        </label>
+        <label className={labelCls}>
+          Capacity
+          <select
+            value={capacity}
+            onChange={(e) => setCapacity(e.target.value)}
+            className={`${inputCls} ml-1`}
+          >
+            <option value="">—</option>
+            <option value="CLIENT">CLIENT</option>
+            <option value="PROPRIETARY">PROPRIETARY</option>
+          </select>
+        </label>
+        <label className={labelCls}>
+          Group ref
+          <input
+            value={groupRef}
+            onChange={(e) => setGroupRef(e.target.value)}
+            className={`${inputCls} ml-1 w-28`}
+            placeholder="optional"
+          />
+        </label>
+      </form>
+      <div className="space-y-1">
+        {legs.map((l, i) => (
+          <div key={i} className="flex flex-wrap items-end gap-2 text-xs">
+            <label className={labelCls}>
+              Fund account
+              <input
+                value={l.fund_account_id}
+                onChange={(e) => setLeg(i, 'fund_account_id', e.target.value)}
+                required
+                inputMode="numeric"
+                className={`${inputCls} ml-1 w-24`}
+              />
+            </label>
+            <label className={labelCls}>
+              Quantity
+              <input
+                value={l.quantity}
+                onChange={(e) => setLeg(i, 'quantity', e.target.value)}
+                inputMode="decimal"
+                className={`${inputCls} ml-1 w-24`}
+                placeholder="MANUAL"
+              />
+            </label>
+            <label className={labelCls}>
+              Weight
+              <input
+                value={l.weight}
+                onChange={(e) => setLeg(i, 'weight', e.target.value)}
+                inputMode="decimal"
+                className={`${inputCls} ml-1 w-24`}
+                placeholder="PRO_RATA"
+              />
+            </label>
+            <button
+              type="button"
+              className={btnGhost}
+              disabled={legs.length === 1}
+              onClick={() => setLegs((s) => s.filter((_, j) => j !== i))}
+            >
+              Remove
+            </button>
+          </div>
+        ))}
+      </div>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          className={btnGhost}
+          onClick={() => setLegs((s) => [...s, { fund_account_id: '', quantity: '', weight: '' }])}
+        >
+          Add leg
+        </button>
+        <button
+          type="button"
+          disabled={submit.isPending || tradeId.trim() === ''}
+          className={btnPrimary}
+          onClick={() => submit.mutate()}
+        >
+          {submit.isPending ? 'Submitting…' : 'Submit allocation'}
+        </button>
+      </div>
+      {submit.error ? <ErrorBox error={submit.error} /> : null}
+    </section>
+  );
+}
+
 export default function PammPage() {
   const [selected, setSelected] = useState<number | null>(null);
   const [morePools, setMorePools] = useState<PammPool[]>([]);
@@ -307,6 +489,7 @@ export default function PammPage() {
         </p>
       </header>
       <CreatePoolForm />
+      <AllocationPanel />
       {pools.length === 0 ? (
         <p className="rounded border border-neutral-800 p-6 text-center text-sm text-neutral-500">
           {q.isLoading ? 'Loading pools…' : 'No active pools.'}

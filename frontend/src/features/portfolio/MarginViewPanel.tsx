@@ -9,7 +9,7 @@
 import { useQuery } from '@tanstack/react-query';
 
 import { apiClient } from '@/app/runtime';
-import { ErrorBox, cardCls } from '@/lib/ui';
+import { ErrorBox, JsonRows, cardCls } from '@/lib/ui';
 
 export function MarginViewPanel() {
   const q = useQuery({
@@ -46,19 +46,7 @@ export function MarginViewPanel() {
       {q.isPending ? (
         <p className="text-sm text-neutral-400">Loading margin view…</p>
       ) : (
-        <ul
-          className="max-h-64 overflow-y-auto rounded border border-neutral-800 p-2 font-mono text-xs text-neutral-300"
-          tabIndex={0}
-        >
-          {rows.map((row, i) => (
-            <li key={i} className="py-0.5">
-              {JSON.stringify(row)}
-            </li>
-          ))}
-          {q.data !== undefined && rows.length === 0 && (
-            <li className="text-neutral-500">No positions in the decorated view.</li>
-          )}
-        </ul>
+        <JsonRows rows={rows} empty="No positions in the decorated view." />
       )}
     </section>
   );

@@ -1,4 +1,5 @@
 export { Field } from './Field';
+export { JsonRows } from './JsonRows';
 export { Modal, ConfirmAction } from './Modal';
 export { StatusBadge } from './StatusBadge';
 export { ErrorBox } from './ErrorBox';

@@ -101,6 +101,16 @@ export async function fetchAnnouncements(
   return rows.map(parseAnnouncement).filter((a): a is Announcement => a !== null);
 }
 
+// GET /api/v1/announcements/{id} — one live announcement (drafts/
+// expired/unpublished return 404; handlers_announce.go AnnouncementByID).
+export async function fetchAnnouncement(
+  id: string,
+  api: Pick<ApiClient, 'get'> = apiClient,
+): Promise<Announcement | null> {
+  const res: unknown = await api.get(`/announcements/${encodeURIComponent(id)}`);
+  return parseAnnouncement(res);
+}
+
 // ---------------------------------------------------------------------------
 // GET /api/v1/system/status (live — ops/status_exporter.go Status)
 // ---------------------------------------------------------------------------

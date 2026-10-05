@@ -7,7 +7,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 
-import { apiClient } from '@/app/runtime';
 import type { BoundAdminApi } from '@/lib/env';
 import {
   btnDanger,
@@ -89,7 +88,7 @@ export function RestrictedListsPanel({ adminApi }: { adminApi: BoundAdminApi }) 
   });
 
   const retire = useMutation({
-    mutationFn: (id: number) => retireRestrictedList(apiClient, adminApi.env, id),
+    mutationFn: (id: number) => retireRestrictedList(adminApi, id),
     onSuccess: () => {
       setRetireTarget(null);
       setNotice('Restricted list retired.');

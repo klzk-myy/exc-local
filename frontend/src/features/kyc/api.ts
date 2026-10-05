@@ -191,41 +191,76 @@ export function fileToBase64(file: File): Promise<string> {
 }
 
 // ---------------------------------------------------------------------------
-// Self-certification (Task 10.5.3.27 gate-coverage wiring) — investor
-// categorisation + appropriateness declaration. GET returns the stored
-// declaration; POST submits {annual_income, net_worth, trading_experience,
-// acknowledges_risk}.
+// Tax self-certification (Task 10.5.3.27 gate-coverage wiring,
+// taxcerts.go) — IRS W-8BEN / W-8BEN-E / W-9 intake. GET returns the
+// certification history envelope {certifications:[SelfCert]}; POST submits
+// {form_type, tin?, tin_country?, tin_kind?, fields{legal_name}}.
+// W-9 requires tin + tin_country "US"; W-8* TIN is optional.
 // ---------------------------------------------------------------------------
 
+export const SELF_CERT_FORMS = ['W-8BEN', 'W-8BEN-E', 'W-9'] as const;
+export type SelfCertFormType = (typeof SELF_CERT_FORMS)[number];
+export const SELF_CERT_TIN_KINDS = ['SSN', 'EIN', 'ITIN'] as const;
+
 export interface SelfCertification {
-  annualIncome?: string;
-  netWorth?: string;
-  tradingExperience?: string;
-  acknowledgesRisk?: boolean;
-  submittedAt?: string;
+  id: number;
+  formType: string;
+  tin?: string;
+  tinCountry?: string;
+  tinKind?: string;
+  legalName?: string;
+  status: string;
+  validatedAt?: string;
+  tinValidatedAt?: string;
+  supersededBy?: number;
+  createdAt?: string;
 }
 
-export async function fetchSelfCert(api: ApiClient): Promise<SelfCertification | null> {
+export async function fetchSelfCerts(api: ApiClient): Promise<SelfCertification[]> {
   const raw = await api.get<unknown>('/kyc/self-certification');
-  if (typeof raw !== 'object' || raw === null) return null;
-  const r = raw as Record<string, unknown>;
-  if (Object.keys(r).length === 0) return null;
-  return {
-    annualIncome: typeof r['annual_income'] === 'string' ? r['annual_income'] : undefined,
-    netWorth: typeof r['net_worth'] === 'string' ? r['net_worth'] : undefined,
-    tradingExperience:
-      typeof r['trading_experience'] === 'string' ? r['trading_experience'] : undefined,
-    acknowledgesRisk: r['acknowledges_risk'] === true,
-    submittedAt: typeof r['submitted_at'] === 'string' ? r['submitted_at'] : undefined,
-  };
+  if (typeof raw !== 'object' || raw === null) return [];
+  const rows = (raw as Record<string, unknown>)['certifications'];
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .filter((r): r is Record<string, unknown> => typeof r === 'object' && r !== null)
+    .map((r) => {
+      const fields =
+        typeof r['fields'] === 'object' && r['fields'] !== null
+          ? (r['fields'] as Record<string, unknown>)
+          : {};
+      return {
+        id: typeof r['id'] === 'number' ? r['id'] : 0,
+        formType: typeof r['form_type'] === 'string' ? r['form_type'] : '',
+        tin: typeof r['tin'] === 'string' ? r['tin'] : undefined,
+        tinCountry: typeof r['tin_country'] === 'string' ? r['tin_country'] : undefined,
+        tinKind: typeof r['tin_kind'] === 'string' ? r['tin_kind'] : undefined,
+        legalName: typeof fields['legal_name'] === 'string' ? fields['legal_name'] : undefined,
+        status: typeof r['status'] === 'string' ? r['status'] : '',
+        validatedAt: typeof r['validated_at'] === 'string' ? r['validated_at'] : undefined,
+        tinValidatedAt:
+          typeof r['tin_validated_at'] === 'string' ? r['tin_validated_at'] : undefined,
+        supersededBy: typeof r['superseded_by'] === 'number' ? r['superseded_by'] : undefined,
+        createdAt: typeof r['created_at'] === 'string' ? r['created_at'] : undefined,
+      };
+    });
 }
 
 export const postSelfCert = (
   api: ApiClient,
   body: {
-    annual_income: string;
-    net_worth: string;
-    trading_experience: string;
-    acknowledges_risk: boolean;
+    form_type: SelfCertFormType;
+    legal_name: string;
+    tin?: string;
+    tin_country?: string;
+    tin_kind?: string;
   },
-): Promise<unknown> => api.post<unknown>('/kyc/self-certification', body);
+): Promise<unknown> =>
+  api.post<unknown>('/kyc/self-certification', {
+    form_type: body.form_type,
+    ...(body.tin !== undefined && body.tin !== '' ? { tin: body.tin } : {}),
+    ...(body.tin_country !== undefined && body.tin_country !== ''
+      ? { tin_country: body.tin_country }
+      : {}),
+    ...(body.tin_kind !== undefined && body.tin_kind !== '' ? { tin_kind: body.tin_kind } : {}),
+    fields: { legal_name: body.legal_name },
+  });

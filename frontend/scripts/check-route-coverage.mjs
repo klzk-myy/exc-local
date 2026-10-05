@@ -39,8 +39,18 @@ const files = [];
 const walk = (dir) => {
   for (const e of readdirSync(dir, { withFileTypes: true })) {
     const p = resolve(dir, e.name);
-    if (e.isDirectory()) walk(p);
-    else if (/\.(ts|tsx)$/.test(e.name) && !p.includes('/generated/')) files.push(p);
+    if (e.isDirectory()) {
+      // src/test/ fixtures & mocks name routes without being a UI
+      // surface — a mocked route is not coverage either.
+      if (e.name === 'test' || e.name === '__tests__') continue;
+      walk(p);
+    } else if (
+      /\.(ts|tsx)$/.test(e.name) &&
+      !/\.(test|spec)\.(ts|tsx)$/.test(e.name) &&
+      !p.includes('/generated/')
+    ) {
+      files.push(p);
+    }
   }
 };
 walk(SRC);

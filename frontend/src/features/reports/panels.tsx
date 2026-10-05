@@ -13,6 +13,7 @@ import { UnavailablePanel, isNotImplemented } from '@/lib/input-helpers';
 
 import {
   fetchAccountProofs,
+  fetchAnnouncement,
   fetchAnnouncements,
   fetchFees,
   fetchProofRoot,
@@ -298,6 +299,44 @@ const ANNOUNCEMENT_CATEGORY_STYLE: Record<string, string> = {
   GENERAL: 'bg-neutral-700/40 text-neutral-300',
 };
 
+/** On-demand detail refresh via GET /announcements/{id} — confirms the
+ * row is still live (the endpoint 404s drafts/expired/unpublished). */
+function AnnouncementDetail({ id }: { id: string }) {
+  const [open, setOpen] = useState(false);
+  const q = useQuery({
+    queryKey: ['reports', 'announcement', id],
+    queryFn: () => fetchAnnouncement(id, apiClient),
+    enabled: open,
+    retry: false,
+  });
+  return (
+    <div className="mt-1">
+      <button
+        type="button"
+        className="text-xs text-sky-300 hover:underline"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        {open ? 'Hide detail' : 'Refresh detail'}
+      </button>
+      {open ? (
+        <div className="mt-1 text-xs text-neutral-500">
+          {q.isPending ? 'Loading…' : null}
+          {q.isError ? <ErrorBox error={q.error} /> : null}
+          {q.data ? (
+            <p>
+              Status {q.data.status}
+              {q.data.expiresAt ? ` · expires ${q.data.expiresAt}` : ''}
+              {q.data.body !== '' ? ` — ${q.data.body}` : ''}
+            </p>
+          ) : null}
+          {q.data === null ? <p>Announcement no longer live.</p> : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function AnnouncementsPanel() {
   const q = useQuery({
     queryKey: ['reports', 'announcements'],
@@ -338,6 +377,7 @@ export function AnnouncementsPanel() {
               {a.publishAt ? (
                 <p className="mt-1 text-xs text-neutral-600">Published {a.publishAt}</p>
               ) : null}
+              <AnnouncementDetail id={a.id} />
             </div>
             <button
               type="button"

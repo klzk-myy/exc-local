@@ -19,12 +19,11 @@
  *   GET    /api/v1/admin/enforcement[?account_id=]            → {actions}
  *   POST   /api/v1/admin/enforcement/{signal_id}              → {action}
  *
- * BoundAdminApi exposes get/post only — DELETE goes through the raw
- * ApiClient with the X-Admin-Env stamp applied by hand.
+ * BoundAdminApi exposes get/post/put/delete — each stamps
+ * X-Admin-Env (Task 10.5.3.27).
  */
-import type { ApiClient } from '@/lib/api/client';
 import { malformed } from '@/lib/admin/api';
-import { ADMIN_ENV_HEADER, type AdminEnv, type BoundAdminApi } from '@/lib/env';
+import type { BoundAdminApi } from '@/lib/env';
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null;
@@ -33,8 +32,6 @@ const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : und
 const num = (v: unknown): number | undefined =>
   typeof v === 'number' && Number.isFinite(v) ? v : undefined;
 const arr = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
-const envOpts = (env: AdminEnv) => ({ headers: { [ADMIN_ENV_HEADER]: env } });
-
 const strList = (v: unknown): string[] => arr(v).filter((x): x is string => typeof x === 'string');
 const numList = (v: unknown): number[] =>
   arr(v).filter((x): x is number => typeof x === 'number' && Number.isFinite(x));
@@ -267,12 +264,8 @@ export async function createRestrictedList(
   });
 }
 
-export async function retireRestrictedList(
-  client: ApiClient,
-  env: AdminEnv,
-  id: number,
-): Promise<void> {
-  await client.delete(`/admin/restricted-lists?id=${id}`, envOpts(env));
+export async function retireRestrictedList(api: BoundAdminApi, id: number): Promise<void> {
+  await api.delete(`/admin/restricted-lists?id=${id}`);
 }
 
 // ---------------------------------------------------------------------------
