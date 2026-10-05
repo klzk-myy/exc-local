@@ -313,10 +313,12 @@ Non-goals: new backend business logic (existing routes only); the `/api/v1/test/
 3. Largest single uncovered cluster — split into sub-panels; shares case-desk components with Task 10.5.3.6.
 
 **DoD:**
-* [ ] All `admin/venue/*` routes reachable through the console; no dead panels
+* [x] All `admin/venue/*` routes reachable through the console; no dead panels
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: venue governance console covers cases/rulebook/admission/CCO reporting — defined first, validated against spec
+- [x] Spec checkpoint: venue governance console covers cases/rulebook/admission/CCO reporting — defined first, validated against spec
+
+**Execution record (2026-10-07):** `frontend/src/features/admin-venue/` — `VenuePage` (`/admin/venue`) + `api.ts` + 4 panels covering all 44 mounted routes: `MembersPanel` (member/DEA/sponsored register + detail with immutable lifecycle ledger + review history; application intake idempotent on LEI; all 10 lifecycle actions — DD status, agreements, products/ports, admission decision (server-gated on DD COMPLETED + ≥1 agreement), suspend/reinstate/terminate, appeal + outcome, periodic review with FAIL auto-suspend), `RulebooksPanel` (version register + detail with notices/acks; DRAFT → FILED → APPROVED → ACTIVE lifecycle; regulator verdict ingestion; activation with EMERGENCY flag — server refuses VENUE_RULEBOOK_NOT_APPROVED; participant notices incl. broadcast; member acknowledgement evidence), `OversightPanel` (interventions record/lift; investigation & disciplinary cases with append-only sha256 evidence and the legal transition table encoded client-side — OPEN→INVESTIGATING→CHARGED→SANCTIONED|DISMISSED→CLOSED, terminal moves surface the required outcome field; conflicts-of-interest declare/resolve), `AssurancePanel` (self-assessment file/sign-off; CCO report generate → board sign → regulator file; launch prerequisite checklist + launch gate READY/BLOCKED with missing-item breakdown). Zero backend changes. 6 component tests; 701/701 suite green.
 
 ---
 
