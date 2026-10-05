@@ -88,7 +88,8 @@ export default function NotificationsPanel() {
                     {api.NOTIFICATION_CHANNELS.map((ch) => (
                       <td key={ch} className={tdCls}>
                         <input
-                          type="checkbox" className="h-6 w-6"
+                          type="checkbox"
+                          className="h-6 w-6"
                           aria-label={`${EVENT_LABELS[ev]} via ${ch}`}
                           checked={prefs[ev]?.[ch] === true}
                           onChange={() => {
@@ -142,7 +143,8 @@ export default function NotificationsPanel() {
         ).map(([key, lbl]) => (
           <label key={key} className="mb-2 flex items-center gap-2 text-sm text-neutral-200">
             <input
-              type="checkbox" className="h-6 w-6"
+              type="checkbox"
+              className="h-6 w-6"
               checked={consent[key]}
               onChange={(e) => {
                 setConsentSaved(false);

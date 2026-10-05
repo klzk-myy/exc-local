@@ -1,7 +1,7 @@
 /**
  * Report download center (Task 10.3.28 item 1).
  *
- *   LIVE   tax report     — GET /api/v1/tax/report?year&method&format
+ *   LIVE   tax report     — GET /api/v1/account/tax-report?year&method&format (canonical; supersedes /tax/report)
  *                           (csv/pdf via Accept negotiation).
  *   STUBS  statements     — GET /api/v1/account/statements   (Phase-20)
  *          income         — GET /api/v1/account/income       (Phase-20)
@@ -117,7 +117,7 @@ export function DownloadCenter() {
         onGo={() => {
           if (!year.valid) return;
           run('tax', () =>
-            downloadFile('/tax/report', `tax-report-${year.value}.${format}`, {
+            downloadFile('/account/tax-report', `tax-report-${year.value}.${format}`, {
               query: { year: year.value, method, format },
               accept: format === 'csv' ? 'text/csv' : 'application/pdf',
             }),

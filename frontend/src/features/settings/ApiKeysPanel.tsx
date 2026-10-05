@@ -52,7 +52,8 @@ function ScopeChecklist({
         {allowed.map((s) => (
           <label key={s} className="flex items-center gap-1.5 text-sm text-neutral-200">
             <input
-              type="checkbox" className="h-6 w-6"
+              type="checkbox"
+              className="h-6 w-6"
               checked={value.includes(s)}
               onChange={(e) => {
                 onChange(e.target.checked ? [...value, s] : value.filter((x) => x !== s));

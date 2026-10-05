@@ -2,6 +2,7 @@
  * /settings — account settings & security center (Task 10.3.22). Tabbed
  * hub (`?tab=`) so each panel stays a shallow, testable component:
  *   profile | security | api-keys | notifications | safety
+ *   delegation | trading  (Phase-10.5 Task 10.5.3.17)
  */
 import { Suspense, lazy } from 'react';
 import { useSearchParams } from 'react-router';
@@ -13,6 +14,8 @@ const SecurityPanel = lazy(() => import('./SecurityPanel'));
 const ApiKeysPanel = lazy(() => import('./ApiKeysPanel'));
 const NotificationsPanel = lazy(() => import('./NotificationsPanel'));
 const SafetyPanel = lazy(() => import('./SafetyPanel'));
+const DelegationPanel = lazy(() => import('./DelegationPanel'));
+const TradingPanel = lazy(() => import('./TradingPanel'));
 
 const TABS = [
   { id: 'profile', label: 'Profile' },
@@ -20,6 +23,8 @@ const TABS = [
   { id: 'api-keys', label: 'API keys' },
   { id: 'notifications', label: 'Notifications' },
   { id: 'safety', label: 'Safety & data' },
+  { id: 'delegation', label: 'Delegation' },
+  { id: 'trading', label: 'Trading' },
 ] as const;
 type TabId = (typeof TABS)[number]['id'];
 
@@ -35,6 +40,10 @@ function tabPanel(tab: TabId) {
       return <NotificationsPanel />;
     case 'safety':
       return <SafetyPanel />;
+    case 'delegation':
+      return <DelegationPanel />;
+    case 'trading':
+      return <TradingPanel />;
   }
 }
 

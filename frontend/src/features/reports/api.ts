@@ -2,7 +2,7 @@
  * Reports & transparency adapters (Task 10.3.28).
  *
  *   Live  — GET /fees · GET /announcements · GET /system/status ·
- *           GET /tax/report (csv/pdf/json) · statements / income /
+ *           GET /account/tax-report (csv/pdf/json) · statements / income /
  *           snapshots / confirmations / TCA / solvency+PoR are `v1live`
  *           (supersedes the earlier "registered, all 501 today" note).
  * Wire payloads are narrowed from `unknown`; nothing is fabricated.
