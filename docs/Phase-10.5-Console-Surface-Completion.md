@@ -400,10 +400,11 @@ Non-goals: new backend business logic (existing routes only); the `/api/v1/test/
 * [ ] Bank-account registration, whitelist toggle, conversion, rail selection, deposit initiation all functional
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: funding self-service covers all rails — defined first, validated against spec
+- [x] Spec checkpoint: funding self-service covers all rails — defined first, validated against spec
 
 ---
 
+*Execution record (this implementation):* extends the existing `features/funding` (Task 10.3.23) — no new feature dir. New `AccountsPanel` (lazy `accounts` tab on `/funding`): beneficiary registry `GET/POST/DELETE /funding/bank-accounts` (delete is query-form `?id=` per mounted route), PENDING_VERIFICATION/VERIFIED/REJECTED honest badges + rejection_reason, register form emitting the full `BankAccountInput` contract (iban/account_number/swift_bic/bic_routing optional). Whitelist card: `GET …/withdrawal-whitelist` renders mode/lock flags + VERIFIED beneficiary membership; enable/disable POSTs; 24h egress-lock countdown from `withdrawal_lock_until` (`useNow`+`formatCountdown`), reenable_locked surfaced verbatim. `GET /funding/rails` capability matrix (currencies/cutoff_label/settlement_lag/instant cap) + `POST /funding/rail-selection` preview showing chosen rail, value_date, queued_next_day, rejected_rails — fail-closed codes (BANKING_RAIL_UNAVAILABLE/RAIL_CUTOFF_EXCEEDED) surface via ErrorBox. `DepositPanel` gains `DepositIntentForm` — `POST /deposits` with generated Idempotency-Key, honest PENDING status + `replayed`/`flags` rendering. `HistoryPanel` gains `ConvertCard` — `POST /funding/convert` (fail-closed rate source server-side) + `GET /funding/conversions` history (`{items,count,limit}` envelope) rendering mid/spread_bps/rate_applied/rate_source verbatim. Contract notes: `DELETE /funding/bank-accounts` is `?id=` not `/{id}` (route registered that way in Phase-11). Zero backend changes. Tests: 4 new (registry CRUD + ?id= delete, whitelist+lock countdown+rail picker, deposit intent w/ Idempotency-Key, conversion + history); suite 724/724.
 ### Task 10.5.3.19: Strategy Marketplace & Baskets
 
 **Objective:** Strategy CRUD/pause/resume, template instantiate, baskets, promotions, copy-strategy listing — the user-facing half of the strategy engine.

@@ -228,6 +228,228 @@ describe('HistoryPanel', () => {
   });
 });
 
+describe('AccountsPanel', () => {
+  it('lists bank accounts, registers one, and deletes via ?id=', async () => {
+    const calls = installFetchMock({
+      'GET /api/v1/funding/bank-accounts': {
+        body: {
+          bank_accounts: [
+            {
+              bank_account_id: 5,
+              currency: 'EUR',
+              iban: 'DE89370400440532013000',
+              bank_name: 'Bundesbank',
+              beneficiary_name: 'Acme Ltd',
+              rail: 'SEPA',
+              status: 'VERIFIED',
+            },
+          ],
+        },
+      },
+      'POST /api/v1/funding/bank-accounts': {
+        status: 201,
+        body: {
+          bank_account_id: 6,
+          currency: 'EUR',
+          iban: 'DE44500105175407324931',
+          bank_name: 'Deutsche Bank',
+          beneficiary_name: 'Acme Ltd',
+          rail: 'SEPA',
+          status: 'PENDING_VERIFICATION',
+        },
+      },
+      'DELETE /api/v1/funding/bank-accounts': { body: { deleted: 5 } },
+      'GET /api/v1/funding/withdrawal-whitelist': {
+        body: { mode: 'ALLOW_ALL', whitelist_only_enabled: false, beneficiaries: [] },
+      },
+      'GET /api/v1/funding/rails': { body: { rails: [] } },
+    });
+    renderFunding('accounts');
+    const user = userEvent.setup();
+    expect(await screen.findByText(/Bundesbank/)).toBeInTheDocument();
+    expect(screen.getByText('VERIFIED')).toBeInTheDocument();
+
+    // register
+    await user.type(screen.getByLabelText(/Bank name/), 'Deutsche Bank');
+    await user.type(screen.getByLabelText(/Beneficiary name/), 'Acme Ltd');
+    await user.selectOptions(screen.getByLabelText(/^Currency/), 'EUR');
+    await user.selectOptions(screen.getByLabelText(/^Rail/), 'SEPA');
+    await user.type(screen.getByLabelText(/IBAN/), 'DE44500105175407324931');
+    await user.click(screen.getByRole('button', { name: 'Register bank account' }));
+    await waitFor(() => {
+      const c = calls.find((x) => x.method === 'POST' && x.url.includes('/bank-accounts'));
+      expect(JSON.parse(c?.init?.body as string)).toMatchObject({
+        currency: 'EUR',
+        bank_name: 'Deutsche Bank',
+        beneficiary_name: 'Acme Ltd',
+        rail: 'SEPA',
+        iban: 'DE44500105175407324931',
+      });
+    });
+
+    // delete — query-form ?id= per the mounted route
+    await user.click(screen.getByRole('button', { name: 'Remove' }));
+    await waitFor(() => {
+      const c = calls.find((x) => x.method === 'DELETE');
+      expect(c?.url).toContain('/funding/bank-accounts?id=5');
+    });
+  });
+
+  it('enables whitelist-only mode and shows the disable lock countdown', async () => {
+    const calls = installFetchMock({
+      'GET /api/v1/funding/bank-accounts': { body: { bank_accounts: [] } },
+      'GET /api/v1/funding/withdrawal-whitelist': {
+        body: {
+          mode: 'WHITELIST_ONLY',
+          whitelist_only_enabled: true,
+          withdrawal_lock_until: new Date(Date.now() + 3600_000).toISOString(),
+          withdrawals_locked: true,
+          beneficiaries: [
+            {
+              bank_account_id: 5,
+              currency: 'EUR',
+              bank_name: 'Bundesbank',
+              beneficiary_name: 'Acme Ltd',
+              rail: 'SEPA',
+              status: 'VERIFIED',
+            },
+          ],
+        },
+      },
+      'POST /api/v1/funding/withdrawal-whitelist/disable': {
+        body: { mode: 'ALLOW_ALL', whitelist_only_enabled: false, beneficiaries: [] },
+      },
+      'GET /api/v1/funding/rails': {
+        body: {
+          rails: [
+            {
+              rail: 'SEPA',
+              name: 'SEPA Credit Transfer',
+              currencies: ['EUR'],
+              cutoff_label: '15:30 UTC',
+              settlement_lag: 'T+0',
+              instant_capable: true,
+              max_amount: '1000000',
+            },
+          ],
+        },
+      },
+      'POST /api/v1/funding/rail-selection': {
+        body: {
+          rail: 'SEPA',
+          value_date: '2026-05-20T00:00:00Z',
+          rejected_rails: ['SWIFT'],
+        },
+      },
+    });
+    renderFunding('accounts');
+    const user = userEvent.setup();
+    expect(await screen.findByText('WHITELIST ONLY')).toBeInTheDocument();
+    expect(screen.getByText(/remaining/)).toBeInTheDocument(); // disable-lock countdown
+    expect(screen.getByText('SEPA Credit Transfer')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Disable whitelist' }));
+    await waitFor(() => {
+      expect(
+        calls.some((c) => c.method === 'POST' && c.url.includes('/withdrawal-whitelist/disable')),
+      ).toBe(true);
+    });
+
+    // rail-selection preview
+    await user.type(screen.getByLabelText(/Preview amount/), '5000');
+    await user.click(screen.getByRole('button', { name: 'Preview rail' }));
+    await waitFor(() => {
+      const c = calls.find((x) => x.url.includes('/rail-selection'));
+      expect(JSON.parse(c?.init?.body as string)).toMatchObject({
+        currency: 'USD',
+        amount: '5000',
+        require_same_day: false,
+      });
+    });
+    expect(await screen.findByText(/Selected/)).toHaveTextContent('SEPA');
+  });
+});
+
+describe('DepositIntent', () => {
+  it('registers a deposit intent with an Idempotency-Key', async () => {
+    const calls = installFetchMock({
+      'GET /api/v1/deposits/USD': {
+        body: { currency: 'USD', account_id: 1001, reference: 'EXC-1', instructions: [] },
+      },
+      'POST /api/v1/deposits': {
+        status: 201,
+        body: { deposit_id: 41, status: 'PENDING', currency: 'USD', amount: '1000' },
+      },
+      'GET /api/v1/funding*': { body: { data: [], total: 0 } },
+    });
+    renderFunding('deposit');
+    const user = userEvent.setup();
+    await user.type(await screen.findByLabelText(/Amount \(USD\)/), '1000');
+    await user.click(screen.getByRole('button', { name: 'Register deposit' }));
+    await waitFor(() => {
+      const c = calls.find((x) => x.method === 'POST' && x.url.endsWith('/deposits'));
+      expect(c?.init?.headers).toMatchObject({ 'Idempotency-Key': expect.any(String) as unknown });
+      expect(JSON.parse(c?.init?.body as string)).toMatchObject({
+        currency: 'USD',
+        amount: '1000',
+        bank_method: 'SWIFT',
+      });
+    });
+    expect(await screen.findByText(/Deposit #41/)).toHaveTextContent('PENDING');
+  });
+});
+
+describe('ConvertCard', () => {
+  it('posts a conversion and renders history rows', async () => {
+    const calls = installFetchMock({
+      'GET /api/v1/funding/conversions': {
+        body: {
+          items: [
+            {
+              id: 7,
+              direction: 'DEPOSIT',
+              from_currency: 'USD',
+              to_currency: 'EUR',
+              amount_from: '1000',
+              amount_to: '920.50',
+              mid_rate: '0.9250',
+              spread_bps: '50',
+              rate_applied: '0.9205',
+              rate_source: 'BFIX',
+              created_at: '2026-05-18T10:00:00Z',
+            },
+          ],
+        },
+      },
+      'POST /api/v1/funding/convert': {
+        body: {
+          converted: true,
+          from_currency: 'USD',
+          to_currency: 'EUR',
+          amount_from: '500',
+          amount_to: '460.25',
+          rate_applied: '0.9205',
+        },
+      },
+      'GET /api/v1/funding*': { body: { data: [], total: 0 } },
+    });
+    renderFunding('history');
+    const user = userEvent.setup();
+    expect(await screen.findByText(/920\.50/)).toBeInTheDocument();
+    await user.type(screen.getByLabelText(/Convert amount/), '500');
+    await user.click(screen.getByRole('button', { name: 'Convert' }));
+    await waitFor(() => {
+      const c = calls.find((x) => x.url.includes('/funding/convert'));
+      expect(JSON.parse(c?.init?.body as string)).toMatchObject({
+        from_currency: 'USD',
+        to_currency: 'EUR',
+        amount: '500',
+      });
+    });
+    expect(await screen.findByText(/Converted 500 USD/)).toBeInTheDocument();
+  });
+});
+
 describe('newIdempotencyKey', () => {
   it('produces unique keys', () => {
     expect(newIdempotencyKey()).not.toBe(newIdempotencyKey());

@@ -329,3 +329,212 @@ export function newIdempotencyKey(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID();
   return `idem-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
 }
+
+// ---------------------------------------------------------------------------
+// Deposit intent (Task 11.3.3) — POST /api/v1/deposits
+// ---------------------------------------------------------------------------
+
+export interface DepositResult {
+  deposit_id: number;
+  status: string;
+  currency: string;
+  amount: string;
+  usd_amount?: string;
+  review_tier?: string;
+  review_deadline?: string;
+  confirmations?: number;
+  flags?: string[];
+  replayed?: boolean;
+}
+
+/** Client-declared inbound wire — Idempotency-Key required; replays
+ * return the stored row (`replayed: true`, 200 instead of 201). */
+export async function createDepositIntent(
+  api: ApiClient,
+  input: { currency: string; amount: string; reference?: string; bankMethod?: string },
+): Promise<DepositResult> {
+  return api.post<DepositResult>(
+    '/deposits',
+    {
+      currency: input.currency,
+      amount: input.amount,
+      reference: input.reference,
+      bank_method: input.bankMethod,
+    },
+    { idempotencyKey: newIdempotencyKey() },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Bank accounts / beneficiary registry (Task 11.3.7)
+// ---------------------------------------------------------------------------
+
+export interface BankAccount {
+  bank_account_id: number;
+  currency: string;
+  iban?: string;
+  account_number?: string;
+  swift_bic?: string;
+  bic_routing?: string;
+  bank_name: string;
+  beneficiary_name: string;
+  rail: string;
+  /** PENDING_VERIFICATION | VERIFIED | REJECTED — server-owned. */
+  status: string;
+  verification_method?: string;
+  verified_at?: string;
+  unlocked_at?: string;
+  rejection_reason?: string;
+  created_at?: string;
+}
+
+export interface BankAccountInput {
+  currency: string;
+  iban?: string;
+  account_number?: string;
+  swift_bic?: string;
+  bic_routing?: string;
+  bank_name: string;
+  beneficiary_name: string;
+  rail: string;
+}
+
+export async function bankAccounts(api: ApiClient): Promise<BankAccount[]> {
+  const res = await api.get<{ bank_accounts?: BankAccount[] }>('/funding/bank-accounts');
+  return res.bank_accounts ?? [];
+}
+
+export async function registerBankAccount(
+  api: ApiClient,
+  input: BankAccountInput,
+): Promise<BankAccount> {
+  return api.post<BankAccount>('/funding/bank-accounts', input);
+}
+
+/** Owner-scoped delete — query-form `?id=` (not `/{id}`). */
+export async function deleteBankAccount(api: ApiClient, id: number): Promise<void> {
+  await api.delete(`/funding/bank-accounts?id=${id}`);
+}
+
+// ---------------------------------------------------------------------------
+// Rail capability matrix + selection preview (Task 11.3.1)
+// ---------------------------------------------------------------------------
+
+export interface RailCapability {
+  rail: string;
+  name: string;
+  message_types?: string[];
+  all_currencies?: boolean;
+  currencies?: string[];
+  cutoff_utc?: number;
+  cutoff_label?: string;
+  instant_capable?: boolean;
+  max_amount?: string;
+  cap_instant_only?: boolean;
+  settlement_lag?: string;
+  weekend_processing?: boolean;
+}
+
+export async function fundingRails(api: ApiClient): Promise<RailCapability[]> {
+  const res = await api.get<{ rails?: RailCapability[] }>('/funding/rails');
+  return res.rails ?? [];
+}
+
+export interface RailSelection {
+  rail: string;
+  capability?: RailCapability;
+  value_date?: string;
+  queued_next_day?: boolean;
+  rejected_rails?: string[];
+}
+
+/** Fail-closed preview — BANKING_RAIL_UNAVAILABLE (503) /
+ * RAIL_CUTOFF_EXCEEDED (422) surface as coded errors. */
+export async function railSelection(
+  api: ApiClient,
+  input: { currency: string; amount: string; preferredRail?: string; requireSameDay?: boolean },
+): Promise<RailSelection> {
+  return api.post<RailSelection>('/funding/rail-selection', {
+    currency: input.currency,
+    amount: input.amount,
+    preferred_rail: input.preferredRail,
+    require_same_day: input.requireSameDay,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Withdrawal whitelist (Task 11.3.10)
+// ---------------------------------------------------------------------------
+
+export interface WhitelistView {
+  mode: string; // ALLOW_ALL | WHITELIST_ONLY
+  whitelist_only_enabled: boolean;
+  timelock_until?: string;
+  withdrawal_lock_until?: string;
+  withdrawals_locked?: boolean;
+  reenable_locked?: boolean;
+  beneficiaries?: BankAccount[];
+  updated_at?: string;
+}
+
+export async function withdrawalWhitelist(api: ApiClient): Promise<WhitelistView> {
+  return api.get<WhitelistView>('/funding/withdrawal-whitelist');
+}
+
+/** Enable → WHITELIST_ONLY; disable → ALLOW_ALL + account-scoped 24h
+ * egress lock (WHITELIST_CHANGE_LOCKED on premature re-enable). */
+export async function setWhitelistMode(api: ApiClient, enable: boolean): Promise<WhitelistView> {
+  return api.post<WhitelistView>(`/funding/withdrawal-whitelist/${enable ? 'enable' : 'disable'}`);
+}
+
+// ---------------------------------------------------------------------------
+// Currency conversion (Task 11.3.9)
+// ---------------------------------------------------------------------------
+
+export interface ConversionRecord {
+  id: number;
+  direction: string; // DEPOSIT | WITHDRAWAL
+  from_currency: string;
+  to_currency: string;
+  amount_from: string;
+  mid_rate: string;
+  spread_bps: string;
+  rate_applied: string;
+  amount_to: string;
+  rate_source?: string;
+  rate_valid_at?: string;
+  funding_transaction_id?: number;
+  created_at?: string;
+}
+
+export interface ConversionResult {
+  converted: boolean;
+  direction?: string;
+  from_currency?: string;
+  to_currency?: string;
+  amount_from?: string;
+  amount_to?: string;
+  mid_rate?: string;
+  spread_bps?: string;
+  rate_applied?: string;
+  rate_source?: string;
+  rate_valid_at?: string;
+  conversion?: ConversionRecord;
+}
+
+export async function convertFunds(
+  api: ApiClient,
+  input: { fromCurrency: string; toCurrency?: string; direction?: string; amount: string },
+): Promise<ConversionResult> {
+  return api.post<ConversionResult>('/funding/convert', {
+    from_currency: input.fromCurrency,
+    to_currency: input.toCurrency,
+    direction: input.direction,
+    amount: input.amount,
+  });
+}
+
+export async function conversionHistory(api: ApiClient, limit = 50): Promise<ConversionRecord[]> {
+  const res = await api.get<{ items?: ConversionRecord[] }>(`/funding/conversions?limit=${limit}`);
+  return res.items ?? [];
+}

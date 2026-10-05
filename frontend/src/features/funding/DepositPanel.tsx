@@ -5,10 +5,20 @@
  * pending deposits from the unified funding feed.
  */
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiClient } from '@/app/runtime';
-import { CopyButton, ErrorBox, Field, QrBlock, StatusBadge, cardCls, selectCls } from '@/lib/ui';
+import {
+  CopyButton,
+  ErrorBox,
+  Field,
+  QrBlock,
+  StatusBadge,
+  btnPrimary,
+  cardCls,
+  inputCls,
+  selectCls,
+} from '@/lib/ui';
 
 import * as api from './api';
 
@@ -83,6 +93,93 @@ function InstructionCard({
   );
 }
 
+/** Client-declared inbound wire — POST /deposits (Task 11.3.3). The
+ * detection poller adopts the intent by reference; Idempotency-Key is
+ * generated per submission so replays return the stored row. */
+function DepositIntentForm({ currency }: { currency: string }) {
+  const qc = useQueryClient();
+  const [amount, setAmount] = useState('');
+  const [method, setMethod] = useState<string>('SWIFT');
+  const intent = useMutation({
+    mutationFn: () =>
+      api.createDepositIntent(apiClient, {
+        currency,
+        amount,
+        bankMethod: method,
+      }),
+    onSuccess: async () => {
+      setAmount('');
+      await qc.invalidateQueries({ queryKey: ['funding', 'pending-deposits'] });
+    },
+  });
+
+  return (
+    <div className={cardCls}>
+      <h2 className="mb-1 text-sm font-semibold">Declare an incoming wire</h2>
+      <p className="mb-3 text-xs text-neutral-400">
+        Registering your transfer helps settlement reconciliation attribute it — the deposit stays
+        PENDING until the bank credit is detected.
+      </p>
+      <form
+        className="grid gap-3 sm:grid-cols-3"
+        onSubmit={(e) => {
+          e.preventDefault();
+          intent.mutate();
+        }}
+      >
+        <Field label={`Amount (${currency})`} required>
+          {(id) => (
+            <input
+              id={id}
+              className={inputCls}
+              inputMode="decimal"
+              placeholder="0.00"
+              value={amount}
+              onChange={(e) => {
+                setAmount(e.target.value);
+              }}
+            />
+          )}
+        </Field>
+        <Field label="Bank method">
+          {(id) => (
+            <select
+              id={id}
+              className={selectCls}
+              value={method}
+              onChange={(e) => {
+                setMethod(e.target.value);
+              }}
+            >
+              {api.BANK_METHODS.filter((m) => m !== 'INTERNAL').map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+          )}
+        </Field>
+        <div className="flex items-end">
+          <button type="submit" className={btnPrimary} disabled={intent.isPending || amount === ''}>
+            {intent.isPending ? 'Registering…' : 'Register deposit'}
+          </button>
+        </div>
+      </form>
+      <ErrorBox error={intent.error} />
+      {intent.isSuccess && (
+        <p className="mt-2 text-sm text-emerald-400" role="status">
+          Deposit #{intent.data.deposit_id}{' '}
+          {intent.data.replayed === true ? 'already registered' : 'registered'}— status{' '}
+          {intent.data.status}
+          {intent.data.flags !== undefined &&
+            intent.data.flags.length > 0 &&
+            ` · flags: ${intent.data.flags.join(', ')}`}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export default function DepositPanel() {
   const [currency, setCurrency] = useState('USD');
   const instructions = useQuery({
@@ -146,6 +243,8 @@ export default function DepositPanel() {
           </>
         )}
       </div>
+
+      <DepositIntentForm currency={currency} />
 
       <div className={cardCls}>
         <h2 className="mb-2 text-sm font-semibold">Pending deposits</h2>

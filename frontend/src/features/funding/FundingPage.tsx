@@ -11,12 +11,14 @@ import { RequireAuth } from '@/features/auth/guards';
 const DepositPanel = lazy(() => import('./DepositPanel'));
 const WithdrawalPanel = lazy(() => import('./WithdrawalPanel'));
 const TransferPanel = lazy(() => import('./TransferPanel'));
+const AccountsPanel = lazy(() => import('./AccountsPanel'));
 const HistoryPanel = lazy(() => import('./HistoryPanel'));
 
 const TABS = [
   { id: 'deposit', label: 'Deposit' },
   { id: 'withdraw', label: 'Withdraw' },
   { id: 'transfer', label: 'Internal transfer' },
+  { id: 'accounts', label: 'Bank accounts' },
   { id: 'history', label: 'History' },
 ] as const;
 type TabId = (typeof TABS)[number]['id'];
@@ -29,6 +31,8 @@ function panel(tab: TabId) {
       return <WithdrawalPanel />;
     case 'transfer':
       return <TransferPanel />;
+    case 'accounts':
+      return <AccountsPanel />;
     case 'history':
       return <HistoryPanel />;
   }
