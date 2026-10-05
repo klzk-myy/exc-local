@@ -377,8 +377,8 @@ Non-goals: new backend business logic (existing routes only); the `/api/v1/test/
 4. Account data views — `GET …/{liquidations,commission/{symbol},filters/{symbol},cost-preview,confirmations/{trade_id},statements,statements/{id}/download,snapshots,income,pnl,positions}` — folded into Performance/Reports pages where they already exist (extends Task 10.3.18/10.3.28; verify each against existing panels before adding — no duplicate surfaces).
 
 **DoD:**
-* [ ] Delegation + approval policies + account api-keys + leverage/margin-mode/swap-free/appropriateness all operable
-* [ ] No route in the `/account/*` family remains UI-uncovered (or is documented as intentionally headless)
+* [x] Delegation + approval policies + account api-keys + leverage/margin-mode/swap-free/appropriateness all operable
+* [x] No route in the `/account/*` family remains UI-uncovered (or is documented as intentionally headless)
 
 **SDD Checklist:**
 - [x] Spec checkpoint: full account self-service surface — defined first, validated against spec
@@ -397,7 +397,7 @@ Non-goals: new backend business logic (existing routes only); the `/api/v1/test/
 4. Deposits — `POST /api/v1/deposits` + `GET …/{currency}` address/instruction display (extends DepositPanel).
 
 **DoD:**
-* [ ] Bank-account registration, whitelist toggle, conversion, rail selection, deposit initiation all functional
+* [x] Bank-account registration, whitelist toggle, conversion, rail selection, deposit initiation all functional
 
 **SDD Checklist:**
 - [x] Spec checkpoint: funding self-service covers all rails — defined first, validated against spec
@@ -415,7 +415,7 @@ Non-goals: new backend business logic (existing routes only); the `/api/v1/test/
 3. Baskets & promos — `GET /api/v1/baskets/{id}`, `GET /api/v1/promotions/{id}`; copy-strategy author flow `POST /api/v1/copy/strategies`, `GET …`, `POST …/{id}/list` (extends Task 10.3.26).
 
 **DoD:**
-* [ ] Strategy lifecycle + template instantiate + basket view + copy-strategy listing all functional
+* [x] Strategy lifecycle + template instantiate + basket view + copy-strategy listing all functional
 
 **SDD Checklist:**
 - [x] Spec checkpoint: strategy marketplace user flow complete — defined first, validated against spec
