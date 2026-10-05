@@ -60,7 +60,7 @@ core/            C++ matching engine, WAL, IPC, FlatBuffers proto (CMake: build/
 services/        Go services — cmd/<binary> entrypoints (34 binaries), internal/ packages,
                  pkg/, config.example.yaml, internal/db/migrations/ (216 migration pairs, 001–285)
 frontend/        React 18 + TS web UI (Vite, Vitest, Playwright e2e)
-tests/           spec/ (543 checkpoint harness) · soak/ (72h loadgen) · load/ (AC matrix) ·
+tests/           spec/ (569 checkpoint harness) · soak/ (72h loadgen) · load/ (AC matrix) ·
                  chaos/ (6 scenarios) · integration/ (63 tests) · pentest/ (17 tests)
 deploy/          k8s/ (28 manifests) · baremetal/ · ansible/ · docker/ (4 Dockerfiles) ·
                  scripts/ (22 ops scripts) · grafana/ · haproxy/ · prometheus/ · monitoring/
@@ -143,7 +143,7 @@ curl http://127.0.0.1:8091/health/ready  # risk
 ctest --test-dir core/build -j$(nproc) --output-on-failure          # C++ (38 tests)
 cd services && go test -count=1 -short ./...                         # Go (~3657 tests)
 cd frontend && npx vitest run                                        # frontend (607 tests)
-cd tests/spec && go run . run --report /tmp/report.json              # spec (543 checkpoints)
+cd tests/spec && go run . run --report /tmp/report.json              # spec (569 checkpoints)
 ```
 
 ## Deployment
@@ -312,13 +312,13 @@ docker CLI + socket, repo mount); host-mode supervision there is refused.
 ctest --test-dir core/build -j$(nproc) --output-on-failure          # C++        38 tests
 cd services && go test -count=1 -short ./...                         # Go      ~3,657 tests (88 packages)
 cd frontend && npx vitest run                                        # frontend   607 tests
-cd tests/spec && go run . run --report /tmp/report.json              # spec       543 checkpoints
+cd tests/spec && go run . run --report /tmp/report.json              # spec       569 checkpoints
 ```
 
 ### Spec harness
 
 The spec harness (`tests/spec`) mechanically binds every `Spec checkpoint:` marker in
-the phase docs to an executable check — 543 checkpoints + golden corpus, 4 shards:
+the phase docs to an executable check — 569 checkpoints + golden corpus, 4 shards:
 
 ```bash
 cd tests/spec
@@ -338,7 +338,7 @@ Status semantics: `pending` = implemented but waiting on external evidence
 | `core/tests/` | C++ Google Test (matching, WAL, recovery, risk, IPC, implied, L3…) | 38 tests / 38 targets |
 | `services/**/*_test.go` | Go unit + integration (env-gated: `EXC_PG_TEST`, `EXC_REDIS_TEST`) | ~3,657 tests / 88 pkgs |
 | `frontend/src/**/*.test.tsx` | Vitest + Testing Library + axe-core WCAG 2.1 AA | 607 tests / 72 files |
-| `tests/spec/` | Phase checkpoint → implementation binding | 543 checkpoints |
+| `tests/spec/` | Phase checkpoint → implementation binding | 569 checkpoints |
 | `tests/integration/` | Full-stack (gateway↔engine↔PG↔Redis) | 63 tests |
 | `tests/pentest/` | Black-box security (IDOR, RBAC, SQLi, lockout, NATS, WS…) | 17 tests |
 | `tests/chaos/` | 6 crash/recovery scenarios × 3 runs | 18 runs |
@@ -350,9 +350,9 @@ CI: `.github/workflows/ci.yml` (10 jobs) + `security.yml` (5 jobs) — currently
 
 ## Current status
 
-- All 31 phases (24 core + 7 buffer) implemented — 506 tasks, 543 checkpoints; Phase-10.5 console-surface completion landed (27 tasks, remediation #46; supersedes "479 tasks / planned").
+- All 31 phases (24 core + 7 buffer) implemented — 506 tasks, 569 checkpoints; Phase-10.5 console-surface completion landed (27 tasks, remediation #46; supersedes "479 tasks / planned").
 - 216 migration pairs · 419 §24 acceptance criteria · 277 registered error codes (207 spec §23 rows + 70 gateway-local).
-- Canonical counts verified by mechanical audit: §24=419, error codes=277, AC rows=1,079, migrations=001–285, spec checkpoints=543.
+- Canonical counts verified by mechanical audit: §24=419, error codes=277, AC rows=1,079, migrations=001–285, spec checkpoints=569.
 - Open items are **environment-bound evidence gates**, not code gaps:
   - **72h soak @ 50k ord/s** — needs a dedicated benchmark host for the p99≤50µs criterion; engine ceiling ≥90.7k/s measured (supersedes "~15k/s dev-host ceiling" — that figure was the loadgen's ~20µs/order send loop, not engine capacity); all other Phase-02.5 criteria verified incl. crash-restart 614ms–1359ms ≪10s.
   - **75k/s × 4h staging gate** — needs a provisioned staging cluster; artifact contract `staging-report.json` armed (`ckP085StagingGate`).
