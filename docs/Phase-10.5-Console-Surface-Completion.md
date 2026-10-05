@@ -255,10 +255,12 @@ Non-goals: new backend business logic (existing routes only); the `/api/v1/test/
 3. Margin-param changes — `POST /api/v1/admin/margin-param-changes` (`MARGIN_MODEL_UNVALIDATED` gate surfaced); `GET/POST /api/v1/admin/entity-leverage-policy`.
 
 **DoD:**
-* [ ] Instrument lifecycle transitions, listing proposals, schedule overrides, margin/leverage policy changes all operable
+* [x] Instrument lifecycle transitions, listing proposals, schedule overrides, margin/leverage policy changes all operable
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: instrument lifecycle console covers halt→delist with dual control — defined first, validated against spec
+- [x] Spec checkpoint: instrument lifecycle console covers halt→delist with dual control — defined first, validated against spec
+
+**Execution record (2026-10-07):** `frontend/src/features/admin-instruments/` — `InstrumentGovernancePage` (`/admin/instrument-governance`) + `api.ts` + 3 panels: `ListingPanel` (status-filtered queue, auto_checks rendered, review REVIEW|APPROVE|REJECT — APPROVE → 202 four-eyes rendered pending, intake form w/ reference+risk-defaults JSON), `SchedulePanel` (market-schedule doc w/ version, override create/edit/delete, per-symbol auction-calendar GET + full-replace PUT → 202 pending), `RiskPolicyPanel` (margin-param-changes → 202 w/ §13.12 MARGIN_MODEL_UNVALIDATED approval-time gate note, entity-leverage matrix + cell → 202). Contract note: the instrument list + lifecycle verbs themselves already live on the Admin page (`features/admin/InstrumentsPanel`, Task 15.3.2 — activate/restrict/cancel-only/suspend/halt single-sign + resume/delist dual) — not duplicated; uncross-override is mounted for crossed-book quarantine release but its trigger state is engine-side, so the surface stays out of this console per plan verb list. Zero backend changes. 6 component tests; 683/683 suite green.
 
 ---
 
