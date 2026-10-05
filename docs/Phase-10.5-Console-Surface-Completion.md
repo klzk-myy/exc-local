@@ -214,10 +214,12 @@ Non-goals: new backend business logic (existing routes only); the `/api/v1/test/
 5. Chargebacks — `GET/POST /api/v1/admin/chargebacks[/{id}]`, `POST …/{id}/{submit|resolve}`.
 
 **DoD:**
-* [ ] CLS instruction lifecycle, exception resolution, allocation groups + escalation, chargeback handling all operable
+* [x] CLS instruction lifecycle, exception resolution, allocation groups + escalation, chargeback handling all operable
 
 **SDD Checklist:**
-- [ ] Spec checkpoint: post-trade ops surfaces expose the full state machines — defined first, validated against spec
+- [x] Spec checkpoint: post-trade ops surfaces expose the full state machines — defined first, validated against spec
+
+**Execution record (2026-10-07):** `frontend/src/features/admin-settlement/` — `SettlementPage` (`/admin/settlement`) + `api.ts` + 4 panels: `ClsPanel` (paired-instruction submit + ref-driven dispatch/amend/rescind/pay-in/finality/status console w/ lifecycle strip; SETTLED only via authenticated /finality leg), `ExceptionsPanel` (id-driven detail + RETRY|REVERSE|MANUAL resolve → 202 four-eyes PENDING rendered honestly + MT900/910 intake), `AllocationsPanel` (register/eligibility/fills/allocate/submit-lock/leg claim-reject-cancel-correct/T+0 escalate), `ChargebacksPanel` (open under approver_user_id four-eyes + freeze flag, submit, WON|LOST resolve). Contract note: ClsInstruction/SettlementException marshal PascalCase — parser dual-cases. Zero backend changes. 6 component tests; 671/671 suite green.
 
 ---
 
