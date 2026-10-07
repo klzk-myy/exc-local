@@ -8,6 +8,14 @@ import PerformancePage from './PerformancePage';
 
 vi.mock('@/app/runtime', () => import('@/test/accountMocks').then((m) => m.runtimeModule()));
 
+// EquityCurveChart is this page's lazy lightweight-charts chunk — the
+// deferred matchMedia install rejects unhandled under jsdom (Vitest 4
+// counts unhandled rejections), and chart internals are out of scope
+// here anyway (panel plumbing only, same stub pattern as workspace).
+vi.mock('./EquityCurveChart', () => ({
+  default: () => <div data-testid="equity-curve-chart" />,
+}));
+
 const POSITIONS = {
   positions: [
     {
