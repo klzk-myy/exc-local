@@ -25,6 +25,7 @@ const require = createRequire(new URL('../package.json', import.meta.url));
 const { chromium } = require('playwright');
 
 const BASE = process.env.AUDIT_BASE ?? 'http://localhost:3000';
+const HEADFUL = !!process.env.AUDIT_HEADFUL; // headed browser (needs DISPLAY)
 const OUT = '/tmp/func-audit';
 const ONLY = (() => {
   const i = process.argv.indexOf('--only');
@@ -329,7 +330,7 @@ async function audit(page, name, url) {
 
 async function main() {
   mkdirSync(OUT, { recursive: true });
-  const browser = await chromium.launch();
+  const browser = await chromium.launch({ headless: !HEADFUL });
   const ctx = await browser.newContext({ baseURL: BASE, viewport: { width: 1440, height: 900 } });
   const page = await ctx.newPage();
   await uiLogin(page, TAKER);
