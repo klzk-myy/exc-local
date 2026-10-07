@@ -210,9 +210,9 @@ describe('InstrumentGovernancePage', () => {
     signInForTests({ roles: ['Risk Manager'] });
     const calls = installFetchMock({
       ...BASE,
-      'GET /api/v1/admin/instruments/EURUSD/auction-calendar': {
+      'GET /api/v1/admin/instruments/EUR%2FUSD/auction-calendar': {
         body: {
-          symbol: 'EURUSD',
+          symbol: 'EUR/USD',
           entries: [
             {
               id: 1,
@@ -225,7 +225,7 @@ describe('InstrumentGovernancePage', () => {
           ],
         },
       },
-      'PUT /api/v1/admin/instruments/EURUSD/auction-calendar': {
+      'PUT /api/v1/admin/instruments/EUR%2FUSD/auction-calendar': {
         status: 202,
         body: {
           status: 'PENDING',
@@ -246,7 +246,7 @@ describe('InstrumentGovernancePage', () => {
     await user.click(within(panel).getByRole('button', { name: 'Replace calendar (4-eyes)' }));
     await waitFor(() => {
       const put = calls.find(
-        (c) => c.method === 'PUT' && c.url.includes('/EURUSD/auction-calendar'),
+        (c) => c.method === 'PUT' && c.url.includes('/EUR%2FUSD/auction-calendar'),
       );
       expect(put).toBeDefined();
       expect(JSON.parse(put?.init?.body as string)).toMatchObject({
