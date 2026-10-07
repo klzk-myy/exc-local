@@ -34,7 +34,7 @@ type fakeBalanceStore struct {
 	commits        int
 	rollbacks      int
 	commitFailures []error
-	processed      map[int64]int64 // trade_id → shard_id
+	processed      map[int64]int64  // trade_id → shard_id
 	frames         map[int64][]byte // trade_id → committed raw_frame
 	posted         []ledger.Journal
 	posterErr      error // injected PostJournal failure (in-tx abort)
@@ -214,14 +214,21 @@ func (r *fakeResolver) Resolve(_ context.Context, f EngineFill) (ResolvedTrade, 
 
 func dec(s string) decimal.Decimal { return decimal.MustFromString(s) }
 
-func resolvedRM(tradeID uint64, buyer, seller int64) ResolvedTrade {
-	f := EngineFill{TradeID: tradeID, BuyOrderID: tradeID*10 + 1, SellOrderID: tradeID*10 + 2, Price: dec("1.25"), Qty: dec("10000"), EngineSeq: tradeID, ShardID: 0}
-	// Carry the wire frame so the dedup collision proof has committed
-	// content to compare — replay verification decodes this verbatim.
+// withRawFrame (re)encodes Fill.Raw from the fill's current fields —
+// helpers that mutate price/qty after resolvedRM must call it last so the
+// committed frame and the resolved fill stay wire-identical (the dedup
+// collision check compares them verbatim).
+func withRawFrame(rt ResolvedTrade) ResolvedTrade {
+	f := &rt.Fill
 	f.Raw = ipc.EncodeTradeFillEvent(flatbuffers.NewBuilder(256),
 		uint64(f.EngineSeq), 0, f.TradeID, f.BuyOrderID, f.SellOrderID,
 		decimal.Scaled(f.Price), decimal.Scaled(f.Qty), int64(f.EngineSeq))
-	return ResolvedTrade{
+	return rt
+}
+
+func resolvedRM(tradeID uint64, buyer, seller int64) ResolvedTrade {
+	f := EngineFill{TradeID: tradeID, BuyOrderID: tradeID*10 + 1, SellOrderID: tradeID*10 + 2, Price: dec("1.25"), Qty: dec("10000"), EngineSeq: tradeID, ShardID: 0}
+	return withRawFrame(ResolvedTrade{
 		Fill:            f,
 		InstrumentID:    1,
 		BuyerAccountID:  buyer,
@@ -230,7 +237,7 @@ func resolvedRM(tradeID uint64, buyer, seller int64) ResolvedTrade {
 		QuoteCurrency:   "USD",
 		BuyerIntent:     IntentRollingMargin,
 		SellerIntent:    IntentRollingMargin,
-	}
+	})
 }
 
 func requireCodeT(t *testing.T, err error, code string) {

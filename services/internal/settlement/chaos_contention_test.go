@@ -185,7 +185,9 @@ func chaosRMFill(tradeID uint64, buyer, seller int64) ResolvedTrade {
 			rt.FeeJournals = append(rt.FeeJournals, j)
 		}
 	}
-	return rt
+	// Re-encode after the price/qty mutation above — the committed raw_frame
+	// must mirror the resolved fill or replays read as dedup collisions.
+	return withRawFrame(rt)
 }
 
 func TestChaosSerializationContentionZeroLoss(t *testing.T) {
