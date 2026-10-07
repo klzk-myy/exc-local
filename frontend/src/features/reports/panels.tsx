@@ -36,27 +36,29 @@ export function FeeSchedulePanel() {
       <p className="mt-1 text-xs text-neutral-500">
         Tier: {f.tierName ?? `#${f.tierId ?? '—'}`} {f.promoActive ? '· promo active' : ''}
       </p>
-      <table className={tableCls + ' mt-3 max-w-md'}>
-        <thead>
-          <tr>
-            <th className={thCls}>Role</th>
-            <th className={thCls}>Base (bps)</th>
-            <th className={thCls}>Effective (bps)</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td className={tdCls}>Maker</td>
-            <td className={tdCls + ' font-mono'}>{f.makerBps}</td>
-            <td className={tdCls + ' font-mono'}>{f.effectiveMakerBps}</td>
-          </tr>
-          <tr>
-            <td className={tdCls}>Taker</td>
-            <td className={tdCls + ' font-mono'}>{f.takerBps}</td>
-            <td className={tdCls + ' font-mono'}>{f.effectiveTakerBps}</td>
-          </tr>
-        </tbody>
-      </table>
+      <div className="relative overflow-x-auto" tabIndex={0}>
+        <table className={tableCls + ' mt-3 max-w-md'}>
+          <thead>
+            <tr>
+              <th className={thCls}>Role</th>
+              <th className={thCls}>Base (bps)</th>
+              <th className={thCls}>Effective (bps)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td className={tdCls}>Maker</td>
+              <td className={tdCls + ' font-mono'}>{f.makerBps}</td>
+              <td className={tdCls + ' font-mono'}>{f.effectiveMakerBps}</td>
+            </tr>
+            <tr>
+              <td className={tdCls}>Taker</td>
+              <td className={tdCls + ' font-mono'}>{f.takerBps}</td>
+              <td className={tdCls + ' font-mono'}>{f.effectiveTakerBps}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
       {f.promoActive && f.promoUntil ? (
         <p className="mt-2 text-xs text-amber-400">
           Promo window until {f.promoUntil}
@@ -235,31 +237,33 @@ export function SystemInfoPanel() {
       {st.components.length === 0 ? (
         <p className="mt-2 text-sm text-neutral-500">No component probes reported.</p>
       ) : (
-        <table className={tableCls + ' mt-3'}>
-          <thead>
-            <tr>
-              <th className={thCls}>Component</th>
-              <th className={thCls}>State</th>
-              <th className={thCls}>Latency</th>
-              <th className={thCls}>Detail</th>
-            </tr>
-          </thead>
-          <tbody>
-            {st.components.map((c) => (
-              <tr key={c.name}>
-                <td className={tdCls}>
-                  {c.name}
-                  {c.critical ? ' (critical)' : ''}
-                </td>
-                <td className={`${tdCls} ${STATE_STYLE[c.state] ?? ''}`}>{c.state}</td>
-                <td className={tdCls + ' font-mono'}>
-                  {c.latencyMs !== null ? `${c.latencyMs.toFixed(1)}ms` : '—'}
-                </td>
-                <td className={tdCls}>{c.detail ?? '—'}</td>
+        <div className="relative overflow-x-auto" tabIndex={0}>
+          <table className={tableCls + ' mt-3'}>
+            <thead>
+              <tr>
+                <th className={thCls}>Component</th>
+                <th className={thCls}>State</th>
+                <th className={thCls}>Latency</th>
+                <th className={thCls}>Detail</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {st.components.map((c) => (
+                <tr key={c.name}>
+                  <td className={tdCls}>
+                    {c.name}
+                    {c.critical ? ' (critical)' : ''}
+                  </td>
+                  <td className={`${tdCls} ${STATE_STYLE[c.state] ?? ''}`}>{c.state}</td>
+                  <td className={tdCls + ' font-mono'}>
+                    {c.latencyMs !== null ? `${c.latencyMs.toFixed(1)}ms` : '—'}
+                  </td>
+                  <td className={tdCls}>{c.detail ?? '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
       {Object.keys(st.metrics).length > 0 ? (
         <dl className="mt-3 grid grid-cols-2 gap-1 text-xs md:grid-cols-4">
