@@ -40,9 +40,7 @@ async function seedBook(): Promise<void> {
       ...HARNESS_XFF,
     },
   });
-  const takerCancel = await takerCtx.delete(
-    `/api/v1/orders?symbol=${encodeURIComponent(SYMBOL)}`,
-  );
+  const takerCancel = await takerCtx.delete(`/api/v1/orders?symbol=${encodeURIComponent(SYMBOL)}`);
   expect(takerCancel.ok(), `taker mass cancel ${takerCancel.status()}`).toBeTruthy();
   await takerCtx.dispose();
 

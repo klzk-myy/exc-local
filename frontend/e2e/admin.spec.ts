@@ -68,10 +68,7 @@ test.describe('admin console', () => {
     try {
       // §8.2 Wrap admits: Super Admin binding on admin_role_bindings.
       const audit = await api.get('/api/v1/admin/audit');
-      expect(
-        audit.status(),
-        '/admin/audit must serve — Super Admin binding unresolved',
-      ).toBe(200);
+      expect(audit.status(), '/admin/audit must serve — Super Admin binding unresolved').toBe(200);
 
       // requireAdmin's venue-side `admin` scope is intentionally absent
       // from session JWTs — 403 FORBIDDEN is the designed verdict, not a
@@ -147,10 +144,9 @@ test.describe('admin console', () => {
       }
     }
 
-    expect(
-      routeFailures,
-      `admin routes with defects:\n${routeFailures.join('\n')}`,
-    ).toHaveLength(0);
+    expect(routeFailures, `admin routes with defects:\n${routeFailures.join('\n')}`).toHaveLength(
+      0,
+    );
 
     // Re-probe every 503'd admin endpoint: only the designed not-wired
     // shim (error=SERVICE_DEGRADED carrying the owning task) is tolerated.
