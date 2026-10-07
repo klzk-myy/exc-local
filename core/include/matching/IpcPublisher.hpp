@@ -136,6 +136,13 @@ public:
     [[nodiscard]] uint64_t published() const noexcept { return published_; }
     [[nodiscard]] uint64_t drops() const noexcept { return drops_; }
     [[nodiscard]] uint64_t pub_seq() const noexcept { return pub_seq_; }
+    // Frame seq feeds the JetStream Nats-Msg-Id dedup (s{shard}-{seq}) on
+    // every republished fill — a counter reset across restart re-issues
+    // committed msgIDs and the broker drops them silently. Seed from the
+    // recovered journal tail so post-restart frames never collide.
+    void seed_pub_seq(uint64_t next_seq) noexcept {
+        if (next_seq > pub_seq_) pub_seq_ = next_seq;
+    }
 
 private:
     IpcChannel* out_;

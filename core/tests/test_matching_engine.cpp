@@ -568,6 +568,26 @@ TEST(MatchingEngine, SeedTradeIdContinuesSequence) {
     EXPECT_EQ(f.engine.next_trade_id(), 1001u);
 }
 
+// Restart counter floor (spec §2.7): seeds are monotone floors — a lower
+// observed value must never drag a live counter backwards. The wal_tail
+// seed at boot can race a stronger snapshot-carried seed in either order.
+TEST(MatchingEngine, SeedsAreMonotoneFloors) {
+    Fixture f;
+    f.engine.seed_trade_id(1000);
+    f.engine.seed_trade_id(7);  // stale observation — must not regress
+    EXPECT_EQ(f.engine.next_trade_id(), 1000u);
+
+    f.engine.seed_emit_seq(5000);
+    f.engine.seed_emit_seq(7);
+    EXPECT_EQ(f.engine.emit_seq(), 5000u);
+
+    CountingChannel chan;
+    IpcPublisher pub(&chan);
+    pub.seed_pub_seq(700);
+    pub.seed_pub_seq(3);
+    EXPECT_EQ(pub.pub_seq(), 700u);
+}
+
 TEST(MatchingEngine, IpcPublishesFillsAndCancels) {
     MemoryPool<Order> pool{512};
     OrderBook book{pool};

@@ -1545,6 +1545,23 @@ int main(int argc, char** argv) {
             modes.set_mode(exch::DegradationMode::Normal,
                            "recovery probe passed — traffic reopened");
         }
+        // Per-boot counters must never restart below ids the journal
+        // already issued. The replay window alone does not prove them:
+        // snapshot-covered spans and aux-only boots carry no TRADE rows,
+        // and a wiped journal generation carries nothing at all — in
+        // every such case the dedup ledger would silently drop re-issued
+        // trade_ids (spec §2.7). The recovered journal tail is the floor
+        // any WAL-retaining restart can prove: every journaled fill
+        // consumed a seq below it, so ids/seqs resuming at the tail can
+        // never collide with committed ledger or JetStream dedup keys.
+        if (rr.wal_tail > 0) {
+            engine.seed_trade_id(rr.wal_tail);
+            engine.seed_emit_seq(rr.wal_tail);
+            publisher.seed_pub_seq(rr.wal_tail);
+            for (auto& sp : curve_slots) {
+                sp->engine->seed_emit_seq(rr.wal_tail);
+            }
+        }
         if (rr.max_trade_id > 0) {
             // Post-recovery fills must not reuse journaled trade ids — the
             // dedup ledger would silently drop them on the next restart.

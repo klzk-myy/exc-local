@@ -171,6 +171,16 @@ public:
     void bind_trade_id_stream(uint64_t* shared) noexcept {
         tid_stream_ = shared != nullptr ? shared : &next_trade_id_;
     }
+    // emit_seq_ stamps ingress_seq on engine-generated admissions — the
+    // (timestamp_ns, ingress_seq) priority tiebreak and the §6.9 amend
+    // fence both order on it. Replayed orders carry WAL-seq stamps, so a
+    // restart that leaves emit_seq_ at 0 sorts every new order ahead of
+    // restored ones and dedups fresh amends against journaled fences.
+    // Seed it from the recovered journal tail like the trade-id stream.
+    void seed_emit_seq(uint64_t next_emit_seq) noexcept {
+        if (next_emit_seq > emit_seq_) emit_seq_ = next_emit_seq;
+    }
+    [[nodiscard]] uint64_t emit_seq() const noexcept { return emit_seq_; }
     [[nodiscard]] uint64_t& tid_stream() noexcept {
         return tid_stream_ != nullptr ? *tid_stream_ : next_trade_id_;
     }
