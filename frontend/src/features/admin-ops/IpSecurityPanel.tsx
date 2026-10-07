@@ -205,7 +205,7 @@ export function IpSecurityPanel({ adminApi }: { adminApi: BoundAdminApi }) {
         (bansQuery.data.length === 0 ? (
           <p className="text-sm text-neutral-500">No active bans.</p>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="relative overflow-x-auto" tabIndex={0}>
             <table className={tableCls}>
               <thead>
                 <tr>
