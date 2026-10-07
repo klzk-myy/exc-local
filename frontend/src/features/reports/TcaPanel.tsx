@@ -92,7 +92,7 @@ function BucketTable({ buckets }: { buckets: TcaBucket[] }) {
     return <p className="py-3 text-center text-xs text-neutral-500">No fills in this window.</p>;
   }
   return (
-    <div className="overflow-x-auto">
+    <div className="relative overflow-x-auto" tabIndex={0}>
       <table className={tableCls}>
         <thead>
           <tr>
