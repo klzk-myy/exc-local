@@ -491,7 +491,7 @@ export default function HistoryExplorerPage() {
         ) : pager.rows.length === 0 ? (
           <p className="py-4 text-center text-xs text-neutral-500">No rows in this window.</p>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="relative overflow-x-auto" tabIndex={0}>
             {dataset === 'klines' ? (
               <KlineTable rows={pager.rows as KlineRow[]} />
             ) : dataset === 'block-trades' ? (
