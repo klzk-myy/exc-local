@@ -179,9 +179,9 @@ services/snapshots/
 
 # Root meta-docs are internal working/agent docs — kept local, not published.
 # Public surface is README.md + docs/ + source.
-# Exception: AGENTS.md is the standard agent entry point — fresh clones need
-# the repo state + working rules it carries, so it is tracked.
-!AGENTS.md
+# AGENTS.md moved to local-only 2026-10-07 — it was the tracked exception
+# (standard agent entry point); now unpublished like the rest.
+AGENTS.md
 ARCHITECTURE.md
 CHANGELOG.md
 CLAUDE.md

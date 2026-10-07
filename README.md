@@ -362,16 +362,11 @@ CI: `.github/workflows/ci.yml` (10 jobs) + `security.yml` (5 jobs) — currently
 
 | Doc | Content |
 |---|---|
-| [`AGENTS.md`](./AGENTS.md) | Working rules, canonical values, mechanism ownership, phase index, gates — **read first** |
-| [`CONTEXT.md`](./CONTEXT.md) | Orientation: repo state, stack, canonical values table |
-| [`MEMORY.md`](./MEMORY.md) | Operational memory: counts, facts, roadmap |
-| [`ARCHITECTURE.md`](./ARCHITECTURE.md) | System design, feature map, drift ledger |
-| [`DESIGN.md`](./DESIGN.md) | Design intent & scope boundaries |
-| [`WORKFLOWS.md`](./WORKFLOWS.md) | Change protocol, verification, CI workflow |
-| [`CHANGELOG.md`](./CHANGELOG.md) | Append-only change log |
-| `docs/` | Master spec v7.0 + 30 phase implementation plans |
+| `docs/` | Master spec v7.0 + 31 phase implementation plans |
 | [GitHub Wiki](../../wiki) | Comprehensive synthesized wiki (architecture, systems, operations) |
 
-Contributing rules live in `AGENTS.md`: spec is the contract; append-only task
-numbering; `(supersedes …)` notes for replaced values; meta-docs sync on any
-canonical-count change.
+Root meta-docs (`AGENTS.md`, `CONTEXT.md`, `MEMORY.md`, `ARCHITECTURE.md`,
+`DESIGN.md`, `WORKFLOWS.md`, `CHANGELOG.md`) are **local-only** — gitignored
+working/agent docs, not published. Contributing rules live in `AGENTS.md`:
+spec is the contract; append-only task numbering; `(supersedes …)` notes for
+replaced values; meta-docs sync on any canonical-count change.
