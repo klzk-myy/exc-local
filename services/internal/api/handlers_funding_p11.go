@@ -189,6 +189,12 @@ func AdminQuarantineList(store suspenseLister) http.HandlerFunc {
 		f := funding.SuspenseFilter{Limit: 50}
 		if v := strings.TrimSpace(q.Get("status")); v != "" {
 			f.Status = strings.ToUpper(v)
+			if !funding.SuspenseStatuses[f.Status] {
+				WriteError(w, "INVALID_REQUEST",
+					"status must be one of QUARANTINED|INVESTIGATING|RESOLVED|RETURNED_TO_SOURCE",
+					gateway.RequestIDFrom(r.Context()), nil)
+				return
+			}
 		}
 		if v := strings.TrimSpace(q.Get("account_id")); v != "" {
 			id, err := strconv.ParseInt(v, 10, 64)

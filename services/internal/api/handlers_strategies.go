@@ -237,8 +237,14 @@ func AdminStrategyTemplates(d *StrategyDeps) http.HandlerFunc {
 			writeSvcErr(w, r, err)
 			return
 		}
-		list, err := d.SVC.ListTemplates(r.Context(),
-			r.URL.Query().Get("status"))
+		status := r.URL.Query().Get("status")
+		if status != "" && !strategies.TemplateStatuses[status] {
+			WriteError(w, "INVALID_REQUEST",
+				"status must be one of PENDING_APPROVAL|APPROVED|REJECTED|RETIRED",
+				gateway.RequestIDFrom(r.Context()), nil)
+			return
+		}
+		list, err := d.SVC.ListTemplates(r.Context(), status)
 		if err != nil {
 			writeSvcErr(w, r, err)
 			return

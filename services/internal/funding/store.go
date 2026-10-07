@@ -266,6 +266,16 @@ type SuspenseFilter struct {
 	Limit     int
 }
 
+// SuspenseStatuses is the quarantine_status_enum vocabulary (migration
+// 108) — the only values the admin ?status= filter may carry into the
+// enum cast; anything else is a client contract error, not a 500.
+var SuspenseStatuses = map[string]bool{
+	"QUARANTINED":        true,
+	"INVESTIGATING":      true,
+	"RESOLVED":           true,
+	"RETURNED_TO_SOURCE": true,
+}
+
 // ---------------------------------------------------------------------------
 // Filters (cursor-paginated, spec §8.8 envelope)
 // ---------------------------------------------------------------------------

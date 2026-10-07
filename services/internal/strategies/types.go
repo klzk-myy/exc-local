@@ -60,6 +60,16 @@ const (
 	TemplateRetired  = "RETIRED"
 )
 
+// TemplateStatuses is the strategy_template_status_enum vocabulary —
+// the only values the admin ?status= filter may carry into the enum
+// cast; anything else is a client contract error, not a 500.
+var TemplateStatuses = map[string]bool{
+	TemplatePending:  true,
+	TemplateApproved: true,
+	TemplateRejected: true,
+	TemplateRetired:  true,
+}
+
 // Run lifecycle (strategy_run_status_enum).
 const (
 	RunPending   = "PENDING"
