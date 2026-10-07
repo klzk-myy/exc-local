@@ -529,8 +529,13 @@ func run() error {
 			log.Warn("EXC_SANCTIONS_FEEDS unset — vendor refresh unbound; " +
 				"list reloads remain operator-driven")
 		}
-		go sanctionsFlags.HeartbeatLoop(sweepCtx)
 	}
+	// The C++ check-0c heartbeat attests the flag pipeline is alive — a
+	// screener-less deployment still writes flags (admin disposition,
+	// queue replays) and the engine binds the gate whenever -redis is
+	// given, so the heartbeat must run unconditionally when bound;
+	// otherwise every order fails closed to SANCTIONS_SERVICE_UNAVAILABLE.
+	go sanctionsFlags.HeartbeatLoop(sweepCtx)
 	withdrawalSvc, err := funding.NewWithdrawalService(fundStore, ledgerSvc, fundChecker)
 	if err != nil {
 		return fmt.Errorf("withdrawal service: %w", err)
