@@ -454,27 +454,29 @@ export default function WorkspacePage() {
         .
       </p>
 
-      <div
-        ref={containerRef}
-        className="relative m-2"
-        style={{ height: maxY * ROW_H, minWidth: 640 }}
-        role="application"
-        aria-label="Workspace grid — focus a panel header to move it with arrow keys"
-      >
-        {PANELS.filter((p) => placements[p.id].visible).map((p) => (
-          <PanelFrame
-            key={p.id}
-            id={p.id}
-            title={p.title}
-            safetyCritical={p.safetyCritical}
-            placement={placements[p.id]}
-            containerRef={containerRef}
-            onMove={move}
-            onHide={onHide}
-          >
-            <PanelBody id={p.id} symbol={symbol} />
-          </PanelFrame>
-        ))}
+      <div className="relative m-2 overflow-x-auto" tabIndex={0}>
+        <div
+          ref={containerRef}
+          className="relative"
+          style={{ height: maxY * ROW_H, minWidth: 640 }}
+          role="application"
+          aria-label="Workspace grid — focus a panel header to move it with arrow keys"
+        >
+          {PANELS.filter((p) => placements[p.id].visible).map((p) => (
+            <PanelFrame
+              key={p.id}
+              id={p.id}
+              title={p.title}
+              safetyCritical={p.safetyCritical}
+              placement={placements[p.id]}
+              containerRef={containerRef}
+              onMove={move}
+              onHide={onHide}
+            >
+              <PanelBody id={p.id} symbol={symbol} />
+            </PanelFrame>
+          ))}
+        </div>
       </div>
 
       {/* safety-critical hide warning */}
