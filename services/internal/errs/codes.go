@@ -535,4 +535,15 @@ var localCodes = []CodeDef{
 		"Fixing-order operation targets a benchmark with no enabled upcoming window (disabled/delisted fixing on the instrument's auction calendar) — spec §27.1 MTF/Fair-Value row"),
 	localRow("FAIR_VALUE_DIVERGENCE", 503, "Phase-22 Task 22.3.1",
 		"Explicit agreed forward/NDF rate diverges from the CIP fair value beyond the 25 bps band (spec §15.3 formula, §27.1 MTF/Fair-Value row, oracle-divergence convention)"),
+	// Phase-03 Task 3.3.1 — post-trade balance/fill-settlement codes
+	// emitted by internal/settlement (balance_service.go, balance_batch.go)
+	// on the engine fill pipeline. Neither is an HTTP response — they
+	// surface on the consumer error/alert trail; the §23 fix is a
+	// spec-side transcription row. TRADE_FILL_UNRESOLVABLE backfilled here
+	// (emitted since the task landed, unregistered); TRADE_ID_COLLISION
+	// registered with its implementation.
+	localRow("TRADE_FILL_UNRESOLVABLE", 500, "Phase-03 Task 3.3.1",
+		"Fill cannot resolve its instrument, account legs, or rate context — the settlement commit fails closed rather than booking against a guessed leg (spec §2.7)"),
+	localRow("TRADE_ID_COLLISION", 500, "Phase-03 Task 3.3.1",
+		"Incoming fill reuses a trade_id already committed in processed_trades but its stored raw frame differs (or is absent/corrupt) — the signature of an engine trade-id counter regression across restart; dedup fails closed instead of silently stranding the fill's settlement legs (spec §2.7 L0 zero-loss)"),
 }

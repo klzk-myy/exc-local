@@ -724,3 +724,46 @@ func (c *FillConsumer) resolveFills(ctx context.Context, fills []EngineFill) ([]
 	c.resolved.Add(uint64(len(rts)))
 	return rts, nil
 }
+
+// sameCommittedFill is the replay-vs-collision discriminator on the
+// dedup path (spec §2.7). processed_trades keys on the engine's per-shard
+// trade counter, which is only monotone while the journal tail survives
+// a restart — a boot that replays no TRADE rows (snapshot-covered span,
+// aux-only adoption, a lost journal generation) re-issues ids the ledger
+// already committed, and a bare ON CONFLICT would then silently drop a
+// NEW fill while the read model marks its orders FILLED.
+//
+// A dedup-suppressed fill is therefore proven a replay by content: the
+// committed row's persisted raw_frame (migration 281) must decode to the
+// same fill — same id, same legs, same price and quantity. Frame seq is
+// excluded on purpose: it is stamped at emit time, and boot recovery
+// legitimately rebuilds it from the journal seq (fill_recover.go), so it
+// differs on honest replays. A divergent conflict — or a committed row
+// with no frame to prove against (pre-281) — is a counter regression,
+// and the caller fails closed rather than swallowing the fill.
+func sameCommittedFill(stored []byte, f EngineFill) (same bool) {
+	defer func() {
+		// Malformed stored bytes can panic FlatBuffers accessors — an
+		// unprovable replay is a collision, not a crash.
+		if r := recover(); r != nil {
+			same = false
+		}
+	}()
+	if len(stored) == 0 {
+		return false
+	}
+	body, _, _ := tracing.StripAeronTrace(stored)
+	ev := ipc.DecodeEvent(body)
+	if ev == nil || ev.TypeType() != wire.EventTypeTradeFill {
+		return false
+	}
+	tf := ipc.EventTradeFill(ev)
+	if tf == nil {
+		return false
+	}
+	return tf.TradeId() == f.TradeID &&
+		tf.BuyOrderId() == f.BuyOrderID &&
+		tf.SellOrderId() == f.SellOrderID &&
+		decimal.NewFromScaled(tf.Price()).Equal(f.Price) &&
+		decimal.NewFromScaled(tf.Qty()).Equal(f.Qty)
+}

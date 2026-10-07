@@ -134,11 +134,54 @@ func (s *BalanceService) commitBatchSet(ctx context.Context, tx pgx.Tx, trades [
 
 	markStep("1.dedup", stepStart)
 	appliedIdx := make([]int, 0, len(trades))
+	var conflictIdx []int
 	for i := range trades {
 		if _, ok := appliedSet[int64(trades[i].Fill.TradeID)]; !ok {
+			conflictIdx = append(conflictIdx, i)
 			continue
 		}
 		appliedIdx = append(appliedIdx, i)
+	}
+	// Replay-vs-collision proof on every suppressed fill (spec §2.7): a
+	// committed trade_id carrying different fill content means the engine
+	// re-issued ids after a restart — dropping the new fill would strand
+	// its settlement leg invisibly. Verify content against the persisted
+	// raw_frame; a divergent or unverifiable conflict aborts the batch.
+	if len(conflictIdx) > 0 {
+		cids := make([]int64, len(conflictIdx))
+		for j, i := range conflictIdx {
+			cids[j] = int64(trades[i].Fill.TradeID)
+		}
+		fr, err := tx.Query(ctx, `
+			SELECT trade_id, raw_frame FROM processed_trades
+			 WHERE trade_id = ANY($1)`, cids)
+		if err != nil {
+			return nil, nil, fmt.Errorf("balance: dedup conflict probe: %w", err)
+		}
+		stored := map[int64][]byte{}
+		for fr.Next() {
+			var tid int64
+			var raw []byte
+			if err := fr.Scan(&tid, &raw); err != nil {
+				fr.Close()
+				return nil, nil, fmt.Errorf("balance: dedup conflict scan: %w", err)
+			}
+			stored[tid] = raw
+		}
+		fr.Close()
+		if err := fr.Err(); err != nil {
+			return nil, nil, fmt.Errorf("balance: dedup conflict rows: %w", err)
+		}
+		for _, i := range conflictIdx {
+			t := &trades[i]
+			raw, ok := stored[int64(t.Fill.TradeID)]
+			if !ok || !sameCommittedFill(raw, t.Fill) {
+				return nil, nil, excerrors.New(CodeTradeIDCollision, fmt.Sprintf(
+					"trade %d dedup conflict — committed fill diverges "+
+						"(engine trade-id counter regressed across restart)",
+					t.Fill.TradeID))
+			}
+		}
 	}
 	if len(appliedIdx) == 0 {
 		outcomes := make([]FillOutcome, 0, len(trades))

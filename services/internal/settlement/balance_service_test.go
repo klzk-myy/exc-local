@@ -35,19 +35,20 @@ type fakeBalanceStore struct {
 	rollbacks      int
 	commitFailures []error
 	processed      map[int64]int64 // trade_id → shard_id
+	frames         map[int64][]byte // trade_id → committed raw_frame
 	posted         []ledger.Journal
 	posterErr      error // injected PostJournal failure (in-tx abort)
 }
 
 func newFakeStore() *fakeBalanceStore {
-	return &fakeBalanceStore{processed: map[int64]int64{}}
+	return &fakeBalanceStore{processed: map[int64]int64{}, frames: map[int64][]byte{}}
 }
 
 func (s *fakeBalanceStore) InTx(ctx context.Context, fn func(ctx context.Context, tx balanceTx) error) error {
 	s.mu.Lock()
 	s.calls++
 	s.mu.Unlock()
-	tx := &fakeBalanceTx{s: s, pending: map[int64]int64{}}
+	tx := &fakeBalanceTx{s: s, pending: map[int64]int64{}, pendingFrames: map[int64][]byte{}}
 	if err := fn(ctx, tx); err != nil {
 		s.mu.Lock()
 		s.rollbacks++
@@ -65,6 +66,9 @@ func (s *fakeBalanceStore) InTx(ctx context.Context, fn func(ctx context.Context
 	for id, sh := range tx.pending {
 		s.processed[id] = sh
 	}
+	for id, fr := range tx.pendingFrames {
+		s.frames[id] = fr
+	}
 	s.posted = append(s.posted, tx.posts...)
 	s.commits++
 	return nil
@@ -79,12 +83,13 @@ func (s *fakeBalanceStore) committed() int {
 }
 
 type fakeBalanceTx struct {
-	s       *fakeBalanceStore
-	pending map[int64]int64
-	posts   []ledger.Journal
+	s             *fakeBalanceStore
+	pending       map[int64]int64
+	pendingFrames map[int64][]byte
+	posts         []ledger.Journal
 }
 
-func (t *fakeBalanceTx) RecordProcessed(_ context.Context, tradeID, shardID int64, _ []byte) (bool, error) {
+func (t *fakeBalanceTx) RecordProcessed(_ context.Context, tradeID, shardID int64, raw []byte) (bool, error) {
 	t.s.mu.Lock()
 	defer t.s.mu.Unlock()
 	if _, ok := t.s.processed[tradeID]; ok {
@@ -94,7 +99,17 @@ func (t *fakeBalanceTx) RecordProcessed(_ context.Context, tradeID, shardID int6
 		return false, nil
 	}
 	t.pending[tradeID] = shardID
+	t.pendingFrames[tradeID] = raw
 	return true, nil
+}
+
+func (t *fakeBalanceTx) ProcessedFrame(_ context.Context, tradeID int64) ([]byte, error) {
+	t.s.mu.Lock()
+	defer t.s.mu.Unlock()
+	if fr, ok := t.s.frames[tradeID]; ok {
+		return fr, nil
+	}
+	return t.pendingFrames[tradeID], nil
 }
 
 func (t *fakeBalanceTx) RecordTrade(_ context.Context, _ ResolvedTrade) error { return nil }
@@ -200,8 +215,14 @@ func (r *fakeResolver) Resolve(_ context.Context, f EngineFill) (ResolvedTrade, 
 func dec(s string) decimal.Decimal { return decimal.MustFromString(s) }
 
 func resolvedRM(tradeID uint64, buyer, seller int64) ResolvedTrade {
+	f := EngineFill{TradeID: tradeID, BuyOrderID: tradeID*10 + 1, SellOrderID: tradeID*10 + 2, Price: dec("1.25"), Qty: dec("10000"), EngineSeq: tradeID, ShardID: 0}
+	// Carry the wire frame so the dedup collision proof has committed
+	// content to compare — replay verification decodes this verbatim.
+	f.Raw = ipc.EncodeTradeFillEvent(flatbuffers.NewBuilder(256),
+		uint64(f.EngineSeq), 0, f.TradeID, f.BuyOrderID, f.SellOrderID,
+		decimal.Scaled(f.Price), decimal.Scaled(f.Qty), int64(f.EngineSeq))
 	return ResolvedTrade{
-		Fill:            EngineFill{TradeID: tradeID, BuyOrderID: tradeID*10 + 1, SellOrderID: tradeID*10 + 2, Price: dec("1.25"), Qty: dec("10000"), EngineSeq: tradeID, ShardID: 0},
+		Fill:            f,
 		InstrumentID:    1,
 		BuyerAccountID:  buyer,
 		SellerAccountID: seller,
@@ -633,6 +654,50 @@ func TestProcessFillsDuplicateWithinBatch(t *testing.T) {
 	}
 	if !outcomes[0].Applied || !outcomes[1].Duplicate || len(store.posted) != 1 {
 		t.Fatalf("outcomes %+v posted=%d", outcomes, len(store.posted))
+	}
+}
+
+// Regression — engine trade-id counter regression across restart: a fill
+// whose trade_id is already committed but whose CONTENT differs is not a
+// replay — it's a re-issued id. Dedup must fail closed (spec §2.7), not
+// silently strand the new fill's settlement leg while the read model
+// marks its orders FILLED.
+func TestProcessFillsTradeIDCollisionFailsClosed(t *testing.T) {
+	store := newFakeStore()
+	svc := newBalanceServiceForTest(store, &fakeLocker{}, &fakeDispatcher{}, &fakeManagedPoster{}, &fakeAlerter{})
+	ctx := context.Background()
+	if _, err := svc.ProcessFills(ctx, []ResolvedTrade{resolvedRM(9, 1, 2)}); err != nil {
+		t.Fatalf("first: %v", err)
+	}
+	// Same trade_id, different legs — the counter-regression signature.
+	clash := resolvedRM(9, 1, 2)
+	clash.Fill.BuyOrderID += 100
+	clash.Fill.Raw = ipc.EncodeTradeFillEvent(flatbuffers.NewBuilder(256),
+		uint64(clash.Fill.EngineSeq), 0, clash.Fill.TradeID,
+		clash.Fill.BuyOrderID, clash.Fill.SellOrderID,
+		decimal.Scaled(clash.Fill.Price), decimal.Scaled(clash.Fill.Qty),
+		int64(clash.Fill.EngineSeq))
+	_, err := svc.ProcessFills(ctx, []ResolvedTrade{clash})
+	requireCodeT(t, err, CodeTradeIDCollision)
+	if len(store.posted) != 1 {
+		t.Fatalf("collided fill must not post (posted=%d)", len(store.posted))
+	}
+	// A same-content conflict remains a clean replay — engine seq
+	// differences are legal (boot recovery restamps it from the journal
+	// seq), content divergence is not.
+	replay := resolvedRM(9, 1, 2)
+	replay.Fill.EngineSeq = 9999 // restamped seq — still the same fill
+	replay.Fill.Raw = ipc.EncodeTradeFillEvent(flatbuffers.NewBuilder(256),
+		uint64(replay.Fill.EngineSeq), 0, replay.Fill.TradeID,
+		replay.Fill.BuyOrderID, replay.Fill.SellOrderID,
+		decimal.Scaled(replay.Fill.Price), decimal.Scaled(replay.Fill.Qty),
+		int64(replay.Fill.EngineSeq))
+	outcomes, err := svc.ProcessFills(ctx, []ResolvedTrade{replay})
+	if err != nil {
+		t.Fatalf("replay must stay dedup-clean: %v", err)
+	}
+	if len(outcomes) != 1 || !outcomes[0].Duplicate {
+		t.Fatalf("replay outcome %+v", outcomes[0])
 	}
 }
 

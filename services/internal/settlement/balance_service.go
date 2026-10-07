@@ -81,6 +81,11 @@ const (
 	// CodeFeeExceedsProceeds — HTTP 500, L0: a leg fee exceeds the
 	// deliverable it is deducted from (negative credit would be theft).
 	CodeFeeExceedsProceeds = "FEE_EXCEEDS_PROCEEDS"
+	// CodeTradeIDCollision — L0, fail-closed halt: an incoming fill's
+	// trade_id is already committed under DIFFERENT fill content — the
+	// engine counter regressed across a restart and re-issued a journaled
+	// id. Dedup would silently strand the new fill's settlement leg.
+	CodeTradeIDCollision = "TRADE_ID_COLLISION"
 )
 
 // SettlementIntent mirrors the settlement_intent enum (migration 104;
@@ -194,6 +199,11 @@ type balanceTx interface {
 	// durable source for boot-time republish repair of the
 	// commit→publish crash window.
 	RecordProcessed(ctx context.Context, tradeID, shardID int64, rawFrame []byte) (applied bool, err error)
+	// ProcessedFrame returns the stored raw_frame of an already-committed
+	// trade_id — the replay-vs-collision evidence consulted only when
+	// RecordProcessed reports applied=false. A committed row whose frame
+	// is absent (pre-migration-281) returns nil, nil.
+	ProcessedFrame(ctx context.Context, tradeID int64) ([]byte, error)
 	// RecordTrade writes the public tape row (trades, id = the engine
 	// trade id recon keys expected fees on) inside the caller's tx — the
 	// tape and the ledger commit or abort together, so the public tape
@@ -413,6 +423,22 @@ func (s *BalanceService) commitBatch(ctx context.Context, trades []ResolvedTrade
 				return fmt.Errorf("balance: dedup insert trade %d: %w", trades[i].Fill.TradeID, err)
 			}
 			if !applied {
+				// Dedup suppressed the fill — prove replay by content
+				// before honoring it: a committed trade_id carrying a
+				// different fill means the engine counter regressed
+				// across a restart, and dropping the new fill would
+				// silently strand its settlement leg (spec §2.7).
+				stored, ferr := tx.ProcessedFrame(ctx, int64(trades[i].Fill.TradeID))
+				if ferr != nil {
+					return fmt.Errorf("balance: dedup conflict probe trade %d: %w",
+						trades[i].Fill.TradeID, ferr)
+				}
+				if !sameCommittedFill(stored, trades[i].Fill) {
+					return excerrors.New(CodeTradeIDCollision, fmt.Sprintf(
+						"trade %d dedup conflict — committed fill diverges "+
+							"(engine trade-id counter regressed across restart)",
+						trades[i].Fill.TradeID))
+				}
 				outcomes = append(outcomes, FillOutcome{TradeID: trades[i].Fill.TradeID, Duplicate: true})
 				continue
 			}
@@ -724,6 +750,18 @@ func (t pgxBalanceTx) RecordProcessed(ctx context.Context, tradeID, shardID int6
 		return false, err
 	}
 	return tag.RowsAffected() == 1, nil
+}
+
+// ProcessedFrame reads back the committed frame for a dedup-conflicted
+// trade_id. Called only on the replay path — the collision check needs
+// the stored fill's wire content to distinguish a wire-identical
+// redelivery from an engine id regression (spec §2.7).
+func (t pgxBalanceTx) ProcessedFrame(ctx context.Context, tradeID int64) ([]byte, error) {
+	var raw []byte
+	err := t.tx.QueryRow(ctx,
+		`SELECT raw_frame FROM processed_trades WHERE trade_id = $1`, tradeID).
+		Scan(&raw)
+	return raw, err
 }
 
 // RecordTrade lands the public tape row: id is the engine trade id
