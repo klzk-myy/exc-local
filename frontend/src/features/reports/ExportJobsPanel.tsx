@@ -137,7 +137,7 @@ export function ExportJobsPanel() {
           No export jobs yet — queue one from the history explorer.
         </p>
       ) : (
-        <div className="overflow-x-auto">
+        <div className="relative overflow-x-auto" tabIndex={0}>
           <table className={tableCls}>
             <thead>
               <tr>
@@ -148,7 +148,9 @@ export function ExportJobsPanel() {
                 <th className={thCls}>Status</th>
                 <th className={thCls}>Rows</th>
                 <th className={thCls}>Expiry</th>
-                <th className={thCls}></th>
+                <th className={thCls}>
+                  <span className="sr-only">Actions</span>
+                </th>
               </tr>
             </thead>
             <tbody>
