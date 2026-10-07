@@ -40,6 +40,7 @@ export default function HistoryPage() {
           role="tablist"
           aria-label="Order surfaces"
           className="flex gap-1 relative overflow-x-auto border-b border-neutral-800"
+          tabIndex={0}
         >
           {TABS.map((t) => (
             <button
