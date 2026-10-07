@@ -124,7 +124,7 @@ export function FinancePanel({ adminApi }: { adminApi: BoundAdminApi }) {
             <p className="text-sm text-neutral-500">No GL entries for the day yet.</p>
           ) : null}
           {tb.data.currencies.map((c) => (
-            <div key={c.currency} className="mt-2 overflow-x-auto">
+            <div key={c.currency} className="mt-2 relative overflow-x-auto" tabIndex={0}>
               <table className={tableCls}>
                 <caption className="text-left text-xs font-semibold">{c.currency}</caption>
                 <thead>
