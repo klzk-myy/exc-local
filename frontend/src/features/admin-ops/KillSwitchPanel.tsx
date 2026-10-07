@@ -197,7 +197,7 @@ export function KillSwitchPanel({ adminApi }: { adminApi: BoundAdminApi }) {
         (query.data.length === 0 ? (
           <p className="text-sm text-neutral-500">No active suspensions.</p>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="relative overflow-x-auto" tabIndex={0}>
             <table className={tableCls}>
               <thead>
                 <tr>
