@@ -142,7 +142,7 @@ curl http://127.0.0.1:8091/health/ready  # risk
 ```bash
 ctest --test-dir core/build -j$(nproc) --output-on-failure          # C++ (38 tests)
 cd services && go test -count=1 -short ./...                         # Go (~3657 tests)
-cd frontend && npx vitest run                                        # frontend (607 tests)
+cd frontend && npx vitest run                                        # frontend (762 tests)
 cd tests/spec && go run . run --report /tmp/report.json              # spec (569 checkpoints)
 ```
 
@@ -311,7 +311,7 @@ docker CLI + socket, repo mount); host-mode supervision there is refused.
 ```bash
 ctest --test-dir core/build -j$(nproc) --output-on-failure          # C++        38 tests
 cd services && go test -count=1 -short ./...                         # Go      ~3,657 tests (88 packages)
-cd frontend && npx vitest run                                        # frontend   607 tests
+cd frontend && npx vitest run                                        # frontend   762 tests
 cd tests/spec && go run . run --report /tmp/report.json              # spec       569 checkpoints
 ```
 
@@ -337,7 +337,7 @@ Status semantics: `pending` = implemented but waiting on external evidence
 |---|---|---|
 | `core/tests/` | C++ Google Test (matching, WAL, recovery, risk, IPC, implied, L3…) | 38 tests / 38 targets |
 | `services/**/*_test.go` | Go unit + integration (env-gated: `EXC_PG_TEST`, `EXC_REDIS_TEST`) | ~3,657 tests / 88 pkgs |
-| `frontend/src/**/*.test.tsx` | Vitest + Testing Library + axe-core WCAG 2.1 AA | 607 tests / 72 files |
+| `frontend/src/**/*.test.tsx` | Vitest + Testing Library + axe-core WCAG 2.1 AA | 762 tests / 94 files |
 | `tests/spec/` | Phase checkpoint → implementation binding | 569 checkpoints |
 | `tests/integration/` | Full-stack (gateway↔engine↔PG↔Redis) | 63 tests |
 | `tests/pentest/` | Black-box security (IDOR, RBAC, SQLi, lockout, NATS, WS…) | 17 tests |
