@@ -28,6 +28,7 @@ const AXE = readFileSync(
 );
 
 const BASE = process.env.AUDIT_BASE ?? 'http://localhost:3000';
+const HEADFUL = !!process.env.AUDIT_HEADFUL; // headed browser (needs DISPLAY)
 const OUT = '/tmp/render-audit';
 const MODE = process.argv[2] ?? 'desktop';
 const TAKER = { email: 'e2e.taker@example.com', password: 'E2e-passphrase-9' };
@@ -296,7 +297,7 @@ async function uiLogin(page) {
 
 async function main() {
   mkdirSync(`${OUT}/shots`, { recursive: true });
-  const browser = await chromium.launch();
+  const browser = await chromium.launch({ headless: !HEADFUL });
   const results = { mode: MODE, base: BASE, at: new Date().toISOString(), pages: [] };
 
   if (MODE === 'public') {
