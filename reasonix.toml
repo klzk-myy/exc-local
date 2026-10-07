@@ -1,5 +1,0 @@
-[permissions]
-allow = []
-
-[sandbox]
-allow_write = ["${HOME}/.gitnexus", "/tmp/e2e-stack"]
