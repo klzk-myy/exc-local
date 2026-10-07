@@ -1595,6 +1595,18 @@
         "owner": "Phase-15 Task 15.3.5"
       },
       {
+        "code": "TRADE_FILL_UNRESOLVABLE",
+        "description": "Fill cannot resolve its instrument, account legs, or rate context — the settlement commit fails closed rather than booking against a guessed leg (spec §2.7)",
+        "http_status": 500,
+        "owner": "Phase-03 Task 3.3.1"
+      },
+      {
+        "code": "TRADE_ID_COLLISION",
+        "description": "Incoming fill reuses a trade_id already committed in processed_trades but its stored raw frame differs (or is absent/corrupt) — the signature of an engine trade-id counter regression across restart; dedup fails closed instead of silently stranding the fill's settlement legs (spec §2.7 L0 zero-loss)",
+        "http_status": 500,
+        "owner": "Phase-03 Task 3.3.1"
+      },
+      {
         "code": "TRADE_THROUGH_DETECTED",
         "description": "Aggressive order would match at a price worse than the protected quote; rejected per §6.6b trade-through prevention (Phase-02 Task 2.3.22; feature completeness audit #36 — registered)",
         "http_status": 409,
