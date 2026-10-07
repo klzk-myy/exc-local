@@ -91,13 +91,13 @@ const TRADING_BASE = {
       positions: [],
     },
   },
-  'GET /api/v1/account/filters/EURUSD': {
+  'GET /api/v1/account/filters/EUR%2FUSD': {
     body: {
-      filters: { symbol: 'EURUSD', tick_size: '0.0001', lot_size: '1000', max_leverage: 30 },
+      filters: { symbol: 'EUR/USD', tick_size: '0.0001', lot_size: '1000', max_leverage: 30 },
     },
   },
-  'GET /api/v1/account/commission/EURUSD': {
-    body: { commission: { symbol: 'EURUSD', per_lot: '3.50', model: 'RAW_SPREAD_COMMISSION' } },
+  'GET /api/v1/account/commission/EUR%2FUSD': {
+    body: { commission: { symbol: 'EUR/USD', per_lot: '3.50', model: 'RAW_SPREAD_COMMISSION' } },
   },
   'GET /api/v1/account/liquidations': {
     body: {
