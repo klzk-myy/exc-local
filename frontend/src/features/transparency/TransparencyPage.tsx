@@ -105,7 +105,7 @@ function VenueDocCard() {
 
       <section aria-label="Instrument directory" className={cardCls}>
         <h2 className="mb-1 text-sm font-semibold">Instrument directory</h2>
-        <div className="overflow-x-auto">
+        <div className="relative overflow-x-auto" tabIndex={0}>
           <table className={tableCls}>
             <thead>
               <tr>
@@ -204,7 +204,7 @@ function BestExecCard() {
           No published reports yet — only PUBLISHED artifacts are listed here.
         </p>
       ) : (
-        <div className="overflow-x-auto">
+        <div className="relative overflow-x-auto" tabIndex={0}>
           <table className={tableCls}>
             <thead>
               <tr>
