@@ -154,7 +154,7 @@ function MaintenanceCard() {
       ) : q.data.length === 0 ? (
         <p className="text-xs text-neutral-500">No upcoming maintenance windows.</p>
       ) : (
-        <div className="overflow-x-auto">
+        <div className="relative overflow-x-auto" tabIndex={0}>
           <table className={tableCls}>
             <thead>
               <tr>
