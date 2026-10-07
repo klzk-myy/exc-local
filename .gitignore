@@ -69,9 +69,10 @@ tests/load/results/phase08-run1/*
 !tests/load/results/phase08-run1/README.md
 tests/load/snapshots/
 
-# Phase-13.5 Task 13.5.3.9 SBOM artifacts (regenerated: scripts/ci/gen_sbom.sh,
-# deploy/crons/sbom-scan.sh nightly)
-reports/sbom/
+# CI artifacts — spec-validator shard/merged reports + Phase-13.5 Task 13.5.3.9
+# SBOM outputs (regenerated: tests/spec sharding in ci.yml, scripts/ci/gen_sbom.sh,
+# deploy/crons/sbom-scan.sh nightly; uploaded as workflow artifacts, not source)
+reports/
 tests/load/errblast/errblast
 
 # Compiled test binaries + coverage/profile artifacts
