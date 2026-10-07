@@ -354,7 +354,9 @@ export function OrderListsPanel() {
               <th className={thCls}>Symbol</th>
               <th className={thCls}>Legs</th>
               <th className={thCls}>Status</th>
-              <th className={thCls} aria-label="Actions" />
+              <th className={thCls}>
+                <span className="sr-only">Actions</span>
+              </th>
             </tr>
           </thead>
           <tbody>
