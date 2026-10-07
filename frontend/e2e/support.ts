@@ -12,6 +12,8 @@ export const HARNESS_XFF = { 'x-forwarded-for': '10.90.0.2' };
 
 export const TAKER = { email: 'e2e.taker@example.com', password: 'E2e-passphrase-9' };
 export const MAKER = { email: 'e2e.maker@example.com', password: 'E2e-passphrase-9' };
+// Seeded by services/cmd/seedadmin (Super Admin binding, idempotent).
+export const ADMIN = { email: 'admin@exc.local', password: 'Password123!' };
 
 /** Bearer token for harness-side REST calls (seed/teardown, not UI). */
 export async function apiLogin(email: string, password: string): Promise<string> {
@@ -44,6 +46,24 @@ export async function uiLogin(page: Page, email: string, password: string): Prom
  */
 const TOLERATED_404 = [/^\/api\/v1\/deposits\/[A-Z]{3}$/];
 
+/**
+ * 403s the §8.2 authz stack emits by design for a session-authenticated
+ * admin: routes on the flags/ip-bans/fees/chargebacks/deprecation/fix /
+ * cache-warm surfaces carry a SECOND gate — requireAdmin's `admin` JWT
+ * scope check (services/internal/api/ipbans.go) — which is venue-side
+ * only and never lands on user-session tokens (auth/registration.go
+ * userSessionScopes). The pentest documents this as intended
+ * defence-in-depth (tests/pentest/authz_test.go wrapDeny commentary:
+ * "admin scope required" proves the §8.2 binding resolved) and the UI
+ * renders AccessDeniedCard on it.
+ *
+ * Safe to tolerate ONLY for the Super Admin fixture whose binding is
+ * control-probed in admin.spec.ts (GET /admin/audit → 200): a binding
+ * failure would trip Wrap — "no active admin role binding" / a 403 on
+ * every admin route — and the probe fails first rather than hiding here.
+ */
+const TOLERATED_403 = [/^\/api\/v1\/admin\//];
+
 /** Install error watchers on a page and return the live error list.
  * Resource-load console lines ("Failed to load resource …") are skipped
  * in favour of response-level tracking, which carries the URL: a failed
@@ -63,6 +83,7 @@ export function watchErrors(page: Page): string[] {
     if (status < 400) return;
     const path = new URL(res.url()).pathname;
     if (status === 404 && TOLERATED_404.some((re) => re.test(path))) return;
+    if (status === 403 && TOLERATED_403.some((re) => re.test(path))) return;
     errors.push(`${status} ${res.url()}`);
   });
   return errors;
