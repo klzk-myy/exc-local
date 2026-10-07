@@ -30,6 +30,22 @@ const SYMBOL = 'EUR/USD';
 const SYMBOL_URL = `/trade/${encodeURIComponent(SYMBOL)}`;
 
 async function seedBook(): Promise<void> {
+  // Clear the TAKER's resting orders on this symbol too — a stale taker bid
+  // above the seed bid makes the sell leg self-match and STP cancels the
+  // incoming order (observed: order cancelled ~1ms after accept, 0 fills).
+  const takerCtx = await request.newContext({
+    baseURL: API,
+    extraHTTPHeaders: {
+      Authorization: `Bearer ${await apiLogin(TAKER.email, TAKER.password)}`,
+      ...HARNESS_XFF,
+    },
+  });
+  const takerCancel = await takerCtx.delete(
+    `/api/v1/orders?symbol=${encodeURIComponent(SYMBOL)}`,
+  );
+  expect(takerCancel.ok(), `taker mass cancel ${takerCancel.status()}`).toBeTruthy();
+  await takerCtx.dispose();
+
   const token = await apiLogin(MAKER.email, MAKER.password);
   const ctx = await request.newContext({
     baseURL: API,
@@ -186,12 +202,15 @@ test.describe('smoke path', () => {
     const usdBefore = await apiBalance(api, 'USD');
 
     // ── 3. place order — BUY LIMIT crosses the seeded ask ─────────────
+    // The ticket is dual-column (Binance-style): each side carries its own
+    // Price/Quantity and a `Buy {base}`/`Sell {base}` submit — there is no
+    // shared side toggle or "Submit Limit" button.
     const entry = page.getByLabel('Advanced order entry');
-    await entry.getByRole('button', { name: 'BUY', exact: true }).click();
     await entry.getByLabel('Order type').selectOption('LIMIT');
-    await entry.getByLabel('Price').fill('1.10010');
-    await entry.getByLabel('Quantity').fill('1000');
-    await entry.getByRole('button', { name: 'Submit Limit' }).click();
+    const buy = entry.getByLabel('Buy ticket');
+    await buy.getByLabel('Price').fill('1.10010');
+    await buy.getByLabel('Quantity').fill('1000');
+    await buy.getByRole('button', { name: 'Buy EUR' }).click();
     await expect(page.getByText(/Order sent/i)).toBeVisible({ timeout: 15_000 });
 
     // Settlement proof (PHYSICAL_DELIVERY): 1000 EUR/USD @1.10010 moves
@@ -211,10 +230,10 @@ test.describe('smoke path', () => {
     // (exc.ui-mode.v1) and the lazily-resolved `entry` locator rebinds.
     await page.goto(SYMBOL_URL);
     await expect(page).toHaveURL(/\/workspace$/, { timeout: 15_000 });
-    await entry.getByRole('button', { name: 'SELL', exact: true }).click();
-    await entry.getByLabel('Price').fill('1.09990');
-    await entry.getByLabel('Quantity').fill('1000');
-    await entry.getByRole('button', { name: 'Submit Limit' }).click();
+    const sell = entry.getByLabel('Sell ticket');
+    await sell.getByLabel('Price').fill('1.09990');
+    await sell.getByLabel('Quantity').fill('1000');
+    await sell.getByRole('button', { name: 'Sell EUR' }).click();
     await expect(page.getByText(/Order sent/i).last()).toBeVisible({ timeout: 15_000 });
 
     // The sell leg segregates the 1,000 EUR deliverable — both legs now
