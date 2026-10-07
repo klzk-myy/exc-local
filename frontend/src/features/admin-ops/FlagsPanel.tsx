@@ -127,7 +127,7 @@ export function FlagsPanel({ adminApi }: { adminApi: BoundAdminApi }) {
         (query.data.length === 0 ? (
           <p className="text-sm text-neutral-500">No flags defined.</p>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="relative overflow-x-auto" tabIndex={0}>
             <table className={tableCls}>
               <thead>
                 <tr>
