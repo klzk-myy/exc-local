@@ -18,7 +18,7 @@ const TRANSITIONS = ['OPEN', 'PENDING', 'IN_PROGRESS', 'RESOLVED', 'CLOSED'] as 
 function StatusTimeline({ status }: { status: string }) {
   const idx = TRANSITIONS.indexOf(status as (typeof TRANSITIONS)[number]);
   return (
-    <ol className="mb-4 flex items-center gap-1" aria-label="Ticket lifecycle">
+    <ol className="mb-4 flex flex-wrap items-center gap-1" aria-label="Ticket lifecycle">
       {TRANSITIONS.map((s, i) => (
         <li key={s} className="flex items-center">
           <span
