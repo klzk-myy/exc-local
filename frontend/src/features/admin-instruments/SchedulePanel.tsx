@@ -46,7 +46,7 @@ export function SchedulePanel({ adminApi }: { adminApi: BoundAdminApi }) {
     reason: '',
   });
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [calSymbol, setCalSymbol] = useState('EURUSD');
+  const [calSymbol, setCalSymbol] = useState('EUR/USD');
   const [loadedSymbol, setLoadedSymbol] = useState<string | null>(null);
   const [entries, setEntries] = useState<CalendarEntry[] | null>(null);
   const [entriesText, setEntriesText] = useState('');
