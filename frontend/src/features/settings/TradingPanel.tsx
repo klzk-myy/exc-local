@@ -92,8 +92,8 @@ export default function TradingPanel() {
   const [mode, setMode] = useState('CROSS');
   const [attestation, setAttestation] = useState('');
   const [assess, setAssess] = useState({ instrumentClass: 'FORWARD', score: '0' });
-  const [sym, setSym] = useState('EURUSD');
-  const [costQ, setCostQ] = useState({ symbol: 'EURUSD', side: 'BUY', qty: '100000' });
+  const [sym, setSym] = useState('EUR/USD');
+  const [costQ, setCostQ] = useState({ symbol: 'EUR/USD', side: 'BUY', qty: '100000' });
   const [notice, setNotice] = useState<string | null>(null);
 
   const swapFree = useQuery({
