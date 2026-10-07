@@ -47,38 +47,43 @@ function SlaCell({ ticket }: { ticket: api.Ticket }) {
 
 function TicketTable({ tickets }: { tickets: api.Ticket[] }) {
   return (
-    <table className={tableCls}>
-      <thead>
-        <tr>
-          <th className={thCls}>Subject</th>
-          <th className={thCls}>Category</th>
-          <th className={thCls}>Priority</th>
-          <th className={thCls}>Status</th>
-          <th className={thCls}>SLA</th>
-          <th className={thCls}>Updated</th>
-        </tr>
-      </thead>
-      <tbody>
-        {tickets.map((t) => (
-          <tr key={t.ticket_id}>
-            <td className={tdCls}>
-              <Link to={`/support/tickets/${t.ticket_id}`} className="text-sky-400 hover:underline">
-                {t.subject}
-              </Link>
-            </td>
-            <td className={tdCls}>{t.category}</td>
-            <td className={tdCls}>{t.priority}</td>
-            <td className={tdCls}>
-              <StatusBadge value={t.status} />
-            </td>
-            <td className={tdCls}>
-              <SlaCell ticket={t} />
-            </td>
-            <td className={tdCls}>{new Date(t.updated_at).toLocaleString()}</td>
+    <div className="relative overflow-x-auto" tabIndex={0}>
+      <table className={tableCls}>
+        <thead>
+          <tr>
+            <th className={thCls}>Subject</th>
+            <th className={thCls}>Category</th>
+            <th className={thCls}>Priority</th>
+            <th className={thCls}>Status</th>
+            <th className={thCls}>SLA</th>
+            <th className={thCls}>Updated</th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {tickets.map((t) => (
+            <tr key={t.ticket_id}>
+              <td className={tdCls}>
+                <Link
+                  to={`/support/tickets/${t.ticket_id}`}
+                  className="text-sky-400 hover:underline"
+                >
+                  {t.subject}
+                </Link>
+              </td>
+              <td className={tdCls}>{t.category}</td>
+              <td className={tdCls}>{t.priority}</td>
+              <td className={tdCls}>
+                <StatusBadge value={t.status} />
+              </td>
+              <td className={tdCls}>
+                <SlaCell ticket={t} />
+              </td>
+              <td className={tdCls}>{new Date(t.updated_at).toLocaleString()}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
