@@ -26,7 +26,7 @@ const SUSPENSE = {
   name_match_score: 0.41,
   unmatched_reason: 'NAME_MISMATCH',
   gl_account: '2150_SUSPENSE_DEPOSITS_USD',
-  quarantine_status: 'OPEN',
+  quarantine_status: 'QUARANTINED',
   quarantined_at: '2026-01-02T03:00:00Z',
   sla_expires_at: '2026-01-04T03:00:00Z',
 };

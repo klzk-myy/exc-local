@@ -86,7 +86,7 @@ const BASE = {
           template_id: 4,
           name: 'Grid bot',
           kind: 'GRID',
-          status: 'PENDING',
+          status: 'PENDING_APPROVAL',
           publisher_account_id: 12,
         },
       ],

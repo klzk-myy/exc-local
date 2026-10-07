@@ -30,7 +30,7 @@ import { fetchQuarantine, resolveQuarantine, type SuspenseRow } from './api';
 
 export function QuarantinePanel({ adminApi }: { adminApi: BoundAdminApi }) {
   const qc = useQueryClient();
-  const [statusFilter, setStatusFilter] = useState('OPEN');
+  const [statusFilter, setStatusFilter] = useState('QUARANTINED');
   const [acctFilter, setAcctFilter] = useState('');
   const [resolving, setResolving] = useState<SuspenseRow | null>(null);
   const [resolveForm, setResolveForm] = useState({
@@ -86,9 +86,10 @@ export function QuarantinePanel({ adminApi }: { adminApi: BoundAdminApi }) {
               }}
             >
               <option value="">All</option>
-              <option value="OPEN">OPEN</option>
-              <option value="RELEASED">RELEASED</option>
-              <option value="RETURNED">RETURNED</option>
+              <option value="QUARANTINED">QUARANTINED</option>
+              <option value="INVESTIGATING">INVESTIGATING</option>
+              <option value="RESOLVED">RESOLVED</option>
+              <option value="RETURNED_TO_SOURCE">RETURNED_TO_SOURCE</option>
             </select>
           </div>
           <div>
@@ -153,7 +154,8 @@ export function QuarantinePanel({ adminApi }: { adminApi: BoundAdminApi }) {
                     <StatusBadge value={r.quarantineStatus || 'UNKNOWN'} />
                   </td>
                   <td className={tdCls}>
-                    {r.quarantineStatus === 'OPEN' ? (
+                    {r.quarantineStatus === 'QUARANTINED' ||
+                    r.quarantineStatus === 'INVESTIGATING' ? (
                       <button
                         type="button"
                         className={btnGhost}

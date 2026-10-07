@@ -25,11 +25,11 @@ import { isAccessDenied } from '../admin/adminRole';
 import { AccessDeniedCard } from '../admin/RequireAdmin';
 import { decideTemplate, fetchTemplates, suspendCopyStrategy } from './api';
 
-const STATUSES = ['', 'PENDING', 'APPROVED', 'REJECTED'];
+const STATUSES = ['', 'PENDING_APPROVAL', 'APPROVED', 'REJECTED', 'RETIRED'];
 
 export function CurationPanel({ adminApi }: { adminApi: BoundAdminApi }) {
   const qc = useQueryClient();
-  const [filter, setFilter] = useState('PENDING');
+  const [filter, setFilter] = useState('PENDING_APPROVAL');
   const [suspend, setSuspend] = useState({ id: '', reason: '' });
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -114,7 +114,7 @@ export function CurationPanel({ adminApi }: { adminApi: BoundAdminApi }) {
                 )}
               </td>
               <td className={tdCls}>
-                {t.status === 'PENDING' && (
+                {t.status === 'PENDING_APPROVAL' && (
                   <div className="flex gap-1">
                     <button
                       type="button"
